@@ -5,8 +5,8 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 const EXPORT_HEADERS = [
-  { key: "code", label: "コード" }, { key: "name", label: "氏名" }, { key: "title", label: "職種" },
-  { key: "company", label: "所属" }, { key: "skillsCsv", label: "スキル" }, { key: "rate", label: "希望単価" },
+  { key: "kanriNo", label: "管理NO" }, { key: "name", label: "氏名" }, { key: "title", label: "職種" },
+  { key: "affiliation", label: "所属" }, { key: "skillsCsv", label: "スキル" }, { key: "rate", label: "希望単価" },
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
@@ -20,8 +20,8 @@ export default async function PeoplePage() {
       const sb = engerClient();
       const { data, count } = await sb
         .from("candidates")
-        .select("code, name, initials, title, company, skills, rate, avail, location, exp, status, score", { count: "exact" })
-        .order("created_at", { ascending: false })
+        .select("candidate_no, name, initials, title, affiliation, skills, rate, avail, location, exp, status, remote_pref", { count: "exact" })
+        .order("candidate_no", { ascending: true })
         .limit(300);
       people = data ?? [];
       total = count ?? people.length;
@@ -32,7 +32,7 @@ export default async function PeoplePage() {
     dbError = "Supabase の環境変数が未設定です";
   }
 
-  const exportRows = people.map((p) => ({ ...p, skillsCsv: (p.skills ?? []).join(" / ") }));
+  const exportRows = people.map((p) => ({ ...p, kanriNo: `P-${String(p.candidate_no ?? 0).padStart(5, "0")}`, skillsCsv: (p.skills ?? []).join(" / ") }));
 
   return (
     <div className="page">
@@ -88,14 +88,14 @@ export default async function PeoplePage() {
               </td></tr>
             ) : (
               people.map((p, i) => (
-                <tr key={p.code ?? i}>
+                <tr key={p.candidate_no ?? i}>
                   <td>
                     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                       <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
-                      <div><div className="pri">{p.name}</div>{p.code && <div className="muted mono" style={{ fontSize: 10.5 }}>{p.code}</div>}</div>
+                      <div><div className="pri">{p.name}</div><div className="muted mono" style={{ fontSize: 10.5 }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</div></div>
                     </div>
                   </td>
-                  <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}<br /><span className="muted" style={{ fontSize: 11 }}>{p.company ?? ""}</span></td>
+                  <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}<br /><span className="muted" style={{ fontSize: 11 }}>{p.affiliation ?? ""}</span></td>
                   <td>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       {(p.skills ?? []).slice(0, 5).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10.5 }}>{s}</span>)}
