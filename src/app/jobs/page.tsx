@@ -1,7 +1,14 @@
 import { Icons } from "@/components/icons";
+import { ExportButton } from "@/components/CsvTools";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+const JOB_EXPORT_HEADERS = [
+  { key: "job_no", label: "案件番号" }, { key: "title", label: "案件名" }, { key: "client_name", label: "クライアント" },
+  { key: "role_label", label: "職種" }, { key: "skillsCsv", label: "スキル" }, { key: "salary_min", label: "単価下限" },
+  { key: "salary_max", label: "単価上限" }, { key: "remoteLabel", label: "リモート" },
+];
 
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
@@ -50,8 +57,8 @@ export default async function JobsPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
+          <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />
           <button className="btn"><Icons.filter /><span>絞り込み</span></button>
-          <button className="btn brand"><Icons.plus /><span>CSV取込</span></button>
         </div>
       </div>
 
