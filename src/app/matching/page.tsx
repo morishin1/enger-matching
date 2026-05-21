@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { Icons } from "@/components/icons";
+import { FocusHeart } from "@/components/FocusHeart";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, type Job } from "@/lib/match";
 
@@ -19,34 +21,43 @@ function ScoreRing({ score, size = 48 }: { score: number; size?: number }) {
   );
 }
 
-export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string }> }) {
+export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string }> }) {
   const sp = await searchParams;
+  const tab = sp.tab === "focus" ? "focus" : "auto";
   let jobList: any[] = [];
-  let job: Job | null = null;
+  let job: any = null;
   let ranked: any[] = [];
+  let focusJobCount = 0;
+  let focusPeopleCount = 0;
   let dbError: string | null = null;
 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data: jl } = await sb
-        .from("jobs")
-        .select("job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name")
-        .eq("is_published", true)
-        .neq("skills", "{}")
-        .order("job_no", { ascending: false })
-        .limit(80);
+      // 注力件数（タブ表示用）
+      const fj = await sb.from("jobs").select("job_no", { count: "exact", head: true }).eq("is_focus", true);
+      const fp = await sb.from("candidates").select("candidate_no", { count: "exact", head: true }).eq("is_focus", true);
+      focusJobCount = fj.count ?? 0;
+      focusPeopleCount = fp.count ?? 0;
+
+      // 案件リスト（注力タブなら注力案件のみ）
+      let jq = sb.from("jobs")
+        .select("job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, is_focus")
+        .eq("is_published", true).neq("skills", "{}");
+      if (tab === "focus") jq = jq.eq("is_focus", true);
+      const { data: jl } = await jq.order("job_no", { ascending: false }).limit(80);
       jobList = jl ?? [];
+
       const jobNo = sp.job ? Number(sp.job) : jobList[0]?.job_no;
       job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;
 
       if (job?.skills?.length) {
-        const { data: pool } = await sb
-          .from("candidates")
-          .select("candidate_no, name, initials, title, skills, salary_min, salary_max, remote_pref, status, exp, rate")
-          .overlaps("skills", job.skills)
-          .limit(200);
-        ranked = rankCandidates(job, pool ?? [], 30);
+        let cq = sb.from("candidates")
+          .select("candidate_no, name, initials, title, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus")
+          .overlaps("skills", job.skills);
+        if (tab === "focus") cq = cq.eq("is_focus", true); // 注力タブは注力人材のみ
+        const { data: pool } = await cq.limit(tab === "focus" ? 500 : 200);
+        ranked = rankCandidates(job as Job, pool ?? [], 30);
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
@@ -79,6 +90,34 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         </form>
       </div>
 
+      {/* タブ: 自動 / 注力 */}
+      <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
+        {[
+          { id: "auto", label: "自動マッチング", note: "全案件・全人材" },
+          { id: "focus", label: "注力マッチング", note: `★ ${focusJobCount}案件 × ${focusPeopleCount}人材` },
+        ].map((t) => {
+          const active = tab === t.id;
+          return (
+            <Link key={t.id} href={`/matching?tab=${t.id}`} style={{
+              padding: "8px 18px", borderRadius: 99, textDecoration: "none",
+              background: active ? "var(--color-surface)" : "transparent",
+              color: active ? "var(--color-ink)" : "var(--color-ink-3)",
+              fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
+              display: "inline-flex", flexDirection: "column", lineHeight: 1.3,
+            }}>
+              {t.label}
+              <span style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
+            </Link>
+          );
+        })}
+      </div>
+
+      {tab === "focus" && jobList.length === 0 && (
+        <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", color: "var(--color-ink-2)" }}>
+          注力案件がありません。<b>案件</b>ページや下の候補一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すと「注力案件・注力人材」に登録され、ここでマッチングできます。
+        </div>
+      )}
+
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
       {/* 対象案件カード */}
@@ -89,6 +128,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>No.{String(job.job_no).padStart(5, "0")}</span>
                 <span className="pill open">募集中</span>
+                <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={18} />
+                {job.is_focus && <span className="tag" style={{ background: "#fde8ef", color: "#b03a60" }}>注力案件</span>}
               </div>
               <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: 19, fontWeight: 600, color: "var(--color-ink)" }}>{job.title}</h2>
               <div style={{ display: "flex", gap: 18, marginTop: 8, color: "var(--color-ink-3)", fontSize: 12.5, flexWrap: "wrap" }}>
@@ -100,7 +141,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
           <div style={{ marginTop: 14, display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(job.skills ?? []).map((s) => <span key={s} className="tag brand">{s}</span>)}
+            {(job.skills ?? []).map((s: string) => <span key={s} className="tag brand">{s}</span>)}
           </div>
         </div>
       )}
@@ -123,6 +164,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 15, color: "var(--color-ink)" }}>{c.name}</span>
                   <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>P-{String(c.candidate_no ?? 0).padStart(5, "0")}</span>
                   <span className="pill" style={{ marginLeft: 4 }}>{c.status}</span>
+                  <FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" />
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{c.title ?? "—"}</div>
                 <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>

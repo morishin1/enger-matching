@@ -1,5 +1,6 @@
 import { Icons } from "@/components/icons";
 import { CandidateImportButton, ExportButton } from "@/components/CsvTools";
+import { FocusHeart } from "@/components/FocusHeart";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export default async function PeoplePage() {
       const sb = engerClient();
       const { data, count } = await sb
         .from("candidates")
-        .select("candidate_no, name, initials, title, affiliation, skills, rate, avail, location, exp, status, remote_pref", { count: "exact" })
+        .select("candidate_no, name, initials, title, affiliation, skills, rate, avail, location, exp, status, remote_pref, is_focus", { count: "exact" })
         .order("candidate_no", { ascending: true })
         .limit(300);
       people = data ?? [];
@@ -79,16 +80,17 @@ export default async function PeoplePage() {
         </div>
         <table className="tbl">
           <thead>
-            <tr><th>人材</th><th>職種 / 所属</th><th>スキル</th><th style={{ width: 100 }}>希望単価</th><th style={{ width: 100 }}>稼働開始</th><th style={{ width: 90 }}>状態</th></tr>
+            <tr><th style={{ width: 36 }}>注力</th><th>人材</th><th>職種 / 所属</th><th>スキル</th><th style={{ width: 100 }}>希望単価</th><th style={{ width: 100 }}>稼働開始</th><th style={{ width: 90 }}>状態</th></tr>
           </thead>
           <tbody>
             {people.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>
+              <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>
                 まだ人材がありません。右上の「CSV取込」からアップロードしてください（「テンプレ」で書式を確認できます）。
               </td></tr>
             ) : (
               people.map((p, i) => (
                 <tr key={p.candidate_no ?? i}>
+                  <td><FocusHeart table="candidates" idField="candidate_no" idValue={p.candidate_no} initial={!!p.is_focus} revalidate="/people" /></td>
                   <td>
                     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                       <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>

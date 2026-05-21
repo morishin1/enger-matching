@@ -1,5 +1,6 @@
 import { Icons } from "@/components/icons";
 import { ExportButton, JobImportButton } from "@/components/CsvTools";
+import { FocusHeart } from "@/components/FocusHeart";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export default async function JobsPage() {
       const sb = engerClient();
       const { data, count } = await sb
         .from("jobs")
-        .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills", { count: "exact" })
+        .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus", { count: "exact" })
         .eq("is_published", true)
         .order("job_no", { ascending: false })
         .limit(100);
@@ -94,16 +95,17 @@ export default async function JobsPage() {
         <table className="tbl">
           <thead>
             <tr>
-              <th style={{ width: 70 }}>No.</th><th>案件</th><th>職種</th><th>スキル</th>
+              <th style={{ width: 36 }}>注力</th><th style={{ width: 70 }}>No.</th><th>案件</th><th>職種</th><th>スキル</th>
               <th style={{ width: 110 }}>単価</th><th style={{ width: 90 }}>リモート</th>
             </tr>
           </thead>
           <tbody>
             {jobs.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>案件がありません</td></tr>
+              <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>案件がありません</td></tr>
             ) : (
               jobs.map((j) => (
                 <tr key={j.job_no}>
+                  <td><FocusHeart table="jobs" idField="job_no" idValue={j.job_no} initial={!!j.is_focus} revalidate="/jobs" /></td>
                   <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</span></td>
                   <td>
                     <div className="pri">{j.title}</div>

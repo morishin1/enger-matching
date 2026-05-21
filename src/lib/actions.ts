@@ -62,6 +62,15 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   return { ok: true, inserted };
 }
 
+/** 注力フラグのトグル (service role)。案件=jobs/job_no、人材=candidates/candidate_no */
+export async function toggleFocus(table: "jobs" | "candidates", idField: string, idValue: number, value: boolean, revalidate?: string) {
+  const admin = engerAdmin();
+  const { error } = await admin.from(table).update({ is_focus: value }).eq(idField, idValue);
+  if (error) return { ok: false, error: error.message };
+  if (revalidate) revalidatePath(revalidate);
+  return { ok: true };
+}
+
 export type JobInput = {
   title: string;
   client_name?: string | null;
