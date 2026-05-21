@@ -61,3 +61,65 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   revalidatePath("/people");
   return { ok: true, inserted };
 }
+
+export type JobInput = {
+  title: string;
+  client_name?: string | null;
+  role_label?: string | null;
+  skills?: string[];
+  salary_min?: number | null;
+  salary_max?: number | null;
+  remote_type?: string | null;
+  flow_note?: string | null;
+  work_location?: string | null;
+  start_date?: string | null;
+  detail?: string | null;
+  status?: string | null;
+};
+
+/** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
+export async function importJobs(records: JobInput[], sourceLabel: string) {
+  const admin = engerAdmin();
+  const now = new Date().toISOString();
+  const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
+    lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
+
+  const rows = records
+    .filter((r) => r.title?.trim())
+    .map((r) => ({
+      title: r.title.trim(),
+      client_name: r.client_name?.trim() || null,
+      role_label: r.role_label?.trim() || null,
+      skills: r.skills ?? [],
+      salary_min: r.salary_min ?? null,
+      salary_max: r.salary_max ?? null,
+      salary_label: salaryLabel(r.salary_min, r.salary_max),
+      remote_type: r.remote_type || "partial_remote",
+      flow_note: r.flow_note?.trim() || null,
+      work_location: r.work_location?.trim() || null,
+      start_date: r.start_date || null,
+      detail: r.detail?.trim() || null,
+      status: r.status?.trim() || "募集中",
+      rank: "-",
+      is_published: true,
+      source_csv: sourceLabel,
+      imported_at: now,
+      created_at: now,
+    }));
+
+  if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（案件名必須）" };
+
+  let inserted = 0;
+  const BATCH = 500;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH);
+    const { error, count } = await admin
+      .from("jobs")
+      .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
+    if (error) return { ok: false, inserted, error: error.message };
+    inserted += count ?? batch.length;
+  }
+
+  revalidatePath("/jobs");
+  return { ok: true, inserted };
+}

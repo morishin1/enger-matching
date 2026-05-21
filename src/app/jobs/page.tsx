@@ -1,5 +1,5 @@
 import { Icons } from "@/components/icons";
-import { ExportButton } from "@/components/CsvTools";
+import { ExportButton, JobImportButton } from "@/components/CsvTools";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +58,7 @@ export default async function JobsPage() {
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
           <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />
-          <button className="btn"><Icons.filter /><span>絞り込み</span></button>
+          <JobImportButton />
         </div>
       </div>
 
