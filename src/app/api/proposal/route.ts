@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.LLM_API_KEY;
   const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
-  const modelEnv = process.env.LLM_MODEL || "";
+  const modelEnv = process.env.LLM_MODEL || process.env.CLAUDE_MODEL || "";
 
   // プロバイダ判別
   const useAnthropic =

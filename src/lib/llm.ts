@@ -8,7 +8,7 @@ export async function callLLM(opts: { system: string; prompt: string; maxTokens?
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const openaiKey = process.env.LLM_API_KEY;
   const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
-  const modelEnv = process.env.LLM_MODEL || "";
+  const modelEnv = process.env.LLM_MODEL || process.env.CLAUDE_MODEL || "";
   const useAnthropic = explicit === "anthropic" || (!explicit && (!!anthropicKey || /claude/i.test(modelEnv)));
   const apiKey = useAnthropic ? (anthropicKey || openaiKey) : (openaiKey || anthropicKey);
   if (!apiKey) return { ok: false, status: 503, error: "APIキー未設定（ANTHROPIC_API_KEY か LLM_API_KEY を設定してください）" };
