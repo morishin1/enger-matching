@@ -2,10 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  updateProposalStage, convertToEngagement, updateProposalFields,
-  PROPOSAL_STAGES, CALLER_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS,
-} from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
+import { PROPOSAL_STAGES, CALLER_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
