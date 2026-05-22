@@ -3,8 +3,8 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin } from "./supabase";
 
-/** サイドバーのカウントキャッシュを即時更新する。 */
-const bustCounts = () => revalidateTag("sidebar-counts");
+/** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
+const bustCounts = () => revalidateTag("sidebar-counts", "max");
 
 export type CandidateInput = {
   code?: string | null;
