@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
-import { MailButton } from "@/components/MailButton";
+import { ProposalComposer } from "@/components/ProposalComposer";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, type Job } from "@/lib/match";
-import { candidateProposalMail, jobProposalMail } from "@/lib/gmail";
 
 export const dynamic = "force-dynamic";
 
@@ -19,26 +18,6 @@ function Stars({ score }: { score: number }) {
     <span style={{ color: "#f0a92b", letterSpacing: 1, fontSize: 13 }}>
       {"★".repeat(n)}<span style={{ color: "var(--color-ink-5)" }}>{"★".repeat(5 - n)}</span>
     </span>
-  );
-}
-
-// 案件・人材ペアの「提案メール（返信形式）」ボタン群
-function ProposalMails({ job, cand, matchedSkills, score }: { job: any; cand: any; matchedSkills: string[]; score: number }) {
-  const toClient = jobProposalMail({
-    jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name,
-    candidate: { name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate, affiliation: cand.affiliation, exp: cand.exp },
-    matchedSkills, score,
-  });
-  const toCand = candidateProposalMail({
-    candidateName: cand.name, contactName: cand.contact_name,
-    job: { title: job.title, client_name: job.client_name, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max },
-    matchedSkills, score,
-  });
-  return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <MailButton to={job.contact_email} subject={toClient.subject} body={toClient.body} label="クライアントへ提案（返信）" block />
-      <MailButton to={cand.email ?? cand.contact_email} subject={toCand.subject} body={toCand.body} label="人材へ案件を紹介（返信）" block />
-    </div>
   );
 }
 
@@ -214,7 +193,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                     </div>
                     <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                      <ProposalMails job={j} cand={person} matchedSkills={sel.matchedSkills} score={sel.score} />
+                      <ProposalComposer job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} />
                     </div>
                   </div>
                 );
@@ -375,13 +354,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     </div>
                   </div>
 
-                  {/* アクション: 返信メール */}
-                  <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>このペアで提案する（相手は返信メールにアクションしやすいので返信形式で送付）</div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <ProposalMails job={job} cand={c} matchedSkills={sel.matchedSkills} score={sel.score} />
-                      <Link href={linkFor(ranked[Math.min(rank, ranked.length - 1)]?.candidate.candidate_no)} className="btn ghost" style={{ textDecoration: "none" }}>スキップ</Link>
-                    </div>
+                  {/* アクション: 返信メール（テンプレ/コピペ/AI生成） */}
+                  <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
+                    <ProposalComposer job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} />
                   </div>
                 </div>
               );

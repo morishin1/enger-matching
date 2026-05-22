@@ -94,3 +94,47 @@ export function jobProposalMail(opts: {
 }
 
 export { salary as mailSalaryLabel, quote };
+
+// ---- LLM 用プロンプト（コピペ方式 / API どちらでも使う単一ソース）----
+export function buildProposalPrompt(opts: {
+  target: "client" | "cand";
+  job: { title: string; client_name?: string | null; role_label?: string | null; skills?: string[] | null; salary_min?: number | null; salary_max?: number | null; flow_note?: string | null };
+  cand: { name: string; title?: string | null; skills?: string[] | null; rate?: string | null; affiliation?: string | null; exp?: string | null };
+  matchedSkills?: string[];
+  missingSkills?: string[];
+  score?: number;
+}): string {
+  const { target, job, cand } = opts;
+  const facts = [
+    `【案件】${job.title}`,
+    `クライアント：${job.client_name ?? "（非公開）"}`,
+    job.role_label ? `職種：${job.role_label}` : "",
+    `単価：${salary(job.salary_min, job.salary_max)}`,
+    job.flow_note && job.flow_note !== "不明" ? `商流：${job.flow_note}` : "",
+    `必要スキル：${(job.skills ?? []).join(" / ") || "—"}`,
+    ``,
+    `【人材】${cand.name}`,
+    cand.title ? `職種：${cand.title}` : "",
+    cand.affiliation ? `所属：${cand.affiliation}` : "",
+    cand.exp ? `経験：${cand.exp}` : "",
+    `希望単価：${cand.rate ?? "応相談"}`,
+    `保有スキル：${(cand.skills ?? []).join(" / ") || "—"}`,
+    ``,
+    `【マッチ度】${opts.score ?? "—"}%`,
+    opts.matchedSkills?.length ? `合致スキル：${opts.matchedSkills.join(" / ")}` : "",
+    opts.missingSkills?.length ? `不足スキル：${opts.missingSkills.join(" / ")}` : "",
+  ].filter((l) => l !== "").join("\n");
+
+  const dir = target === "client"
+    ? "あなたはSES営業です。下記の人材を、案件のクライアント窓口へ提案する『返信メール』の本文を書いてください。"
+    : "あなたはSES営業です。下記の案件を、人材本人（または所属窓口）へ紹介する『返信メール』の本文を書いてください。";
+
+  return [
+    dir,
+    "条件: 日本語の丁寧なビジネスメール / 返信体裁(冒頭は宛名、結びは「何卒よろしくお願いいたします。」) / 200〜350字程度 / 誇張せず事実ベース / 相手が返信したくなる一文を入れる。",
+    "出力は本文のみ（件名や説明は不要）。",
+    "",
+    "─── 情報 ───",
+    facts,
+  ].join("\n");
+}
