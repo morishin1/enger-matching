@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
-import { canAccess, type Role } from "@/lib/accounts";
+import { canAccess, type Role } from "@/lib/roles";
 
 const NAV = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
@@ -26,14 +26,21 @@ const TOOLS = [
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
 ] as const;
 
+// ユーザー企業(client)向けの専用メニュー
+const CLIENT_NAV = [
+  { href: "/", id: "home", label: "ホーム", icon: "dashboard" },
+  { href: "/portal/jobs", id: "portal-jobs", label: "自社案件", icon: "jobs" },
+] as const;
+
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
 export function Sidebar({ counts, role = "admin" }: { counts?: SidebarCounts; role?: Role }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
-  const nav = NAV.filter((n) => canAccess(role, n.href));
-  const tools = TOOLS.filter((n) => canAccess(role, n.href));
+  const isClient = role === "client";
+  const nav = isClient ? CLIENT_NAV : NAV.filter((n) => canAccess(role, n.href));
+  const tools = isClient ? [] : TOOLS.filter((n) => canAccess(role, n.href));
 
   return (
     <aside className="side">
@@ -58,7 +65,7 @@ export function Sidebar({ counts, role = "admin" }: { counts?: SidebarCounts; ro
         )}
       </div>
 
-      <div className="nav-group-label">業務</div>
+      <div className="nav-group-label">{isClient ? "メニュー" : "業務"}</div>
       <div className="nav">
         {nav.map((n) => {
           const Ico = Icons[n.icon];
@@ -73,18 +80,22 @@ export function Sidebar({ counts, role = "admin" }: { counts?: SidebarCounts; ro
         })}
       </div>
 
-      <div className="nav-group-label">ツール</div>
-      <div className="nav">
-        {tools.map((n) => {
-          const Ico = Icons[n.icon];
-          return (
-            <Link key={n.id} href={n.href} className={"nav-item " + (isActive(n.href) ? "active" : "")}>
-              <span className="ico">{Ico && <Ico />}</span>
-              <span>{n.label}</span>
-            </Link>
-          );
-        })}
-      </div>
+      {tools.length > 0 && (
+        <>
+          <div className="nav-group-label">ツール</div>
+          <div className="nav">
+            {tools.map((n) => {
+              const Ico = Icons[n.icon];
+              return (
+                <Link key={n.id} href={n.href} className={"nav-item " + (isActive(n.href) ? "active" : "")}>
+                  <span className="ico">{Ico && <Ico />}</span>
+                  <span>{n.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </>
+      )}
 
     </aside>
   );

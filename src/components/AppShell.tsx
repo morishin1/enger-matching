@@ -6,7 +6,7 @@ import { Sidebar } from "./Sidebar";
 import { OperatorBadge } from "./OperatorBadge";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
-import type { Role } from "@/lib/accounts";
+import type { Role } from "@/lib/roles";
 
 const CRUMBS: Record<string, string[]> = {
   "/": ["ENGER", "ダッシュボード"],
@@ -23,6 +23,13 @@ const CRUMBS: Record<string, string[]> = {
   "/ai": ["ENGER", "AIアシスタント"],
   "/settings": ["ENGER", "設定"],
   "/search": ["ENGER", "検索"],
+  "/portal": ["ENGER", "自社案件"],
+};
+
+const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
+  admin: { label: "管理者", bg: "#efe7fb", fg: "#6b21a8" },
+  agent: { label: "営業", bg: "#eaf4fd", fg: "#0b5cab" },
+  client: { label: "ユーザー企業", bg: "#e7f7ee", fg: "#067647" },
 };
 
 export function AppShell({ children, counts, operators, defaultOperator, role = "admin" }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role }) {
@@ -71,6 +78,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
             <kbd>⌘K</kbd>
           </form>
           <button className="icon-btn" title="通知"><Icons.bell /><span className="dot" /></button>
+          <span title="権限ロール" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: ROLE_BADGE[role].bg, color: ROLE_BADGE[role].fg, whiteSpace: "nowrap" }}>{ROLE_BADGE[role].label}</span>
           <OperatorBadge operators={operators} defaultName={defaultOperator} compact />
         </div>
         {children}

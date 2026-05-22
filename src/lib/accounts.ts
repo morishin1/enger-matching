@@ -1,7 +1,9 @@
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
+import { authServerClient, authConfigured } from "./supabase-auth";
+import { type Role, type AccountStatus, canAccess, roleHome } from "./roles";
 
-export type Role = "admin" | "agent" | "client";
-export type AccountStatus = "pending" | "active" | "disabled";
+export { canAccess, roleHome };
+export type { Role, AccountStatus };
 export type Account = {
   id: string;
   email: string;
@@ -13,25 +15,6 @@ export type Account = {
   created_at: string;
   approved_at: string | null;
 };
-
-/** ロール別の初期表示パス。client も自社ポータル(=ダッシュボード"/")へ。 */
-export function roleHome(_role: Role): string {
-  return "/";
-}
-
-/** admin 専用ルート（営業も不可）。 */
-const ADMIN_PREFIXES = ["/settings"];
-/** client(ユーザー企業) が開けるルート。ここ以外は自社ポータル"/"へ戻す。 */
-const CLIENT_ALLOWED = ["/"];
-
-/** 指定ロールが pathname にアクセスできるか。 */
-export function canAccess(role: Role, pathname: string): boolean {
-  if (role === "admin") return true;
-  const hit = (list: string[]) => list.some((p) => p === "/" ? pathname === "/" : (pathname === p || pathname.startsWith(p + "/")));
-  if (role === "agent") return !hit(ADMIN_PREFIXES);  // 営業は settings 以外すべて可
-  // client: 自社ポータル(ダッシュボード)のみ。他の内部画面はデータ分離前のため非表示。
-  return hit(CLIENT_ALLOWED);
-}
 
 /** メールでアカウントを取得（サーバ専用 / service role）。 */
 export async function getAccountByEmail(email: string): Promise<Account | null> {
@@ -92,6 +75,20 @@ export async function createPendingAccount(opts: { email: string; name?: string 
     if (error) return { ok: false, created: false, error: error.message };
     return { ok: true, created: true };
   } catch (err: any) { return { ok: false, created: false, error: String(err?.message ?? err) }; }
+}
+
+/** ログイン中ユーザーのアクセス情報（role/status/会社名/名前）。未ログインや未設定は null。 */
+export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; email: string } | null> {
+  if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, email: "" };
+  try {
+    const sb = await authServerClient();
+    const { data: { user } } = await sb.auth.getUser();
+    const email = user?.email?.toLowerCase();
+    if (!email) return null;
+    const access = await resolveAccess(email);
+    if (!access) return null;
+    return { ...access, email };
+  } catch { return null; }
 }
 
 /** 承認待ち一覧（管理者用）。 */

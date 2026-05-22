@@ -1,0 +1,24 @@
+// クライアント/サーバ両方から import 可能な、純粋なロール定義とアクセス判定。
+// （サーバ専用処理は accounts.ts 側に置く）
+
+export type Role = "admin" | "agent" | "client";
+export type AccountStatus = "pending" | "active" | "disabled";
+
+/** ロール別の初期表示パス。client も自社ポータル(=ダッシュボード"/")へ。 */
+export function roleHome(_role: Role): string {
+  return "/";
+}
+
+/** admin 専用ルート（営業も不可）。 */
+const ADMIN_PREFIXES = ["/settings"];
+/** client(ユーザー企業) が開けるルート。ここ以外は自社ポータル"/"へ戻す。 */
+const CLIENT_ALLOWED = ["/", "/portal"];
+
+/** 指定ロールが pathname にアクセスできるか。 */
+export function canAccess(role: Role, pathname: string): boolean {
+  if (role === "admin") return true;
+  const hit = (list: string[]) => list.some((p) => (p === "/" ? pathname === "/" : (pathname === p || pathname.startsWith(p + "/"))));
+  if (role === "agent") return !hit(ADMIN_PREFIXES);  // 営業は settings 以外すべて可
+  // client: 自社ポータルのみ。他の内部画面はデータ分離前のため非表示。
+  return hit(CLIENT_ALLOWED);
+}

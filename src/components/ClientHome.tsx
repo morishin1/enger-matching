@@ -64,7 +64,10 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700 }}>自社の案件</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>自社の案件</h3>
+          <a href="/portal/jobs" style={{ fontSize: 12, fontWeight: 700, color: "var(--color-brand-700, #0b5cab)", textDecoration: "none" }}>すべて見る →</a>
+        </div>
         {jobs.length === 0 ? (
           <div className="muted" style={{ fontSize: 13 }}>公開中の案件はありません。</div>
         ) : (
