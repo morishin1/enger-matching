@@ -35,7 +35,7 @@ const CLIENT_NAV = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts, role = "admin" }: { counts?: SidebarCounts; role?: Role }) {
+export function Sidebar({ counts, role = "admin", open = false }: { counts?: SidebarCounts; role?: Role; open?: boolean }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
@@ -44,7 +44,7 @@ export function Sidebar({ counts, role = "admin" }: { counts?: SidebarCounts; ro
   const tools = isClient ? [] : TOOLS.filter((n) => canAccess(role, n.href));
 
   return (
-    <aside className="side">
+    <aside className={"side" + (open ? " open" : "")}>
       <div className="side-brand">
         {logoOk ? (
           // eslint-disable-next-line @next/next/no-img-element

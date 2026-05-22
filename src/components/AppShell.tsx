@@ -44,6 +44,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
   const key = pathname === "/" ? "/" : (pathname.startsWith("/portal/") ? pathname : "/" + pathname.split("/")[1]);
   const crumbs = CRUMBS[key] ?? ["ENGER"];
   const [q, setQ] = useState("");
+  const [navOpen, setNavOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // ⌘K / Ctrl+K で検索にフォーカス
@@ -55,6 +56,9 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // ページ遷移でモバイルのドロワーを閉じる
+  useEffect(() => { setNavOpen(false); }, [pathname]);
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const term = q.trim();
@@ -63,9 +67,13 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
 
   return (
     <div className="app">
-      <Sidebar counts={counts} role={role} />
+      <Sidebar counts={counts} role={role} open={navOpen} />
+      <div className={"nav-overlay" + (navOpen ? " show" : "")} onClick={() => setNavOpen(false)} aria-hidden />
       <main className="main">
         <div className="topbar">
+          <button className="nav-toggle" onClick={() => setNavOpen((v) => !v)} aria-label="メニュー">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+          </button>
           <div className="crumbs">
             {crumbs.map((c, i) => (
               <span key={i} style={{ display: "contents" }}>

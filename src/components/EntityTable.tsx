@@ -249,7 +249,7 @@ export function EntityTable({ kind, rows, total, initialQuery }: { kind: EntityK
         </div>
       )}
 
-      <div style={{ overflowX: "auto" }}>
+      <div className="tbl-scroll" style={{ overflowX: "auto" }}>
         <table className="tbl">
           <thead>
             <tr>
