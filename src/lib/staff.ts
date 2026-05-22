@@ -3,6 +3,20 @@ import { PROPOSERS, CLOSERS } from "./proposal-constants";
 
 export type Staff = { id: string; name: string; email: string | null; is_proposer: boolean; is_closer: boolean; active: boolean; sort: number };
 
+/** ログイン許可判定：担当者マスタに email が1件でもあれば許可リスト方式、無ければ全許可(初期)。 */
+export async function isAllowedEmail(email: string): Promise<boolean> {
+  const e = (email || "").toLowerCase().trim();
+  if (!e) return false;
+  if (!dbConfigured) return true;
+  try {
+    const sb = engerClient();
+    const { data, error } = await sb.from("staff").select("email").eq("active", true).not("email", "is", null);
+    if (error) return true; // staff未整備時は素通り
+    const allow = (data ?? []).map((r: any) => String(r.email || "").toLowerCase()).filter(Boolean);
+    return allow.length === 0 || allow.includes(e);
+  } catch { return true; }
+}
+
 /** 担当者マスタを取得。テーブル未作成時は定数にフォールバック。 */
 export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; closers: string[]; fromTable: boolean }> {
   if (dbConfigured) {
