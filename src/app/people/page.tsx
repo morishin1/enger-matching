@@ -54,6 +54,15 @@ export default async function PeoplePage() {
   const usableRate = stats && cTotal ? (((stats.cand_proposable ?? 0) / cTotal) * 100) : undefined;
   const profilePct = stats ? pct(stats.cand_profile_full, stats.cand_total) : undefined;
 
+  // 重要データ充足（マッチング・仮説立案の前提）。表示中の人材に対する欠落件数。
+  const miss = {
+    skills: people.filter((p) => !(p.skills && p.skills.length)).length,
+    rate: people.filter((p) => !p.rate && !p.salary_min && !p.salary_max).length,
+    affiliation: people.filter((p) => !p.affiliation).length,
+    title: people.filter((p) => !p.title).length,
+  };
+  const missTotal = miss.skills + miss.rate + miss.affiliation + miss.title;
+
   return (
     <div className="page">
       <div className="page-head">
@@ -98,6 +107,23 @@ export default async function PeoplePage() {
           <div><div className="val tnum">{num(stats?.cand_dupes)}<span className="unit">件</span></div><div className="label">重複疑い</div><div className="note">名寄せで検出した同一人物の疑い</div></div>
         </div>
       </div>
+
+      {/* 重要データの充足（マッチング・仮説立案の前提） */}
+      {people.length > 0 && (
+        <div className="card" style={{ borderColor: missTotal > 0 ? "var(--color-warn, #e0a317)" : "var(--color-border)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>📋 重要データの充足（マッチング・仮説立案の前提）</h3>
+            <span className="muted" style={{ fontSize: 11 }}>表示中 {people.length} 名中の未入力</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 10, fontSize: 13 }}>
+            <span>スキル 未入力 <b style={{ color: miss.skills ? "#b42318" : "#067647" }}>{miss.skills}</b></span>
+            <span>単価 未入力 <b style={{ color: miss.rate ? "#b45309" : "#067647" }}>{miss.rate}</b></span>
+            <span>所属区分 未入力 <b style={{ color: miss.affiliation ? "#b45309" : "#067647" }}>{miss.affiliation}</b></span>
+            <span>職種 未入力 <b style={{ color: miss.title ? "#b45309" : "#067647" }}>{miss.title}</b></span>
+          </div>
+          <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ スキルはマッチングの主軸、単価・所属区分は粗利・歩留まり仮説の土台です。CSV取込または人材詳細で補完してください。</div>
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材一覧</h3>
