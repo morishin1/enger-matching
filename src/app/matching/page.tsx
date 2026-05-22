@@ -32,16 +32,19 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const fj = await sb.from("jobs").select("job_no", { count: "exact", head: true }).eq("is_focus", true);
-      const fp = await sb.from("candidates").select("candidate_no", { count: "exact", head: true }).eq("is_focus", true);
-      focusJobCount = fj.count ?? 0; focusPeopleCount = fp.count ?? 0;
-
       let jq = sb.from("jobs")
         .select("job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus")
         .eq("is_published", true).neq("skills", "{}");
       if (tab === "focus") jq = jq.eq("is_focus", true);
-      const { data: jl } = await jq.order("job_no", { ascending: false }).limit(80);
-      jobList = jl ?? [];
+
+      // 独立クエリを並列実行 (注力件数 × 2 + 案件リスト)
+      const [fj, fp, jlRes] = await Promise.all([
+        sb.from("jobs").select("job_no", { count: "exact", head: true }).eq("is_focus", true),
+        sb.from("candidates").select("candidate_no", { count: "exact", head: true }).eq("is_focus", true),
+        jq.order("job_no", { ascending: false }).limit(80),
+      ]);
+      focusJobCount = fj.count ?? 0; focusPeopleCount = fp.count ?? 0;
+      jobList = jlRes.data ?? [];
 
       const jobNo = sp.job ? Number(sp.job) : jobList[0]?.job_no;
       job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;

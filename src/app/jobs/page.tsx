@@ -31,16 +31,17 @@ export default async function JobsPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data, count } = await sb
-        .from("jobs")
-        .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus", { count: "exact" })
-        .eq("is_published", true)
-        .order("job_no", { ascending: false })
-        .limit(100);
-      jobs = data ?? [];
-      total = count ?? jobs.length;
-      const { count: sc } = await sb.from("jobs").select("id", { count: "exact", head: true }).neq("skills", "{}");
-      withSkills = sc ?? 0;
+      const [listRes, skRes] = await Promise.all([
+        sb.from("jobs")
+          .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus", { count: "exact" })
+          .eq("is_published", true)
+          .order("job_no", { ascending: false })
+          .limit(100),
+        sb.from("jobs").select("id", { count: "exact", head: true }).neq("skills", "{}"),
+      ]);
+      jobs = listRes.data ?? [];
+      total = listRes.count ?? jobs.length;
+      withSkills = skRes.count ?? 0;
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }

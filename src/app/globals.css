@@ -214,3 +214,9 @@ button { font-family: inherit; }
 .progress-ring { width: 44px; height: 44px; border-radius: 99px; flex: 0 0 44px; background: conic-gradient(var(--color-brand-600) var(--p, 72%), var(--color-brand-100) 0); display: grid; place-items: center; }
 .progress-ring::after { content: ""; width: 34px; height: 34px; background: var(--color-surface); border-radius: 99px; position: absolute; }
 .progress-ring .v { position: relative; font: 700 12px var(--font-display); color: var(--color-brand-700); font-variant-numeric: tabular-nums; }
+
+/* Loading spinner */
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--color-border-strong); border-top-color: var(--color-brand-600); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-wrap { min-height: 60vh; display: grid; place-items: center; color: var(--color-ink-4); }
+.loading-wrap .t { font-size: 13px; margin-top: 12px; }
