@@ -263,6 +263,16 @@ export async function deleteStaff(id: string) {
   return { ok: true };
 }
 
+/** 案件のエンド担当（アウトサイド）を設定。 */
+export async function setJobOutsideOwner(jobNo: number, owner: string | null) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("jobs").update({ outside_owner: owner || null }).eq("job_no", jobNo);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/jobs"); revalidatePath("/");
+  return { ok: true };
+}
+
 // ===================== 打ち合わせ記録 =====================
 
 export type MeetingInput = {

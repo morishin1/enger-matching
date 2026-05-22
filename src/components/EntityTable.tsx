@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
+import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { bulkSetFocus } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
@@ -124,10 +125,22 @@ const PEOPLE_COLS: Col[] = [
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 
-export function EntityTable({ kind, rows, total, initialQuery }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string }) {
+export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string; outsideOptions?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const cols = kind === "jobs" ? JOB_COLS : PEOPLE_COLS;
+  const cols = useMemo(() => {
+    if (kind !== "jobs") return PEOPLE_COLS;
+    const ownerCol: Col = {
+      key: "outside_owner", label: "エンド担当", width: 124,
+      filterLabel: "エンド担当", filter: (j) => j.outside_owner || "未設定",
+      render: (j) => <OutsideOwnerSelect jobNo={j.job_no} value={j.outside_owner ?? null} options={outsideOptions ?? []} />,
+    };
+    // 「クライアント名」の直後に挿入
+    const idx = JOB_COLS.findIndex((c) => c.key === "client");
+    const out = [...JOB_COLS];
+    out.splice(idx + 1, 0, ownerCol);
+    return out;
+  }, [kind, outsideOptions]);
   const idField = kind === "jobs" ? "job_no" : "candidate_no";
   const table = kind === "jobs" ? "jobs" : "candidates";
   const revalidate = kind === "jobs" ? "/jobs" : "/people";
