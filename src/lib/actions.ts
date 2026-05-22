@@ -89,7 +89,33 @@ export async function bulkSetFocus(
 
 // ===================== 提案 / 稼働 =====================
 
-export const PROPOSAL_STAGES = ["新規提案", "提案中", "面談調整", "条件交渉", "成約間近", "成約"] as const;
+// インサイド提案DBの運用に準拠
+export const PROPOSAL_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "稼働決定"] as const;
+
+export const CALLER_STATUSES = ["未架電", "電話(不在)", "電話済み", "LINE確認中", "メール確認中", "返信あり"];
+export const PROPOSERS = ["工藤", "結城", "藤本"];
+export const CLOSERS = ["未割当", "寺本", "野澤", "工藤"];
+export const LOST_PHASES = ["1. 接触前失注", "2. 接触後失注", "3. 提案後失注", "4. 面談後失注", "5. 最終提示後失注"];
+export const LOST_REASONS = [
+  "A1: スキル不足/アンマッチ", "A2: 単価が高すぎ", "A3: 稼働開始時期が合わない", "A4: 人材側辞退",
+  "A5: 経歴/人柄が刺さらず", "A6: ブランク/キャリアアンマッチ", "A7: 人材側 勤務地NG", "A8: 人材側 他社単価が高い",
+  "B1: 他社で決定済み", "B2: ポジションクローズ", "B3: 予算が低すぎ", "B4: リモート/出社条件不一致", "B5: 契約形態が合わない",
+  "C1: 別商流で同人材重複", "C2: 他社が単価安", "C3: 他社が提案速い",
+  "D1: 自社の提案が遅れた", "D2: ヒアリング不足", "D3: フォロー漏れ/連絡途絶",
+  "E1: 担当者と連絡つかず", "E2: タイミング逃した", "E3: その他", "架電できていない",
+];
+
+/** 提案の任意フィールドを更新 (架電進捗/担当/失注理由 等)。 */
+export async function updateProposalFields(id: string, fields: Record<string, any>) {
+  const admin = engerAdmin();
+  const allowed = ["caller_status", "proposer", "closer", "client_contact", "lost_reason", "lost_phase", "next_action", "stage"];
+  const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+  for (const k of allowed) if (k in fields) patch[k] = fields[k];
+  const { error } = await admin.from("proposals").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals");
+  return { ok: true };
+}
 
 const parseRateNum = (rate?: string | null): number | null => {
   if (!rate) return null;
@@ -114,7 +140,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
 
   const { data, error } = await admin.from("proposals").insert({
-    job_id: job.id, candidate_id: cand.id, stage: "新規提案",
+    job_id: job.id, candidate_id: cand.id, stage: "未対応",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
   }).select("id").single();
@@ -146,7 +172,7 @@ export async function convertToEngagement(proposalId: string) {
     });
     if (error) return { ok: false, error: error.message };
   }
-  await admin.from("proposals").update({ stage: "成約", updated_at: new Date().toISOString() }).eq("id", proposalId);
+  await admin.from("proposals").update({ stage: "稼働決定", updated_at: new Date().toISOString() }).eq("id", proposalId);
   revalidatePath("/proposals");
   revalidatePath("/progress");
   return { ok: true };

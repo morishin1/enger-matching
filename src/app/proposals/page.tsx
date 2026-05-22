@@ -10,20 +10,23 @@ export default async function ProposalsPage() {
   let dbError: string | null = null;
   let needSetup = false;
 
+  let lostRows: any[] = [];
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data, error } = await sb
-        .from("proposals")
-        .select("id, job_title, company, candidate_name, c_init, rate, score, stage, created_at")
-        .order("created_at", { ascending: false })
-        .limit(300);
-      if (error) {
+      const base = "id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
+      // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
+      let res: any = await sb.from("proposals")
+        .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase`)
+        .order("created_at", { ascending: false }).limit(400);
+      if (res.error) res = await sb.from("proposals").select(base).order("created_at", { ascending: false }).limit(400);
+      if (res.error) {
         needSetup = true;
       } else {
-        const all = data ?? [];
-        proposals = all.filter((p) => p.stage !== "失注");
-        lost = all.filter((p) => p.stage === "失注").length;
+        const all = res.data ?? [];
+        proposals = all.filter((p: any) => p.stage !== "見送り" && p.stage !== "失注");
+        lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
+        lost = lostRows.length;
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
@@ -33,7 +36,13 @@ export default async function ProposalsPage() {
   }
 
   const active = proposals.length;
-  const won = proposals.filter((p) => p.stage === "成約").length;
+  const won = proposals.filter((p) => p.stage === "稼働決定").length;
+
+  // 失注理由サマリー（上位）
+  const reasonCounts = lostRows.reduce((m: Record<string, number>, p) => {
+    const k = p.lost_reason || "（理由未入力）"; m[k] = (m[k] ?? 0) + 1; return m;
+  }, {});
+  const topReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
 
   return (
     <div className="page">
@@ -41,7 +50,7 @@ export default async function ProposalsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Proposals · 提案管理</div>
           <h1>提案管理</h1>
-          <div className="sub">マッチングで作成した提案を、提案中→面談→条件交渉→成約の流れでカンバン管理します。カードはドラッグ、または ← → で移動できます。</div>
+          <div className="sub">インサイド運用に準拠：<b>未対応 → 提案中 → 面談調整 → クロージング中 → 稼働決定</b> のカンバン。各カードで架電進捗・提案者/クロージング担当・失注理由を管理できます。</div>
         </div>
       </div>
 
@@ -61,12 +70,12 @@ export default async function ProposalsPage() {
               <div><div className="val tnum">{active}<span className="unit">件</span></div><div className="label">進行中の提案</div><div className="note">失注を除く</div></div>
             </div>
             <div className="kpi accent">
-              <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">成約</div></div>
-              <div><div className="val tnum">{won}<span className="unit">件</span></div><div className="label">成約</div><div className="note">稼働化できます</div></div>
+              <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">稼働決定</div></div>
+              <div><div className="val tnum">{won}<span className="unit">件</span></div><div className="label">稼働決定</div><div className="note">稼働化できます</div></div>
             </div>
             <div className="kpi">
-              <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip flat">失注</div></div>
-              <div><div className="val tnum">{lost}<span className="unit">件</span></div><div className="label">失注</div><div className="note">ボード外</div></div>
+              <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip flat">見送り</div></div>
+              <div><div className="val tnum">{lost}<span className="unit">件</span></div><div className="label">見送り（失注）</div><div className="note">理由を下に集計</div></div>
             </div>
             <div className="kpi warn">
               <div className="top"><div className="ico-box"><Icons.matching /></div><div className="chip">導線</div></div>
@@ -80,6 +89,29 @@ export default async function ProposalsPage() {
             </div>
           ) : (
             <ProposalBoard proposals={proposals} />
+          )}
+
+          {topReasons.length > 0 && (
+            <div className="card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>💔 失注理由サマリー</h3>
+                <span className="muted" style={{ fontSize: 11.5 }}>見送り {lost} 件</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {topReasons.map(([reason, n]) => {
+                  const w = Math.round((n / lost) * 100);
+                  return (
+                    <div key={reason} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 220px) 1fr 36px", gap: 10, alignItems: "center" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reason}</span>
+                      <div style={{ height: 8, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+                        <div style={{ width: `${w}%`, height: "100%", background: "var(--color-danger)", borderRadius: 99 }} />
+                      </div>
+                      <span className="mono tnum" style={{ fontSize: 11.5, textAlign: "right", color: "var(--color-ink-3)" }}>{n}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </>
       )}

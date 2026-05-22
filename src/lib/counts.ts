@@ -15,7 +15,7 @@ async function fetchCounts(): Promise<SidebarCounts> {
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true)),
     safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true })),
     safeCount(() => sb.from("companies").select("id", { count: "exact", head: true })),
-    safeCount(() => sb.from("proposals").select("id", { count: "exact", head: true }).neq("stage", "失注")),
+    safeCount(() => sb.from("proposals").select("id", { count: "exact", head: true }).not("stage", "in", '("見送り","失注")')),
     safeCount(() => sb.from("engagements").select("id", { count: "exact", head: true })),
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_focus", true)),
   ]);
