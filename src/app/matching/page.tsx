@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
+import { RankList } from "@/components/RankList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, type Job } from "@/lib/match";
 
@@ -319,35 +320,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
       {job && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-          {/* 左: ランキングリスト */}
-          <div className="card flush" style={{ position: "sticky", top: 80 }}>
-            <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.4 }}>{jobAbbr} のマッチング人材</div>
-              <span className="tag brand">{ranked.length}件</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              {ranked.length === 0 ? (
-                <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>重なる人材がいません</div>
-              ) : ranked.map((r, i) => {
-                const c = r.candidate;
-                const active = (sel?.candidate.candidate_no === c.candidate_no);
-                const rankColor = i === 0 ? "#f0a92b" : i === 1 ? "#9aa7b4" : i === 2 ? "#cd853f" : "var(--color-surface-inset)";
-                return (
-                  <Link key={c.candidate_no} href={linkFor(c.candidate_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
-                    <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{jobAbbr} ↔ {c.name}</div>
-                      <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "—"} · {c.affiliation ?? c.source_company ?? ""}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 9, color: "var(--color-ink-4)" }}>相性</div>
-                      <Stars score={r.score} />
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
+          {/* 左: ランキングリスト（AI再ランキング対応） */}
+          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked}
+            jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type }} />
 
           {/* 右: 詳細パネル */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>

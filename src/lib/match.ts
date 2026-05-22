@@ -15,7 +15,34 @@ export type Candidate = {
 
 export type MatchResult = { score: number; matchedSkills: string[]; missingSkills: string[]; reasons: string[] };
 
-const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").replace(/[.．・]/g, "");
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").replace(/[.．・/／]/g, "");
+
+// 表記揺れ・同義語を正規形に寄せる辞書（スコアリングのスキル一致精度を上げる）
+const SYNONYMS: Record<string, string> = {
+  reactjs: "react", リアクト: "react",
+  nextjs: "next", ネクストjs: "next", ネクスト: "next",
+  vuejs: "vue", ビュー: "vue",
+  nodejs: "node", node: "node",
+  ts: "typescript", タイプスクリプト: "typescript",
+  js: "javascript", ジャバスクリプト: "javascript", ジャヴァスクリプト: "javascript",
+  golang: "go", go言語: "go",
+  k8s: "kubernetes", クバネティス: "kubernetes", クーベネティス: "kubernetes",
+  amazonwebservices: "aws", エーダブリューエス: "aws",
+  gcp: "googlecloud", googlecloudplatform: "googlecloud",
+  postgres: "postgresql", postgre: "postgresql", ポスグレ: "postgresql",
+  mysql: "mysql",
+  csharp: "c#", "c＃": "c#", シーシャープ: "c#",
+  "cplusplus": "c++", シープラ: "c++",
+  rubyonrails: "rails", ror: "rails", レイルズ: "rails",
+  laravel: "laravel", ララベル: "laravel",
+  django: "django", ジャンゴ: "django",
+  springboot: "spring", スプリング: "spring",
+  dotnet: ".net", "net": ".net",
+  tensorflow: "tensorflow", pytorch: "pytorch",
+  swiftui: "swift", jetpackcompose: "kotlin",
+};
+// 正規化＋同義語寄せ
+const canon = (s: string) => { const n = norm(s); return SYNONYMS[n] ?? n; };
 
 // 職種カテゴリ判定用キーワード
 const ROLE_GROUPS: [string, string[]][] = [
@@ -59,8 +86,8 @@ function salaryFit(job: Job, c: Candidate): number {
 }
 
 export function scoreMatch(job: Job, c: Candidate): MatchResult {
-  const jobSkills = (job.skills ?? []).map(norm);
-  const candSet = new Set((c.skills ?? []).map(norm));
+  const jobSkills = (job.skills ?? []).map(canon);
+  const candSet = new Set((c.skills ?? []).map(canon));
   const origJobSkills = job.skills ?? [];
 
   const matchedSkills: string[] = [];
