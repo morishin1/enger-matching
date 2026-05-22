@@ -1,7 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin } from "./supabase";
+
+/** サイドバーのカウントキャッシュを即時更新する。 */
+const bustCounts = () => revalidateTag("sidebar-counts");
 
 export type CandidateInput = {
   code?: string | null;
@@ -60,6 +63,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   }
 
   revalidatePath("/people");
+  bustCounts();
   return { ok: true, inserted };
 }
 
@@ -70,6 +74,7 @@ export async function toggleFocus(table: "jobs" | "candidates", idField: string,
   const { error } = await admin.from(table).update({ is_focus: value }).eq(idField, idValue);
   if (error) return { ok: false, error: error.message };
   if (revalidate) revalidatePath(revalidate);
+  bustCounts();
   return { ok: true };
 }
 
@@ -87,6 +92,7 @@ export async function bulkSetFocus(
   const { error } = await admin.from(table).update({ is_focus: value }).in(idField, idValues);
   if (error) return { ok: false, updated: 0, error: error.message };
   if (revalidate) revalidatePath(revalidate);
+  bustCounts();
   return { ok: true, updated: idValues.length };
 }
 
@@ -102,6 +108,7 @@ export async function updateProposalFields(id: string, fields: Record<string, an
   const { error } = await admin.from("proposals").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
+  bustCounts();
   return { ok: true };
 }
 
@@ -125,6 +132,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   const { data: dup } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).maybeSingle();
   if (dup?.id) {
     revalidatePath("/proposals");
+  bustCounts();
     return { ok: true, id: dup.id, existed: true };
   }
 
@@ -135,6 +143,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }).select("id").single();
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
+  bustCounts();
   return { ok: true, id: data.id, existed: false };
 }
 
@@ -145,6 +154,7 @@ export async function updateProposalStage(id: string, stage: string) {
   const { error } = await admin.from("proposals").update({ stage, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
+  bustCounts();
   return { ok: true };
 }
 
@@ -165,6 +175,7 @@ export async function convertToEngagement(proposalId: string) {
   }
   await admin.from("proposals").update({ stage: "稼働決定", updated_at: new Date().toISOString() }).eq("id", proposalId);
   revalidatePath("/proposals");
+  bustCounts();
   revalidatePath("/progress");
   return { ok: true };
 }
@@ -285,5 +296,6 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
   }
 
   revalidatePath("/jobs");
+  bustCounts();
   return { ok: true, inserted };
 }
