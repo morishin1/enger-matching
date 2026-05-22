@@ -25,10 +25,14 @@ const salary = (lo?: number | null, hi?: number | null) =>
 
 const quote = (lines: string[]) => lines.filter(Boolean).map((l) => `> ${l}`).join("\n");
 
+/** 差出人の名乗り（担当者名があれば「ENGER の 〇〇」） */
+const senderLabel = (sender?: string | null) => (sender && sender.trim() ? `ENGER の ${sender.trim()}` : "ENGER");
+
 /** 人材へ「案件のご紹介」を返信する本文（人材所属/本人宛て） */
 export function candidateProposalMail(opts: {
   candidateName: string;
   contactName?: string | null;
+  sender?: string | null;
   job: { title: string; client_name?: string | null; role_label?: string | null; skills?: string[] | null; salary_min?: number | null; salary_max?: number | null };
   matchedSkills?: string[];
   score?: number;
@@ -38,7 +42,7 @@ export function candidateProposalMail(opts: {
   const body = [
     `${opts.contactName ?? candidateName} 様`,
     ``,
-    `お世話になっております。ENGER でございます。`,
+    `お世話になっております。${senderLabel(opts.sender)} でございます。`,
     `${candidateName} 様にマッチ度の高い案件（マッチ度 ${opts.score ?? "—"}%）がございましたのでご返信差し上げます。`,
     ``,
     `── ご案件 ──────────────`,
@@ -63,6 +67,7 @@ export function jobProposalMail(opts: {
   jobTitle: string;
   clientName?: string | null;
   contactName?: string | null;
+  sender?: string | null;
   candidate: { name: string; title?: string | null; skills?: string[] | null; rate?: string | null; affiliation?: string | null; exp?: string | null };
   matchedSkills?: string[];
   score?: number;
@@ -72,7 +77,7 @@ export function jobProposalMail(opts: {
   const body = [
     `${opts.contactName ?? opts.clientName ?? "ご担当者"} 様`,
     ``,
-    `お世話になっております。ENGER でございます。`,
+    `お世話になっております。${senderLabel(opts.sender)} でございます。`,
     `「${jobTitle}」にマッチ度の高い人材（マッチ度 ${opts.score ?? "—"}%）をご提案申し上げます。`,
     ``,
     `── ご提案人材 ────────────`,
@@ -103,6 +108,7 @@ export function buildProposalPrompt(opts: {
   matchedSkills?: string[];
   missingSkills?: string[];
   score?: number;
+  sender?: string | null;
 }): string {
   const { target, job, cand } = opts;
   const facts = [
@@ -131,6 +137,7 @@ export function buildProposalPrompt(opts: {
 
   return [
     dir,
+    `差出人の名乗りは「${senderLabel(opts.sender)} でございます。」とすること。`,
     "条件: 日本語の丁寧なビジネスメール / 返信体裁(冒頭は宛名、結びは「何卒よろしくお願いいたします。」) / 200〜350字程度 / 誇張せず事実ベース / 相手が返信したくなる一文を入れる。",
     "出力は本文のみ（件名や説明は不要）。",
     "",

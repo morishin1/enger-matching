@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, buildProposalPrompt } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
 
@@ -19,30 +19,34 @@ export function ProposalComposer({
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [sender, setSender] = useState("");
+
+  // 操作中の担当者名（サイドバー/トップ右で選択した名前）を差出人に
+  useEffect(() => { try { setSender(localStorage.getItem("enger.operator") || ""); } catch { /* noop */ } }, []);
 
   // 宛先・件名・テンプレ本文（target ごと）
   const tpl = useMemo(() => {
     if (target === "client") {
       const m = jobProposalMail({
-        jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name,
+        jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name, sender,
         candidate: { name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate, affiliation: cand.affiliation, exp: cand.exp },
         matchedSkills, score,
       });
       return { to: job.contact_email as string | null, subject: m.subject, body: m.body };
     }
     const m = candidateProposalMail({
-      candidateName: cand.name, contactName: cand.contact_name,
+      candidateName: cand.name, contactName: cand.contact_name, sender,
       job: { title: job.title, client_name: job.client_name, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max },
       matchedSkills, score,
     });
     return { to: (cand.email ?? cand.contact_email) as string | null, subject: m.subject, body: m.body };
-  }, [target, job, cand, matchedSkills, score]);
+  }, [target, job, cand, matchedSkills, score, sender]);
 
   const effectiveBody = touched ? body : tpl.body;
 
   const prompt = useMemo(
-    () => buildProposalPrompt({ target, job, cand, matchedSkills, missingSkills, score }),
-    [target, job, cand, matchedSkills, missingSkills, score],
+    () => buildProposalPrompt({ target, job, cand, matchedSkills, missingSkills, score, sender }),
+    [target, job, cand, matchedSkills, missingSkills, score, sender],
   );
 
   const switchTarget = (t: "client" | "cand") => { setTarget(t); setTouched(false); setBody(""); setMsg(null); };
