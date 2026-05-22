@@ -23,7 +23,7 @@ export type UsageStats = {
   daily: { date: string; usd: number; count: number }[]; // 直近30日
 };
 
-const FEATURE_LABEL: Record<string, string> = { proposal: "提案文生成", meeting: "打合せAI分析", rerank: "AI再ランキング" };
+const FEATURE_LABEL: Record<string, string> = { proposal: "提案文生成", meeting: "打合せAI分析", rerank: "AI再ランキング", brief: "今日のAIブリーフィング" };
 export const featureLabel = (f: string) => FEATURE_LABEL[f] ?? f;
 
 /** 設定ページ用の集計（直近の使用量）。 */

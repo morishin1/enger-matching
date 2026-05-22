@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { DailyBriefing } from "./DailyBriefing";
 
 const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中"];
 const MET_STAGES = ["面談調整", "クロージング中", "稼働決定"];
@@ -145,6 +146,17 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
           案件・提案テーブルが未作成、またはデータがありません。<span className="mono">supabase/schema-matching.sql</span> 実行後に実データが表示されます。
         </div>
+      )}
+
+      {/* AIブリーフィング（今日やるべきこと） */}
+      {!setup && (
+        <DailyBriefing metrics={{
+          meetings: hasMeetingDate ? todaysMeetings.length : meetingsAdjusting.length,
+          renewSoon: renewSoon.length, callPending: callPending.length, closingStalled: closingStalled.length,
+          focusUntouched: focusUntouched.length, staleJobs: staleJobs.length, newJobs: newJobs.length,
+          hot: hot.length, endingSoon: endingSoonPeople.length,
+          pipelineMan, confirmedMan, fJobs: pub.length, fProposed, fMet, fActive,
+        }} />
       )}
 
       {/* ① 今日のアクション（締切あり） */}
