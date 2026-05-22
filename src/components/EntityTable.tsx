@@ -1,0 +1,387 @@
+"use client";
+
+import { useMemo, useRef, useState, useTransition, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Icons } from "./icons";
+import { FocusHeart } from "./FocusHeart";
+import { bulkSetFocus } from "@/lib/actions";
+
+// ---------- 表示用ヘルパ ----------
+const remoteLabel = (r: string | null) =>
+  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
+
+const salaryLabel = (lo: number | null, hi: number | null) => {
+  if (lo && hi) return lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`;
+  if (hi) return `〜¥${hi}万`;
+  if (lo) return `¥${lo}万〜`;
+  return "スキル見合い";
+};
+
+const dateLabel = (d: string | null) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "—";
+  return `${dt.getFullYear()}/${dt.getMonth() + 1}/${dt.getDate()}`;
+};
+
+const RankBadge = ({ rank }: { rank: string | null }) =>
+  rank && rank !== "-" ? (
+    <span className="rank-badge" data-rank={rank}>{rank}</span>
+  ) : (
+    <span className="muted">—</span>
+  );
+
+// ---------- 列定義 ----------
+type Col = {
+  key: string;
+  label: string;
+  width?: number;
+  always?: boolean; // 非表示にできない列
+  defaultHidden?: boolean;
+  num?: boolean;
+  render: (row: any) => React.ReactNode;
+  search?: (row: any) => string; // 検索対象テキスト
+  filter?: (row: any) => string; // 絞り込み(セレクト)用の値。"" は除外
+  filterLabel?: string;
+};
+
+export type EntityKind = "jobs" | "people";
+
+const JOB_COLS: Col[] = [
+  {
+    key: "title", label: "案件名", always: true,
+    search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
+    render: (j) => (
+      <div>
+        <div className="pri">{j.title}</div>
+        <div className="muted mono" style={{ fontSize: 10.5, marginTop: 2 }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</div>
+      </div>
+    ),
+  },
+  {
+    key: "client", label: "クライアント",
+    search: (j) => j.client_name ?? "",
+    render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span>,
+  },
+  {
+    key: "flow", label: "商流制限", width: 110, filterLabel: "商流",
+    filter: (j) => j.flow_note || "不明",
+    render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span>,
+  },
+  {
+    key: "role", label: "職種", filterLabel: "職種",
+    filter: (j) => j.role_label || "",
+    render: (j) => (j.role_label ? <span className="tag" style={{ fontSize: 10.5 }}>{j.role_label}</span> : <span className="muted">—</span>),
+  },
+  {
+    key: "skills", label: "スキル",
+    render: (j) => (
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {(j.skills ?? []).slice(0, 4).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10.5 }}>{s}</span>)}
+      </div>
+    ),
+  },
+  {
+    key: "remote", label: "リモート", width: 96, filterLabel: "リモート",
+    filter: (j) => remoteLabel(j.remote_type),
+    render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span>,
+  },
+  {
+    key: "salary", label: "単価", width: 110, num: true,
+    render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span>,
+  },
+  {
+    key: "created", label: "作成日", width: 100, num: true, defaultHidden: true,
+    render: (j) => <span className="muted">{dateLabel(j.created_at)}</span>,
+  },
+  {
+    key: "status", label: "ステータス", width: 96, filterLabel: "ステータス",
+    filter: (j) => j.status || "募集中",
+    render: (j) => <span className="pill open">{j.status || "募集中"}</span>,
+  },
+  {
+    key: "rank", label: "ランク", width: 64, filterLabel: "ランク",
+    filter: (j) => (j.rank && j.rank !== "-" ? j.rank : ""),
+    render: (j) => <RankBadge rank={j.rank} />,
+  },
+  {
+    key: "action", label: "アクション", width: 130, always: true,
+    render: (j) => (
+      <Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ padding: "5px 12px", fontSize: 11.5, textDecoration: "none" }}>
+        <Icons.matching /><span>マッチング</span>
+      </Link>
+    ),
+  },
+];
+
+const PEOPLE_COLS: Col[] = [
+  {
+    key: "name", label: "人材", always: true,
+    search: (p) => `${p.name ?? ""} ${(p.skills ?? []).join(" ")}`,
+    render: (p) => (
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
+        <div><div className="pri">{p.name}</div><div className="muted mono" style={{ fontSize: 10.5 }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</div></div>
+      </div>
+    ),
+  },
+  {
+    key: "title", label: "職種", filterLabel: "職種",
+    search: (p) => p.title ?? "",
+    filter: (p) => p.title || "",
+    render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span>,
+  },
+  {
+    key: "affiliation", label: "所属", width: 120, filterLabel: "所属",
+    filter: (p) => p.affiliation || "",
+    render: (p) => <span className="muted" style={{ fontSize: 11.5 }}>{p.affiliation || "—"}</span>,
+  },
+  {
+    key: "skills", label: "スキル",
+    render: (p) => (
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {(p.skills ?? []).slice(0, 5).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10.5 }}>{s}</span>)}
+      </div>
+    ),
+  },
+  {
+    key: "rate", label: "希望単価", width: 100, num: true,
+    render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span>,
+  },
+  {
+    key: "avail", label: "稼働開始", width: 100, num: true,
+    render: (p) => <span className="muted">{p.avail ?? "—"}</span>,
+  },
+  {
+    key: "location", label: "勤務地", width: 100, defaultHidden: true,
+    filterLabel: "勤務地", filter: (p) => p.location || "",
+    render: (p) => <span className="muted" style={{ fontSize: 11.5 }}>{p.location || "—"}</span>,
+  },
+  {
+    key: "status", label: "状態", width: 90, filterLabel: "状態",
+    filter: (p) => p.status || "",
+    render: (p) => <span className="pill open">{p.status}</span>,
+  },
+  {
+    key: "rank", label: "ランク", width: 64, filterLabel: "ランク",
+    filter: (p) => (p.rank && p.rank !== "-" ? p.rank : ""),
+    render: (p) => <RankBadge rank={p.rank} />,
+  },
+];
+
+export function EntityTable({
+  kind,
+  rows,
+  total,
+}: {
+  kind: EntityKind;
+  rows: any[];
+  total: number;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const cols = kind === "jobs" ? JOB_COLS : PEOPLE_COLS;
+  const idField = kind === "jobs" ? "job_no" : "candidate_no";
+  const table = kind === "jobs" ? "jobs" : "candidates";
+  const revalidate = kind === "jobs" ? "/jobs" : "/people";
+
+  const [q, setQ] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(cols.filter((c) => c.defaultHidden).map((c) => c.key)));
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [colMenu, setColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
+
+  // 列メニューの外側クリックで閉じる
+  useEffect(() => {
+    if (!colMenu) return;
+    const onDoc = (e: MouseEvent) => {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) setColMenu(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [colMenu]);
+
+  // 絞り込み候補(セレクト)
+  const filterCols = cols.filter((c) => c.filter);
+  const filterOptions = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const c of filterCols) {
+      const set = new Set<string>();
+      for (const r of rows) {
+        const v = c.filter!(r);
+        if (v) set.add(v);
+      }
+      map[c.key] = Array.from(set).sort((a, b) => a.localeCompare(b, "ja"));
+    }
+    return map;
+  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // フィルタ適用
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (needle) {
+        const hay = cols.map((c) => (c.search ? c.search(r) : "")).join(" ").toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      for (const c of filterCols) {
+        const want = filters[c.key];
+        if (want && c.filter!(r) !== want) return false;
+      }
+      return true;
+    });
+  }, [rows, q, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const visibleCols = cols.filter((c) => !hidden.has(c.key));
+  const allIds = filtered.map((r) => r[idField]).filter((v) => v != null) as number[];
+  const allChecked = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const someChecked = selected.size > 0;
+
+  const toggleAll = () => {
+    setSelected((prev) => {
+      if (allChecked) {
+        const next = new Set(prev);
+        allIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      return new Set([...prev, ...allIds]);
+    });
+  };
+  const toggleOne = (id: number) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const doBulk = (value: boolean) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    start(async () => {
+      const res = await bulkSetFocus(table, idField, ids, value, revalidate);
+      if (res.ok) {
+        setSelected(new Set());
+        router.refresh();
+      }
+    });
+  };
+
+  const colSpan = visibleCols.length + 2; // 注力 + チェックボックス
+
+  return (
+    <div className="card flush">
+      {/* ツールバー */}
+      <div className="tbl-toolbar">
+        <div className="tbl-search">
+          <Icons.search />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={kind === "jobs" ? "案件名・クライアント・スキルで検索…" : "氏名・職種・スキルで検索…"}
+          />
+        </div>
+        {filterCols.map((c) => (
+          <label key={c.key} className="tbl-filter">
+            <span>{c.filterLabel ?? c.label}</span>
+            <select
+              value={filters[c.key] ?? ""}
+              onChange={(e) => setFilters((f) => ({ ...f, [c.key]: e.target.value }))}
+            >
+              <option value="">すべて</option>
+              {filterOptions[c.key]?.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+        ))}
+        <div ref={colMenuRef} style={{ position: "relative", marginLeft: "auto" }}>
+          <button type="button" className="btn ghost" onClick={() => setColMenu((v) => !v)} style={{ fontSize: 12 }}>
+            <Icons.settings /><span>表示列</span>
+          </button>
+          {colMenu && (
+            <div className="col-menu">
+              <div className="col-menu-head">表示する列<span className="muted">{visibleCols.length}列</span></div>
+              {cols.filter((c) => c.key !== "action").map((c) => (
+                <label key={c.key} className={"col-menu-item" + (c.always ? " disabled" : "")}>
+                  <input
+                    type="checkbox"
+                    checked={!hidden.has(c.key)}
+                    disabled={c.always}
+                    onChange={() => setHidden((h) => {
+                      const next = new Set(h);
+                      next.has(c.key) ? next.delete(c.key) : next.add(c.key);
+                      return next;
+                    })}
+                  />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 一括選択バナー */}
+      {someChecked && (
+        <div className="bulk-bar">
+          <span><b>{selected.size}</b> 件選択中</span>
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            <button type="button" className="btn" onClick={() => doBulk(true)} disabled={pending} style={{ background: "#e0567f", color: "#fff", border: 0 }}>
+              <span style={{ fontWeight: 700 }}>♥</span><span>注力に一括登録</span>
+            </button>
+            <button type="button" className="btn ghost" onClick={() => doBulk(false)} disabled={pending}>注力を解除</button>
+            <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ overflowX: "auto" }}>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th style={{ width: 32 }}>
+                <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="全選択" />
+              </th>
+              <th style={{ width: 36 }}>注力</th>
+              {visibleCols.map((c) => (
+                <th key={c.key} className={c.num ? "num" : ""} style={c.width ? { width: c.width } : undefined}>{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={colSpan} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>
+                {rows.length === 0 ? "データがありません。" : "条件に一致する行がありません。"}
+              </td></tr>
+            ) : (
+              filtered.map((r, i) => {
+                const id = r[idField] as number;
+                return (
+                  <tr key={id ?? i} className={selected.has(id) ? "row-sel" : ""}>
+                    <td><input type="checkbox" checked={selected.has(id)} onChange={() => toggleOne(id)} aria-label="選択" /></td>
+                    <td>
+                      <FocusHeart
+                        key={`${id}-${r.is_focus ? 1 : 0}`}
+                        table={table}
+                        idField={idField as "job_no" | "candidate_no"}
+                        idValue={id}
+                        initial={!!r.is_focus}
+                        revalidate={revalidate}
+                      />
+                    </td>
+                    {visibleCols.map((c) => (
+                      <td key={c.key} className={c.num ? "num" : ""}>{c.render(r)}</td>
+                    ))}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="tbl-foot muted">
+        表示 {filtered.length.toLocaleString("ja-JP")} 件 / 取得 {rows.length.toLocaleString("ja-JP")} 件（全 {total.toLocaleString("ja-JP")} 件）
+      </div>
+    </div>
+  );
+}

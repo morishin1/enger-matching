@@ -71,6 +71,22 @@ export async function toggleFocus(table: "jobs" | "candidates", idField: string,
   return { ok: true };
 }
 
+/** 注力フラグの一括設定 (service role)。チェックした複数行をまとめて注力ON/OFF。 */
+export async function bulkSetFocus(
+  table: "jobs" | "candidates",
+  idField: string,
+  idValues: number[],
+  value: boolean,
+  revalidate?: string,
+) {
+  if (!idValues || idValues.length === 0) return { ok: true, updated: 0 };
+  const admin = engerAdmin();
+  const { error } = await admin.from(table).update({ is_focus: value }).in(idField, idValues);
+  if (error) return { ok: false, updated: 0, error: error.message };
+  if (revalidate) revalidatePath(revalidate);
+  return { ok: true, updated: idValues.length };
+}
+
 export type JobInput = {
   title: string;
   client_name?: string | null;

@@ -1,6 +1,6 @@
 import { Icons } from "@/components/icons";
 import { CandidateImportButton, ExportButton } from "@/components/CsvTools";
-import { FocusHeart } from "@/components/FocusHeart";
+import { EntityTable } from "@/components/EntityTable";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +19,22 @@ export default async function PeoplePage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data, count } = await sb
+      const baseCols = "candidate_no, name, initials, title, affiliation, skills, rate, avail, location, exp, status, remote_pref, is_focus";
+      // rank 列が未追加(people-rank.sql 未実行)でも落ちないようフォールバック
+      let res: any = await sb
         .from("candidates")
-        .select("candidate_no, name, initials, title, affiliation, skills, rate, avail, location, exp, status, remote_pref, is_focus", { count: "exact" })
+        .select(`${baseCols}, rank`, { count: "exact" })
         .order("candidate_no", { ascending: true })
         .limit(300);
-      people = data ?? [];
-      total = count ?? people.length;
+      if (res.error) {
+        res = await sb
+          .from("candidates")
+          .select(baseCols, { count: "exact" })
+          .order("candidate_no", { ascending: true })
+          .limit(300);
+      }
+      people = res.data ?? [];
+      total = res.count ?? people.length;
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -73,45 +82,12 @@ export default async function PeoplePage() {
         </div>
       </div>
 
-      <div className="card flush">
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--color-border)" }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材一覧</h3>
-          <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>最新 {Math.min(people.length, 300)} 名 / 全 {total.toLocaleString("ja-JP")} 名</div>
-        </div>
-        <table className="tbl">
-          <thead>
-            <tr><th style={{ width: 36 }}>注力</th><th>人材</th><th>職種 / 所属</th><th>スキル</th><th style={{ width: 100 }}>希望単価</th><th style={{ width: 100 }}>稼働開始</th><th style={{ width: 90 }}>状態</th></tr>
-          </thead>
-          <tbody>
-            {people.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>
-                まだ人材がありません。右上の「CSV取込」からアップロードしてください（「テンプレ」で書式を確認できます）。
-              </td></tr>
-            ) : (
-              people.map((p, i) => (
-                <tr key={p.candidate_no ?? i}>
-                  <td><FocusHeart table="candidates" idField="candidate_no" idValue={p.candidate_no} initial={!!p.is_focus} revalidate="/people" /></td>
-                  <td>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
-                      <div><div className="pri">{p.name}</div><div className="muted mono" style={{ fontSize: 10.5 }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</div></div>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}<br /><span className="muted" style={{ fontSize: 11 }}>{p.affiliation ?? ""}</span></td>
-                  <td>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      {(p.skills ?? []).slice(0, 5).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10.5 }}>{s}</span>)}
-                    </div>
-                  </td>
-                  <td className="num" style={{ fontWeight: 600 }}>{p.rate ?? "—"}</td>
-                  <td className="num muted">{p.avail ?? "—"}</td>
-                  <td><span className="pill open">{p.status}</span></td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材一覧</h3>
+        <div className="muted" style={{ fontSize: 11.5 }}>検索・絞り込み・列の表示切替・チェックで注力に一括登録できます</div>
       </div>
+
+      <EntityTable kind="people" rows={people} total={total} />
     </div>
   );
 }

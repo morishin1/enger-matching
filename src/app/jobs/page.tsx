@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { ExportButton, JobImportButton } from "@/components/CsvTools";
-import { FocusHeart } from "@/components/FocusHeart";
+import { EntityTable } from "@/components/EntityTable";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -15,13 +14,6 @@ const JOB_EXPORT_HEADERS = [
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-const salaryLabel = (lo: number | null, hi: number | null) => {
-  if (lo && hi) return lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`;
-  if (hi) return `〜¥${hi}万`;
-  if (lo) return `¥${lo}万〜`;
-  return "スキル見合い";
-};
-
 export default async function JobsPage() {
   let jobs: any[] = [];
   let total = 0;
@@ -33,10 +25,10 @@ export default async function JobsPage() {
       const sb = engerClient();
       const [listRes, skRes] = await Promise.all([
         sb.from("jobs")
-          .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus", { count: "exact" })
+          .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at", { count: "exact" })
           .eq("is_published", true)
           .order("job_no", { ascending: false })
-          .limit(100),
+          .limit(300),
         sb.from("jobs").select("id", { count: "exact", head: true }).neq("skills", "{}"),
       ]);
       jobs = listRes.data ?? [];
@@ -90,45 +82,12 @@ export default async function JobsPage() {
         </div>
       </div>
 
-      <div className="card flush">
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div><h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件一覧</h3><div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>最新 100 件 / 全 {total.toLocaleString("ja-JP")} 件</div></div>
-        </div>
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th style={{ width: 36 }}>注力</th><th style={{ width: 70 }}>No.</th><th>案件</th><th>職種</th><th>スキル</th>
-              <th style={{ width: 110 }}>単価</th><th style={{ width: 90 }}>リモート</th><th style={{ width: 60 }}>ランク</th><th style={{ width: 110 }}>アクション</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>案件がありません</td></tr>
-            ) : (
-              jobs.map((j) => (
-                <tr key={j.job_no}>
-                  <td><FocusHeart table="jobs" idField="job_no" idValue={j.job_no} initial={!!j.is_focus} revalidate="/jobs" /></td>
-                  <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</span></td>
-                  <td>
-                    <div className="pri">{j.title}</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{j.client_name ?? "—"}</div>
-                  </td>
-                  <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.role_label ?? "—"}</td>
-                  <td>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      {(j.skills ?? []).slice(0, 4).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10.5 }}>{s}</span>)}
-                    </div>
-                  </td>
-                  <td className="num" style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</td>
-                  <td><span className="pill open">{remoteLabel(j.remote_type)}</span></td>
-                  <td>{j.rank && j.rank !== "-" ? <span className="tag brand" style={{ fontWeight: 700 }}>{j.rank}</span> : <span className="muted">—</span>}</td>
-                  <td><Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ padding: "5px 12px", fontSize: 11.5, textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link></td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件一覧</h3>
+        <div className="muted" style={{ fontSize: 11.5 }}>検索・絞り込み・列の表示切替・チェックで注力に一括登録できます</div>
       </div>
+
+      <EntityTable kind="jobs" rows={jobs} total={total} />
     </div>
   );
 }
