@@ -15,6 +15,11 @@ export function gmailComposeUrl(opts: { to?: string | null; subject: string; bod
 
 export const reSubject = (s: string) => (/^re:/i.test(s.trim()) ? s.trim() : `Re: ${s.trim()}`);
 
+/** Gmail を検索クエリで開く（元メールに飛ぶ用途）。クライアント名/氏名などで該当メールを表示。 */
+export function gmailSearchUrl(query: string) {
+  return `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query)}`;
+}
+
 const salary = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
 

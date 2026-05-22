@@ -8,10 +8,12 @@
 -- 案件側: クライアント窓口メール
 alter table enger.jobs       add column if not exists contact_email text;
 alter table enger.jobs       add column if not exists contact_name  text;
+alter table enger.jobs       add column if not exists source_mail_url text;  -- 元メール(Gmail)へのURL
 
 -- 人材側: 本人/所属窓口メール
 alter table enger.candidates add column if not exists email         text;
 alter table enger.candidates add column if not exists contact_email text;  -- 所属(SES)窓口
+alter table enger.candidates add column if not exists source_mail_url text;  -- 元メール(Gmail)へのURL
 
 -- 確認
 -- select count(*) filter (where email is not null) as cand_with_email from enger.candidates;

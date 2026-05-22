@@ -24,11 +24,11 @@ export default async function PeoplePage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "candidate_no, name, initials, title, affiliation, skills, rate, avail, location, exp, status, remote_pref, is_focus";
+      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
       // rank / email 列が未追加でも落ちないようフォールバック
       let res: any = await sb
         .from("candidates")
-        .select(`${baseCols}, rank, email, contact_email`, { count: "exact" })
+        .select(`${baseCols}, rank, email, contact_email, source_mail_url`, { count: "exact" })
         .order("candidate_no", { ascending: true })
         .limit(300);
       if (res.error) {

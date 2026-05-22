@@ -30,7 +30,7 @@ export default async function JobsPage() {
       const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at";
       // contact_email 列が未追加(email-columns.sql 未実行)でも落ちないようフォールバック
       let listRes: any = await sb.from("jobs")
-        .select(`${baseCols}, contact_email, contact_name`, { count: "exact" })
+        .select(`${baseCols}, contact_email, contact_name, source_mail_url`, { count: "exact" })
         .eq("is_published", true)
         .order("job_no", { ascending: false })
         .limit(300);
