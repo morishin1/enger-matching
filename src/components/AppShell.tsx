@@ -12,7 +12,7 @@ const CRUMBS: Record<string, string[]> = {
   "/people": ["ENGER", "人材"],
   "/companies": ["ENGER", "企業管理"],
   "/proposals": ["ENGER", "提案管理"],
-  "/progress": ["ENGER", "進捗管理"],
+  "/progress": ["ENGER", "稼働管理"],
   "/pipeline": ["ENGER", "パイプライン"],
   "/analytics": ["ENGER", "分析"],
   "/inbox": ["ENGER", "受信箱"],

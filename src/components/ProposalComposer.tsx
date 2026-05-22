@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, buildProposalPrompt } from "@/lib/gmail";
+import { createProposal } from "@/lib/actions";
 
 type Job = any;
 type Cand = any;
@@ -16,6 +17,8 @@ export function ProposalComposer({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   // 宛先・件名・テンプレ本文（target ごと）
   const tpl = useMemo(() => {
@@ -65,6 +68,18 @@ export function ProposalComposer({
     window.open(gmailComposeUrl({ to: tpl.to, subject: tpl.subject, body: effectiveBody }), "_blank", "noopener");
   };
 
+  const saveToBoard = async () => {
+    if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案ボードに記録できません（ID不足）"); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const res = await createProposal(job.job_no, cand.candidate_no, score);
+      if (res.ok) { setSaved(true); setMsg(res.existed ? "既に提案ボードにあります" : "提案ボードに記録しました"); }
+      else setMsg(res.error || "記録に失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "記録に失敗しました");
+    } finally { setSaving(false); }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>
@@ -103,6 +118,7 @@ export function ProposalComposer({
       {/* 操作 */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn-mail block" onClick={openGmail}>Gmailで開く</button>
+        <button type="button" className="btn brand" onClick={saveToBoard} disabled={saving}>{saving ? "記録中…" : saved ? "✓ 記録済み" : "提案ボードに記録"}</button>
         <button type="button" className="btn" onClick={generate} disabled={loading}>{loading ? "生成中…" : "✨ AIで自動生成"}</button>
         <button type="button" className="btn ghost" onClick={() => copy(prompt, "AIプロンプト")}>プロンプトをコピー</button>
         <button type="button" className="btn ghost" onClick={() => copy(effectiveBody, "本文")}>本文をコピー</button>

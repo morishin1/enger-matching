@@ -87,6 +87,80 @@ export async function bulkSetFocus(
   return { ok: true, updated: idValues.length };
 }
 
+// ===================== 提案 / 稼働 =====================
+
+export const PROPOSAL_STAGES = ["新規提案", "提案中", "面談調整", "条件交渉", "成約間近", "成約"] as const;
+
+const parseRateNum = (rate?: string | null): number | null => {
+  if (!rate) return null;
+  const nums = (rate.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0 && n < 1000);
+  return nums.length ? Math.max(...nums) : null;
+};
+
+/** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。 */
+export async function createProposal(jobNo: number, candNo: number, score?: number) {
+  const admin = engerAdmin();
+  const [{ data: job }, { data: cand }] = await Promise.all([
+    admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle(),
+    admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle(),
+  ]);
+  if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
+
+  // 重複チェック (同一 job × candidate)
+  const { data: dup } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).maybeSingle();
+  if (dup?.id) {
+    revalidatePath("/proposals");
+    return { ok: true, id: dup.id, existed: true };
+  }
+
+  const { data, error } = await admin.from("proposals").insert({
+    job_id: job.id, candidate_id: cand.id, stage: "新規提案",
+    job_title: job.title, company: job.client_name, candidate_name: cand.name,
+    c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
+  }).select("id").single();
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals");
+  return { ok: true, id: data.id, existed: false };
+}
+
+/** 提案ステージの変更 (カンバン移動)。 */
+export async function updateProposalStage(id: string, stage: string) {
+  const admin = engerAdmin();
+  const { error } = await admin.from("proposals").update({ stage, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals");
+  return { ok: true };
+}
+
+/** 成約した提案を稼働(engagements)へ変換。提案は「成約」に更新。 */
+export async function convertToEngagement(proposalId: string) {
+  const admin = engerAdmin();
+  const { data: p } = await admin.from("proposals").select("id, job_title, company, candidate_name, rate").eq("id", proposalId).maybeSingle();
+  if (!p?.id) return { ok: false, error: "提案が見つかりません" };
+
+  const { data: existing } = await admin.from("engagements").select("id").eq("proposal_id", proposalId).maybeSingle();
+  if (!existing?.id) {
+    const { error } = await admin.from("engagements").insert({
+      proposal_id: proposalId, job_title: p.job_title, company: p.company,
+      candidate_name: p.candidate_name, monthly_rate: parseRateNum(p.rate), status: "予定",
+    });
+    if (error) return { ok: false, error: error.message };
+  }
+  await admin.from("proposals").update({ stage: "成約", updated_at: new Date().toISOString() }).eq("id", proposalId);
+  revalidatePath("/proposals");
+  revalidatePath("/progress");
+  return { ok: true };
+}
+
+/** 稼働ステータスの更新 (予定 / 稼働中 / 終了)。 */
+export async function updateEngagementStatus(id: string, status: string) {
+  const admin = engerAdmin();
+  const { error } = await admin.from("engagements").update({ status }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/progress");
+  return { ok: true };
+}
+
 export type JobInput = {
   title: string;
   client_name?: string | null;
