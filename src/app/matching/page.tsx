@@ -38,6 +38,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let job: any = null;
   let ranked: any[] = [];
 
+  // 注力(ウォッチリスト)モード用 — ハートを付けた案件・人材の一覧（未マッチング）
+  let focusJobs: any[] = [];
+  let focusCands: any[] = [];
+
   if (dbConfigured) {
     try {
       const sb = engerClient();
@@ -65,13 +69,18 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           if (jr.error) jr = await buildJ(JOB_BASE);
           rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
         }
+      } else if (tab === "focus") {
+        // ---- 注力マッチング = ハートを付けた案件・人材の一覧（未マッチング・ウォッチリスト）----
+        const [fjl, fcl] = await Promise.all([
+          sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).order("job_no", { ascending: false }).limit(300),
+          sb.from("candidates").select(CAND_BASE).eq("is_focus", true).order("candidate_no", { ascending: true }).limit(300),
+        ]);
+        focusJobs = fjl.data ?? [];
+        focusCands = fcl.data ?? [];
       } else {
-        // ---- 案件 → 人材 ----
-        const buildList = (cols: string) => {
-          let q = sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}");
-          if (tab === "focus") q = q.eq("is_focus", true);
-          return q.order("job_no", { ascending: false }).limit(80);
-        };
+        // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
+        const buildList = (cols: string) =>
+          sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(80);
         let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name`);
         if (jlRes.error) jlRes = await buildList(JOB_BASE);
         jobList = jlRes.data ?? [];
@@ -80,11 +89,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;
 
         if (job?.skills?.length) {
-          const buildC = (cols: string) => {
-            let q = sb.from("candidates").select(cols).overlaps("skills", job.skills);
-            if (tab === "focus") q = q.eq("is_focus", true);
-            return q.limit(tab === "focus" ? 500 : 200);
-          };
+          const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
           let cr: any = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
           ranked = rankCandidates(job as Job, cr.data ?? [], 10);
@@ -205,6 +210,74 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     );
   }
 
+  // ============ 注力マッチング（ウォッチリスト）の描画 ============
+  if (tab === "focus") {
+    const Tabs = (
+      <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
+        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: `★ ${focusJobs.length}案件 × ${focusCands.length}人材` }].map((t) => {
+          const active = t.id === (tab as string);
+          return (
+            <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
+              {t.label}<span style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
+            </Link>
+          );
+        })}
+      </div>
+    );
+    return (
+      <div className="page">
+        <div className="page-head">
+          <div style={{ maxWidth: 760 }}>
+            <div className="meta">Matching · 注力（ウォッチリスト）</div>
+            <h1>注力マッチング</h1>
+            <div className="sub">ハート <span style={{ color: "#e0567f" }}>♥</span> を付けた案件・人材の一覧です（未マッチング）。各カードの「マッチング」から自動マッチングに進めます。</div>
+          </div>
+        </div>
+        {Tabs}
+        {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+          {/* 注力案件 */}
+          <div className="card flush">
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>注力案件</div><span className="tag brand">{focusJobs.length}件</span>
+            </div>
+            {focusJobs.length === 0 ? (
+              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>案件一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
+            ) : focusJobs.map((j) => (
+              <div key={j.job_no} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)" }}>
+                <FocusHeart table="jobs" idField="job_no" idValue={j.job_no} initial={!!j.is_focus} revalidate="/matching" />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</div>
+                  <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {remoteLabel(j.remote_type)} · {salaryLabel(j.salary_min, j.salary_max)}</div>
+                </div>
+                <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+              </div>
+            ))}
+          </div>
+          {/* 注力人材 */}
+          <div className="card flush">
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>注力人材</div><span className="tag brand">{focusCands.length}名</span>
+            </div>
+            {focusCands.length === 0 ? (
+              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>人材一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
+            ) : focusCands.map((c) => (
+              <div key={c.candidate_no} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)" }}>
+                <FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{c.name}</div>
+                  <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "—"} · {c.affiliation ?? c.source_company ?? ""} · {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
+                </div>
+                <Link href={`/matching?person=${c.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ============ 案件 → 人材モードの描画 ============
   const maxScore = ranked[0]?.score ?? 0;
   const avgScore = ranked.length ? Math.round(ranked.reduce((a, r) => a + r.score, 0) / ranked.length) : 0;
@@ -233,7 +306,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
         {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: `★ ${focusJobCount}案件 × ${focusPeopleCount}人材` }].map((t) => {
-          const active = tab === t.id;
+          const active = t.id === (tab as string);
           return (
             <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
               {t.label}<span style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
@@ -243,9 +316,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       </div>
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
-      {tab === "focus" && jobList.length === 0 && (
-        <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>注力案件がありません。案件・人材ページで <span style={{ color: "#e0567f" }}>♥</span> を押すと注力に登録され、ここでマッチングできます。</div>
-      )}
 
       {job && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
