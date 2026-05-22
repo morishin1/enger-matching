@@ -1,6 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
@@ -19,16 +20,35 @@ const CRUMBS: Record<string, string[]> = {
   "/inbox": ["ENGER", "受信箱"],
   "/ai": ["ENGER", "AIアシスタント"],
   "/settings": ["ENGER", "設定"],
+  "/search": ["ENGER", "検索"],
 };
 
-export function AppShell({ children, counts }: { children: React.ReactNode; counts?: SidebarCounts }) {
+export function AppShell({ children, counts, operators }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[] }) {
   const pathname = usePathname();
+  const router = useRouter();
   const key = pathname === "/" ? "/" : "/" + pathname.split("/")[1];
   const crumbs = CRUMBS[key] ?? ["ENGER"];
+  const [q, setQ] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // ⌘K / Ctrl+K で検索にフォーカス
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); inputRef.current?.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const term = q.trim();
+    if (term) router.push(`/search?q=${encodeURIComponent(term)}`);
+  };
 
   return (
     <div className="app">
-      <Sidebar counts={counts} />
+      <Sidebar counts={counts} operators={operators} />
       <main className="main">
         <div className="topbar">
           <div className="crumbs">
@@ -39,11 +59,11 @@ export function AppShell({ children, counts }: { children: React.ReactNode; coun
               </span>
             ))}
           </div>
-          <div className="search">
+          <form className="search" onSubmit={submit}>
             <span style={{ display: "grid", placeItems: "center" }}><Icons.search /></span>
-            <input placeholder="案件・人材・会社を検索…" />
+            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社を検索…（Enterで検索）" />
             <kbd>⌘K</kbd>
-          </div>
+          </form>
           <button className="icon-btn" title="通知"><Icons.bell /><span className="dot" /></button>
           <button className="icon-btn" title="新規"><Icons.plus /></button>
         </div>

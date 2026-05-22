@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
-import { MOCK } from "@/lib/mock";
+import { OperatorBadge } from "./OperatorBadge";
 import type { SidebarCounts } from "@/lib/counts";
 
 const NAV = [
@@ -28,7 +28,7 @@ const TOOLS = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts }: { counts?: SidebarCounts }) {
+export function Sidebar({ counts, operators }: { counts?: SidebarCounts; operators?: string[] }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
@@ -84,13 +84,7 @@ export function Sidebar({ counts }: { counts?: SidebarCounts }) {
         })}
       </div>
 
-      <div className="side-foot">
-        <div className="ava">{MOCK.user.initials}</div>
-        <div className="me">
-          {MOCK.user.name}
-          <small>{MOCK.user.role}</small>
-        </div>
-      </div>
+      <OperatorBadge operators={operators} />
     </aside>
   );
 }

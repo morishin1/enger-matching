@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts } from "@/lib/counts";
+import { getStaff } from "@/lib/staff";
 
 export const metadata: Metadata = {
   title: "ENGER v2 — Matching",
@@ -15,6 +16,9 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const counts = await getSidebarCounts();
+  const staff = await getStaff();
+  // 担当者候補（提案者∪クロージング、重複排除、未割当除外）
+  const operators = Array.from(new Set([...staff.proposers, ...staff.closers.filter((c) => c !== "未割当")]));
   return (
     <html lang="ja" data-density="regular">
       <head>
@@ -23,7 +27,7 @@ export default async function RootLayout({
         <link rel="stylesheet" href={fontsHref} />
       </head>
       <body>
-        <AppShell counts={counts}>{children}</AppShell>
+        <AppShell counts={counts} operators={operators}>{children}</AppShell>
       </body>
     </html>
   );
