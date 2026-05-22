@@ -24,7 +24,8 @@ function initialsOf(name: string): string {
 
 /** 人材CSVの取り込み (service role)。バッチで insert。 */
 export async function importCandidates(records: CandidateInput[], sourceLabel: string) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
 
   const rows = records
@@ -64,7 +65,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 
 /** 注力フラグのトグル (service role)。案件=jobs/job_no、人材=candidates/candidate_no */
 export async function toggleFocus(table: "jobs" | "candidates", idField: string, idValue: number, value: boolean, revalidate?: string) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const { error } = await admin.from(table).update({ is_focus: value }).eq(idField, idValue);
   if (error) return { ok: false, error: error.message };
   if (revalidate) revalidatePath(revalidate);
@@ -80,7 +82,8 @@ export async function bulkSetFocus(
   revalidate?: string,
 ) {
   if (!idValues || idValues.length === 0) return { ok: true, updated: 0 };
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const { error } = await admin.from(table).update({ is_focus: value }).in(idField, idValues);
   if (error) return { ok: false, updated: 0, error: error.message };
   if (revalidate) revalidatePath(revalidate);
@@ -107,7 +110,8 @@ export const LOST_REASONS = [
 
 /** 提案の任意フィールドを更新 (架電進捗/担当/失注理由 等)。 */
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const allowed = ["caller_status", "proposer", "closer", "client_contact", "lost_reason", "lost_phase", "next_action", "stage"];
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
@@ -125,7 +129,8 @@ const parseRateNum = (rate?: string | null): number | null => {
 
 /** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。 */
 export async function createProposal(jobNo: number, candNo: number, score?: number) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const [{ data: job }, { data: cand }] = await Promise.all([
     admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle(),
     admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle(),
@@ -151,7 +156,8 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
 
 /** 提案ステージの変更 (カンバン移動)。 */
 export async function updateProposalStage(id: string, stage: string) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const { error } = await admin.from("proposals").update({ stage, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
@@ -160,7 +166,8 @@ export async function updateProposalStage(id: string, stage: string) {
 
 /** 成約した提案を稼働(engagements)へ変換。提案は「成約」に更新。 */
 export async function convertToEngagement(proposalId: string) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const { data: p } = await admin.from("proposals").select("id, job_title, company, candidate_name, rate").eq("id", proposalId).maybeSingle();
   if (!p?.id) return { ok: false, error: "提案が見つかりません" };
 
@@ -180,7 +187,8 @@ export async function convertToEngagement(proposalId: string) {
 
 /** 稼働ステータスの更新 (予定 / 稼働中 / 終了)。 */
 export async function updateEngagementStatus(id: string, status: string) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const { error } = await admin.from("engagements").update({ status }).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/progress");
@@ -207,7 +215,8 @@ export type MeetingInput = {
 
 /** 打ち合わせ記録を作成 (service role)。 */
 export async function createMeeting(input: MeetingInput) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const row = {
     title: input.title?.trim() || `${input.company_name ?? "打合せ"}（${input.meeting_date ?? ""}）`,
     company_name: input.company_name?.trim() || null,
@@ -255,7 +264,8 @@ export type JobInput = {
 
 /** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
 export async function importJobs(records: JobInput[], sourceLabel: string) {
-  const admin = engerAdmin();
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
   const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
     lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
