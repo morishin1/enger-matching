@@ -260,3 +260,10 @@ button { font-family: inherit; }
 .fresh[data-tone="mid"] .dot { background: #d98a2b; }
 .fresh[data-tone="old"] { color: var(--color-ink-4); }
 .fresh[data-tone="old"] .dot { background: var(--color-ink-5, #b8c0cc); }
+
+/* ログイン画面のレスポンシブ（狭い画面ではブランドパネルを隠す） */
+@media (max-width: 860px) {
+  .login-shell { grid-template-columns: 1fr !important; }
+  .login-brand { display: none !important; }
+  .login-mobile-brand { display: block !important; }
+}
