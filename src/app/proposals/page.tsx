@@ -2,6 +2,7 @@ import { Icons } from "@/components/icons";
 import { ProposalBoard } from "@/components/ProposalBoard";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
+import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export default async function ProposalsPage() {
 
   const staff = await getStaff();
   let lostRows: any[] = [];
+  let feedbackList: { verdict: Verdict; reason: string | null; c_init: string; job_title: string; company: string; updated_at: string }[] = [];
   if (dbConfigured) {
     try {
       const sb = engerClient();
@@ -29,6 +31,12 @@ export default async function ProposalsPage() {
         proposals = all.filter((p: any) => p.stage !== "見送り" && p.stage !== "失注");
         lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
         lost = lostRows.length;
+        // 企業フィードバックを紐付け（ミスマッチ低減の材料）
+        const fbMap = await getFeedbackMap(all.map((p: any) => p.id));
+        feedbackList = all
+          .filter((p: any) => fbMap[p.id])
+          .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
+          .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
@@ -91,6 +99,30 @@ export default async function ProposalsPage() {
             </div>
           ) : (
             <ProposalBoard proposals={proposals} proposers={staff.proposers} closers={staff.closers} />
+          )}
+
+          {feedbackList.length > 0 && (
+            <div className="card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>🗣 企業からの評価（ミスマッチ低減）</h3>
+                <span className="muted" style={{ fontSize: 11.5 }}>{feedbackList.length} 件</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {feedbackList.slice(0, 12).map((f, i) => {
+                  const tone = f.verdict === "want" ? { bg: "#e7f7ee", fg: "#067647" } : f.verdict === "mismatch" ? { bg: "#fdecef", fg: "#b42318" } : { bg: "#fff5e6", fg: "#b45309" };
+                  return (
+                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+                      <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: tone.bg, color: tone.fg }}>{VERDICT_LABEL[f.verdict]}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{f.company}<span className="muted" style={{ fontWeight: 400 }}> ・ {f.c_init} ・ {f.job_title}</span></div>
+                        {f.reason && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>「{f.reason}」</div>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 10, fontSize: 10.5, color: "var(--color-ink-4)" }}>※ ユーザー企業ポータルの「おすすめ人材」で企業が返した評価です。ミスマッチ理由を次の提案に反映しましょう。</div>
+            </div>
           )}
 
           {topReasons.length > 0 && (

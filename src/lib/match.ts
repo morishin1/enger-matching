@@ -42,7 +42,13 @@ const SYNONYMS: Record<string, string> = {
   swiftui: "swift", jetpackcompose: "kotlin",
 };
 // 正規化＋同義語寄せ
-const canon = (s: string) => { const n = norm(s); return SYNONYMS[n] ?? n; };
+export const canon = (s: string) => { const n = norm(s); return SYNONYMS[n] ?? n; };
+
+/** 2つのスキル配列の一致スキル（candidate側の元表記で返す）。 */
+export function overlapSkills(jobSkills?: string[] | null, candSkills?: string[] | null): string[] {
+  const js = new Set((jobSkills ?? []).map(canon));
+  return (candSkills ?? []).filter((s) => js.has(canon(s)));
+}
 
 // 職種カテゴリ判定用キーワード
 const ROLE_GROUPS: [string, string[]][] = [

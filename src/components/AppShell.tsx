@@ -23,7 +23,9 @@ const CRUMBS: Record<string, string[]> = {
   "/ai": ["ENGER", "AIアシスタント"],
   "/settings": ["ENGER", "設定"],
   "/search": ["ENGER", "検索"],
-  "/portal": ["ENGER", "自社案件"],
+  "/portal": ["ENGER", "ポータル"],
+  "/portal/jobs": ["ENGER", "自社案件"],
+  "/portal/candidates": ["ENGER", "おすすめ人材"],
 };
 
 const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
@@ -39,7 +41,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
   // ログイン/新規登録画面はシェル(サイドバー/トップバー)なしで表示
   if (pathname === "/login" || pathname === "/signup") return <>{children}</>;
 
-  const key = pathname === "/" ? "/" : "/" + pathname.split("/")[1];
+  const key = pathname === "/" ? "/" : (pathname.startsWith("/portal/") ? pathname : "/" + pathname.split("/")[1]);
   const crumbs = CRUMBS[key] ?? ["ENGER"];
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);

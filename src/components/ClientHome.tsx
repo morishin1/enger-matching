@@ -86,7 +86,10 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
       </div>
 
       <div className="card">
-        <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700 }}>ご提案中の人材</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>ご提案中の人材</h3>
+          <a href="/portal/candidates" style={{ fontSize: 12, fontWeight: 700, color: "var(--color-brand-700, #0b5cab)", textDecoration: "none" }}>マッチ度を見て評価する →</a>
+        </div>
         {proposals.length === 0 ? (
           <div className="muted" style={{ fontSize: 13 }}>現在ご提案中の人材はありません。</div>
         ) : (
