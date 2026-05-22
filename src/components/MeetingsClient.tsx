@@ -32,8 +32,41 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
   const [f, setF] = useState({ ...empty });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
   const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
   const toggle = (k: "competitors" | "tags", v: string) => setF((p) => ({ ...p, [k]: p[k].includes(v) ? p[k].filter((x) => x !== v) : [...p[k], v] }));
+
+  const analyze = async () => {
+    if (!transcript.trim()) { setAiMsg("文字起こしを貼り付けてください"); return; }
+    setAnalyzing(true); setAiMsg(null);
+    try {
+      const res = await fetch("/api/meeting-analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript, company: f.company_name }) });
+      const data = await res.json();
+      if (!data.ok) { setAiMsg(data.error || "解析に失敗しました"); return; }
+      const r = data.result;
+      setF((p) => ({
+        ...p,
+        ai_summary: r.ai_summary || p.ai_summary,
+        fb_sentiment: r.fb_sentiment || p.fb_sentiment,
+        relation_status: r.relation_status || p.relation_status,
+        new_or_existing: r.new_or_existing || p.new_or_existing,
+        hit_points: r.hit_points || p.hit_points,
+        miss_points: r.miss_points || p.miss_points,
+        needs: r.needs || p.needs,
+        strategy: r.strategy || p.strategy,
+        next_action_us: r.next_action_us || p.next_action_us,
+        next_action_them: r.next_action_them || p.next_action_them,
+        competitor_detail: r.competitor_detail || p.competitor_detail,
+        competitors: (r.competitors?.length ? r.competitors : p.competitors),
+        tags: (r.tags?.length ? r.tags : p.tags),
+      }));
+      setAiMsg("AI解析を各項目に反映しました（内容を確認して保存してください）");
+    } catch (e) {
+      setAiMsg(e instanceof Error ? e.message : "解析に失敗しました");
+    } finally { setAnalyzing(false); }
+  };
 
   const submit = async () => {
     if (!f.company_name.trim()) { setErr("相手企業を入力してください"); return; }
@@ -58,6 +91,18 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
         <div><L>FB感情</L><select style={inp} value={f.fb_sentiment} onChange={(e) => set("fb_sentiment", e.target.value)}>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select></div>
         <div><L>配信可否</L><select style={inp} value={f.publishable} onChange={(e) => set("publishable", e.target.value)}><option>配信可能</option><option>配信不可</option></select></div>
       </div>
+
+      {/* 文字起こしAI分析（Meet/Geminiの文字起こしを貼って自動入力） */}
+      <div style={{ border: "1px solid var(--color-brand-100)", background: "var(--color-brand-25)", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <L>📝 文字起こしをAI分析（Meet/Gemini の文字起こしを貼り付け → 各項目を自動入力）</L>
+          <button type="button" className="btn brand btn-xs" disabled={analyzing} onClick={analyze}>{analyzing ? "解析中…" : "✨ AI分析"}</button>
+        </div>
+        <textarea style={{ ...inp, resize: "vertical" }} rows={4} value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Google Drive に保存された打ち合わせの文字起こしテキストをここに貼り付け…" />
+        {aiMsg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{aiMsg}</div>}
+        <div style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>※ Driveの原本リンクは下の「元文字起こしリンク」に貼ってください。AI分析はここに貼ったテキストを解析します。</div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div><L>AI要約 / メモ</L><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.ai_summary} onChange={(e) => set("ai_summary", e.target.value)} /></div>
         <div><L>エンジャーへのFB</L><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.enger_fb} onChange={(e) => set("enger_fb", e.target.value)} /></div>
