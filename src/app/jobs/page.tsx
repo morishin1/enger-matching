@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { ExportButton, JobImportButton } from "@/components/CsvTools";
 import { FocusHeart } from "@/components/FocusHeart";
@@ -96,12 +97,12 @@ export default async function JobsPage() {
           <thead>
             <tr>
               <th style={{ width: 36 }}>注力</th><th style={{ width: 70 }}>No.</th><th>案件</th><th>職種</th><th>スキル</th>
-              <th style={{ width: 110 }}>単価</th><th style={{ width: 90 }}>リモート</th>
+              <th style={{ width: 110 }}>単価</th><th style={{ width: 90 }}>リモート</th><th style={{ width: 60 }}>ランク</th><th style={{ width: 110 }}>アクション</th>
             </tr>
           </thead>
           <tbody>
             {jobs.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>案件がありません</td></tr>
+              <tr><td colSpan={9} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>案件がありません</td></tr>
             ) : (
               jobs.map((j) => (
                 <tr key={j.job_no}>
@@ -119,6 +120,8 @@ export default async function JobsPage() {
                   </td>
                   <td className="num" style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</td>
                   <td><span className="pill open">{remoteLabel(j.remote_type)}</span></td>
+                  <td>{j.rank && j.rank !== "-" ? <span className="tag brand" style={{ fontWeight: 700 }}>{j.rank}</span> : <span className="muted">—</span>}</td>
+                  <td><Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ padding: "5px 12px", fontSize: 11.5, textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link></td>
                 </tr>
               ))
             )}
