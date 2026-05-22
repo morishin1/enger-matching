@@ -31,9 +31,15 @@
 
 const EE_CFG = (() => {
   const p = PropertiesService.getScriptProperties();
+  // 既存プロジェクトでよく使われる名前のキーを自動で探す。
+  // 見つからなければ 設定 → スクリプト プロパティ に GEMINI_API_KEY を登録すること。
+  const pickKey = (names) => {
+    for (let i = 0; i < names.length; i++) { const v = p.getProperty(names[i]); if (v) return v; }
+    return '';
+  };
   return {
     useExistingPipeline: false, // ← true にすると既存サービスでテスト（下部 EE_extractWithExistingPipeline を要編集）
-    apiKey: p.getProperty('GEMINI_API_KEY') || '',
+    apiKey: pickKey(['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'API_KEY', 'GEMINI_KEY', 'GOOGLE_GENAI_API_KEY', 'GENAI_API_KEY']),
     model: p.getProperty('GEMINI_MODEL') || 'gemini-2.0-flash',
     query: p.getProperty('SAMPLE_QUERY') || 'newer_than:30d',
     sampleSize: Number(p.getProperty('SAMPLE_SIZE') || 40),
