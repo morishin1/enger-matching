@@ -295,6 +295,7 @@ button { font-family: inherit; }
   .page-head h1 { font-size: 24px; }
   .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tbl-scroll .tbl { min-width: 680px; }
+  .duo-grid { grid-template-columns: 1fr !important; }
 }
 
 @media (max-width: 640px) {
