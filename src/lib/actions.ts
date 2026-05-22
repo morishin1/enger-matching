@@ -187,6 +187,57 @@ export async function updateEngagementStatus(id: string, status: string) {
   return { ok: true };
 }
 
+// ===================== 打ち合わせ記録 =====================
+
+export const MEETING_SENTIMENTS = ["👍ポジティブ", "😐中立", "👎ネガティブ", "⚠️競合比較"];
+export const MEETING_RELATIONS = ["🆕新規", "🔄再構築", "♻️継続", "📌休眠"];
+export const MEETING_OWNERS = ["藤本", "森田", "中尾", "寺本", "野沢", "工藤"];
+export const MEETING_COMPETITORS = ["コモレビ", "コアラ", "キャリアビート", "Ysツール", "その他競合ツール", "言及なし"];
+export const MEETING_TAGS = ["インフラ案件源", "Java強い", "ロースキル単価40万帯", "メール自動化要望", "成約率可視化要望", "双方向流通可能", "上場企業", "グループ大規模", "コミュニケーション課題", "自治体案件", "未経験育成"];
+
+export type MeetingInput = {
+  title?: string; company_name?: string; meeting_date?: string | null;
+  their_contact?: string; our_owner?: string; new_or_existing?: string;
+  relation_status?: string; fb_sentiment?: string; ai_summary?: string;
+  enger_fb?: string; hit_points?: string; miss_points?: string; needs?: string;
+  strategy?: string; next_action_us?: string; next_action_them?: string;
+  competitors?: string[]; competitor_detail?: string; tags?: string[];
+  transcript_url?: string; publishable?: string;
+};
+
+/** 打ち合わせ記録を作成 (service role)。 */
+export async function createMeeting(input: MeetingInput) {
+  const admin = engerAdmin();
+  const row = {
+    title: input.title?.trim() || `${input.company_name ?? "打合せ"}（${input.meeting_date ?? ""}）`,
+    company_name: input.company_name?.trim() || null,
+    meeting_date: input.meeting_date || null,
+    their_contact: input.their_contact?.trim() || null,
+    our_owner: input.our_owner || null,
+    new_or_existing: input.new_or_existing || null,
+    relation_status: input.relation_status || null,
+    fb_sentiment: input.fb_sentiment || null,
+    ai_summary: input.ai_summary?.trim() || null,
+    enger_fb: input.enger_fb?.trim() || null,
+    hit_points: input.hit_points?.trim() || null,
+    miss_points: input.miss_points?.trim() || null,
+    needs: input.needs?.trim() || null,
+    strategy: input.strategy?.trim() || null,
+    next_action_us: input.next_action_us?.trim() || null,
+    next_action_them: input.next_action_them?.trim() || null,
+    competitors: input.competitors ?? [],
+    competitor_detail: input.competitor_detail?.trim() || null,
+    tags: input.tags ?? [],
+    transcript_url: input.transcript_url?.trim() || null,
+    publishable: input.publishable || null,
+  };
+  const { error } = await admin.from("meetings").insert(row);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/meetings");
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
 export type JobInput = {
   title: string;
   client_name?: string | null;

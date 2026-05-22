@@ -15,6 +15,7 @@ const NAV = [
   { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
+  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics" },
 ] as const;
