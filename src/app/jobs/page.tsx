@@ -27,11 +27,20 @@ export default async function JobsPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const listRes = await sb.from("jobs")
-        .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at", { count: "exact" })
+      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at";
+      // contact_email 列が未追加(email-columns.sql 未実行)でも落ちないようフォールバック
+      let listRes: any = await sb.from("jobs")
+        .select(`${baseCols}, contact_email, contact_name`, { count: "exact" })
         .eq("is_published", true)
         .order("job_no", { ascending: false })
         .limit(300);
+      if (listRes.error) {
+        listRes = await sb.from("jobs")
+          .select(baseCols, { count: "exact" })
+          .eq("is_published", true)
+          .order("job_no", { ascending: false })
+          .limit(300);
+      }
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
     } catch (e) {

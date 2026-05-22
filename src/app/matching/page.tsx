@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
+import { MailButton } from "@/components/MailButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { rankCandidates, type Job } from "@/lib/match";
+import { rankCandidates, rankJobs, type Job } from "@/lib/match";
+import { candidateProposalMail, jobProposalMail } from "@/lib/gmail";
 
 export const dynamic = "force-dynamic";
 
@@ -20,48 +22,211 @@ function Stars({ score }: { score: number }) {
   );
 }
 
-export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string }> }) {
+// 案件・人材ペアの「提案メール（返信形式）」ボタン群
+function ProposalMails({ job, cand, matchedSkills, score }: { job: any; cand: any; matchedSkills: string[]; score: number }) {
+  const toClient = jobProposalMail({
+    jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name,
+    candidate: { name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate, affiliation: cand.affiliation, exp: cand.exp },
+    matchedSkills, score,
+  });
+  const toCand = candidateProposalMail({
+    candidateName: cand.name, contactName: cand.contact_name,
+    job: { title: job.title, client_name: job.client_name, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max },
+    matchedSkills, score,
+  });
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <MailButton to={job.contact_email} subject={toClient.subject} body={toClient.body} label="クライアントへ提案（返信）" block />
+      <MailButton to={cand.email ?? cand.contact_email} subject={toCand.subject} body={toCand.body} label="人材へ案件を紹介（返信）" block />
+    </div>
+  );
+}
+
+export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
   const sp = await searchParams;
   const tab = sp.tab === "focus" ? "focus" : "auto";
+  const personNo = sp.person ? Number(sp.person) : null;
+
+  let dbError: string | null = null;
+  let focusJobCount = 0, focusPeopleCount = 0;
+
+  // 人材→案件モード用
+  let person: any = null;
+  let rankedJobs: any[] = [];
+
+  // 案件→人材モード用
   let jobList: any[] = [];
   let job: any = null;
   let ranked: any[] = [];
-  let focusJobCount = 0, focusPeopleCount = 0;
-  let dbError: string | null = null;
 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      let jq = sb.from("jobs")
-        .select("job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus")
-        .eq("is_published", true).neq("skills", "{}");
-      if (tab === "focus") jq = jq.eq("is_focus", true);
-
-      // 独立クエリを並列実行 (注力件数 × 2 + 案件リスト)
-      const [fj, fp, jlRes] = await Promise.all([
+      const [fj, fp] = await Promise.all([
         sb.from("jobs").select("job_no", { count: "exact", head: true }).eq("is_focus", true),
         sb.from("candidates").select("candidate_no", { count: "exact", head: true }).eq("is_focus", true),
-        jq.order("job_no", { ascending: false }).limit(80),
       ]);
       focusJobCount = fj.count ?? 0; focusPeopleCount = fp.count ?? 0;
-      jobList = jlRes.data ?? [];
 
-      const jobNo = sp.job ? Number(sp.job) : jobList[0]?.job_no;
-      job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;
+      const CAND_BASE = "candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus";
+      const JOB_BASE = "job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus";
 
-      if (job?.skills?.length) {
-        let cq = sb.from("candidates")
-          .select("candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus")
-          .overlaps("skills", job.skills);
-        if (tab === "focus") cq = cq.eq("is_focus", true);
-        const { data: pool } = await cq.limit(tab === "focus" ? 500 : 200);
-        ranked = rankCandidates(job as Job, pool ?? [], 10);
+      if (personNo) {
+        // ---- 人材 → 案件（逆マッチング）----
+        const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email`).eq("candidate_no", personNo).maybeSingle();
+        person = pr.error ? (await sb.from("candidates").select(CAND_BASE).eq("candidate_no", personNo).maybeSingle()).data : pr.data;
+
+        if (person?.skills?.length) {
+          const buildJ = (cols: string) => {
+            let q = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", person.skills);
+            if (tab === "focus") q = q.eq("is_focus", true);
+            return q.limit(tab === "focus" ? 500 : 200);
+          };
+          let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
+          if (jr.error) jr = await buildJ(JOB_BASE);
+          rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
+        }
+      } else {
+        // ---- 案件 → 人材 ----
+        const buildList = (cols: string) => {
+          let q = sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}");
+          if (tab === "focus") q = q.eq("is_focus", true);
+          return q.order("job_no", { ascending: false }).limit(80);
+        };
+        let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name`);
+        if (jlRes.error) jlRes = await buildList(JOB_BASE);
+        jobList = jlRes.data ?? [];
+
+        const jobNo = sp.job ? Number(sp.job) : jobList[0]?.job_no;
+        job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;
+
+        if (job?.skills?.length) {
+          const buildC = (cols: string) => {
+            let q = sb.from("candidates").select(cols).overlaps("skills", job.skills);
+            if (tab === "focus") q = q.eq("is_focus", true);
+            return q.limit(tab === "focus" ? 500 : 200);
+          };
+          let cr: any = await buildC(`${CAND_BASE}, email, contact_email`);
+          if (cr.error) cr = await buildC(CAND_BASE);
+          ranked = rankCandidates(job as Job, cr.data ?? [], 10);
+        }
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
   } else dbError = "Supabase の環境変数が未設定です";
 
+  // ============ 人材 → 案件モードの描画 ============
+  if (personNo) {
+    const maxScore = rankedJobs[0]?.score ?? 0;
+    const avgScore = rankedJobs.length ? Math.round(rankedJobs.reduce((a, r) => a + r.score, 0) / rankedJobs.length) : 0;
+    const selJob = sp.job ? rankedJobs.find((r) => String(r.job.job_no) === sp.job) : rankedJobs[0];
+    const sel = selJob ?? rankedJobs[0];
+    const linkFor = (jno?: number) => `/matching?person=${personNo}&tab=${tab}${jno != null ? `&job=${jno}` : ""}`;
+
+    return (
+      <div className="page">
+        <div className="page-head">
+          <div style={{ maxWidth: 760 }}>
+            <div className="meta">Matching · 人材 → 案件（AI分析）</div>
+            <h1>{person?.name ?? "人材"} に合う案件</h1>
+            <div className="sub">この人材のスキルを主軸に、単価・職種・リモート条件で補正して案件をランキング表示します。</div>
+          </div>
+          <Link href="/people" className="btn ghost" style={{ textDecoration: "none", flexShrink: 0 }}>← 人材一覧へ</Link>
+        </div>
+
+        {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
+
+        {person && (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+            {/* 左: 案件ランキング */}
+            <div className="card flush" style={{ position: "sticky", top: 80 }}>
+              <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>マッチ案件</div>
+                <span className="tag brand">{rankedJobs.length}件</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {rankedJobs.length === 0 ? (
+                  <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>重なる案件がありません</div>
+                ) : rankedJobs.map((r, i) => {
+                  const j = r.job; const active = sel?.job.job_no === j.job_no;
+                  const rankColor = i === 0 ? "#f0a92b" : i === 1 ? "#9aa7b4" : i === 2 ? "#cd853f" : "var(--color-surface-inset)";
+                  return (
+                    <Link key={j.job_no} href={linkFor(j.job_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
+                      <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</div>
+                        <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {salaryLabel(j.salary_min, j.salary_max)}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}><div style={{ fontSize: 9, color: "var(--color-ink-4)" }}>相性</div><Stars score={r.score} /></div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 右: 詳細 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+              <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 人材</span>
+                    <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} />
+                  </div>
+                  <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
+                  <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
+                    {person.title && <span className="tag">{person.title}</span>}
+                    {person.affiliation && <span className="tag">{person.affiliation}</span>}
+                    <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
+                    <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 18, flexShrink: 0, textAlign: "center" }}>
+                  <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-brand-700)" }}>{maxScore}%</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>最高スコア</div></div>
+                  <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-ink-2)" }}>{avgScore}%</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>平均スコア</div></div>
+                  <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-ink-2)" }}>{rankedJobs.length}</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>候補案件</div></div>
+                </div>
+              </div>
+
+              {sel && (() => {
+                const j = sel.job;
+                const rank = rankedJobs.findIndex((r) => r.job.job_no === j.job_no) + 1;
+                const skillPct = j.skills?.length ? Math.round((sel.matchedSkills.length / j.skills.length) * 100) : 0;
+                return (
+                  <div className="card flush">
+                    <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（要件スキル {skillPct}%）</div>
+                      <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                    </div>
+                    <div style={{ padding: 20 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title}</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
+
+                      <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
+                        {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
+                        {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
+                      </div>
+
+                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💡 マッチ理由</div>
+                      <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
+                        {sel.reasons.length ? sel.reasons.map((r: string, i: number) => <div key={i}>{r}</div>) : <span className="muted">—</span>}
+                      </div>
+                    </div>
+                    <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
+                      <ProposalMails job={j} cand={person} matchedSkills={sel.matchedSkills} score={sel.score} />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ============ 案件 → 人材モードの描画 ============
   const maxScore = ranked[0]?.score ?? 0;
   const avgScore = ranked.length ? Math.round(ranked.reduce((a, r) => a + r.score, 0) / ranked.length) : 0;
   const selIdx = sp.cand ? ranked.findIndex((r) => String(r.candidate.candidate_no) === sp.cand) : 0;
@@ -210,10 +375,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     </div>
                   </div>
 
-                  {/* アクション */}
-                  <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)", display: "flex", gap: 8, alignItems: "center" }}>
-                    <button className="btn brand" style={{ flex: 1, justifyContent: "center" }}><Icons.arrow /><span>このペアで提案する</span></button>
-                    <Link href={linkFor(ranked[Math.min(rank, ranked.length - 1)]?.candidate.candidate_no)} className="btn ghost" style={{ textDecoration: "none" }}>スキップ</Link>
+                  {/* アクション: 返信メール */}
+                  <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>このペアで提案する（相手は返信メールにアクションしやすいので返信形式で送付）</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <ProposalMails job={job} cand={c} matchedSkills={sel.matchedSkills} score={sel.score} />
+                      <Link href={linkFor(ranked[Math.min(rank, ranked.length - 1)]?.candidate.candidate_no)} className="btn ghost" style={{ textDecoration: "none" }}>スキップ</Link>
+                    </div>
                   </div>
                 </div>
               );

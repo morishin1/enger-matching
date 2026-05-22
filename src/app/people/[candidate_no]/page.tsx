@@ -1,0 +1,102 @@
+import Link from "next/link";
+import { Icons } from "@/components/icons";
+import { MailButton } from "@/components/MailButton";
+import { engerClient, dbConfigured } from "@/lib/supabase";
+import { reSubject } from "@/lib/gmail";
+
+export const dynamic = "force-dynamic";
+
+const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
+  value ? (
+    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
+      <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+      <div style={{ color: "var(--color-ink)" }}>{value}</div>
+    </div>
+  ) : null;
+
+export default async function SkillSheetPage({ params }: { params: Promise<{ candidate_no: string }> }) {
+  const { candidate_no } = await params;
+  const no = Number(candidate_no);
+  let c: any = null;
+  let dbError: string | null = null;
+
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      const base = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
+      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank`).eq("candidate_no", no).maybeSingle();
+      if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
+      c = r.data;
+    } catch (e) {
+      dbError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  if (!c) {
+    return (
+      <div className="page">
+        <div className="card">{dbError ? <span style={{ color: "var(--color-danger)" }}>DB: {dbError}</span> : "人材が見つかりませんでした。"} <Link href="/people">← 人材一覧へ</Link></div>
+      </div>
+    );
+  }
+
+  const introMail = {
+    subject: reSubject(`【ご経歴のご案内】${c.name} 様`),
+    body: [
+      `お世話になっております。ENGER でございます。`,
+      `下記人材のご経歴をご案内いたします。ご返信にてご関心の有無をお聞かせください。`,
+      ``,
+      `氏名：${c.name}（${c.title ?? "—"}）`,
+      `所属：${c.affiliation ?? c.source_company ?? "—"}`,
+      `経験：${c.exp ?? "—"} / 希望単価：${c.rate ?? "応相談"}`,
+      `スキル：${(c.skills ?? []).join(" / ") || "—"}`,
+      ``,
+      `何卒よろしくお願いいたします。`,
+    ].join("\n"),
+  };
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <div className="meta">Skill Sheet · スキルシート</div>
+          <h1>{c.name} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></h1>
+          <div className="sub">{[c.title, c.affiliation ?? c.source_company].filter(Boolean).join(" · ") || "—"}</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+          <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
+          <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
+        </div>
+      </div>
+
+      {c.skills?.length > 0 && (
+        <div className="card">
+          <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {(c.skills ?? []).map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
+          </div>
+        </div>
+      )}
+
+      <div className="card">
+        <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 6 }}>プロフィール</div>
+        <Row label="ステータス" value={c.status} />
+        <Row label="ランク" value={c.rank} />
+        <Row label="経験" value={c.exp} />
+        <Row label="希望単価" value={c.rate ?? (c.salary_min || c.salary_max ? `${c.salary_min ?? ""}〜${c.salary_max ?? ""}万円` : null)} />
+        <Row label="稼働開始" value={c.avail} />
+        <Row label="勤務地" value={c.location} />
+        <Row label="リモート希望" value={c.remote_pref} />
+        <Row label="年齢層" value={c.age_band} />
+        <Row label="国籍" value={c.nationality} />
+        <Row label="日本語" value={c.japanese_level} />
+        <Row label="コミュ力" value={c.comm} />
+        <Row label="スキルレベル" value={c.skill_level} />
+        <Row label="所属" value={c.affiliation ?? c.source_company} />
+        <Row label="連絡先" value={c.email ?? c.contact_email} />
+        <Row label="備考" value={c.note} />
+      </div>
+    </div>
+  );
+}

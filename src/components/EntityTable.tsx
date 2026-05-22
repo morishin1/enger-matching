@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
+import { MailButton } from "./MailButton";
 import { bulkSetFocus } from "@/lib/actions";
+import { reSubject } from "@/lib/gmail";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -106,11 +108,26 @@ const JOB_COLS: Col[] = [
     render: (j) => <RankBadge rank={j.rank} />,
   },
   {
-    key: "action", label: "アクション", width: 130, always: true,
+    key: "action", label: "アクション", width: 200, always: true,
     render: (j) => (
-      <Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ padding: "5px 12px", fontSize: 11.5, textDecoration: "none" }}>
-        <Icons.matching /><span>マッチング</span>
-      </Link>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}>
+          <Icons.matching /><span>マッチング</span>
+        </Link>
+        <MailButton
+          to={j.contact_email}
+          subject={reSubject(`【${j.title ?? "ご案件"}】`)}
+          body={[
+            `${j.contact_name ?? j.client_name ?? "ご担当者"} 様`,
+            ``,
+            `お世話になっております。ENGER でございます。`,
+            `「${j.title ?? ""}」の件でご返信差し上げます。マッチする人材をご提案できればと存じます。`,
+            ``,
+            `ご状況・ご要件など、ご返信いただけますと幸いです。`,
+            `何卒よろしくお願いいたします。`,
+          ].join("\n")}
+        />
+      </div>
     ),
   },
 ];
@@ -167,6 +184,31 @@ const PEOPLE_COLS: Col[] = [
     key: "rank", label: "ランク", width: 64, filterLabel: "ランク",
     filter: (p) => (p.rank && p.rank !== "-" ? p.rank : ""),
     render: (p) => <RankBadge rank={p.rank} />,
+  },
+  {
+    key: "action", label: "アクション", width: 240, always: true,
+    render: (p) => (
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Link href={`/matching?person=${p.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}>
+          <Icons.matching /><span>マッチング</span>
+        </Link>
+        <Link href={`/people/${p.candidate_no}`} className="btn btn-xs" style={{ textDecoration: "none" }}>スキルシート</Link>
+        <MailButton
+          to={p.email ?? p.contact_email}
+          subject={reSubject(`【ご案件のご紹介】${p.name ?? ""}様`)}
+          body={[
+            `${p.name ?? ""} 様`,
+            ``,
+            `お世話になっております。ENGER でございます。`,
+            `${p.name ?? ""}様にマッチする案件のご紹介でご返信差し上げます。`,
+            p.skills?.length ? `（ご登録スキル：${(p.skills ?? []).slice(0, 8).join(" / ")}）` : "",
+            ``,
+            `ご状況・ご希望条件など、ご返信いただけますと幸いです。`,
+            `何卒よろしくお願いいたします。`,
+          ].filter((l: string) => l !== "").join("\n")}
+        />
+      </div>
+    ),
   },
 ];
 

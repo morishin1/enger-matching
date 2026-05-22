@@ -98,3 +98,11 @@ export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
+
+/** 案件配列を 1 人材に対してスコアリングし降順に並べて返す（人材→案件の逆マッチング） */
+export function rankJobs(candidate: Candidate, jobs: Job[], limit = 30) {
+  return jobs
+    .map((j) => ({ job: j, ...scoreMatch(j, candidate) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}

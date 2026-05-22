@@ -241,3 +241,10 @@ button { font-family: inherit; }
 .rank-badge[data-rank="A"] { background: #fde9ef; color: #c0395f; }
 .rank-badge[data-rank="B"] { background: #e7f3fb; color: #0a72ad; }
 .rank-badge[data-rank="C"] { background: #eef0f3; color: var(--color-ink-3); }
+
+/* 行アクション用の小ボタン + メールボタン */
+.btn.btn-xs { padding: 5px 11px; font-size: 11.5px; }
+.btn-mail { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 32px; height: 32px; border-radius: 8px; background: var(--color-success, #1aa260); color: #fff; border: 0; cursor: pointer; text-decoration: none; flex: 0 0 auto; transition: filter .12s; }
+.btn-mail:hover { filter: brightness(0.93); }
+.btn-mail.block { width: auto; padding: 0 14px; height: 34px; font: 600 12.5px var(--font-sans); border-radius: 99px; }
+.btn-mail svg { flex: 0 0 auto; }
