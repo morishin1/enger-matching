@@ -1,4 +1,5 @@
 import { callLLM, parseJsonLoose } from "@/lib/llm";
+import { logUsage } from "@/lib/ai-usage";
 import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_COMPETITORS, MEETING_TAGS } from "@/lib/proposal-constants";
 
 export const runtime = "nodejs";
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
 
   const r = await callLLM({ system, prompt, maxTokens: 900, temperature: 0.3 });
   if (!r.ok) return json({ ok: false, error: r.error }, r.status);
+  await logUsage("meeting", r.model, r.usage);
 
   const parsed = parseJsonLoose<Record<string, any>>(r.text);
   if (!parsed) return json({ ok: false, error: "AI応答の解析に失敗しました", raw: r.text.slice(0, 400) }, 502);

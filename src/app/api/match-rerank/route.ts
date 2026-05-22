@@ -1,4 +1,5 @@
 import { callLLM, parseJsonLoose } from "@/lib/llm";
+import { logUsage } from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
 
   const r = await callLLM({ system, prompt, maxTokens: 900, temperature: 0.2 });
   if (!r.ok) return json({ ok: false, error: r.error }, r.status);
+  await logUsage("rerank", r.model, r.usage);
   const parsed = parseJsonLoose<any[]>(r.text);
   if (!Array.isArray(parsed)) return json({ ok: false, error: "AI応答の解析に失敗しました", raw: r.text.slice(0, 300) }, 502);
 
