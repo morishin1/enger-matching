@@ -1,13 +1,23 @@
 import { Icons } from "@/components/icons";
 import { CompaniesView } from "@/components/CompaniesView";
 import { getCompanyOverview } from "@/lib/companies";
-import { dbConfigured } from "@/lib/supabase";
+import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   const companies = (await getCompanyOverview()) ?? [];
-  const needSetup = dbConfigured && companies.length === 0;
+
+  // 手動登録した企業マスタ（連絡先・業種・担当・メモ）。名寄せして詳細/編集に使う。
+  let registered: any[] = [];
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      const { data } = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
+      registered = data ?? [];
+    } catch { /* companies-extend.sql 未実行などは無視 */ }
+  }
+  const needSetup = dbConfigured && companies.length === 0 && registered.length === 0;
 
   const total = companies.length;
   const tierA = companies.filter((c) => c.tier === "A").length;
@@ -54,7 +64,7 @@ export default async function CompaniesPage() {
         </div>
       </div>
 
-      {!needSetup && <CompaniesView companies={companies} />}
+      {!needSetup && <CompaniesView companies={companies} registered={registered} />}
     </div>
   );
 }

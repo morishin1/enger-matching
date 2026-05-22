@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
-import { OperatorBadge } from "./OperatorBadge";
 import type { SidebarCounts } from "@/lib/counts";
 
 const NAV = [
@@ -12,9 +11,9 @@ const NAV = [
   { href: "/matching", id: "matching", label: "マッチング", icon: "matching", count: "matching", hot: true },
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
   { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
-  { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
+  { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics" },
@@ -28,7 +27,7 @@ const TOOLS = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts, operators, defaultOperator }: { counts?: SidebarCounts; operators?: string[]; defaultOperator?: string }) {
+export function Sidebar({ counts }: { counts?: SidebarCounts }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
@@ -84,7 +83,6 @@ export function Sidebar({ counts, operators, defaultOperator }: { counts?: Sideb
         })}
       </div>
 
-      <OperatorBadge operators={operators} defaultName={defaultOperator} />
     </aside>
   );
 }

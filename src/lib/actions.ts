@@ -190,6 +190,41 @@ export async function updateEngagementStatus(id: string, status: string) {
   return { ok: true };
 }
 
+// ===================== 企業マスタ =====================
+
+export type CompanyInput = {
+  name: string; industry?: string; tier?: string; status?: string;
+  owner_staff?: string; contact_name?: string; contact_email?: string;
+  phone?: string; website?: string; address?: string; note?: string;
+};
+
+/** 企業を新規登録/更新 (name で upsert)。 */
+export async function saveCompany(input: CompanyInput) {
+  const name = input.name?.trim();
+  if (!name) return { ok: false, error: "企業名を入力してください" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const row: Record<string, any> = { name };
+  for (const k of ["industry", "tier", "status", "owner_staff", "contact_name", "contact_email", "phone", "website", "address", "note"] as const) {
+    const v = (input as any)[k];
+    if (v !== undefined) row[k] = typeof v === "string" ? (v.trim() || null) : v;
+  }
+  const { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
+/** 企業マスタ登録を削除（案件由来の集計表示は残る）。 */
+export async function deleteCompany(name: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("companies").delete().eq("name", name);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
 // ===================== 担当者マスタ (提案者/クロージング) =====================
 
 /** 担当者を追加（提案者/クロージングの役割フラグ + ログイン用メール）。 */

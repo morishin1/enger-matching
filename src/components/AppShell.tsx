@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
+import { OperatorBadge } from "./OperatorBadge";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
 
@@ -52,7 +53,7 @@ export function AppShell({ children, counts, operators, defaultOperator }: { chi
 
   return (
     <div className="app">
-      <Sidebar counts={counts} operators={operators} defaultOperator={defaultOperator} />
+      <Sidebar counts={counts} />
       <main className="main">
         <div className="topbar">
           <div className="crumbs">
@@ -69,7 +70,7 @@ export function AppShell({ children, counts, operators, defaultOperator }: { chi
             <kbd>⌘K</kbd>
           </form>
           <button className="icon-btn" title="通知"><Icons.bell /><span className="dot" /></button>
-          <button className="icon-btn" title="新規"><Icons.plus /></button>
+          <OperatorBadge operators={operators} defaultName={defaultOperator} compact />
         </div>
         {children}
       </main>
