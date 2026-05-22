@@ -4,9 +4,9 @@ import { use, useActionState } from "react";
 import { signIn, type LoginState } from "./actions";
 
 const FEATURES = [
-  { icon: "🎯", t: "AIマッチング", d: "案件×人材をスコアリングしてランキング" },
-  { icon: "📨", t: "提案・稼働管理", d: "提案ボードから稼働まで一気通貫" },
-  { icon: "📝", t: "打合せAI分析", d: "文字起こしから温度感を自動抽出" },
+  { icon: "target", t: "AIマッチング", d: "案件×人材をスコアリングしてランキング" },
+  { icon: "forward_to_inbox", t: "提案・稼働管理", d: "提案ボードから稼働まで一気通貫" },
+  { icon: "graphic_eq", t: "打合せAI分析", d: "文字起こしから温度感を自動抽出" },
 ];
 
 export default function LoginPage({ searchParams }: { searchParams: Promise<{ redirect?: string; err?: string }> }) {
@@ -19,8 +19,8 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
   return (
     <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden" }}>
       {/* 背景画像 + グラデーション */}
-      <div aria-hidden style={{ position: "absolute", inset: 0, backgroundImage: "url('/login-bg.webp')", backgroundSize: "cover", backgroundPosition: "center" }} />
-      <div aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(115deg, rgba(7,20,43,.92) 0%, rgba(15,36,64,.82) 42%, rgba(0,89,123,.55) 80%, rgba(0,149,217,.35) 100%)" }} />
+      <div aria-hidden style={{ position: "absolute", inset: 0, backgroundImage: "url('/15.png')", backgroundSize: "cover", backgroundPosition: "center" }} />
+      <div aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(115deg, rgba(5,16,38,.90) 0%, rgba(9,28,56,.78) 44%, rgba(0,73,120,.45) 82%, rgba(0,149,217,.22) 100%)" }} />
 
       {/* コンテンツ（画像の上） */}
       <div style={{ position: "relative", minHeight: "100vh", display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 460px)" }} className="login-shell">
@@ -36,7 +36,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
           <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 36 }}>
             {FEATURES.map((f) => (
               <div key={f.t} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <span style={{ fontSize: 17, width: 34, height: 34, borderRadius: 10, background: "rgba(255,255,255,.12)", backdropFilter: "blur(4px)", display: "grid", placeItems: "center", flex: "0 0 34px" }}>{f.icon}</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 20, width: 34, height: 34, borderRadius: 10, background: "rgba(255,255,255,.12)", backdropFilter: "blur(4px)", display: "grid", placeItems: "center", flex: "0 0 34px", color: "#7dd3fc" }}>{f.icon}</span>
                 <div><div style={{ fontSize: 13.5, fontWeight: 700 }}>{f.t}</div><div style={{ fontSize: 12, color: "rgba(255,255,255,.65)", marginTop: 2 }}>{f.d}</div></div>
               </div>
             ))}
