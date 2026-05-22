@@ -25,7 +25,7 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, closers }: any) {
   const [open, setOpen] = useState(false);
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
@@ -62,8 +62,8 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy }: any) {
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 8 }}>
           <Field label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            <Field label="提案者" value={proposer} options={PROPOSERS} onChange={setProposer} />
-            <Field label="クロージング" value={closer} options={CLOSERS} onChange={setCloser} />
+            <Field label="提案者" value={proposer} options={proposers ?? PROPOSERS} onChange={setProposer} />
+            <Field label="クロージング" value={closer} options={closers ?? CLOSERS} onChange={setCloser} />
           </div>
           <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, closer })}>保存</button>
 
@@ -79,7 +79,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy }: any) {
   );
 }
 
-export function ProposalBoard({ proposals }: { proposals: any[] }) {
+export function ProposalBoard({ proposals, proposers, closers }: { proposals: any[]; proposers?: string[]; closers?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -107,7 +107,7 @@ export function ProposalBoard({ proposals }: { proposals: any[] }) {
             </div>
             {items.length === 0 && <div style={{ fontSize: 11, color: "var(--color-ink-4)", textAlign: "center", padding: "16px 0" }}>—</div>}
             {items.map((p) => (
-              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending}
+              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} proposers={proposers} closers={closers}
                 onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} />
             ))}
           </div>

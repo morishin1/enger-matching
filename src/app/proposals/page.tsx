@@ -1,6 +1,7 @@
 import { Icons } from "@/components/icons";
 import { ProposalBoard } from "@/components/ProposalBoard";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export default async function ProposalsPage() {
   let dbError: string | null = null;
   let needSetup = false;
 
+  const staff = await getStaff();
   let lostRows: any[] = [];
   if (dbConfigured) {
     try {
@@ -88,7 +90,7 @@ export default async function ProposalsPage() {
               まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。
             </div>
           ) : (
-            <ProposalBoard proposals={proposals} />
+            <ProposalBoard proposals={proposals} proposers={staff.proposers} closers={staff.closers} />
           )}
 
           {topReasons.length > 0 && (

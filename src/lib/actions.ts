@@ -190,6 +190,42 @@ export async function updateEngagementStatus(id: string, status: string) {
   return { ok: true };
 }
 
+// ===================== 担当者マスタ (提案者/クロージング) =====================
+
+/** 担当者を追加（提案者/クロージングの役割フラグ付き）。 */
+export async function addStaff(name: string, isProposer: boolean, isCloser: boolean) {
+  const n = name.trim();
+  if (!n) return { ok: false, error: "名前を入力してください" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("staff").upsert({ name: n, is_proposer: isProposer, is_closer: isCloser, active: true }, { onConflict: "name" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/settings"); revalidatePath("/proposals");
+  return { ok: true };
+}
+
+/** 担当者の役割/名前を更新。 */
+export async function updateStaff(id: string, fields: { name?: string; is_proposer?: boolean; is_closer?: boolean; active?: boolean }) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const patch: Record<string, any> = {};
+  for (const k of ["name", "is_proposer", "is_closer", "active"] as const) if (k in fields) patch[k] = (fields as any)[k];
+  const { error } = await admin.from("staff").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/settings"); revalidatePath("/proposals");
+  return { ok: true };
+}
+
+/** 担当者を削除。 */
+export async function deleteStaff(id: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("staff").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/settings"); revalidatePath("/proposals");
+  return { ok: true };
+}
+
 // ===================== 打ち合わせ記録 =====================
 
 export type MeetingInput = {
