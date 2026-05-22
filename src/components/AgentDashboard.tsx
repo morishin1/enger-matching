@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
+import { leadKpi } from "@/lib/quality";
 
 const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中"];
 const MET_STAGES = ["面談調整", "クロージング中", "稼働決定"];
@@ -70,7 +71,7 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
       const sb = engerClient();
       const [J, P, E, C] = await Promise.all([
         grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published", "job_no, title, client_name, created_at"),
-        grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status", "id, job_title, company, stage, rate, created_at"),
+        grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified", "id, job_title, company, stage, rate, created_at"),
         grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status"),
         grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num"),
       ]);
@@ -80,6 +81,11 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
   } else setup = true;
 
   // ===== 集計 =====
+  // リード品質KPI（接触前失注・NG除外を母数から外す）は全提案で算出
+  const kpi = leadKpi(proposals);
+  // 以降のワークリスト/お金はNG除外を外して扱う
+  proposals = proposals.filter((p) => !p.disqualified);
+
   const activeProps = proposals.filter((p) => ACTIVE_STAGES.includes(p.stage));
   const activeTitles = new Set(activeProps.map((p) => p.job_title).filter(Boolean));
   const pub = jobs.filter((j) => j.is_published !== false);
@@ -173,6 +179,21 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
         <div className="kpi accent"><div><div className="val tnum">{yen(confirmedMan)}</div><div className="label">確定（稼働中の月額）</div><div className="note">{liveEngs.length} 名 稼働</div></div></div>
         <div className="kpi"><div><div className="val tnum">{grossMan == null ? "—" : yen(grossMan)}</div><div className="label">粗利（月額）</div><div className="note">{grossMan == null ? "原価データ未設定（agent-ops.sql）" : "売上−原価"}</div></div></div>
         <div className="kpi warn"><div><div className="val tnum">{funnel[1].n ? Math.round((fActive / funnel[1].n) * 100) : 0}<span className="unit">%</span></div><div className="label">提案→稼働 率</div><div className="note">面談到達 {fProposed ? Math.round((fMet / fProposed) * 100) : 0}%</div></div></div>
+      </div>
+
+      {/* リード品質（母数の整流：接触前失注・NGを除外） */}
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🚦 リード品質（接触後で評価）</h3>
+          <span className="muted" style={{ fontSize: 11 }}>母数は有効リード。件数より歩留まり重視</span>
+        </div>
+        <div className="kpi-grid">
+          <Stat icon="✅" label="有効リード" value={kpi.valid} sub={`全${kpi.total}件 − 接触前失注 − NG`} tone="#0b5cab" />
+          <Stat icon="🚫" label="接触前失注（母数外）" value={kpi.preLost} sub="そもそも有効でないリード" tone="#6b7280" />
+          <Stat icon="🛑" label="NG除外" value={kpi.ngExcluded} sub="品質ルールで除外（設定）" tone="#b45309" />
+          <Stat icon="📉" label="接触後失注率" value={<>{kpi.postLostRate}<span style={{ fontSize: 13 }}>%</span></>} sub={`接触後失注 ${kpi.postLost}件 / 有効${kpi.valid}`} tone="#b42318" />
+        </div>
+        <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ NG指定・しきい値は 設定 → 品質ルール で調整できます（接触前失注は自動で母数外）。</div>
       </div>
 
       {/* ② 両輪：需要（案件）⇔ 供給（人材） */}

@@ -1,17 +1,31 @@
 import { StaffManager } from "@/components/StaffManager";
 import { AccountManager } from "@/components/AccountManager";
+import { QualityRules, type Rule } from "@/components/QualityRules";
 import { getStaff } from "@/lib/staff";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
+import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 const yen = (usd: number) => `¥${Math.round(usd * YEN_PER_USD).toLocaleString("ja-JP")}`;
 
+async function getQuality(): Promise<{ rules: Rule[]; available: boolean; ngCount: number }> {
+  if (!dbConfigured) return { rules: [], available: false, ngCount: 0 };
+  try {
+    const sb = engerClient();
+    const rulesRes = await sb.from("quality_rules").select("id, kind, label, enabled, threshold, note").order("sort", { ascending: true });
+    if (rulesRes.error) return { rules: [], available: false, ngCount: 0 };
+    const ngRes = await sb.from("proposals").select("id", { count: "exact", head: true }).eq("disqualified", true);
+    return { rules: (rulesRes.data ?? []) as Rule[], available: true, ngCount: ngRes.count ?? 0 };
+  } catch { return { rules: [], available: false, ngCount: 0 }; }
+}
+
 export default async function SettingsPage() {
   const staff = await getStaff();
   const accounts = await listAccounts();
   const usage = await getUsageStats();
+  const quality = await getQuality();
   const maxDaily = Math.max(0.0001, ...usage.daily.map((d) => d.usd));
 
   return (
@@ -69,6 +83,8 @@ export default async function SettingsPage() {
           </>
         )}
       </div>
+
+      <QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} />
 
       <AccountManager accounts={accounts} />
 
