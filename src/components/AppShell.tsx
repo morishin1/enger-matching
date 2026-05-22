@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Sidebar } from "./Sidebar";
 import { OperatorBadge } from "./OperatorBadge";
 import { Icons } from "./icons";
@@ -34,7 +35,9 @@ const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
   client: { label: "ユーザー企業", bg: "#e7f7ee", fg: "#067647" },
 };
 
-export function AppShell({ children, counts, operators, defaultOperator, role = "admin" }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role }) {
+const POSITION_LABEL: Record<string, string> = { inside: "インサイドセールス", outside: "アウトサイドセールス" };
+
+export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "" }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -87,9 +90,12 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
             <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社を検索…（Enterで検索）" />
             <kbd>⌘K</kbd>
           </form>
-          <button className="icon-btn" title="通知"><Icons.bell /><span className="dot" /></button>
+          <Link href="/inbox" className="icon-btn" title="お知らせ"><Icons.bell /><span className="dot" /></Link>
           <span title="権限ロール" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: ROLE_BADGE[role].bg, color: ROLE_BADGE[role].fg, whiteSpace: "nowrap" }}>{ROLE_BADGE[role].label}</span>
-          <OperatorBadge operators={operators} defaultName={defaultOperator} compact />
+          {position && POSITION_LABEL[position] && (
+            <span title="営業区分" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: position === "outside" ? "#fff1e6" : "#eaf4fd", color: position === "outside" ? "#b45309" : "#0b5cab", whiteSpace: "nowrap" }}>{POSITION_LABEL[position]}</span>
+          )}
+          <OperatorBadge defaultName={defaultOperator} email={userEmail} compact />
         </div>
         {children}
       </main>

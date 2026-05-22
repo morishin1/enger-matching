@@ -25,15 +25,18 @@ export default async function RootLayout({
   // ログイン中のユーザーを担当者マスタの email と突き合わせ、操作者の初期値に
   let defaultOperator = "";
   let role: Role = "admin"; // 認証未設定(ローカル)は全表示
+  let position: "inside" | "outside" | null = null;
+  let userEmail = "";
   if (authConfigured) {
     try {
       const sb = await authServerClient();
       const { data: { user } } = await sb.auth.getUser();
       const em = user?.email?.toLowerCase();
       if (em) {
+        userEmail = em;
         defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === em)?.name ?? "";
         const access = await resolveAccess(em);
-        if (access) { role = access.role; if (!defaultOperator && access.name) defaultOperator = access.name; }
+        if (access) { role = access.role; position = access.position; if (!defaultOperator && access.name) defaultOperator = access.name; }
       }
     } catch { /* noop */ }
   }
@@ -46,7 +49,7 @@ export default async function RootLayout({
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
       </head>
       <body>
-        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role}>{children}</AppShell>
+        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail}>{children}</AppShell>
       </body>
     </html>
   );
