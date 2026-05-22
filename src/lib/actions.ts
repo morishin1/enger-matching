@@ -242,11 +242,11 @@ export async function addStaff(name: string, isProposer: boolean, isCloser: bool
 }
 
 /** 担当者の役割/名前を更新。 */
-export async function updateStaff(id: string, fields: { name?: string; email?: string; is_proposer?: boolean; is_closer?: boolean; active?: boolean }) {
+export async function updateStaff(id: string, fields: { name?: string; email?: string; is_proposer?: boolean; is_closer?: boolean; active?: boolean; position?: string | null }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const patch: Record<string, any> = {};
-  for (const k of ["name", "email", "is_proposer", "is_closer", "active"] as const) if (k in fields) patch[k] = (fields as any)[k];
+  for (const k of ["name", "email", "is_proposer", "is_closer", "active", "position"] as const) if (k in fields) patch[k] = (fields as any)[k];
   const { error } = await admin.from("staff").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/settings"); revalidatePath("/proposals");

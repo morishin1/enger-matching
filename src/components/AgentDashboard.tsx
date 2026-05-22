@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
-import { leadKpi } from "@/lib/quality";
+import { leadKpi, isContacted } from "@/lib/quality";
 
 const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中"];
 const MET_STAGES = ["面談調整", "クロージング中", "稼働決定"];
@@ -66,19 +66,26 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
   let jobs: any[] = [], proposals: any[] = [], engs: any[] = [], cands: any[] = [];
   let setup = false;
 
+  let staff: any[] = [];
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const [J, P, E, C] = await Promise.all([
-        grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published", "job_no, title, client_name, created_at"),
+      const [J, P, E, C, S] = await Promise.all([
+        grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published, outside_owner", "job_no, title, client_name, created_at"),
         grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified", "id, job_title, company, stage, rate, created_at"),
         grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status"),
         grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num"),
+        grab(sb, "staff", "name, position", "name"),
       ]);
-      jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows;
+      jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows; staff = S.rows;
       if (!J.ok && !P.ok) setup = true;
     } catch { setup = true; }
   } else setup = true;
+
+  // 区分（インサイド/アウトサイド）の判定
+  const myPosition: "inside" | "outside" | null = (staff.find((s) => s.name === myName)?.position as any) ?? null;
+  const jobByTitle = new Map(jobs.map((j) => [j.title, j]));
+  const outsideOwnerOf = (p: any) => (jobByTitle.get(p.job_title)?.outside_owner ?? null);
 
   // ===== 集計 =====
   // リード品質KPI（接触前失注・NG除外を母数から外す）は全提案で算出
@@ -138,6 +145,34 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
   const myActive = activeProps.filter(isMine);
   const myPipelineMan = myActive.reduce((s, p) => s + parseManYen(p.rate), 0);
 
+  // ===== 区分別「今日の次の一手」 =====
+  type Action = { icon: string; title: string; count: number; detail: string; href: string; items: string[] };
+  const mineProposer = (p: any) => (myName ? p.proposer === myName : true);
+  const hasOwnerData = jobs.some((j) => j.outside_owner);
+  const mineOutside = (p: any) => (myName && hasOwnerData ? outsideOwnerOf(p) === myName : true);
+
+  const insideStalled = proposals.filter((p) => p.stage === "提案中" && !isContacted(p) && daysAgo(p.created_at) >= 7 && mineProposer(p));
+  const insideActions: Action[] = [
+    { icon: "⭐", title: "注力案件を提案する", count: focusUntouched.length, detail: "注力なのに未提案。マッチングして提案", href: "/matching", items: focusUntouched.map(jLabel) },
+    { icon: "🆕", title: "新着をマッチング", count: newJobs.filter((j: any) => !activeTitles.has(j.title)).length, detail: "7日以内の新着・未提案", href: "/matching", items: newJobs.filter((j: any) => !activeTitles.has(j.title)).map(jLabel) },
+    { icon: "📞", title: "提案の初動", count: callPending.filter(mineProposer).length, detail: "自分の提案で未対応/未架電", href: "/proposals", items: callPending.filter(mineProposer).map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
+    { icon: "⏱", title: "停滞フォロー", count: insideStalled.length, detail: "提案中だが7日接触なし", href: "/proposals", items: insideStalled.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
+  ];
+
+  const myClosingStalled = closingStalled.filter(mineOutside);
+  const myMeetings = (hasMeetingDate ? todaysMeetings : meetingsAdjusting).filter(mineOutside);
+  const outsideEndDev = pub.filter((j) => (hasOwnerData && myName ? j.outside_owner === myName : true) && !activeTitles.has(j.title) && daysAgo(j.created_at) >= 14);
+  const outsideActions: Action[] = [
+    { icon: "📅", title: hasMeetingDate ? "本日の面談・商談" : "面談調整を進める", count: myMeetings.length, detail: hasMeetingDate ? "本日予定の面談" : "面談調整中の案件", href: "/proposals", items: myMeetings.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
+    { icon: "🤝", title: "クロージング", count: myClosingStalled.length, detail: "クロージング中で停滞", href: "/proposals", items: myClosingStalled.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
+    { icon: "🔄", title: "契約更新の確認", count: renewSoon.length, detail: "30日以内に満了する稼働", href: "/progress", items: renewSoon.map((e: any) => `${e.candidate_name || "—"}（${e.company ?? "—"}）`) },
+    { icon: "🏢", title: "エンド開拓・掘り起こし", count: outsideEndDev.length, detail: "担当案件で動きが止まっている", href: "/companies", items: outsideEndDev.map(jLabel) },
+  ];
+
+  const posLabel = myPosition === "inside" ? "インサイド" : myPosition === "outside" ? "アウトサイド" : "区分未設定";
+  const actions = myPosition === "outside" ? outsideActions : insideActions;
+  const actionsTotal = actions.reduce((s, a) => s + a.count, 0);
+
   return (
     <div className="page">
       <div className="page-head">
@@ -151,6 +186,43 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
       {setup && (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
           案件・提案テーブルが未作成、またはデータがありません。<span className="mono">supabase/schema-matching.sql</span> 実行後に実データが表示されます。
+        </div>
+      )}
+
+      {/* 🎯 区分別「今日の次の一手」（ヒーロー） */}
+      {!setup && (
+        <div className="card" style={{ borderColor: "var(--color-brand-200, var(--color-brand-100))" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>🎯 あなたの次の一手</h3>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: myPosition === "outside" ? "#fff1e6" : myPosition === "inside" ? "#eaf4fd" : "#eef0f3", color: myPosition === "outside" ? "#b45309" : myPosition === "inside" ? "#0b5cab" : "#6b7280" }}>{posLabel}</span>
+            </div>
+            <span className="muted" style={{ fontSize: 11 }}>{myPosition === "outside" ? "エンド開拓・打合せ中心" : "マッチング・提案中心"} · 上から順に対応</span>
+          </div>
+
+          {myPosition == null && (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>区分が未設定です。設定 → 担当者マスタで「インサイド/アウトサイド」を選ぶと、あなた専用の動線に切り替わります（暫定でインサイド表示）。</div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+            {actions.map((a, i) => (
+              <Link key={i} href={a.href} style={{ textDecoration: "none" }}>
+                <div className="card" style={{ padding: 14, height: "100%", display: "flex", flexDirection: "column", gap: 6, opacity: a.count === 0 ? 0.55 : 1, borderColor: a.count > 0 ? "var(--color-brand-100)" : "var(--color-border)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{a.icon} {a.title}</span>
+                    <span style={{ fontSize: 18, fontWeight: 800, color: a.count > 0 ? "var(--color-brand-700,#0b5cab)" : "var(--color-ink-4)" }}>{a.count}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11 }}>{a.detail}</div>
+                  {a.count > 0 && (
+                    <ul style={{ margin: "2px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 2 }}>
+                      {a.items.slice(0, 3).map((t, k) => <li key={k} style={{ fontSize: 11, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>・{t}</li>)}
+                    </ul>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+          {actionsTotal === 0 && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>今すぐ対応すべきものはありません 👍 在庫から次の仕込みを進めましょう。</div>}
         </div>
       )}
 

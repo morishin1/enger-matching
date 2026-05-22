@@ -1,7 +1,7 @@
 import { engerClient, dbConfigured } from "./supabase";
 import { PROPOSERS, CLOSERS } from "./proposal-constants";
 
-export type Staff = { id: string; name: string; email: string | null; is_proposer: boolean; is_closer: boolean; active: boolean; sort: number };
+export type Staff = { id: string; name: string; email: string | null; is_proposer: boolean; is_closer: boolean; active: boolean; sort: number; position?: "inside" | "outside" | null };
 
 /** ログイン許可判定：担当者マスタに email が1件でもあれば許可リスト方式、無ければ全許可(初期)。 */
 export async function isAllowedEmail(email: string): Promise<boolean> {
@@ -22,7 +22,8 @@ export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      let res: any = await sb.from("staff").select("id, name, email, is_proposer, is_closer, active, sort").eq("active", true).order("sort", { ascending: true });
+      let res: any = await sb.from("staff").select("id, name, email, is_proposer, is_closer, active, sort, position").eq("active", true).order("sort", { ascending: true });
+      if (res.error) res = await sb.from("staff").select("id, name, email, is_proposer, is_closer, active, sort").eq("active", true).order("sort", { ascending: true });
       if (res.error) res = await sb.from("staff").select("id, name, is_proposer, is_closer, active, sort").eq("active", true).order("sort", { ascending: true });
       const { data, error } = res;
       if (!error && data) {

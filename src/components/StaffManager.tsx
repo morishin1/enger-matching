@@ -47,14 +47,22 @@ export function StaffManager({ rows, fromTable }: { rows: Staff[]; fromTable: bo
       </div>
 
       <table className="tbl">
-        <thead><tr><th>氏名</th><th>ログイン用メール</th><th style={{ width: 90 }}>提案者</th><th style={{ width: 110 }}>クロージング</th><th style={{ width: 80 }}>削除</th></tr></thead>
+        <thead><tr><th>氏名</th><th>ログイン用メール</th><th style={{ width: 130 }}>区分</th><th style={{ width: 90 }}>提案者</th><th style={{ width: 110 }}>クロージング</th><th style={{ width: 80 }}>削除</th></tr></thead>
         <tbody>
           {rows.length === 0 ? (
-            <tr><td colSpan={5} style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)" }}>担当者がいません。上のフォームから追加してください。</td></tr>
+            <tr><td colSpan={6} style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)" }}>担当者がいません。上のフォームから追加してください。</td></tr>
           ) : rows.map((s) => (
             <tr key={s.id}>
               <td style={{ fontWeight: 600 }}>{s.name}</td>
               <td><input type="email" defaultValue={s.email ?? ""} placeholder="未設定" disabled={pending} style={{ ...inp, fontSize: 12, padding: "5px 8px", width: "100%" }} onBlur={(e) => { const v = e.target.value.trim(); if (v !== (s.email ?? "")) run(() => updateStaff(s.id, { email: v })); }} /></td>
+              <td>
+                <select value={s.position ?? ""} disabled={pending} style={{ ...inp, fontSize: 12, padding: "5px 8px", width: "100%" }}
+                  onChange={(e) => run(() => updateStaff(s.id, { position: e.target.value || null }))}>
+                  <option value="">未設定</option>
+                  <option value="inside">インサイド</option>
+                  <option value="outside">アウトサイド</option>
+                </select>
+              </td>
               <td><input type="checkbox" checked={s.is_proposer} disabled={pending} onChange={(e) => run(() => updateStaff(s.id, { is_proposer: e.target.checked }))} /></td>
               <td><input type="checkbox" checked={s.is_closer} disabled={pending} onChange={(e) => run(() => updateStaff(s.id, { is_closer: e.target.checked }))} /></td>
               <td><button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={pending} onClick={() => { if (confirm(`「${s.name}」を削除しますか？`)) run(() => deleteStaff(s.id)); }}>削除</button></td>
