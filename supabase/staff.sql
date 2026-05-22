@@ -6,12 +6,15 @@
 create table if not exists enger.staff (
   id          uuid primary key default gen_random_uuid(),
   name        text not null unique,
+  email       text,                            -- ログイン用メール(許可リスト/操作者識別)
   is_proposer boolean not null default true,   -- 提案者の候補
   is_closer   boolean not null default false,  -- クロージング担当の候補
   sort        int default 0,
   active      boolean not null default true,
   created_at  timestamptz not null default now()
 );
+-- 既存テーブルに email 列を追加（再実行用）
+alter table enger.staff add column if not exists email text;
 
 alter table enger.staff enable row level security;
 drop policy if exists staff_read on enger.staff;

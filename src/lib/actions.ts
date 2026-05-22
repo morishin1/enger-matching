@@ -192,24 +192,26 @@ export async function updateEngagementStatus(id: string, status: string) {
 
 // ===================== 担当者マスタ (提案者/クロージング) =====================
 
-/** 担当者を追加（提案者/クロージングの役割フラグ付き）。 */
-export async function addStaff(name: string, isProposer: boolean, isCloser: boolean) {
+/** 担当者を追加（提案者/クロージングの役割フラグ + ログイン用メール）。 */
+export async function addStaff(name: string, isProposer: boolean, isCloser: boolean, email?: string) {
   const n = name.trim();
   if (!n) return { ok: false, error: "名前を入力してください" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const { error } = await admin.from("staff").upsert({ name: n, is_proposer: isProposer, is_closer: isCloser, active: true }, { onConflict: "name" });
+  const row: Record<string, any> = { name: n, is_proposer: isProposer, is_closer: isCloser, active: true };
+  if (email && email.trim()) row.email = email.trim();
+  const { error } = await admin.from("staff").upsert(row, { onConflict: "name" });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/settings"); revalidatePath("/proposals");
   return { ok: true };
 }
 
 /** 担当者の役割/名前を更新。 */
-export async function updateStaff(id: string, fields: { name?: string; is_proposer?: boolean; is_closer?: boolean; active?: boolean }) {
+export async function updateStaff(id: string, fields: { name?: string; email?: string; is_proposer?: boolean; is_closer?: boolean; active?: boolean }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const patch: Record<string, any> = {};
-  for (const k of ["name", "is_proposer", "is_closer", "active"] as const) if (k in fields) patch[k] = (fields as any)[k];
+  for (const k of ["name", "email", "is_proposer", "is_closer", "active"] as const) if (k in fields) patch[k] = (fields as any)[k];
   const { error } = await admin.from("staff").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/settings"); revalidatePath("/proposals");

@@ -5,12 +5,13 @@ import { useState, useEffect, useRef } from "react";
 const KEY = "enger.operator";
 
 /** いま操作している担当者。担当者マスタから選択し、この端末に記憶する。 */
-export function OperatorBadge({ operators = [] }: { operators?: string[] }) {
+export function OperatorBadge({ operators = [], defaultName = "" }: { operators?: string[]; defaultName?: string }) {
   const [name, setName] = useState<string>("");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { try { setName(localStorage.getItem(KEY) || ""); } catch { /* noop */ } }, []);
+  // 保存があればそれ、無ければログイン中ユーザー(defaultName)を初期表示
+  useEffect(() => { try { setName(localStorage.getItem(KEY) || defaultName || ""); } catch { setName(defaultName || ""); } }, [defaultName]);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -45,6 +46,7 @@ export function OperatorBadge({ operators = [] }: { operators?: string[] }) {
             </button>
           ))}
           {name && <button type="button" onClick={() => pick("")} style={{ display: "block", width: "100%", textAlign: "left", border: 0, background: "transparent", color: "var(--color-ink-4)", padding: "8px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12 }}>未選択に戻す</button>}
+          <a href="/api/auth/signout" style={{ display: "block", borderTop: "1px solid var(--color-border)", marginTop: 4, paddingTop: 8, padding: "8px 10px", color: "var(--color-danger)", textDecoration: "none", fontSize: 12.5 }}>ログアウト</a>
         </div>
       )}
     </div>

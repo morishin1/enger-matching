@@ -1,14 +1,16 @@
 import { engerClient, dbConfigured } from "./supabase";
 import { PROPOSERS, CLOSERS } from "./proposal-constants";
 
-export type Staff = { id: string; name: string; is_proposer: boolean; is_closer: boolean; active: boolean; sort: number };
+export type Staff = { id: string; name: string; email: string | null; is_proposer: boolean; is_closer: boolean; active: boolean; sort: number };
 
 /** 担当者マスタを取得。テーブル未作成時は定数にフォールバック。 */
 export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; closers: string[]; fromTable: boolean }> {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data, error } = await sb.from("staff").select("id, name, is_proposer, is_closer, active, sort").eq("active", true).order("sort", { ascending: true });
+      let res: any = await sb.from("staff").select("id, name, email, is_proposer, is_closer, active, sort").eq("active", true).order("sort", { ascending: true });
+      if (res.error) res = await sb.from("staff").select("id, name, is_proposer, is_closer, active, sort").eq("active", true).order("sort", { ascending: true });
+      const { data, error } = res;
       if (!error && data) {
         const rows = data as Staff[];
         return {

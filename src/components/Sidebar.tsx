@@ -28,7 +28,7 @@ const TOOLS = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts, operators }: { counts?: SidebarCounts; operators?: string[] }) {
+export function Sidebar({ counts, operators, defaultOperator }: { counts?: SidebarCounts; operators?: string[]; defaultOperator?: string }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
@@ -84,7 +84,7 @@ export function Sidebar({ counts, operators }: { counts?: SidebarCounts; operato
         })}
       </div>
 
-      <OperatorBadge operators={operators} />
+      <OperatorBadge operators={operators} defaultName={defaultOperator} />
     </aside>
   );
 }

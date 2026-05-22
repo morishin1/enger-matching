@@ -23,9 +23,13 @@ const CRUMBS: Record<string, string[]> = {
   "/search": ["ENGER", "検索"],
 };
 
-export function AppShell({ children, counts, operators }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[] }) {
+export function AppShell({ children, counts, operators, defaultOperator }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  // ログイン画面はシェル(サイドバー/トップバー)なしで表示
+  if (pathname === "/login") return <>{children}</>;
+
   const key = pathname === "/" ? "/" : "/" + pathname.split("/")[1];
   const crumbs = CRUMBS[key] ?? ["ENGER"];
   const [q, setQ] = useState("");
@@ -48,7 +52,7 @@ export function AppShell({ children, counts, operators }: { children: React.Reac
 
   return (
     <div className="app">
-      <Sidebar counts={counts} operators={operators} />
+      <Sidebar counts={counts} operators={operators} defaultOperator={defaultOperator} />
       <main className="main">
         <div className="topbar">
           <div className="crumbs">
