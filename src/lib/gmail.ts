@@ -25,8 +25,8 @@ const salary = (lo?: number | null, hi?: number | null) =>
 
 const quote = (lines: string[]) => lines.filter(Boolean).map((l) => `> ${l}`).join("\n");
 
-/** 差出人の名乗り（担当者名があれば「ENGER の 〇〇」） */
-const senderLabel = (sender?: string | null) => (sender && sender.trim() ? `ENGER の ${sender.trim()}` : "ENGER");
+/** 差出人の名乗り（担当者名があれば「エンジャー事務局の〇〇」） */
+const senderLabel = (sender?: string | null) => (sender && sender.trim() ? `エンジャー事務局の${sender.trim()}` : "エンジャー事務局");
 
 /** 人材へ「案件のご紹介」を返信する本文（人材所属/本人宛て） */
 export function candidateProposalMail(opts: {
