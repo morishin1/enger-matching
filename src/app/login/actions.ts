@@ -2,11 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { authServerClient } from "@/lib/supabase-auth";
-import { isAllowedEmail } from "@/lib/staff";
+import { resolveAccess } from "@/lib/accounts";
 
 export type LoginState = { error?: string } | null;
 
-/** メール+パスワードでログイン。staff.email に許可リストがあればそれで制限。 */
+/** メール+パスワードでログイン。アカウントの role/status を確認して入室。 */
 export async function signIn(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -17,10 +17,19 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { error: "メールアドレスまたはパスワードが正しくありません" };
 
-  // 許可リスト（担当者マスタの email）チェック
-  if (!(await isAllowedEmail(email))) {
+  // アカウント(role/status)チェック
+  const access = await resolveAccess(email);
+  if (!access) {
     await supabase.auth.signOut();
-    return { error: "このアカウントには dx へのアクセス権限がありません（管理者に担当者登録を依頼してください）" };
+    return { error: "このアカウントには dx へのアクセス権限がありません（管理者に登録を依頼してください）" };
+  }
+  if (access.status === "pending") {
+    await supabase.auth.signOut();
+    return { error: "このアカウントは承認待ちです。管理者の承認後にログインできます。" };
+  }
+  if (access.status === "disabled") {
+    await supabase.auth.signOut();
+    return { error: "このアカウントは無効化されています。管理者にお問い合わせください。" };
   }
 
   redirect(redirectTo.startsWith("/") ? redirectTo : "/");

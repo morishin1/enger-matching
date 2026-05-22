@@ -6,6 +6,7 @@ import { Sidebar } from "./Sidebar";
 import { OperatorBadge } from "./OperatorBadge";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
+import type { Role } from "@/lib/accounts";
 
 const CRUMBS: Record<string, string[]> = {
   "/": ["ENGER", "ダッシュボード"],
@@ -24,12 +25,12 @@ const CRUMBS: Record<string, string[]> = {
   "/search": ["ENGER", "検索"],
 };
 
-export function AppShell({ children, counts, operators, defaultOperator }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string }) {
+export function AppShell({ children, counts, operators, defaultOperator, role = "admin" }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  // ログイン画面はシェル(サイドバー/トップバー)なしで表示
-  if (pathname === "/login") return <>{children}</>;
+  // ログイン/新規登録画面はシェル(サイドバー/トップバー)なしで表示
+  if (pathname === "/login" || pathname === "/signup") return <>{children}</>;
 
   const key = pathname === "/" ? "/" : "/" + pathname.split("/")[1];
   const crumbs = CRUMBS[key] ?? ["ENGER"];
@@ -53,7 +54,7 @@ export function AppShell({ children, counts, operators, defaultOperator }: { chi
 
   return (
     <div className="app">
-      <Sidebar counts={counts} />
+      <Sidebar counts={counts} role={role} />
       <main className="main">
         <div className="topbar">
           <div className="crumbs">

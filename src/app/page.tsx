@@ -2,6 +2,11 @@ import type { CSSProperties } from "react";
 import { Fragment } from "react";
 import { Icons } from "@/components/icons";
 import { MOCK } from "@/lib/mock";
+import { ClientHome } from "@/components/ClientHome";
+import { resolveAccess } from "@/lib/accounts";
+import { authServerClient, authConfigured } from "@/lib/supabase-auth";
+
+export const dynamic = "force-dynamic";
 
 type IconComp = (p?: { size?: number; fill?: boolean }) => React.ReactNode;
 
@@ -196,7 +201,22 @@ function ActivityItem({ a }: any) {
   );
 }
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  // ユーザー企業(client)は自社ポータルを表示
+  if (authConfigured) {
+    try {
+      const sb = await authServerClient();
+      const { data: { user } } = await sb.auth.getUser();
+      const em = user?.email?.toLowerCase();
+      if (em) {
+        const access = await resolveAccess(em);
+        if (access?.role === "client") {
+          return <ClientHome companyName={access.companyName} displayName={access.name} />;
+        }
+      }
+    } catch { /* noop → 通常ダッシュボード */ }
+  }
+
   const dateStr = "2026年 5月 21日（木）";
   const kpiIcons: IconComp[] = [Icons.user, Icons.bolt, Icons.arrow, Icons.yen];
 

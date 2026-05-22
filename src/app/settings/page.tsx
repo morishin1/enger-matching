@@ -1,5 +1,7 @@
 import { StaffManager } from "@/components/StaffManager";
+import { AccountManager } from "@/components/AccountManager";
 import { getStaff } from "@/lib/staff";
+import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +10,7 @@ const yen = (usd: number) => `¥${Math.round(usd * YEN_PER_USD).toLocaleString("
 
 export default async function SettingsPage() {
   const staff = await getStaff();
+  const accounts = await listAccounts();
   const usage = await getUsageStats();
   const maxDaily = Math.max(0.0001, ...usage.daily.map((d) => d.usd));
 
@@ -66,6 +69,8 @@ export default async function SettingsPage() {
           </>
         )}
       </div>
+
+      <AccountManager accounts={accounts} />
 
       <StaffManager rows={staff.rows} fromTable={staff.fromTable} />
     </div>

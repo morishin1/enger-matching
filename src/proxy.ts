@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { authProxyClient } from "@/lib/supabase-auth";
+import { resolveAccess, canAccess } from "@/lib/accounts";
 
 /**
  * dx.enger.jp のアクセス制御。
- *  - ログイン済み(Supabaseセッション) → 通す
  *  - 未ログイン → /login へリダイレクト
+ *  - ログイン済み:
+ *      status!=active → /login へ（承認待ち/無効）
+ *      role でアクセス可能ルートを制限（client=自社まわりのみ / settings=adminのみ）
  *
  * ※ Basic認証フォールバックは廃止（ログイン画面へ一本化）。
  * ※ Next.js 16 では middleware は proxy に改名。runtime は nodejs。
@@ -13,8 +16,8 @@ import { authProxyClient } from "@/lib/supabase-auth";
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 公開パス（ログイン画面・API・認証）
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/")) return NextResponse.next();
+  // 公開パス（ログイン画面・新規登録・API・認証）
+  if (pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/api/")) return NextResponse.next();
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -26,7 +29,24 @@ export async function proxy(req: NextRequest) {
   try {
     const supabase = authProxyClient(req, res);
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) return res; // ログイン済み
+    if (user?.email) {
+      const access = await resolveAccess(user.email);
+      // 未許可 or 承認待ち/無効 → ログインへ（メッセージ付き）
+      if (!access || access.status !== "active") {
+        const login = req.nextUrl.clone();
+        login.pathname = "/login";
+        login.search = `?err=${encodeURIComponent(!access ? "アクセス権限がありません" : access.status === "pending" ? "承認待ちです" : "無効化されています")}`;
+        return NextResponse.redirect(login);
+      }
+      // ロール別ルート制限。許可外は自分のホームへ。
+      if (!canAccess(access.role, pathname)) {
+        const home = req.nextUrl.clone();
+        home.pathname = "/";
+        home.search = "";
+        return NextResponse.redirect(home);
+      }
+      return res; // OK
+    }
   } catch { /* セッション取得失敗 → 未ログイン扱いで /login へ */ }
 
   // 未ログイン → ログイン画面へ
