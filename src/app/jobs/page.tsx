@@ -1,9 +1,13 @@
 import { Icons } from "@/components/icons";
 import { ExportButton, JobImportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
+import { KpiTag } from "@/components/KpiTag";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { getMatchingStats, pct } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
+
+const num = (n?: number) => (n == null ? "—" : n.toLocaleString("ja-JP"));
 
 const JOB_EXPORT_HEADERS = [
   { key: "job_no", label: "案件番号" }, { key: "title", label: "案件名" }, { key: "client_name", label: "クライアント" },
@@ -17,29 +21,30 @@ const remoteLabel = (r: string | null) =>
 export default async function JobsPage() {
   let jobs: any[] = [];
   let total = 0;
-  let withSkills = 0;
   let dbError: string | null = null;
+  const stats = await getMatchingStats();
 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const [listRes, skRes] = await Promise.all([
-        sb.from("jobs")
-          .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at", { count: "exact" })
-          .eq("is_published", true)
-          .order("job_no", { ascending: false })
-          .limit(300),
-        sb.from("jobs").select("id", { count: "exact", head: true }).neq("skills", "{}"),
-      ]);
+      const listRes = await sb.from("jobs")
+        .select("job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at", { count: "exact" })
+        .eq("is_published", true)
+        .order("job_no", { ascending: false })
+        .limit(300);
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
-      withSkills = skRes.count ?? 0;
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
   } else {
     dbError = "Supabase の環境変数が未設定です（.env.local / Vercel env）";
   }
+
+  const jTotal = stats?.jobs_total ?? total;
+  const proposable = stats?.jobs_proposable;
+  const unmatched = stats ? Math.max(jTotal - (stats.jobs_proposable ?? 0), 0) : undefined;
+  const detailPct = stats ? pct(stats.jobs_detail_full, stats.jobs_total) : undefined;
 
   return (
     <div className="page">
@@ -65,20 +70,20 @@ export default async function JobsPage() {
 
       <div className="kpi-grid">
         <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.jobs /></div><div className="chip flat">実データ</div></div>
-          <div><div className="val tnum">{total.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">掲載中の案件</div><div className="note">enger.jobs</div></div>
-        </div>
-        <div className="kpi accent">
-          <div className="top"><div className="ico-box"><Icons.matching /></div><div className="chip">{total ? Math.round((withSkills / total) * 100) : 0}%</div></div>
-          <div><div className="val tnum">{withSkills.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">スキル付き</div><div className="note">マッチング対象</div></div>
-        </div>
-        <div className="kpi">
-          <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip flat">表示</div></div>
-          <div><div className="val tnum">100<span className="unit">件</span></div><div className="label">表示中（最新順）</div><div className="note">job_no 降順</div></div>
+          <div className="top"><div className="ico-box"><Icons.matching /></div><KpiTag kind="pri" /></div>
+          <div><div className="val tnum">{num(proposable)}<span className="unit">件</span></div><div className="label">提案可能案件（有効案件）</div><div className="note">募集中 × マッチ候補1名以上</div></div>
         </div>
         <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip">AI</div></div>
-          <div><div className="val tnum">—</div><div className="label">未マッチ案件</div><div className="note">人材取込後に算出</div></div>
+          <div className="top"><div className="ico-box"><Icons.bolt /></div><KpiTag kind="todo" /></div>
+          <div><div className="val tnum">{num(unmatched)}<span className="unit">件</span></div><div className="label">未マッチ案件</div><div className="note">マッチ候補ゼロ・人材プール拡充で解消</div></div>
+        </div>
+        <div className="kpi">
+          <div className="top"><div className="ico-box"><Icons.check /></div><KpiTag kind="fix" /></div>
+          <div><div className="val tnum">{detailPct == null ? "—" : detailPct}<span className="unit">%</span></div><div className="label">要件詳細の充足率</div><div className="note">リモート頻度・希望業務まで入力済</div></div>
+        </div>
+        <div className="kpi accent">
+          <div className="top"><div className="ico-box"><Icons.jobs /></div><KpiTag kind="flow" /></div>
+          <div><div className="val tnum">{stats ? "+" + num(stats.jobs_new7) : "—"}<span className="unit">件</span></div><div className="label">新着案件（直近7日）</div><div className="note">流入が止まっていないかの監視</div></div>
         </div>
       </div>
 

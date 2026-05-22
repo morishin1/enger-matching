@@ -1,9 +1,13 @@
 import { Icons } from "@/components/icons";
 import { CandidateImportButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
+import { KpiTag } from "@/components/KpiTag";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { getMatchingStats, pct } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
+
+const num = (n?: number) => (n == null ? "—" : n.toLocaleString("ja-JP"));
 
 const EXPORT_HEADERS = [
   { key: "kanriNo", label: "管理NO" }, { key: "name", label: "氏名" }, { key: "title", label: "職種" },
@@ -15,6 +19,7 @@ export default async function PeoplePage() {
   let people: any[] = [];
   let total = 0;
   let dbError: string | null = null;
+  const stats = await getMatchingStats();
 
   if (dbConfigured) {
     try {
@@ -44,6 +49,11 @@ export default async function PeoplePage() {
 
   const exportRows = people.map((p) => ({ ...p, kanriNo: `P-${String(p.candidate_no ?? 0).padStart(5, "0")}`, skillsCsv: (p.skills ?? []).join(" / ") }));
 
+  const cTotal = stats?.cand_total ?? total;
+  const proposable = stats?.cand_proposable;
+  const usableRate = stats && cTotal ? (((stats.cand_proposable ?? 0) / cTotal) * 100) : undefined;
+  const profilePct = stats ? pct(stats.cand_profile_full, stats.cand_total) : undefined;
+
   return (
     <div className="page">
       <div className="page-head">
@@ -65,20 +75,27 @@ export default async function PeoplePage() {
 
       <div className="kpi-grid">
         <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.people /></div><div className="chip flat">実データ</div></div>
-          <div><div className="val tnum">{total.toLocaleString("ja-JP")}<span className="unit">名</span></div><div className="label">登録人材</div><div className="note">enger.candidates</div></div>
-        </div>
-        <div className="kpi accent">
-          <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">提案可</div></div>
-          <div><div className="val tnum">{people.filter((p) => p.status === "提案可").length}<span className="unit">名</span></div><div className="label">提案可能</div><div className="note">ステータス別</div></div>
+          <div className="top"><div className="ico-box"><Icons.check /></div><KpiTag kind="pri" /></div>
+          <div>
+            <div className="val tnum">{num(proposable)}<span className="unit">名</span></div>
+            <div className="label">提案可能人材（有効プール）</div>
+            <div className="note">
+              {stats ? `登録${num(stats.cand_total)} → スキル${num(stats.cand_skills)} → 提案可${num(stats.cand_proposable)}` : "ステータス=提案可"}
+              {usableRate != null && `　使えるのは${usableRate.toFixed(1)}%`}
+            </div>
+          </div>
         </div>
         <div className="kpi">
-          <div className="top"><div className="ico-box"><Icons.matching /></div><div className="chip flat">—</div></div>
-          <div><div className="val tnum">{people.filter((p) => (p.skills ?? []).length > 0).length}<span className="unit">名</span></div><div className="label">スキル登録済</div><div className="note">マッチ対象</div></div>
+          <div className="top"><div className="ico-box"><Icons.people /></div><KpiTag kind="fix" /></div>
+          <div><div className="val tnum">{profilePct == null ? "—" : profilePct}<span className="unit">%</span></div><div className="label">プロフィール充足率</div><div className="note">スキル・希望条件が揃った割合</div></div>
         </div>
         <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.star /></div><div className="chip">CSV</div></div>
-          <div><div className="val" style={{ fontSize: 18 }}>取込/書出</div><div className="label">CSV 連携</div><div className="note">右上のボタン</div></div>
+          <div className="top"><div className="ico-box"><Icons.bolt /></div><KpiTag kind="todo" /></div>
+          <div><div className="val tnum">{num(stats?.cand_stale)}<span className="unit">名</span></div><div className="label">鮮度切れ人材</div><div className="note">30日以上 情報更新なし・NG判定候補</div></div>
+        </div>
+        <div className="kpi accent">
+          <div className="top"><div className="ico-box"><Icons.star /></div><KpiTag kind="check" /></div>
+          <div><div className="val tnum">{num(stats?.cand_dupes)}<span className="unit">件</span></div><div className="label">重複疑い</div><div className="note">名寄せで検出した同一人物の疑い</div></div>
         </div>
       </div>
 
