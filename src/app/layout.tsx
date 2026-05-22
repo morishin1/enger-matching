@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
+import { getSidebarCounts } from "@/lib/counts";
 
 export const metadata: Metadata = {
   title: "ENGER v2 — Matching",
@@ -10,9 +11,10 @@ export const metadata: Metadata = {
 const fontsHref =
   "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap";
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const counts = await getSidebarCounts();
   return (
     <html lang="ja" data-density="regular">
       <head>
@@ -21,7 +23,7 @@ export default function RootLayout({
         <link rel="stylesheet" href={fontsHref} />
       </head>
       <body>
-        <AppShell>{children}</AppShell>
+        <AppShell counts={counts}>{children}</AppShell>
       </body>
     </html>
   );

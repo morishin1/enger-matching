@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { Icons } from "./icons";
+import type { SidebarCounts } from "@/lib/counts";
 
 const CRUMBS: Record<string, string[]> = {
   "/": ["ENGER", "ダッシュボード"],
@@ -19,14 +20,14 @@ const CRUMBS: Record<string, string[]> = {
   "/settings": ["ENGER", "設定"],
 };
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, counts }: { children: React.ReactNode; counts?: SidebarCounts }) {
   const pathname = usePathname();
   const key = pathname === "/" ? "/" : "/" + pathname.split("/")[1];
   const crumbs = CRUMBS[key] ?? ["ENGER"];
 
   return (
     <div className="app">
-      <Sidebar />
+      <Sidebar counts={counts} />
       <main className="main">
         <div className="topbar">
           <div className="crumbs">
