@@ -124,7 +124,7 @@ const PEOPLE_COLS: Col[] = [
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 
-export function EntityTable({ kind, rows, total }: { kind: EntityKind; rows: any[]; total: number }) {
+export function EntityTable({ kind, rows, total, initialQuery }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const cols = kind === "jobs" ? JOB_COLS : PEOPLE_COLS;
@@ -132,7 +132,7 @@ export function EntityTable({ kind, rows, total }: { kind: EntityKind; rows: any
   const table = kind === "jobs" ? "jobs" : "candidates";
   const revalidate = kind === "jobs" ? "/jobs" : "/people";
 
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery ?? "");
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(cols.filter((c) => c.defaultHidden).map((c) => c.key)));
   const [selected, setSelected] = useState<Set<number>>(new Set());

@@ -18,7 +18,8 @@ const JOB_EXPORT_HEADERS = [
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-export default async function JobsPage() {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
+  const { client } = await searchParams;
   let jobs: any[] = [];
   let total = 0;
   let dbError: string | null = null;
@@ -101,7 +102,7 @@ export default async function JobsPage() {
         <div className="muted" style={{ fontSize: 11.5 }}>検索・絞り込み・列の表示切替・チェックで注力に一括登録できます</div>
       </div>
 
-      <EntityTable kind="jobs" rows={jobs} total={total} />
+      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={client} />
     </div>
   );
 }
