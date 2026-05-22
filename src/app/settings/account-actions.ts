@@ -69,6 +69,21 @@ export async function setAccountRole(id: string, role: "admin" | "agent" | "clie
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 営業区分（インサイド/アウトサイド）を管理者が設定。 */
+export async function setAccountPosition(id: string, position: "inside" | "outside" | null): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_users").update({ position }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/settings");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** アカウント削除。 */
 export async function deleteAccount(id: string): Promise<Result> {
   const guard = await requireAdmin();

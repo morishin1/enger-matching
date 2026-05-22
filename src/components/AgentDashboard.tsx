@@ -62,7 +62,7 @@ function Bucket({ icon, label, count, items, href, tone, muted }: { icon: string
   );
 }
 
-export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"; myName?: string | null }) {
+export async function AgentDashboard({ role, myName, position }: { role: "admin" | "agent"; myName?: string | null; position?: "inside" | "outside" | null }) {
   let jobs: any[] = [], proposals: any[] = [], engs: any[] = [], cands: any[] = [];
   let setup = false;
 
@@ -82,8 +82,8 @@ export async function AgentDashboard({ role, myName }: { role: "admin" | "agent"
     } catch { setup = true; }
   } else setup = true;
 
-  // 区分（インサイド/アウトサイド）の判定
-  const myPosition: "inside" | "outside" | null = (staff.find((s) => s.name === myName)?.position as any) ?? null;
+  // 区分（インサイド/アウトサイド）の判定：アカウント設定を優先、無ければ担当者マスタ
+  const myPosition: "inside" | "outside" | null = position ?? ((staff.find((s) => s.name === myName)?.position as any) ?? null);
   const jobByTitle = new Map(jobs.map((j) => [j.title, j]));
   const outsideOwnerOf = (p: any) => (jobByTitle.get(p.job_title)?.outside_owner ?? null);
 

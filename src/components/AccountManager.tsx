@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { approveAccount, setAccountStatus, setAccountRole, deleteAccount } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, deleteAccount } from "@/app/settings/account-actions";
 import type { Account, Role } from "@/lib/accounts";
 
 const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "営業", client: "ユーザー企業" };
@@ -88,6 +88,13 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
                     <option value="agent">営業</option>
                     <option value="admin">管理者</option>
                   </select>
+                  {(a.role === "agent" || a.role === "admin") && (
+                    <select value={a.position ?? ""} onChange={(e) => run(() => setAccountPosition(a.id, (e.target.value || null) as any))} disabled={pending} title="営業区分（管理者が決定）" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12 }}>
+                      <option value="">区分なし</option>
+                      <option value="inside">インサイド</option>
+                      <option value="outside">アウトサイド</option>
+                    </select>
+                  )}
                   {a.status === "disabled" ? (
                     <button onClick={() => run(() => setAccountStatus(a.id, "active"))} disabled={pending} style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>有効化</button>
                   ) : (

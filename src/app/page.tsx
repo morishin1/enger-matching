@@ -10,5 +10,5 @@ export default async function DashboardPage() {
   if (access?.role === "client") {
     return <ClientHome companyName={access.companyName} displayName={access.name} />;
   }
-  return <AgentDashboard role={access?.role === "agent" ? "agent" : "admin"} myName={access?.name ?? null} />;
+  return <AgentDashboard role={access?.role === "agent" ? "agent" : "admin"} myName={access?.name ?? null} position={access?.position ?? null} />;
 }
