@@ -7,6 +7,9 @@ import { upsertBillingTask, uploadBillingFile, extractBilling } from "@/app/bill
 
 const inp = { fontFamily: "inherit", fontSize: 12, padding: "5px 8px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-ink)", width: "100%" } as const;
 
+const MAX_MB = 10; // 1ファイルの最大サイズ（一般的なサイズ）
+const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls";
+
 function within(h: number | null, min: number | null, max: number | null) {
   if (h == null) return null;
   if (min != null && h < min) return "under";
@@ -26,10 +29,13 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
   const invRef = useRef<HTMLInputElement>(null);
 
   const save = (patch: Record<string, any>) => start(async () => { await upsertBillingTask(t.engagement_id, t.period, patch); onChanged(); });
-  const upload = (kind: "attendance" | "invoice", file: File) => start(async () => {
-    const fd = new FormData(); fd.set("engagement_id", t.engagement_id); fd.set("period", t.period); fd.set("kind", kind); fd.set("file", file);
-    const r = await uploadBillingFile(fd); if (!r.ok) setAiMsg(r.error ?? "アップロード失敗"); onChanged();
-  });
+  const upload = (kind: "attendance" | "invoice", file: File) => {
+    if (file.size > MAX_MB * 1024 * 1024) { setAiMsg(`ファイルが大きすぎます（最大${MAX_MB}MB）。現在 ${(file.size / 1024 / 1024).toFixed(1)}MB`); return; }
+    start(async () => {
+      const fd = new FormData(); fd.set("engagement_id", t.engagement_id); fd.set("period", t.period); fd.set("kind", kind); fd.set("file", file);
+      const r = await uploadBillingFile(fd); if (!r.ok) setAiMsg(r.error ?? "アップロード失敗"); else setAiMsg(null); onChanged();
+    });
+  };
   const runAi = async () => {
     if (!aiKind) return;
     setAiBusy(true); setAiMsg(null);
@@ -72,10 +78,11 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
           {w === "ok" && <span style={{ fontSize: 11, color: "#1aa260", fontWeight: 700 }}>範囲内</span>}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input ref={attRef} type="file" hidden onChange={(e) => { if (e.target.files?.[0]) upload("attendance", e.target.files[0]); e.target.value = ""; }} />
+          <input ref={attRef} type="file" accept={ACCEPT} hidden onChange={(e) => { if (e.target.files?.[0]) upload("attendance", e.target.files[0]); e.target.value = ""; }} />
           <button className="btn brand" style={{ fontSize: 12.5 }} disabled={pending} onClick={() => attRef.current?.click()}>📎 {pending ? "アップロード中…" : t.attendance_file ? "勤怠表を差し替え" : "勤怠表をアップロード"}</button>
           {t.attendance_file && <a href={t.attendance_file} target="_blank" rel="noreferrer" className="btn" style={{ fontSize: 12.5, textDecoration: "none" }}>📄 添付を見る</a>}
           <button className="btn ghost btn-xs" disabled={pending} onClick={() => { setAiKind(aiKind === "attendance" ? null : "attendance"); setAiMsg(null); }}>✨ テキストからAI抽出</button>
+          <span className="muted" style={{ fontSize: 10 }}>最大{MAX_MB}MB（PDF/画像/Excel/CSV）</span>
         </div>
       </div>
 
@@ -90,10 +97,11 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
           <span className="muted" style={{ fontSize: 11 }}>月額 {t.monthly_rate != null ? `${t.monthly_rate}万` : "—"}</span>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input ref={invRef} type="file" hidden onChange={(e) => { if (e.target.files?.[0]) upload("invoice", e.target.files[0]); e.target.value = ""; }} />
+          <input ref={invRef} type="file" accept={ACCEPT} hidden onChange={(e) => { if (e.target.files?.[0]) upload("invoice", e.target.files[0]); e.target.value = ""; }} />
           <button className="btn brand" style={{ fontSize: 12.5 }} disabled={pending} onClick={() => invRef.current?.click()}>📎 {pending ? "アップロード中…" : t.invoice_file ? "請求書を差し替え" : "請求書をアップロード"}</button>
           {t.invoice_file && <a href={t.invoice_file} target="_blank" rel="noreferrer" className="btn" style={{ fontSize: 12.5, textDecoration: "none" }}>📄 添付を見る</a>}
           <button className="btn ghost btn-xs" disabled={pending} onClick={() => { setAiKind(aiKind === "invoice" ? null : "invoice"); setAiMsg(null); }}>✨ テキストからAI抽出</button>
+          <span className="muted" style={{ fontSize: 10 }}>最大{MAX_MB}MB（PDF/画像/Excel/CSV）</span>
         </div>
       </div>
 
