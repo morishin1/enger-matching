@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
-import { PROPOSAL_STAGES, CALLER_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -32,6 +32,8 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
   const [closer, setCloser] = useState(p.closer ?? "");
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
+  const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
+  const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
   const tone = STAGE_TONE[p.stage] ?? "#6b7280";
 
   return (
@@ -47,6 +49,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
       </div>
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
         {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
+        {(p.meeting_date || p.meeting_status) && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: "#fff1e6", color: "#b45309" }}>📅 {[p.meeting_date, p.meeting_status].filter(Boolean).join(" ")}</span>}
         {p.proposer && <span className="tag" style={{ fontSize: 10 }}>提案 {p.proposer}</span>}
         {p.closer && p.closer !== "未割当" && <span className="tag" style={{ fontSize: 10 }}>CL {p.closer}</span>}
       </div>
@@ -67,11 +70,24 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
           </div>
           <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, closer })}>保存</button>
 
+          {/* 面談（これから捌く予定）— ファネルの面談到達率の素 */}
+          <div style={{ paddingTop: 8, borderTop: "1px dashed var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 10.5, color: "#b45309", fontWeight: 600 }}>📅 面談・商談</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>予定日
+                <input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+              </label>
+              <Field label="面談ステータス" value={meetingStatus} options={MEETING_STATUSES} onChange={setMeetingStatus} />
+            </div>
+            <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onSave(p.id, { meeting_date: meetingDate || null, meeting_status: meetingStatus || null })}>面談情報を保存</button>
+          </div>
+
           <div style={{ paddingTop: 8, borderTop: "1px dashed var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>
             <div style={{ fontSize: 10.5, color: "var(--color-danger)", fontWeight: 600 }}>見送り（失注）</div>
             <Field label="失注フェーズ" value={lostPhase} options={LOST_PHASES} onChange={setLostPhase} />
-            <Field label="失注理由（主要因）" value={lostReason} options={LOST_REASONS} onChange={setLostReason} />
-            <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy} onClick={() => onLose(p.id, lostPhase, lostReason)}>見送りにする</button>
+            <Field label="失注理由（主要因・必須）" value={lostReason} options={LOST_REASONS} onChange={setLostReason} />
+            {!lostReason && <div style={{ fontSize: 10, color: "var(--color-danger)" }}>※ 失注理由は分析の必須項目です。選択してください。</div>}
+            <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReason ? 1 : 0.5 }} disabled={busy || !lostReason} onClick={() => onLose(p.id, lostPhase, lostReason)}>見送りにする</button>
           </div>
         </div>
       )}

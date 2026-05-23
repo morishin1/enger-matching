@@ -21,7 +21,7 @@ export default async function ProposalsPage() {
       const base = "id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await sb.from("proposals")
-        .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase`)
+        .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
       if (res.error) res = await sb.from("proposals").select(base).order("created_at", { ascending: false }).limit(400);
       if (res.error) {

@@ -6,6 +6,7 @@
 export const PROPOSAL_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "稼働決定"] as const;
 
 export const CALLER_STATUSES = ["未架電", "電話(不在)", "電話済み", "LINE確認中", "メール確認中", "返信あり"];
+export const MEETING_STATUSES = ["調整中", "日程確定", "実施済", "リスケ", "キャンセル"];
 export const PROPOSERS = ["工藤", "結城", "藤本"];
 export const CLOSERS = ["未割当", "寺本", "野澤", "工藤"];
 export const LOST_PHASES = ["1. 接触前失注", "2. 接触後失注", "3. 提案後失注", "4. 面談後失注", "5. 最終提示後失注"];
