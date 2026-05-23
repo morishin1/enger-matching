@@ -1,6 +1,7 @@
 import { Icons } from "@/components/icons";
 import { ExportButton, JobImportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
+import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { KpiTag } from "@/components/KpiTag";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getMatchingStats, pct } from "@/lib/stats";
@@ -91,6 +92,19 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const unmatched = stats ? Math.max(jTotal - (stats.jobs_proposable ?? 0), 0) : undefined;
   const detailPct = stats ? pct(stats.jobs_detail_full, stats.jobs_total) : undefined;
 
+  // 企業掲載の承認待ち案件
+  let pendingClientJobs: PendingJob[] = [];
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      const { data } = await sb.from("jobs")
+        .select("job_no, title, client_name, role_label, salary_min, salary_max, contract_types, description, posted_by_email, created_at")
+        .eq("posted_by_client", true).eq("review_status", "pending")
+        .order("created_at", { ascending: false }).limit(50);
+      pendingClientJobs = (data ?? []) as PendingJob[];
+    } catch { /* 列未追加なら無視 */ }
+  }
+
   // エンド担当の選択肢（アウトサイド、無ければ全担当者）
   const staff = await getStaff();
   const outsideNames = staff.rows.filter((s) => s.position === "outside").map((s) => s.name);
@@ -162,6 +176,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ これらは分析・仮説立案の土台になる必須項目です。下の一覧でエンド担当（赤背景＝未設定）を埋めてください。単価/スキルはCSV取込または案件詳細で補完します。</div>
         </div>
       )}
+
+      <PendingClientJobs jobs={pendingClientJobs} />
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件 おすすめランキング</h3>

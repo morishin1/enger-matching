@@ -11,8 +11,19 @@ export type PortalJob = {
   remote_type: string | null;
   status: string | null;
   skills: string[] | null;
+  contract_types?: string[] | null;
+  review_status?: string | null;
+  is_published?: boolean | null;
+  posted_by_client?: boolean | null;
   proposalCount: number;
   activeCount: number;
+};
+
+const statusBadge = (j: PortalJob) => {
+  if (j.posted_by_client && j.review_status === "pending") return { label: "審査中", bg: "#fef9c3", fg: "#854d0e" };
+  if (j.posted_by_client && j.review_status === "rejected") return { label: "却下", bg: "#fdecef", fg: "#b42318" };
+  if (j.is_published) return { label: "公開中", bg: "#e7f7ee", fg: "#067647" };
+  return null;
 };
 
 const salary = (a?: number | null, b?: number | null) => {
@@ -55,7 +66,13 @@ export function PortalJobsList({ jobs }: { jobs: PortalJob[] }) {
                 <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.4 }}>{j.title ?? "（無題）"}</div>
                 <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", flexShrink: 0 }}>#{j.job_no}</span>
               </div>
+              {(() => { const b = statusBadge(j); return b ? <span style={{ alignSelf: "flex-start", fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: b.bg, color: b.fg }}>{b.label}</span> : null; })()}
               <div className="muted" style={{ fontSize: 12 }}>{[j.role_label, remote(j.remote_type), salary(j.salary_min, j.salary_max)].filter(Boolean).join(" · ")}</div>
+              {j.contract_types && j.contract_types.length > 0 && (
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {j.contract_types.map((c) => <span key={c} style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: "var(--color-brand-50)", color: "var(--color-brand-700)" }}>{c}</span>)}
+                </div>
+              )}
               {j.skills && j.skills.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                   {j.skills.slice(0, 6).map((s) => (

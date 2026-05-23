@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { PortalJobsList, type PortalJob } from "@/components/PortalJobsList";
+import { ClientJobForm } from "@/components/ClientJobForm";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +22,13 @@ export default async function PortalJobsPage() {
     try {
       const sb = engerClient();
       const like = `%${companyName}%`;
+      const cols = "job_no, title, role_label, salary_min, salary_max, remote_type, status, skills, contract_types, review_status, is_published, posted_by_client";
       const [jr, pr] = await Promise.all([
-        sb.from("jobs").select("job_no, title, role_label, salary_min, salary_max, remote_type, status, skills")
-          .eq("is_published", true).ilike("client_name", like).order("created_at", { ascending: false }).limit(200),
+        // 公開中の自社案件 + 自社が掲載した案件（審査中/却下含む）
+        sb.from("jobs").select(cols)
+          .ilike("client_name", like)
+          .or("is_published.eq.true,posted_by_client.eq.true")
+          .order("created_at", { ascending: false }).limit(300),
         sb.from("proposals").select("job_title, stage").ilike("company", like).limit(500),
       ]);
       const props = pr.data ?? [];
@@ -48,6 +53,8 @@ export default async function PortalJobsPage() {
       </div>
 
       {note && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginBottom: 14 }}>{note}</div>}
+
+      <div style={{ marginBottom: 16 }}><ClientJobForm /></div>
 
       <PortalJobsList jobs={jobs} />
     </div>
