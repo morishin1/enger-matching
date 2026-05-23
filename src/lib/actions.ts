@@ -192,6 +192,19 @@ export async function updateEngagementStatus(id: string, status: string) {
   return { ok: true };
 }
 
+/** 稼働(契約)の項目を更新（月額/原価/満了日/更新意向/更新回答期限）。 */
+export async function updateEngagementFields(id: string, fields: Record<string, any>) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const allowed = ["monthly_rate", "cost", "start_date", "end_date", "renewal_due", "renewal_status", "status"];
+  const patch: Record<string, any> = {};
+  for (const k of allowed) if (k in fields) patch[k] = fields[k] === "" ? null : fields[k];
+  const { error } = await admin.from("engagements").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/progress"); revalidatePath("/");
+  return { ok: true };
+}
+
 // ===================== 企業マスタ =====================
 
 export type CompanyInput = {

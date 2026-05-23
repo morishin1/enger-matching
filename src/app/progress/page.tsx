@@ -12,13 +12,13 @@ export default async function ProgressPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data, error } = await sb
-        .from("engagements")
-        .select("id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, created_at")
-        .order("created_at", { ascending: false })
-        .limit(300);
-      if (error) needSetup = true;
-      else rows = data ?? [];
+      const base = "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, created_at";
+      let res: any = await sb.from("engagements")
+        .select(`${base}, cost, renewal_due, renewal_status`)
+        .order("created_at", { ascending: false }).limit(300);
+      if (res.error) res = await sb.from("engagements").select(base).order("created_at", { ascending: false }).limit(300);
+      if (res.error) needSetup = true;
+      else rows = res.data ?? [];
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
