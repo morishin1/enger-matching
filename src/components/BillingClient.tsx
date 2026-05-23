@@ -3,7 +3,7 @@
 import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { BillingTask } from "@/lib/billing";
-import { upsertBillingTask, uploadBillingFile, extractBilling } from "@/app/billing/actions";
+import { upsertBillingTask, uploadBillingFile } from "@/app/billing/actions";
 
 const inp = { fontFamily: "inherit", fontSize: 12, padding: "5px 8px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-ink)", width: "100%" } as const;
 
@@ -21,30 +21,20 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
   const [pending, start] = useTransition();
   const [hours, setHours] = useState(t.attendance_hours ?? "");
   const [amount, setAmount] = useState(t.invoice_amount ?? "");
-  const [aiText, setAiText] = useState("");
-  const [aiKind, setAiKind] = useState<"attendance" | "invoice" | null>(null);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiMsg, setAiMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const attRef = useRef<HTMLInputElement>(null);
   const invRef = useRef<HTMLInputElement>(null);
 
   const save = (patch: Record<string, any>) => start(async () => { await upsertBillingTask(t.engagement_id, t.period, patch); onChanged(); });
   const upload = (kind: "attendance" | "invoice", file: File) => {
-    if (file.size > MAX_MB * 1024 * 1024) { setAiMsg(`ファイルが大きすぎます（最大${MAX_MB}MB）。現在 ${(file.size / 1024 / 1024).toFixed(1)}MB`); return; }
+    if (file.size > MAX_MB * 1024 * 1024) { setMsg({ ok: false, text: `ファイルが大きすぎます（最大${MAX_MB}MB）。現在 ${(file.size / 1024 / 1024).toFixed(1)}MB` }); return; }
+    setMsg({ ok: true, text: `「${file.name}」をアップロード中…` });
     start(async () => {
       const fd = new FormData(); fd.set("engagement_id", t.engagement_id); fd.set("period", t.period); fd.set("kind", kind); fd.set("file", file);
-      const r = await uploadBillingFile(fd); if (!r.ok) setAiMsg(r.error ?? "アップロード失敗"); else setAiMsg(null); onChanged();
+      const r = await uploadBillingFile(fd);
+      setMsg(r.ok ? { ok: true, text: `✓ ${kind === "invoice" ? "請求書" : "勤怠表"}を添付しました（${file.name}）` } : { ok: false, text: r.error ?? "アップロードに失敗しました" });
+      onChanged();
     });
-  };
-  const runAi = async () => {
-    if (!aiKind) return;
-    setAiBusy(true); setAiMsg(null);
-    const r = await extractBilling(aiKind, aiText);
-    setAiBusy(false);
-    if (!r.ok) { setAiMsg(r.error ?? "抽出失敗"); return; }
-    if (aiKind === "attendance" && r.data?.hours != null) { setHours(r.data.hours); save({ attendance_hours: Number(r.data.hours) }); }
-    if (aiKind === "invoice" && r.data?.amount != null) { setAmount(r.data.amount); save({ invoice_amount: Number(r.data.amount) }); }
-    setAiMsg("AI抽出を反映しました（確認して確定してください）"); setAiText(""); setAiKind(null);
   };
 
   const attOk = t.attendance_status === "確認済";
@@ -81,7 +71,6 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
           <input ref={attRef} type="file" accept={ACCEPT} hidden onChange={(e) => { if (e.target.files?.[0]) upload("attendance", e.target.files[0]); e.target.value = ""; }} />
           <button className="btn brand" style={{ fontSize: 12.5 }} disabled={pending} onClick={() => attRef.current?.click()}>📎 {pending ? "アップロード中…" : t.attendance_file ? "勤怠表を差し替え" : "勤怠表をアップロード"}</button>
           {t.attendance_file && <a href={t.attendance_file} target="_blank" rel="noreferrer" className="btn" style={{ fontSize: 12.5, textDecoration: "none" }}>📄 添付を見る</a>}
-          <button className="btn ghost btn-xs" disabled={pending} onClick={() => { setAiKind(aiKind === "attendance" ? null : "attendance"); setAiMsg(null); }}>✨ テキストからAI抽出</button>
           <span className="muted" style={{ fontSize: 10 }}>最大{MAX_MB}MB（PDF/画像/Excel/CSV）</span>
         </div>
       </div>
@@ -100,23 +89,11 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
           <input ref={invRef} type="file" accept={ACCEPT} hidden onChange={(e) => { if (e.target.files?.[0]) upload("invoice", e.target.files[0]); e.target.value = ""; }} />
           <button className="btn brand" style={{ fontSize: 12.5 }} disabled={pending} onClick={() => invRef.current?.click()}>📎 {pending ? "アップロード中…" : t.invoice_file ? "請求書を差し替え" : "請求書をアップロード"}</button>
           {t.invoice_file && <a href={t.invoice_file} target="_blank" rel="noreferrer" className="btn" style={{ fontSize: 12.5, textDecoration: "none" }}>📄 添付を見る</a>}
-          <button className="btn ghost btn-xs" disabled={pending} onClick={() => { setAiKind(aiKind === "invoice" ? null : "invoice"); setAiMsg(null); }}>✨ テキストからAI抽出</button>
           <span className="muted" style={{ fontSize: 10 }}>最大{MAX_MB}MB（PDF/画像/Excel/CSV）</span>
         </div>
       </div>
 
-      {/* AI抽出パネル */}
-      {aiKind && (
-        <div style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 700 }}>{aiKind === "invoice" ? "請求書" : "勤怠表"}のテキストを貼り付け → AIが{aiKind === "invoice" ? "金額" : "稼働時間"}を抽出</div>
-          <textarea value={aiText} onChange={(e) => setAiText(e.target.value)} rows={3} style={{ ...inp, resize: "vertical" }} placeholder="CSV/コピペしたテキストを貼り付け…" />
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn brand btn-xs" disabled={aiBusy} onClick={runAi}>{aiBusy ? "解析中…" : "AI抽出"}</button>
-            <button className="btn ghost btn-xs" onClick={() => setAiKind(null)}>閉じる</button>
-          </div>
-        </div>
-      )}
-      {aiMsg && <div style={{ fontSize: 11, color: aiMsg.includes("失") || aiMsg.includes("でき") ? "#b42318" : "#1aa260" }}>{aiMsg}</div>}
+      {msg && <div style={{ fontSize: 11.5, fontWeight: 600, padding: "7px 10px", borderRadius: 8, background: msg.ok ? "#e7f3ea" : "#fdecef", color: msg.ok ? "#067647" : "#b42318" }}>{msg.text}</div>}
 
       {t.done && <div style={{ fontSize: 11, color: "#1aa260", fontWeight: 700 }}>✓ 当月の処理完了</div>}
     </div>
