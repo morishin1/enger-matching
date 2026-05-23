@@ -74,9 +74,12 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
             <div className="logo">E</div>
             <div className="wm">
               ENGER
-              <small>Matching</small>
+              <small>{isClient ? "business" : "Matching"}</small>
             </div>
           </>
+        )}
+        {isClient && (
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".04em", color: "var(--color-brand-700)", background: "var(--color-brand-50)", border: "1px solid var(--color-brand-100)", padding: "2px 8px", borderRadius: 6, alignSelf: "center" }}>business</span>
         )}
       </div>
 

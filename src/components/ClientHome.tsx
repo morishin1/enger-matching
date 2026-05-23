@@ -1,4 +1,5 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { Icons } from "@/components/icons";
 
 /** ユーザー企業(client)向けの自社ポータル。自社の案件と提案状況のみ表示。 */
 export async function ClientHome({ companyName, displayName }: { companyName: string | null; displayName?: string | null }) {
@@ -64,10 +65,10 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
       )}
 
       <div className="kpi-grid" style={{ margin: "16px 0" }}>
-        <div className="kpi brand"><div className="top"><div className="ico-box">📋</div></div><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
-        <div className="kpi"><div className="top"><div className="ico-box">🤝</div></div><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
-        <div className="kpi"><div className="top"><div className="ico-box">🗓️</div></div><div><div className="val tnum">{interview.length}</div><div className="label">面談フェーズ</div></div></div>
-        <div className="kpi accent"><div className="top"><div className="ico-box">✅</div></div><div><div className="val tnum">{won.length}</div><div className="label">合格・稼働</div></div></div>
+        <div className="kpi brand"><div className="top"><div className="ico-box"><Icons.jobs /></div></div><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
+        <div className="kpi"><div className="top"><div className="ico-box"><Icons.proposals /></div></div><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
+        <div className="kpi"><div className="top"><div className="ico-box"><Icons.cal /></div></div><div><div className="val tnum">{interview.length}</div><div className="label">面談フェーズ</div></div></div>
+        <div className="kpi accent"><div className="top"><div className="ico-box"><Icons.check /></div></div><div><div className="val tnum">{won.length}</div><div className="label">合格・稼働</div></div></div>
       </div>
 
       {/* 2カラム：左=採用状況+自社案件 / 右=ご提案人材+CTA（LPダッシュボードと同じ構成） */}
