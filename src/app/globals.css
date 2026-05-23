@@ -65,8 +65,8 @@
   --shadow-2: 0 1px 3px rgba(15,23,42,0.04), 0 4px 16px -4px rgba(15,23,42,0.06);
   --shadow-3: 0 4px 12px -4px rgba(15,23,42,0.08), 0 16px 32px -12px rgba(15,23,42,0.10);
 
-  --font-sans: "Inter", "Noto Sans JP", "Hiragino Sans", system-ui, -apple-system, sans-serif;
-  --font-display: "Inter", "Noto Sans JP", system-ui, sans-serif;
+  --font-sans: "Yu Gothic Medium", "Yu Gothic", YuGothic, "游ゴシック体", "Hiragino Kaku Gothic ProN", Meiryo, system-ui, sans-serif;
+  --font-display: "Yu Gothic", YuGothic, "游ゴシック体", "Hiragino Kaku Gothic ProN", Meiryo, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 }
 
