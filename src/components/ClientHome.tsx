@@ -35,6 +35,7 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
   const remote = (t?: string | null) => ({ full: "フルリモート", hybrid: "ハイブリッド", onsite: "出社" } as Record<string, string>)[t ?? ""] ?? (t || "—");
 
   const activeProps = proposals.filter((p) => p.stage !== "見送り" && p.stage !== "失注");
+  const interview = proposals.filter((p) => ["面談", "面談調整", "面談設定", "面談実施", "面談合格"].includes(p.stage));
   const won = proposals.filter((p) => ["面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage));
 
   const stageTone = (s?: string) => {
@@ -65,54 +66,88 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
       <div className="kpi-grid" style={{ margin: "16px 0" }}>
         <div className="kpi brand"><div className="top"><div className="ico-box">📋</div></div><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
         <div className="kpi"><div className="top"><div className="ico-box">🤝</div></div><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
+        <div className="kpi"><div className="top"><div className="ico-box">🗓️</div></div><div><div className="val tnum">{interview.length}</div><div className="label">面談フェーズ</div></div></div>
         <div className="kpi accent"><div className="top"><div className="ico-box">✅</div></div><div><div className="val tnum">{won.length}</div><div className="label">合格・稼働</div></div></div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>自社の案件</h3>
-          <a href="/portal/jobs" style={{ fontSize: 12, fontWeight: 700, color: "var(--color-brand-700, #0b5cab)", textDecoration: "none" }}>すべて見る →</a>
-        </div>
-        {jobs.length === 0 ? (
-          <div className="muted" style={{ fontSize: 13 }}>公開中の案件はありません。</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {jobs.map((j) => (
-              <div key={j.job_no} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title ?? "（無題）"}</div>
-                  <div className="muted" style={{ fontSize: 11.5 }}>{[j.role_label, remote(j.remote_type), salary(j.salary_min, j.salary_max)].filter(Boolean).join(" · ")}</div>
-                </div>
-                <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", flexShrink: 0 }}>#{j.job_no}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* 2カラム：左=採用状況+自社案件 / 右=ご提案人材+CTA（LPダッシュボードと同じ構成） */}
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "2 1 360px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
 
-      <div className="card">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>ご提案中の人材</h3>
-          <a href="/portal/candidates" style={{ fontSize: 12, fontWeight: 700, color: "var(--color-brand-700, #0b5cab)", textDecoration: "none" }}>マッチ度を見て評価する →</a>
-        </div>
-        {proposals.length === 0 ? (
-          <div className="muted" style={{ fontSize: 13 }}>現在ご提案中の人材はありません。</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {proposals.map((p) => {
-              const t = stageTone(p.stage);
-              return (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{p.c_init || p.candidate_name || "人材"}{p.rate ? `（${Math.round(p.rate / 10000)}万）` : ""}</div>
-                    <div className="muted" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</div>
-                  </div>
-                  <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: t.bg, color: t.fg }}>{p.stage ?? "—"}</span>
+          {/* 採用の進み具合（ファネル） */}
+          <div className="card">
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: "var(--color-brand-700)", textTransform: "uppercase" }}>Hiring Funnel</div>
+            <h3 style={{ margin: "4px 0 14px", fontSize: 15, fontWeight: 800 }}>採用の進み具合</h3>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {[["ご提案", proposals.length, "#ecfdf5", "#047857"], ["面談フェーズ", interview.length, "#dcf7e8", "#065f46"], ["合格・稼働", won.length, "#059669", "#fff"]].map(([l, v, bg, fg], i) => (
+                <div key={i} style={{ flex: "1 1 120px", background: bg as string, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: fg as string }}>{v as number}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: i === 2 ? "rgba(255,255,255,.9)" : "#475467" }}>{l as string}</div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 12, lineHeight: 1.7 }}>ご提案→面談→合格・稼働の流れです。マッチ度や評価は「おすすめ人材」からご確認いただけます。</p>
           </div>
-        )}
+
+          {/* 自社の案件 */}
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>自社の案件</h3>
+              <a href="/portal/jobs" style={{ fontSize: 12, fontWeight: 700, color: "var(--color-brand-700)", textDecoration: "none" }}>すべて見る →</a>
+            </div>
+            {jobs.length === 0 ? (
+              <div className="muted" style={{ fontSize: 13 }}>公開中の案件はありません。</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {jobs.slice(0, 6).map((j) => (
+                  <div key={j.job_no} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title ?? "（無題）"}</div>
+                      <div className="muted" style={{ fontSize: 11.5 }}>{[j.role_label, remote(j.remote_type), salary(j.salary_min, j.salary_max)].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", flexShrink: 0 }}>#{j.job_no}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 右サイド */}
+        <div style={{ flex: "1 1 280px", minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>ご提案中の人材</h3>
+              <a href="/portal/candidates" style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)", textDecoration: "none" }}>評価する →</a>
+            </div>
+            {proposals.length === 0 ? (
+              <div className="muted" style={{ fontSize: 13 }}>現在ご提案中の人材はありません。</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {proposals.slice(0, 6).map((p) => {
+                  const t = stageTone(p.stage);
+                  return (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{p.c_init || "人材"}{p.rate ? `（${Math.round(p.rate / 10000)}万）` : ""}</div>
+                        <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</div>
+                      </div>
+                      <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: t.bg, color: t.fg }}>{p.stage ?? "—"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 緑のCTAカード（LPのSkillUp枠に相当） */}
+          <div style={{ borderRadius: 16, padding: 20, color: "#fff", background: "linear-gradient(135deg, var(--color-brand-700), var(--color-brand-900))" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", opacity: .85, textTransform: "uppercase" }}>Find Talent</div>
+            <h3 style={{ margin: "6px 0 8px", fontSize: 16, fontWeight: 800 }}>ミスマッチなく採用</h3>
+            <p style={{ fontSize: 12.5, lineHeight: 1.8, color: "rgba(255,255,255,.85)", margin: "0 0 14px" }}>マッチ度と根拠つきで、貴社に合う人材をご提案します。気になる人材はフィードバックで精度が上がります。</p>
+            <a href="/portal/candidates" style={{ display: "block", textAlign: "center", background: "#fff", color: "var(--color-brand-800)", fontWeight: 700, fontSize: 13, padding: "10px", borderRadius: 9, textDecoration: "none" }}>おすすめ人材を見る →</a>
+          </div>
+        </div>
       </div>
     </div>
   );
