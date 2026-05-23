@@ -18,6 +18,7 @@ const CRUMBS: Record<string, string[]> = {
   "/proposals": ["ENGER", "提案管理"],
   "/progress": ["ENGER", "稼働管理"],
   "/billing": ["ENGER", "請求・勤怠"],
+  "/reports": ["ENGER", "日報"],
   "/meetings": ["ENGER", "打合せ記録"],
   "/pipeline": ["ENGER", "パイプライン"],
   "/analytics": ["ENGER", "分析"],
