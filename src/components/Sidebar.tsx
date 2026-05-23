@@ -10,6 +10,7 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 const NAV = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
   { href: "/matching", id: "matching", label: "マッチング", icon: "matching", count: "matching", hot: true },
+  { href: "/engineers", id: "engineers", label: "エンジャー登録", icon: "engineers" },
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
   { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
@@ -44,7 +45,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isClient = role === "client";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/matching", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
+  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
   const allowed = new Set<string>(["/"]); // ダッシュボードは常時
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
   if (functions.includes("バックオフィス")) { allowed.add("/billing"); allowed.add("/progress"); }

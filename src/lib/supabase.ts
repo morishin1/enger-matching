@@ -17,3 +17,9 @@ export function engerAdmin() {
   if (!url || !serviceKey) throw new Error("Supabase service role env not set");
   return createClient(url, serviceKey, { db: { schema: "enger" }, auth: { persistSession: false, autoRefreshToken: false } });
 }
+
+/** public スキーマ用 (service role, サーバー専用)。LP登録エンジニア(public.profiles)の閲覧に使用。 */
+export function publicAdmin() {
+  if (!url || !serviceKey) throw new Error("Supabase service role env not set");
+  return createClient(url, serviceKey, { db: { schema: "public" }, auth: { persistSession: false, autoRefreshToken: false } });
+}

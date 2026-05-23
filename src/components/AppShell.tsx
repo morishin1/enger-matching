@@ -12,6 +12,7 @@ import type { Role } from "@/lib/roles";
 const CRUMBS: Record<string, string[]> = {
   "/": ["ENGER", "ダッシュボード"],
   "/matching": ["ENGER", "マッチング"],
+  "/engineers": ["ENGER", "エンジャー登録"],
   "/jobs": ["ENGER", "案件"],
   "/people": ["ENGER", "人材"],
   "/companies": ["ENGER", "企業管理"],

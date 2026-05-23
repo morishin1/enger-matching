@@ -57,6 +57,7 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   user: makeIcon("person"),
   building: makeIcon("apartment"),
   yen: makeIcon("currency_yen"),
+  engineers: makeIcon("badge"),
   loc: makeIcon("location_on"),
   clock: makeIcon("schedule"),
 };
