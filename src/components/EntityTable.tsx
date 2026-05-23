@@ -187,6 +187,14 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     });
   }, [rows, q, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ページング（描画負荷を抑える：50件/ページ）
+  const PAGE_SIZE = 50;
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [q, filters]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
   const visibleCols = cols.filter((c) => !c.filterOnly && !hidden.has(c.key));
   const allIds = filtered.map((r) => r[idField]).filter((v) => v != null) as number[];
   const allChecked = allIds.length > 0 && allIds.every((id) => selected.has(id));
@@ -279,7 +287,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                 {rows.length === 0 ? "データがありません。" : "条件に一致する行がありません。"}
               </td></tr>
             ) : (
-              filtered.map((r, i) => {
+              pageRows.map((r, i) => {
                 const id = r[idField] as number;
                 const m = mailFor(r);
                 return (
@@ -303,8 +311,18 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
         </table>
       </div>
 
-      <div className="tbl-foot muted">
-        表示 {filtered.length.toLocaleString("ja-JP")} 件 / 取得 {rows.length.toLocaleString("ja-JP")} 件（全 {total.toLocaleString("ja-JP")} 件）
+      <div className="tbl-foot muted" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <span>
+          {filtered.length === 0 ? "0 件" : `${(safePage * PAGE_SIZE + 1).toLocaleString("ja-JP")}–${Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE).toLocaleString("ja-JP")} 件`}
+          {" / "}全 {filtered.length.toLocaleString("ja-JP")} 件（取得 {rows.length.toLocaleString("ja-JP")} / 総数 {total.toLocaleString("ja-JP")}）
+        </span>
+        {pageCount > 1 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <button type="button" className="btn ghost btn-xs" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)}>← 前</button>
+            <span className="mono" style={{ fontSize: 11.5 }}>{safePage + 1} / {pageCount}</span>
+            <button type="button" className="btn ghost btn-xs" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>次 →</button>
+          </span>
+        )}
       </div>
     </div>
   );

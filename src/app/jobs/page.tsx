@@ -52,6 +52,26 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       }
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
+
+      // 「決まりやすい順」：企業の決定率(分析データ) + 注力 + 鮮度 + スキル有 + 単価帯 で並べる（AI不使用）
+      try {
+        const pr = await sb.from("proposals").select("company, stage").limit(3000);
+        const stat: Record<string, { won: number; total: number }> = {};
+        for (const p of (pr.data ?? []) as any[]) {
+          const c = (p.company || "").trim(); if (!c) continue;
+          stat[c] ??= { won: 0, total: 0 }; stat[c].total++;
+          if (["稼働", "稼働決定", "面談合格"].includes(p.stage)) stat[c].won++;
+        }
+        const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
+        const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
+        const bandScore = (j: any) => { const v = j.salary_max ?? j.salary_min ?? 0; return v >= 90 ? 8 : v >= 70 ? 10 : v > 0 ? 5 : 0; };
+        const score = (j: any) => {
+          const s = stat[(j.client_name || "").trim()];
+          const closeRate = s && s.total ? s.won / s.total : 0;
+          return Math.round(closeRate * 40 + (j.is_focus ? 20 : 0) + freshScore(j.created_at) + ((j.skills?.length) ? 10 : 0) + bandScore(j));
+        };
+        jobs = jobs.map((j: any) => ({ ...j, _score: score(j) })).sort((a: any, b: any) => b._score - a._score);
+      } catch { /* 並べ替え失敗時は元の順 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -137,8 +157,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件一覧</h3>
-        <div className="muted" style={{ fontSize: 11.5 }}>検索・絞り込み・列の表示切替・チェックで注力に一括登録できます</div>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件一覧 <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· 決まりやすい順</span></h3>
+        <div className="muted" style={{ fontSize: 11.5 }}>50件ずつ表示・検索/絞り込み・チェックで注力に一括登録</div>
       </div>
 
       <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={client} outsideOptions={ownerOptions} />

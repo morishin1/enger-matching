@@ -40,6 +40,15 @@ export default async function PeoplePage() {
       }
       people = res.data ?? [];
       total = res.count ?? people.length;
+
+      // 「決まりやすい順」：提案可・スキル有・単価帯(B)・鮮度・注力 で並べる（AI不使用）
+      const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
+      const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
+      const rankScore = (r: string | null) => r === "B" ? 15 : r === "A" ? 10 : r === "C" ? 5 : 0;
+      const score = (p: any) => Math.round(
+        ((p.status ?? "").includes("提案") ? 25 : 0) + ((p.skills?.length) ? 20 : 0) + rankScore(p.rank ?? null) + freshScore(p.created_at) + ((p.saved || p.is_focus) ? 10 : 0)
+      );
+      people = people.map((p: any) => ({ ...p, _score: score(p) })).sort((a: any, b: any) => b._score - a._score);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -126,8 +135,8 @@ export default async function PeoplePage() {
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材一覧</h3>
-        <div className="muted" style={{ fontSize: 11.5 }}>検索・絞り込み・列の表示切替・チェックで注力に一括登録できます</div>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材一覧 <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· 決まりやすい順</span></h3>
+        <div className="muted" style={{ fontSize: 11.5 }}>50件ずつ表示・検索/絞り込み・チェックで注力に一括登録</div>
       </div>
 
       <EntityTable kind="people" rows={people} total={total} />
