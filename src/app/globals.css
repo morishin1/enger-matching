@@ -269,6 +269,10 @@ button { font-family: inherit; }
 }
 
 /* ============ アプリ全体のレスポンシブ（エージェント/企業のスマホ・タブレット利用） ============ */
+/* クリック可能な一覧行（ホバー強調） */
+.tbl tbody tr.clickable { cursor: pointer; transition: background .1s; }
+.tbl tbody tr.clickable:hover { background: var(--color-brand-25); }
+
 /* 番号ページネーション */
 .pg-btn { min-width: 28px; height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink-2); font: 600 12px var(--font-sans); cursor: pointer; }
 .pg-btn:hover:not(:disabled) { background: var(--color-surface-soft); color: var(--color-ink); }

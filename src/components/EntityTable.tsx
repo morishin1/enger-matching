@@ -306,7 +306,10 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                 const m = mailFor(r);
                 const rank = safePage * pageSize + i + 1;
                 return (
-                  <tr key={id ?? i} className={selected.has(id) ? "row-sel" : ""}>
+                  <tr key={id ?? i} className={"clickable " + (selected.has(id) ? "row-sel" : "")}
+                    onClick={(e) => { if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setDetail(r); }}
+                    title="クリックで詳細">
+
                     <td><input type="checkbox" checked={selected.has(id)} onChange={() => toggleOne(id)} aria-label="選択" /></td>
                     {ranked && (
                       <td>
@@ -319,7 +322,6 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <button type="button" className="btn ghost btn-xs" onClick={() => setDetail(r)}>詳細</button>
                         <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
