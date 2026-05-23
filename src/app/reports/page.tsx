@@ -7,7 +7,6 @@ export const dynamic = "force-dynamic";
 export default async function ReportsPage() {
   const access = await currentAccess();
   const author = access?.name ?? "";
-  const defaultTeam = "営業"; // 既定は営業（フォームでチーム変更可）
   const today = new Date().toISOString().slice(0, 10);
   const [actuals, reports] = await Promise.all([getActuals(author), listReports({ limit: 60 })]);
 
@@ -27,7 +26,7 @@ export default async function ReportsPage() {
         </div>
       )}
 
-      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} defaultTeam={defaultTeam} />
+      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} />
     </div>
   );
 }

@@ -22,6 +22,13 @@ create table if not exists enger.daily_reports (
 
 -- 再実行用
 alter table enger.daily_reports add column if not exists team text;
+-- 共通フレーム（自問自答）の追加項目
+alter table enger.daily_reports add column if not exists self_check jsonb;   -- 自己チェック(○△×)
+alter table enger.daily_reports add column if not exists good       text;    -- うまくいったこと(Keep)
+alter table enger.daily_reports add column if not exists problem    text;    -- 詰まった/課題(Problem)
+alter table enger.daily_reports add column if not exists cause      text;    -- なぜ？(深掘り)
+alter table enger.daily_reports add column if not exists outputs    numeric; -- 主要アウトプット数
+alter table enger.daily_reports add column if not exists contacts   numeric; -- 顧客・関係者との接点数
 
 create unique index if not exists daily_reports_uniq on enger.daily_reports (author, report_date);
 create index if not exists daily_reports_date_idx on enger.daily_reports (report_date desc);

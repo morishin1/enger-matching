@@ -2,8 +2,10 @@ import { engerClient, dbConfigured } from "./supabase";
 
 export type Actuals = { proposalsToday: number; activeProps: number; meetingsToday: number; meetingsWeek: number };
 export type DailyReport = {
-  id: string; author: string; team: string | null; report_date: string; did: string[]; did_note: string | null;
-  learned: string | null; next_action: string | null; mood: string | null; metrics: any; ai_comment: string | null;
+  id: string; author: string; report_date: string; did: string[];
+  self_check: Record<string, string> | null; good: string | null; problem: string | null; cause: string | null;
+  next_action: string | null; mood: string | null; outputs: number | null; contacts: number | null;
+  metrics: any; ai_comment: string | null;
 };
 
 const ACTIVE = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];

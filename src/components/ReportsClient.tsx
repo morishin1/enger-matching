@@ -5,19 +5,20 @@ import { useRouter } from "next/navigation";
 import { saveReport, coachReport } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
 
-const TEAMS = ["営業", "バックオフィス", "開発", "EC", "サポート", "その他"];
-// チーム別「やったこと」プリセット
-const DID_BY_TEAM: Record<string, string[]> = {
-  営業: ["新規提案", "打合せ実施", "商談獲得", "提案先フォロー", "延長確認", "資料送付", "マッチング確認", "エンド開拓", "架電"],
-  バックオフィス: ["請求書発行", "勤怠チェック", "契約書回収", "入金確認", "データ入力", "問い合わせ対応", "書類作成", "経費処理"],
-  開発: ["実装", "コードレビュー", "バグ修正", "設計", "リリース", "調査・検証", "MTG", "ドキュメント"],
-  EC: ["商品登録", "受注処理", "在庫管理", "発送手配", "問い合わせ対応", "広告運用", "サイト更新", "売上分析"],
-  サポート: ["問い合わせ対応", "クレーム対応", "FAQ更新", "エスカレーション", "フォロー連絡", "マニュアル整備"],
-  その他: ["資料作成", "MTG", "調査", "対応", "連絡", "改善活動"],
-};
-const NEXT = ["フォロー連絡", "資料作成", "MTG設定", "課題対応", "改善着手", "確認・検証"];
+// 誰が書いても同じ視点になる共通フレーム
+const ACTIVITIES = ["顧客・関係者と接点", "提案・成果物を作成", "案件/業務を前進", "課題・トラブル対応", "改善・仕組み化", "学習・情報収集", "チーム連携・サポート", "事務・管理処理"];
+// 自己チェック（同じ意識をつくる問い）
+const CHECKS = [
+  { k: "goal", q: "目標・優先順位を意識して動けた" },
+  { k: "value", q: "相手（顧客/社内）に価値を提供できた" },
+  { k: "progress", q: "案件・業務を前に進められた" },
+  { k: "speed", q: "スピード感を持って動けた" },
+  { k: "promise", q: "期限・約束を守れた" },
+];
+const CHECK_OPTS = ["○", "△", "×"];
+const NEXT = ["フォロー連絡", "資料作成", "MTG設定", "課題対応", "改善着手", "確認・検証", "新規開拓"];
 const MOODS = ["😀手応えあり", "😐普通", "😟苦戦"];
-const TARGET_PROPOSALS = 3; // 営業：1日の新規提案 目安
+const TARGET_PROPOSALS = 3;
 
 const inp = { fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)", width: "100%" } as const;
 const L = ({ c }: { c: string }) => <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>{c}</div>;
@@ -30,7 +31,7 @@ function Chips({ all, sel, onToggle, color = "var(--color-brand-600)" }: { all: 
   );
 }
 
-function Stat({ label, value, target, ok }: { label: string; value: number; target?: number; ok?: boolean }) {
+function Stat({ label, value, target }: { label: string; value: number; target?: number }) {
   const reached = target == null ? true : value >= target;
   return (
     <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "8px 12px", minWidth: 92 }}>
@@ -40,22 +41,25 @@ function Stat({ label, value, target, ok }: { label: string; value: number; targ
   );
 }
 
-function ReportForm({ author, today, actuals, defaultTeam }: { author: string; today: string; actuals: Actuals; defaultTeam: string }) {
+function ReportForm({ author, today, actuals }: { author: string; today: string; actuals: Actuals }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [team, setTeam] = useState(defaultTeam);
   const [did, setDid] = useState<string[]>([]);
   const [nexts, setNexts] = useState<string[]>([]);
-  const [f, setF] = useState({ did_note: "", learned: "", next_note: "", mood: "" });
+  const [checks, setChecks] = useState<Record<string, string>>({});
+  const [f, setF] = useState({ good: "", problem: "", cause: "", next_note: "", mood: "", outputs: "", contacts: "" });
   const [msg, setMsg] = useState<string | null>(null);
   const toggle = (arr: string[], set: (v: string[]) => void, v: string) => set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
-  const didPresets = DID_BY_TEAM[team] ?? DID_BY_TEAM["その他"];
+  const checkColor = (v: string) => v === "○" ? "#067647" : v === "△" ? "#b45309" : v === "×" ? "#b42318" : "var(--color-ink-3)";
 
   const submit = () => {
-    if (!f.learned.trim()) { setMsg("「気づき」は必須です（短くてOK）"); return; }
+    if (!f.good.trim() && !f.problem.trim()) { setMsg("「うまくいったこと」か「詰まった/課題」のどちらかは入力してください"); return; }
     const next_action = [nexts.join("、"), f.next_note.trim()].filter(Boolean).join(" / ");
     start(async () => {
-      const r = await saveReport({ author, team, report_date: today, did, did_note: f.did_note, learned: f.learned, next_action, mood: f.mood, metrics: team === "営業" ? actuals : null });
+      const r = await saveReport({
+        author, report_date: today, did, self_check: checks, good: f.good, problem: f.problem, cause: f.cause,
+        next_action, mood: f.mood, outputs: f.outputs === "" ? null : Number(f.outputs), contacts: f.contacts === "" ? null : Number(f.contacts), metrics: actuals,
+      });
       setMsg(r.ok ? "✓ 日報を保存しました" : `エラー：${r.error}`);
       if (r.ok) router.refresh();
     });
@@ -63,31 +67,49 @@ function ReportForm({ author, today, actuals, defaultTeam }: { author: string; t
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <b style={{ fontSize: 15 }}>📝 {today} の日報（{author || "担当者未設定"}）</b>
+      <b style={{ fontSize: 15 }}>📝 {today} の日報（{author || "担当者未設定"}）</b>
+
+      {/* システム集計（参考・自動） */}
+      <div>
+        <L c="システム集計（自動・参考）" />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Stat label="新規提案" value={actuals.proposalsToday} target={TARGET_PROPOSALS} />
+          <Stat label="打合せ" value={actuals.meetingsToday} />
+          <Stat label="進行中提案" value={actuals.activeProps} />
+          <Stat label="今週の面談" value={actuals.meetingsWeek} />
+        </div>
       </div>
 
-      {/* チーム選択 */}
-      <div><L c="チーム" /><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{TEAMS.map((t) => <button key={t} type="button" onClick={() => setTeam(t)} style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", padding: "6px 12px", borderRadius: 99, border: `1px solid ${team === t ? "var(--color-brand-600)" : "var(--color-border)"}`, background: team === t ? "var(--color-brand-50)" : "var(--color-surface)", color: team === t ? "var(--color-brand-700)" : "var(--color-ink-3)" }}>{t}</button>)}</div></div>
+      {/* 今日の活動（共通チェック） */}
+      <div><L c="今日やったこと（当てはまるものをタップ）" /><Chips all={ACTIVITIES} sel={did} onToggle={(v) => toggle(did, setDid, v)} /></div>
 
-      {/* 自動実績（営業のみ・入力不要） */}
-      {team === "営業" && (
-        <div>
-          <L c="今日の実績（自動集計）" />
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Stat label="新規提案" value={actuals.proposalsToday} target={TARGET_PROPOSALS} />
-            <Stat label="打合せ" value={actuals.meetingsToday} />
-            <Stat label="進行中提案" value={actuals.activeProps} />
-            <Stat label="今週の面談" value={actuals.meetingsWeek} />
-          </div>
+      {/* 件数（自己申告・任意） */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 10 }}>
+        <div><L c="主なアウトプット数（提案/対応など）" /><input style={inp} type="number" value={f.outputs} onChange={(e) => setF({ ...f, outputs: e.target.value })} placeholder="例）5" /></div>
+        <div><L c="顧客・関係者との接点数" /><input style={inp} type="number" value={f.contacts} onChange={(e) => setF({ ...f, contacts: e.target.value })} placeholder="例）3" /></div>
+      </div>
+
+      {/* 自己チェック（同じ意識をつくる問い） */}
+      <div>
+        <L c="自己チェック（○できた / △まあまあ / ×できず）" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {CHECKS.map((c) => (
+            <div key={c.k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "6px 10px", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+              <span style={{ fontSize: 12.5 }}>{c.q}</span>
+              <div style={{ display: "flex", gap: 4 }}>
+                {CHECK_OPTS.map((o) => { const on = checks[c.k] === o; return <button key={o} type="button" onClick={() => setChecks((p) => ({ ...p, [c.k]: on ? "" : o }))} style={{ cursor: "pointer", width: 30, height: 28, borderRadius: 7, fontWeight: 800, fontFamily: "inherit", border: `1px solid ${on ? checkColor(o) : "var(--color-border)"}`, background: on ? `${checkColor(o)}1a` : "var(--color-surface)", color: on ? checkColor(o) : "var(--color-ink-4)" }}>{o}</button>; })}
+              </div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
 
-      <div><L c="やったこと（タップ）" /><Chips all={didPresets} sel={did} onToggle={(v) => toggle(did, setDid, v)} /><input style={{ ...inp, marginTop: 6 }} value={f.did_note} onChange={(e) => setF({ ...f, did_note: e.target.value })} placeholder="補足があれば一言（任意）" /></div>
+      {/* 自問自答（KPT） */}
+      <div><L c="うまくいったこと（続けたい）" /><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.good} onChange={(e) => setF({ ...f, good: e.target.value })} placeholder="例）打合せで案件情報を引き出せた" /></div>
+      <div><L c="詰まったこと・課題" /><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.problem} onChange={(e) => setF({ ...f, problem: e.target.value })} placeholder="例）提案は出せたが面談に進まない" /></div>
+      <div><L c="それはなぜ？（深掘り）" /><input style={inp} value={f.cause} onChange={(e) => setF({ ...f, cause: e.target.value })} placeholder="例）単価提示のタイミングが遅い / 初動が翌日になった" /></div>
 
-      <div><L c="気づき（必須）— うまくいった点 / 詰まった点 / なぜ？" /><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.learned} onChange={(e) => setF({ ...f, learned: e.target.value })} placeholder="例）提案は出せたが面談化しない。単価提示のタイミングが遅い気がする…" /></div>
-
-      <div><L c="明日の一手（必須）" /><Chips all={NEXT} sel={nexts} onToggle={(v) => toggle(nexts, setNexts, v)} color="#0b5cab" /><input style={{ ...inp, marginTop: 6 }} value={f.next_note} onChange={(e) => setF({ ...f, next_note: e.target.value })} placeholder="具体的に（任意）" /></div>
+      <div><L c="明日 変える・試すこと" /><Chips all={NEXT} sel={nexts} onToggle={(v) => toggle(nexts, setNexts, v)} color="#0b5cab" /><input style={{ ...inp, marginTop: 6 }} value={f.next_note} onChange={(e) => setF({ ...f, next_note: e.target.value })} placeholder="具体的に（任意）" /></div>
 
       <div><L c="今日の手応え" /><div style={{ display: "flex", gap: 8 }}>{MOODS.map((m) => <button key={m} type="button" onClick={() => setF({ ...f, mood: f.mood === m ? "" : m })} style={{ cursor: "pointer", fontSize: 13, fontFamily: "inherit", padding: "7px 14px", borderRadius: 99, border: `1px solid ${f.mood === m ? "var(--color-brand-600)" : "var(--color-border)"}`, background: f.mood === m ? "var(--color-brand-50)" : "var(--color-surface)" }}>{m}</button>)}</div></div>
 
@@ -101,27 +123,29 @@ function ReportCard({ r }: { r: DailyReport }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const m = r.metrics ?? {};
+  const sc = r.self_check ?? {};
   const coach = () => start(async () => { await coachReport(r.id); router.refresh(); });
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <b style={{ fontSize: 13.5 }}>{r.author}</b>
-          {r.team && <span className="tag" style={{ fontSize: 10 }}>{r.team}</span>}
-        </span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <b style={{ fontSize: 13.5 }}>{r.author}</b>
         <span className="muted mono" style={{ fontSize: 11 }}>{r.report_date} {r.mood ?? ""}</span>
       </div>
-      {r.metrics && (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)" }}>
-          <span>提案 <b style={{ color: "var(--color-ink)" }}>{m.proposalsToday ?? "—"}</b></span>
-          <span>打合せ <b style={{ color: "var(--color-ink)" }}>{m.meetingsToday ?? "—"}</b></span>
-          <span>進行中 <b style={{ color: "var(--color-ink)" }}>{m.activeProps ?? "—"}</b></span>
-          <span>今週面談 <b style={{ color: "var(--color-ink)" }}>{m.meetingsWeek ?? "—"}</b></span>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)" }}>
+        {r.outputs != null && <span>成果物 <b style={{ color: "var(--color-ink)" }}>{r.outputs}</b></span>}
+        {r.contacts != null && <span>接点 <b style={{ color: "var(--color-ink)" }}>{r.contacts}</b></span>}
+        {m.proposalsToday != null && <span>提案 <b style={{ color: "var(--color-ink)" }}>{m.proposalsToday}</b></span>}
+        {m.meetingsToday != null && <span>打合せ <b style={{ color: "var(--color-ink)" }}>{m.meetingsToday}</b></span>}
+      </div>
+      {Object.keys(sc).length > 0 && (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", fontSize: 10.5 }}>
+          {CHECKS.filter((c) => sc[c.k]).map((c) => <span key={c.k} className="tag" style={{ fontSize: 10 }}>{c.q.length > 8 ? c.q.slice(0, 8) : c.q}…{sc[c.k]}</span>)}
         </div>
       )}
       {r.did?.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{r.did.map((d) => <span key={d} className="tag" style={{ fontSize: 10 }}>{d}</span>)}</div>}
-      {r.learned && <div style={{ fontSize: 12.5, color: "var(--color-ink-2)" }}>💡 {r.learned}</div>}
-      {r.next_action && <div style={{ fontSize: 12, color: "var(--color-brand-700, #0b5cab)" }}>▶ 次：{r.next_action}</div>}
+      {r.good && <div style={{ fontSize: 12.5, color: "#067647" }}>👍 {r.good}</div>}
+      {r.problem && <div style={{ fontSize: 12.5, color: "var(--color-ink-2)" }}>⚠️ {r.problem}{r.cause ? <span className="muted">（なぜ：{r.cause}）</span> : ""}</div>}
+      {r.next_action && <div style={{ fontSize: 12, color: "var(--color-brand-700, #0b5cab)" }}>▶ 明日：{r.next_action}</div>}
       {r.ai_comment ? (
         <div style={{ fontSize: 12, color: "var(--color-ink-2)", background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", borderRadius: 8, padding: "8px 10px", whiteSpace: "pre-wrap" }}>🤖 {r.ai_comment}</div>
       ) : (
@@ -131,31 +155,23 @@ function ReportCard({ r }: { r: DailyReport }) {
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports, defaultTeam = "営業" }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; defaultTeam?: string }) {
-  const [teamFilter, setTeamFilter] = useState("");
+export function ReportsClient({ author, today, actuals, reports }: { author: string; today: string; actuals: Actuals; reports: DailyReport[] }) {
+  const [q, setQ] = useState("");
   const todays = reports.find((r) => r.author === author && r.report_date === today);
-  const teamsInData = [...new Set(reports.map((r) => r.team).filter(Boolean))] as string[];
-  const filtered = teamFilter ? reports.filter((r) => r.team === teamFilter) : reports;
-  const sel = { fontFamily: "inherit", fontSize: 12, padding: "6px 10px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" } as const;
+  const filtered = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
   return (
     <>
       {todays ? (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
-          ✓ 本日（{today}）の日報は提出済みです。下の一覧から確認・AIコメント取得ができます。<br />
-          <span className="muted" style={{ fontSize: 11.5 }}>※ もう一度フォームから保存すると上書き更新されます。</span>
+          ✓ 本日（{today}）の日報は提出済みです。もう一度フォームから保存すると上書き更新されます。
         </div>
       ) : null}
-      <ReportForm author={author} today={today} actuals={actuals} defaultTeam={defaultTeam} />
+      <ReportForm author={author} today={today} actuals={actuals} />
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px", gap: 10, flexWrap: "wrap" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>これまでの日報</h3>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          {teamsInData.length > 0 && (
-            <select style={sel} value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
-              <option value="">全チーム</option>
-              {teamsInData.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          )}
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="氏名で絞り込み…" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 10px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
           <span className="muted" style={{ fontSize: 11 }}>{filtered.length} 件</span>
         </span>
       </div>
