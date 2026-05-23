@@ -1,10 +1,10 @@
 import { EngineersClient } from "@/components/EngineersClient";
-import { listEngineers } from "@/lib/engineers";
+import { listEngineers, listEngineerActions } from "@/lib/engineers";
 
 export const dynamic = "force-dynamic";
 
 export default async function EngineersPage() {
-  const { rows, available } = await listEngineers();
+  const [{ rows, available }, actions] = await Promise.all([listEngineers(), listEngineerActions()]);
 
   return (
     <div className="page">
@@ -24,7 +24,7 @@ export default async function EngineersPage() {
         </div>
       )}
 
-      <EngineersClient engineers={rows} />
+      <EngineersClient engineers={rows} actions={actions} />
     </div>
   );
 }

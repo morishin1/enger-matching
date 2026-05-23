@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Engineer } from "@/lib/engineers";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import type { Engineer, EngineerAction } from "@/lib/engineers";
+import { addEngineerAction, deleteEngineerAction } from "@/app/engineers/actions";
 
 const pay = (e: Engineer) => {
   const lo = e.estimated_pay_low, hi = e.estimated_pay_high, mid = e.estimated_pay_mid;
@@ -11,7 +13,15 @@ const pay = (e: Engineer) => {
 };
 const skillNames = (e: Engineer) => (e.skills ?? []).map((s) => s.name).filter(Boolean);
 
-export function EngineersClient({ engineers }: { engineers: Engineer[] }) {
+// タップ選択中心の対応種別（営業の入力を最小化）
+const ACTION_TYPES = ["スカウト送信", "メール送信", "返信あり", "面談設定", "面談実施", "見送り", "保留", "メモ"];
+const ACTION_COLOR: Record<string, string> = {
+  "スカウト送信": "#0b5cab", "メール送信": "#0b5cab", "返信あり": "#067647", "面談設定": "#067647",
+  "面談実施": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
+};
+const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+
+export function EngineersClient({ engineers, actions = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]> }) {
   const [q, setQ] = useState("");
   const [detail, setDetail] = useState<Engineer | null>(null);
 
@@ -33,7 +43,9 @@ export function EngineersClient({ engineers }: { engineers: Engineer[] }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-        {filtered.map((e) => (
+        {filtered.map((e) => {
+          const log = actions[e.id] ?? [];
+          return (
           <button key={e.id} onClick={() => setDetail(e)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -46,47 +58,115 @@ export function EngineersClient({ engineers }: { engineers: Engineer[] }) {
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
               {skillNames(e).slice(0, 6).map((s) => <span key={s} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{s}</span>)}
             </div>
-            <div style={{ display: "flex", gap: 14, fontSize: 11.5, color: "var(--color-ink-3)", borderTop: "1px solid var(--color-border)", paddingTop: 8 }}>
+            <div style={{ display: "flex", gap: 14, fontSize: 11.5, color: "var(--color-ink-3)", borderTop: "1px solid var(--color-border)", paddingTop: 8, alignItems: "center" }}>
               <span>想定単価 <b style={{ color: "var(--color-ink)" }}>{pay(e)}</b></span>
               <span>★{e.total_stars}</span>
               <span>repo {e.total_repos}</span>
+              {log.length > 0 && (
+                <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応 {log.length}</span>
+              )}
             </div>
           </button>
-        ))}
+        );})}
       </div>
 
       {detail && (
-        <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? "?").slice(0, 2)}</div>}
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login}</h3>
-                  <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : ""} · {detail.primary_language ?? "—"}</div>
-                </div>
-              </div>
-              <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
-              {[["想定単価", pay(detail)], ["★ Stars", detail.total_stars], ["リポジトリ", detail.total_repos]].map(([l, v], i) => (
-                <div key={i} style={{ background: "var(--color-surface)", padding: "9px 11px" }}><div style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{String(v)}</div></div>
-              ))}
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル（GitHub解析）</div>
-              <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                {skillNames(detail).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (detail.skills ?? []).slice(0, 20).map((s) => (
-                  <span key={s.name} className="tag" style={{ fontSize: 11 }}>{s.name}{s.level ? ` (${s.level})` : ""}</span>
-                ))}
-              </div>
-            </div>
-            {detail.email && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>連絡先：{detail.email}</div>}
-            <div className="muted" style={{ fontSize: 10.5 }}>※ enger.jp（GitHub連携）で本人が登録したプロフィールです。</div>
-          </div>
-        </div>
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} onClose={() => setDetail(null)} />
       )}
     </>
+  );
+}
+
+function DetailModal({ engineer: detail, log, onClose }: { engineer: Engineer; log: EngineerAction[]; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [action, setAction] = useState<string>("");
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = () => {
+    if (!action) { setErr("対応の種類を選んでください"); return; }
+    setErr(null);
+    start(async () => {
+      const res = await addEngineerAction({ engineer_id: detail.id, engineer_name: detail.display_name || detail.github_login, action, note });
+      if (!res.ok) { setErr(res.error || "保存に失敗しました"); return; }
+      setAction(""); setNote("");
+      router.refresh();
+    });
+  };
+  const remove = (id: string) => {
+    start(async () => { await deleteEngineerAction(id); router.refresh(); });
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? "?").slice(0, 2)}</div>}
+            <div>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login}</h3>
+              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : ""} · {detail.primary_language ?? "—"}</div>
+            </div>
+          </div>
+          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
+          {[["想定単価", pay(detail)], ["★ Stars", detail.total_stars], ["リポジトリ", detail.total_repos]].map(([l, v], i) => (
+            <div key={i} style={{ background: "var(--color-surface)", padding: "9px 11px" }}><div style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 600 }}>{l}</div><div style={{ fontSize: 14, fontWeight: 700, marginTop: 2 }}>{String(v)}</div></div>
+          ))}
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル（GitHub解析）</div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {skillNames(detail).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (detail.skills ?? []).slice(0, 20).map((s) => (
+              <span key={s.name} className="tag" style={{ fontSize: 11 }}>{s.name}{s.level ? ` (${s.level})` : ""}</span>
+            ))}
+          </div>
+        </div>
+        {detail.email && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>連絡先：<a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a></div>}
+
+        {/* 対応履歴 */}
+        <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>対応履歴 <span className="muted" style={{ fontWeight: 400 }}>（{log.length}件）</span></div>
+
+          {/* 記録フォーム：タップ選択中心 */}
+          <div style={{ background: "var(--color-bg, #f7f8fa)", border: "1px solid var(--color-border)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {ACTION_TYPES.map((a) => (
+                <button key={a} type="button" onClick={() => setAction(a)}
+                  className="tag" style={{ cursor: "pointer", fontSize: 11, fontWeight: 600, border: action === a ? "1.5px solid " + (ACTION_COLOR[a] || "#0b5cab") : "1px solid var(--color-border)", background: action === a ? (ACTION_COLOR[a] || "#0b5cab") : "var(--color-surface)", color: action === a ? "#fff" : "var(--color-ink-2)" }}>{a}</button>
+              ))}
+            </div>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="メモ（任意）：温度感・次の一手など" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
+            {err && <div style={{ fontSize: 11.5, color: "#b42318" }}>{err}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-xs" disabled={pending} onClick={submit} style={{ opacity: pending ? 0.6 : 1 }}>{pending ? "記録中…" : "対応を記録"}</button>
+            </div>
+          </div>
+
+          {/* 履歴リスト */}
+          {log.length === 0 ? (
+            <div className="muted" style={{ fontSize: 12 }}>まだ対応履歴はありません。上から記録できます。</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {log.map((a) => (
+                <div key={a.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, padding: "7px 9px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)" }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, flex: "0 0 auto", color: "#fff", background: ACTION_COLOR[a.action] || "#475467" }}>{a.action}</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    {a.note && <div style={{ color: "var(--color-ink-2)" }}>{a.note}</div>}
+                    <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{fmtDate(a.created_at)}{a.operator ? ` · ${a.operator}` : ""}</div>
+                  </div>
+                  <button type="button" onClick={() => remove(a.id)} disabled={pending} title="削除" className="btn ghost btn-xs" style={{ flex: "0 0 auto", padding: "2px 7px", color: "#b42318" }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="muted" style={{ fontSize: 10.5 }}>※ enger.jp（GitHub連携）で本人が登録したプロフィールです。対応履歴は重複アプローチ防止・引き継ぎのために共有されます。</div>
+      </div>
+    </div>
   );
 }

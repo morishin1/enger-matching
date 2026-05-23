@@ -1,4 +1,4 @@
-import { publicAdmin, dbConfigured } from "./supabase";
+import { publicAdmin, engerClient, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
 export type Engineer = {
@@ -41,4 +41,33 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     })) as Engineer[];
     return { rows, available: true };
   } catch { return { rows: [], available: false }; }
+}
+
+export type EngineerAction = {
+  id: string;
+  engineer_id: string;
+  engineer_name: string | null;
+  action: string;
+  note: string | null;
+  operator: string | null;
+  created_at: string;
+};
+
+/** 全エンジニアへの対応履歴（enger.engineer_actions）。engineer_id でグルーピングして使う。 */
+export async function listEngineerActions(): Promise<Record<string, EngineerAction[]>> {
+  if (!dbConfigured) return {};
+  try {
+    const sb = engerClient();
+    const { data, error } = await sb
+      .from("engineer_actions")
+      .select("id, engineer_id, engineer_name, action, note, operator, created_at")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (error) return {};
+    const map: Record<string, EngineerAction[]> = {};
+    for (const r of (data ?? []) as EngineerAction[]) {
+      (map[r.engineer_id] ??= []).push(r);
+    }
+    return map;
+  } catch { return {}; }
 }
