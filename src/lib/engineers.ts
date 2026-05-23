@@ -25,9 +25,11 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     const { data, error } = await sb
       .from("profiles")
       .select("id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, created_at")
-      // public.profiles は LMS と共有のため、enger.jp の GitHub 連携で登録した
-      // エンジニア（github_id あり）だけに絞る。LMS の受講生/スタッフは除外。
-      .not("github_id", "is", null)
+      // public.profiles は LMS と共有。enger.jp(LP)由来のエンジニアだけを表示する。
+      //   - GitHub連携: github_id / github_login あり
+      //   - メール登録: 登録時の表示名 display_name あり
+      // LMS の受講生/スタッフは display_name/github 系がすべて NULL なので除外される。
+      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null")
       .order("created_at", { ascending: false })
       .limit(500);
     if (error) return { rows: [], available: false };
