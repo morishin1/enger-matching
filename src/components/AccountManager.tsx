@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, deleteAccount } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, deleteAccount } from "@/app/settings/account-actions";
 import type { Account, Role } from "@/lib/accounts";
+import { FUNCTIONS } from "@/lib/roles";
 
 const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "営業", client: "ユーザー企業" };
 const ROLE_TONE: Record<Role, { bg: string; fg: string }> = {
@@ -77,7 +78,8 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
             {others.map((a) => {
               const t = ROLE_TONE[a.role];
               return (
-                <div key={a.id} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10, opacity: a.status === "disabled" ? 0.55 : 1 }}>
+                <div key={a.id} style={{ display: "flex", flexDirection: "column", gap: 8, padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10, opacity: a.status === "disabled" ? 0.55 : 1 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                   <div style={{ minWidth: 160, flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{a.name || "（名前未設定）"}{a.company_name ? <span className="muted" style={{ fontWeight: 400 }}>・{a.company_name}</span> : null}</div>
                     <div className="muted" style={{ fontSize: 11.5 }}>{a.email}</div>
@@ -101,6 +103,15 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
                     <button onClick={() => run(() => setAccountStatus(a.id, "disabled"))} disabled={pending} style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#b42318" }}>無効化</button>
                   )}
                   <button onClick={() => { if (confirm(`${a.email} を削除しますか？`)) run(() => deleteAccount(a.id)); }} disabled={pending} title="削除" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>×</button>
+                  </div>
+                  {(a.role === "agent" || a.role === "admin") && (
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                      <span className="muted" style={{ fontSize: 10.5, marginRight: 2 }}>職能（兼務可）：</span>
+                      {FUNCTIONS.map((fn) => { const on = (a.functions ?? []).includes(fn); return (
+                        <button key={fn} type="button" disabled={pending} onClick={() => run(() => setAccountFunctions(a.id, on ? (a.functions ?? []).filter((x) => x !== fn) : [...(a.functions ?? []), fn]))} className="tag" style={{ cursor: "pointer", fontSize: 10.5, border: 0, background: on ? "var(--color-brand-600)" : "var(--color-surface-inset)", color: on ? "#fff" : "var(--color-ink-3)" }}>{fn}</button>
+                      ); })}
+                    </div>
+                  )}
                 </div>
               );
             })}

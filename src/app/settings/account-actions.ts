@@ -69,6 +69,21 @@ export async function setAccountRole(id: string, role: "admin" | "agent" | "clie
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 職能（複数）を管理者が設定。 */
+export async function setAccountFunctions(id: string, functions: string[]): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_users").update({ functions }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/settings");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 営業区分（インサイド/アウトサイド）を管理者が設定。 */
 export async function setAccountPosition(id: string, position: "inside" | "outside" | null): Promise<Result> {
   const guard = await requireAdmin();

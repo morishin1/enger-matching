@@ -40,7 +40,7 @@ const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
 
 const POSITION_LABEL: Record<string, string> = { inside: "インサイドセールス", outside: "アウトサイドセールス" };
 
-export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "" }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string }) {
+export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [] }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[] }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -73,7 +73,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
 
   return (
     <div className="app">
-      <Sidebar counts={counts} role={role} open={navOpen} />
+      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} />
       <div className={"nav-overlay" + (navOpen ? " show" : "")} onClick={() => setNavOpen(false)} aria-hidden />
       <main className="main">
         <div className="topbar">

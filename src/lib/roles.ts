@@ -4,6 +4,12 @@
 export type Role = "admin" | "agent" | "client";
 export type AccountStatus = "pending" | "active" | "disabled";
 
+// 職能（兼務可・複数選択）
+export const FUNCTIONS = ["営業", "インサイド", "アウトサイド", "バックオフィス", "EC", "サポート", "開発"] as const;
+export const SALES_FUNCTIONS = ["営業", "インサイド", "アウトサイド"];
+/** 営業系の職能を持つか（未設定は後方互換で営業扱い）。 */
+export const hasSalesFunction = (functions?: string[] | null) => !functions || functions.length === 0 || functions.some((f) => SALES_FUNCTIONS.includes(f));
+
 /** ロール別の初期表示パス。client も自社ポータル(=ダッシュボード"/")へ。 */
 export function roleHome(_role: Role): string {
   return "/";

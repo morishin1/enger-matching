@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
-import { type Role } from "@/lib/roles";
+import { type Role, hasSalesFunction } from "@/lib/roles";
 
 const NAV = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
@@ -37,15 +37,20 @@ const CLIENT_NAV = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts, role = "admin", open = false }: { counts?: SidebarCounts; role?: Role; open?: boolean }) {
+export function Sidebar({ counts, role = "admin", open = false, functions = [] }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[] }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
   const isClient = role === "client";
-  // 営業（一般）には管理者向けメニューを出さない（実務に集中）
-  const AGENT_HIDE = new Set(["/analytics", "/pipeline", "/billing"]);
+
+  // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
+  const SALES_HREFS = ["/matching", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
+  const allowed = new Set<string>(["/"]); // ダッシュボードは常時
+  if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
+  if (functions.includes("バックオフィス")) { allowed.add("/billing"); allowed.add("/progress"); }
+
   const nav = isClient ? CLIENT_NAV
-    : role === "agent" ? NAV.filter((n) => !AGENT_HIDE.has(n.href))
+    : role === "agent" ? NAV.filter((n) => allowed.has(n.href))
     : NAV; // admin は全部
   const tools = isClient ? []
     : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings")

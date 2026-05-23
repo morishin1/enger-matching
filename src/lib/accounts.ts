@@ -13,6 +13,7 @@ export type Account = {
   status: AccountStatus;
   company_name: string | null;
   position: SalesPosition;
+  functions: string[] | null;
   note: string | null;
   created_at: string;
   approved_at: string | null;
@@ -36,9 +37,9 @@ export async function getAccountByEmail(email: string): Promise<Account | null> 
  *  2) 無い場合は staff の email 許可リストにあれば admin 扱い（移行期の締め出し防止）
  *  3) どちらも無ければ null（未許可）
  */
-export async function resolveAccess(email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition } | null> {
+export async function resolveAccess(email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[] } | null> {
   const acc = await getAccountByEmail(email);
-  if (acc) return { role: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition };
+  if (acc) return { role: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition, functions: (acc.functions ?? []) as string[] };
 
   // フォールバック: 既存 staff 許可リスト → admin
   const e = (email || "").toLowerCase().trim();
@@ -46,13 +47,13 @@ export async function resolveAccess(email: string): Promise<{ role: Role; status
   try {
     const sb = engerClient();
     const { data, error } = await sb.from("staff").select("name, email, position").eq("active", true).not("email", "is", null);
-    if (error) return { role: "admin", status: "active", companyName: null, name: null, position: null }; // staff未整備=初期は素通り(admin)
+    if (error) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [] }; // staff未整備=初期は素通り(admin)
     const rows = (data ?? []) as { name: string; email: string | null; position?: string | null }[];
     const allow = rows.map((r) => String(r.email || "").toLowerCase()).filter(Boolean);
-    if (allow.length === 0) return { role: "admin", status: "active", companyName: null, name: null, position: null };
+    if (allow.length === 0) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [] };
     if (allow.includes(e)) {
       const me = rows.find((r) => String(r.email || "").toLowerCase() === e);
-      return { role: "admin", status: "active", companyName: null, name: me?.name ?? null, position: (me?.position ?? null) as SalesPosition };
+      return { role: "admin", status: "active", companyName: null, name: me?.name ?? null, position: (me?.position ?? null) as SalesPosition, functions: [] };
     }
     return null;
   } catch { return null; }
@@ -80,8 +81,8 @@ export async function createPendingAccount(opts: { email: string; name?: string 
 }
 
 /** ログイン中ユーザーのアクセス情報（role/status/会社名/名前）。未ログインや未設定は null。 */
-export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; email: string } | null> {
-  if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, position: null, email: "" };
+export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; email: string } | null> {
+  if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [], email: "" };
   try {
     const sb = await authServerClient();
     const { data: { user } } = await sb.auth.getUser();
