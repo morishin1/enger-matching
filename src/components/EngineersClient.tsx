@@ -154,6 +154,21 @@ function DetailModal({ engineer: detail, log, scoutLog, onClose }: { engineer: E
         </div>
         {detail.email && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>連絡先：<a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a></div>}
 
+        {(detail.portfolio_url || detail.skill_sheet_url) && (
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
+            {detail.portfolio_url && (
+              <a href={detail.portfolio_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>link</span>ポートフォリオ
+              </a>
+            )}
+            {detail.skill_sheet_url && (
+              <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>スキルシート{detail.skill_sheet_name ? `（${detail.skill_sheet_name}）` : ""}
+              </a>
+            )}
+          </div>
+        )}
+
         {/* スカウト */}
         <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>スカウト <span className="muted" style={{ fontWeight: 400 }}>（{scoutLog.length}件）</span></div>

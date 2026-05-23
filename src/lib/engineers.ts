@@ -14,6 +14,9 @@ export type Engineer = {
   estimated_pay_low: number | null;
   estimated_pay_mid: number | null;
   estimated_pay_high: number | null;
+  portfolio_url: string | null;
+  skill_sheet_url: string | null;
+  skill_sheet_name: string | null;
   created_at: string;
 };
 
@@ -24,7 +27,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     const sb = publicAdmin();
     const { data, error } = await sb
       .from("profiles")
-      .select("id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, created_at")
+      .select("id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, created_at")
       // public.profiles は LMS と共有。enger.jp(LP)由来のエンジニアだけを表示する。
       //   - GitHub連携: github_id / github_login あり
       //   - メール登録: 登録時の表示名 display_name あり
