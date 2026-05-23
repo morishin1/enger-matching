@@ -26,7 +26,7 @@ export default async function ReportsPage() {
         </div>
       )}
 
-      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} />
+      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} isAdmin={access?.role === "admin"} />
     </div>
   );
 }

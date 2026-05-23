@@ -2,8 +2,51 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { saveReport, coachReport } from "@/app/reports/actions";
+import { saveReport, coachReport, sendReportFeedback } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
+
+function ManagerReview({ reports }: { reports: DailyReport[] }) {
+  const [period, setPeriod] = useState<"week" | "month">("week");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const days = period === "month" ? 30 : 7;
+  const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const byAuthor = new Map<string, number>();
+  for (const r of reports) { if (r.report_date >= from) byAuthor.set(r.author, (byAuthor.get(r.author) ?? 0) + 1); }
+  const authors = [...byAuthor.entries()].sort((a, b) => b[1] - a[1]);
+
+  const send = async (author: string) => {
+    setBusy(author); setMsg(null);
+    const r = await sendReportFeedback(author, period);
+    setBusy(null);
+    setMsg(r.ok ? `✓ ${author}さんへ${period === "month" ? "月次" : "週次"}フィードバックを送信しました` : `エラー：${r.error}`);
+  };
+
+  return (
+    <div className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🧑‍🏫 管理者：週次/月次フィードバック（AI講評をお知らせ送信）</h3>
+        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+          {(["week", "month"] as const).map((p) => <button key={p} onClick={() => setPeriod(p)} style={{ padding: "5px 12px", borderRadius: 99, border: 0, fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: period === p ? "var(--color-surface)" : "transparent", color: period === p ? "var(--color-ink)" : "var(--color-ink-3)" }}>{p === "week" ? "週次" : "月次"}</button>)}
+        </div>
+      </div>
+      {authors.length === 0 ? (
+        <div className="muted" style={{ fontSize: 12.5 }}>対象期間に日報の提出がありません。</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {authors.map(([author, cnt]) => (
+            <div key={author} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{author} <span className="muted" style={{ fontWeight: 400, fontSize: 11.5 }}>提出 {cnt}回 / 直近{days}日</span></span>
+              <button className="btn brand btn-xs" disabled={busy === author} onClick={() => send(author)}>{busy === author ? "生成中…" : "🤖 AI講評を送る"}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {msg && <div style={{ fontSize: 12.5, color: msg.startsWith("✓") ? "#067647" : "#b42318" }}>{msg}</div>}
+      <div className="muted" style={{ fontSize: 10.5 }}>※ 本人の自己チェック傾向・課題・成果をAIが集計し、承認＋改善点＋次の focus を本人の「お知らせ」に送信します。</div>
+    </div>
+  );
+}
 
 // 誰が書いても同じ視点になる共通フレーム
 const ACTIVITIES = ["顧客・関係者と接点", "提案・成果物を作成", "案件/業務を前進", "課題・トラブル対応", "改善・仕組み化", "学習・情報収集", "チーム連携・サポート", "事務・管理処理"];
@@ -155,12 +198,13 @@ function ReportCard({ r }: { r: DailyReport }) {
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports }: { author: string; today: string; actuals: Actuals; reports: DailyReport[] }) {
+export function ReportsClient({ author, today, actuals, reports, isAdmin = false }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean }) {
   const [q, setQ] = useState("");
   const todays = reports.find((r) => r.author === author && r.report_date === today);
   const filtered = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
   return (
     <>
+      {isAdmin && <ManagerReview reports={reports} />}
       {todays ? (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
           ✓ 本日（{today}）の日報は提出済みです。もう一度フォームから保存すると上書き更新されます。

@@ -19,6 +19,7 @@ const CRUMBS: Record<string, string[]> = {
   "/progress": ["ENGER", "稼働管理"],
   "/billing": ["ENGER", "請求・勤怠"],
   "/reports": ["ENGER", "日報"],
+  "/notifications": ["ENGER", "お知らせ"],
   "/meetings": ["ENGER", "打合せ記録"],
   "/pipeline": ["ENGER", "パイプライン"],
   "/analytics": ["ENGER", "分析"],
@@ -92,7 +93,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
             <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社を検索…（Enterで検索）" />
             <kbd>⌘K</kbd>
           </form>
-          <Link href="/inbox" className="icon-btn" title="お知らせ"><Icons.bell /><span className="dot" /></Link>
+          <Link href="/notifications" className="icon-btn" title="お知らせ"><Icons.bell /><span className="dot" /></Link>
           <span title="権限ロール" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: ROLE_BADGE[role].bg, color: ROLE_BADGE[role].fg, whiteSpace: "nowrap" }}>{ROLE_BADGE[role].label}</span>
           {position && POSITION_LABEL[position] && (
             <span title="営業区分" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: position === "outside" ? "#fff1e6" : "#eaf4fd", color: position === "outside" ? "#b45309" : "#0b5cab", whiteSpace: "nowrap" }}>{POSITION_LABEL[position]}</span>

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { callLLM } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
+import { currentAccess } from "@/lib/accounts";
 
 type Result = { ok: boolean; error?: string };
 
@@ -57,5 +58,53 @@ export async function coachReport(id: string): Promise<{ ok: boolean; comment?: 
   await logUsage("coach", res.model, res.usage);
   await admin.from("daily_reports").update({ ai_comment: res.text }).eq("id", id);
   revalidatePath("/reports");
+  return { ok: true, comment: res.text };
+}
+
+/** 管理者：本人の週次/月次の日報を集計し、AIで講評してお知らせ送信。 */
+export async function sendReportFeedback(author: string, period: "week" | "month"): Promise<{ ok: boolean; error?: string; comment?: string }> {
+  const access = await currentAccess();
+  if (access && access.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  if (!author) return { ok: false, error: "対象者が未指定です" };
+
+  const days = period === "month" ? 30 : 7;
+  const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const { data } = await admin.from("daily_reports").select("*").eq("author", author).gte("report_date", from).order("report_date", { ascending: false });
+  const rows = (data ?? []) as any[];
+  if (rows.length === 0) return { ok: false, error: `${author}さんの直近${days}日の日報がありません` };
+
+  // 集計
+  const cnt = rows.length;
+  const moods = rows.map((r) => r.mood).filter(Boolean);
+  const checkAgg: Record<string, { o: number; t: number; x: number }> = {};
+  for (const r of rows) { const sc = r.self_check ?? {}; for (const k of Object.keys(sc)) { checkAgg[k] ??= { o: 0, t: 0, x: 0 }; const v = sc[k]; if (v === "○") checkAgg[k].o++; else if (v === "△") checkAgg[k].t++; else if (v === "×") checkAgg[k].x++; } }
+  const problems = rows.map((r) => r.problem).filter(Boolean).slice(0, 8);
+  const goods = rows.map((r) => r.good).filter(Boolean).slice(0, 5);
+  const outputs = rows.reduce((s, r) => s + (Number(r.outputs) || 0), 0);
+  const contacts = rows.reduce((s, r) => s + (Number(r.contacts) || 0), 0);
+
+  const CHECK_LABEL: Record<string, string> = { goal: "目標意識", value: "価値提供", progress: "前進", speed: "スピード", promise: "期限遵守" };
+  const checkLines = Object.entries(checkAgg).map(([k, v]) => `${CHECK_LABEL[k] ?? k}：○${v.o}/△${v.t}/×${v.x}`).join("、");
+
+  const system = "あなたは温かく信頼されるマネージャーです。メンバーの一定期間の日報集計から、フィードバックを書きます。構成：①まず良い点・成長を具体的に承認、②データから見える傾向・課題を1〜2点（自己チェックの×が多い観点や繰り返す課題）、③次期間に意識してほしいこと1つ。日本語、敬意を持って、5〜7行、説教くさくしない。";
+  const prompt = [
+    `対象: ${author} さん / 期間: 直近${days}日 / 提出 ${cnt}回`,
+    `主なアウトプット計 ${outputs} / 接点計 ${contacts}`,
+    `自己チェック傾向: ${checkLines || "（データなし）"}`,
+    `手応え: ${moods.join("、") || "—"}`,
+    `うまくいった例: ${goods.join(" / ") || "—"}`,
+    `繰り返し挙がった課題: ${problems.join(" / ") || "—"}`,
+  ].join("\n");
+
+  const res = await callLLM({ system, prompt, maxTokens: 420, temperature: 0.6 });
+  if (!res.ok) return { ok: false, error: res.error };
+  await logUsage("review", res.model, res.usage);
+
+  const title = `${period === "month" ? "月次" : "週次"}フィードバック（${new Date().toISOString().slice(0, 10)}）`;
+  const { error } = await admin.from("notifications").insert({ recipient: author, title, body: res.text, kind: "feedback" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/reports"); revalidatePath("/notifications");
   return { ok: true, comment: res.text };
 }
