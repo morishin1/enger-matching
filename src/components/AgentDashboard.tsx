@@ -69,6 +69,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   let setup = false;
 
   let staff: any[] = [], meetings: any[] = [];
+  let reportToday = false;
   if (dbConfigured) {
     try {
       const sb = engerClient();
@@ -82,6 +83,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       ]);
       jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows; staff = S.rows; meetings = M.rows;
       if (!J.ok && !P.ok) setup = true;
+      // 当日の日報提出チェック
+      if (myName) { try { const dr = await sb.from("daily_reports").select("id").eq("author", myName).eq("report_date", new Date().toISOString().slice(0, 10)).maybeSingle(); reportToday = !!dr.data; } catch { /* 列なし等 */ } }
     } catch { setup = true; }
   } else setup = true;
 
@@ -214,6 +217,23 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
 
   const issues = role === "admin" ? adminIssues : agentIssues;
 
+  // ===== KPI（区分別）・チーム/クロージング =====
+  const monthPrefix = new Date().toISOString().slice(0, 7);
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const myProposalsMonth = proposals.filter((p) => p.proposer === myName && String(p.created_at ?? "").slice(0, 7) === monthPrefix).length;
+  const myMeetingsWeek = meetings.filter((m) => m.our_owner === myName && String(m.meeting_date ?? "").slice(0, 10) >= weekAgo).length;
+  const KPI_PROPOSAL = 20, KPI_MEETING = 3;
+
+  // 2人1組（提案者=インサイド / エンド担当=アウトサイド）でクロージングまで。期限1週間。
+  const CLOSING_STAGES = ["面談合格", "クロージング中"];
+  const mineInTeam = (p: any) => (myName ? (p.proposer === myName || outsideOwnerOf(p) === myName) : true);
+  const closingTeam = proposals.filter((p) => CLOSING_STAGES.includes(p.stage) && mineInTeam(p)).map((p: any) => {
+    const d = daysAgo(p.created_at);
+    return { p, inside: p.proposer || "—", outside: outsideOwnerOf(p) || "—", days: d, overdue: d >= 7, hasReason: !!(p.next_action || p.lost_reason) };
+  }).sort((a, b) => b.days - a.days);
+  // チーム未成立：進行中だがアウトサイド(エンド担当)未割当
+  const teamMissing = activeProps.filter((p) => p.proposer && !outsideOwnerOf(p));
+
   return (
     <div className="page">
       <div className="page-head">
@@ -240,6 +260,14 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       {setup && (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
           案件・提案テーブルが未作成、またはデータがありません。<span className="mono">supabase/schema-matching.sql</span> 実行後に実データが表示されます。
+        </div>
+      )}
+
+      {/* ① 日報リマインダー */}
+      {myName && !reportToday && (
+        <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", background: "#fff5e6", border: "1px solid #f6d9a7" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>📝 今日の日報がまだ未提出です。1日の振り返りを記録しましょう。</span>
+          <Link href="/reports" className="btn brand btn-xs" style={{ textDecoration: "none" }}>日報を書く →</Link>
         </div>
       )}
 
@@ -277,6 +305,62 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
             ))}
           </div>
           {actionsTotal === 0 && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>今すぐ対応すべきものはありません 👍 在庫から次の仕込みを進めましょう。</div>}
+        </div>
+      )}
+
+      {/* ② あなたのKPI（区分別） */}
+      {!setup && myName && (
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🎯 あなたのKPI</h3>
+            <span className="muted" style={{ fontSize: 11 }}>{myPosition === "outside" ? "アウトサイド：打合せ重視" : myPosition === "inside" ? "インサイド：提案重視" : "区分未設定"}</span>
+          </div>
+          <div className="kpi-grid">
+            {(() => { const v = myProposalsMonth, t = KPI_PROPOSAL, ok = v >= t; const hi = myPosition !== "outside"; return (
+              <div className="kpi" style={hi ? { borderColor: "var(--color-brand-300, var(--color-brand-100))" } : { opacity: .7 }}><div>
+                <div className="val tnum" style={{ color: ok ? "#067647" : "var(--color-ink)" }}>{v}<span className="unit">/{t}</span></div>
+                <div className="label">提案（今月）{hi ? "★" : ""}</div>
+                <div style={{ height: 5, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden", marginTop: 6 }}><div style={{ width: `${Math.min(100, (v / t) * 100)}%`, height: "100%", background: ok ? "#1aa260" : "var(--color-brand-600)" }} /></div>
+                <div className="note">{ok ? "達成 🎉" : `あと ${t - v} 件`}</div>
+              </div></div>); })()}
+            {(() => { const v = myMeetingsWeek, t = KPI_MEETING, ok = v >= t; const hi = myPosition === "outside"; return (
+              <div className="kpi" style={hi ? { borderColor: "var(--color-brand-300, var(--color-brand-100))" } : { opacity: .7 }}><div>
+                <div className="val tnum" style={{ color: ok ? "#067647" : "var(--color-ink)" }}>{v}<span className="unit">/{t}</span></div>
+                <div className="label">打合せ（今週）{hi ? "★" : ""}</div>
+                <div style={{ height: 5, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden", marginTop: 6 }}><div style={{ width: `${Math.min(100, (v / t) * 100)}%`, height: "100%", background: ok ? "#1aa260" : "var(--color-brand-600)" }} /></div>
+                <div className="note">{ok ? "達成 🎉" : `あと ${t - v} 件`}</div>
+              </div></div>); })()}
+            <div className="kpi accent"><div><div className="val tnum">{closingTeam.length}<span className="unit">件</span></div><div className="label">担当チームのクロージング</div><div className="note">{closingTeam.filter((c) => c.overdue).length} 件が期限超過</div></div></div>
+            <div className="kpi warn"><div><div className="val tnum">{teamMissing.length}<span className="unit">件</span></div><div className="label">チーム未成立</div><div className="note">アウトサイド未割当</div></div></div>
+          </div>
+        </div>
+      )}
+
+      {/* ③④ クロージング・チーム（2人1組・1週間で決着） */}
+      {!setup && (closingTeam.length > 0 || teamMissing.length > 0) && (
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🤝 クロージング・チーム</h3>
+            <span className="muted" style={{ fontSize: 11 }}>提案者×エンド担当の2人1組で、1週間以内に決着（延長は理由を記載）</span>
+          </div>
+          {closingTeam.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {closingTeam.slice(0, 8).map((c, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10, background: c.overdue ? "#fdecef" : "var(--color-surface)" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.p.company ?? "—"}：{c.p.job_title ?? "—"}</span>
+                  <span className="tag" style={{ fontSize: 10 }}>イン {c.inside}</span>
+                  <span className="tag" style={{ fontSize: 10 }}>アウト {c.outside}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: c.overdue ? "#b42318" : "#b45309", whiteSpace: "nowrap" }}>{c.overdue ? `期限超過(${c.days}日)` : `あと${Math.max(0, 7 - c.days)}日`}</span>
+                  {c.overdue && (c.hasReason ? <span style={{ fontSize: 10, color: "#067647" }}>延長理由あり</span> : <span style={{ fontSize: 10, color: "#b42318" }}>要・延長理由</span>)}
+                </div>
+              ))}
+            </div>
+          )}
+          {teamMissing.length > 0 && (
+            <div style={{ marginTop: 10, background: "#fff5e6", border: "1px solid #f6d9a7", borderRadius: 10, padding: "9px 12px", fontSize: 12.5 }}>
+              ⚠️ <b>チーム未成立 {teamMissing.length}件</b>：提案済みだがアウトサイド（エンド担当）が未割当です。<Link href="/jobs" style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 700 }}>案件でエンド担当を設定 →</Link>
+            </div>
+          )}
         </div>
       )}
 
