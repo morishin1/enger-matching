@@ -2,6 +2,7 @@ import Link from "next/link";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
 import { IssueBoard, type Issue } from "./IssueBoard";
+import { Collapsible } from "./Collapsible";
 import { leadKpi, isContacted } from "@/lib/quality";
 
 const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
@@ -269,8 +270,17 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       {/* 深掘りイシュー（カテゴリ別） */}
       {!setup && <IssueBoard title="深掘りイシュー" category={issueCategory} issues={issues} />}
 
-      {/* AIブリーフィング（今日やるべきこと） */}
+      {/* お金レーン（重要KPI・常時表示） */}
+      <div className="kpi-grid">
+        <div className="kpi brand"><div><div className="val tnum">{yen(pipelineMan)}</div><div className="label">見込み（進行中の月額）</div><div className="note">{activeProps.length} 件の提案</div></div></div>
+        <div className="kpi accent"><div><div className="val tnum">{yen(confirmedMan)}</div><div className="label">確定（稼働中の月額）</div><div className="note">{liveEngs.length} 名 稼働</div></div></div>
+        <div className="kpi"><div><div className="val tnum">{grossMan == null ? "—" : yen(grossMan)}</div><div className="label">粗利（月額）</div><div className="note">{grossMan == null ? "原価データ未設定" : "売上−原価"}</div></div></div>
+        <div className="kpi warn"><div><div className="val tnum">{fProposed ? Math.round((fMet / fProposed) * 100) : 0}<span className="unit">%</span></div><div className="label">面談到達率</div><div className="note">接触後失注 {kpi.postLostRate}%</div></div></div>
+      </div>
+
+      {/* 詳細指標は折りたたみ（既定は非表示でシンプルに） */}
       {!setup && (
+      <Collapsible label="詳細指標を表示（AIブリーフィング・リード品質・両輪・契約更新・ファネル）">
         <DailyBriefing metrics={{
           meetings: hasMeetingDate ? todaysMeetings.length : meetingsAdjusting.length,
           renewSoon: renewSoon.length, callPending: callPending.length, closingStalled: closingStalled.length,
@@ -278,23 +288,6 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
           hot: hot.length, endingSoon: endingSoonPeople.length,
           pipelineMan, confirmedMan, fJobs: pub.length, fProposed, fMet, fActive,
         }} />
-      )}
-
-      {/* ① 今日のアクション（締切あり） */}
-      <div className="kpi-grid">
-        <Stat icon="📅" label={hasMeetingDate ? "本日の面談・商談" : "面談調整中"} value={hasMeetingDate ? todaysMeetings.length : meetingsAdjusting.length} sub={hasMeetingDate ? "本日予定" : "日程未設定（agent-ops.sql で予定管理）"} href="/proposals" tone="#0b5cab" />
-        <Stat icon="🔄" label="要更新確認" value={renewSoon.length} sub="30日以内に契約満了" href="/progress" tone="#b45309" />
-        <Stat icon="📞" label="初動待ち" value={callPending.length} sub="未対応 / 未架電" href="/proposals" tone="#067647" />
-        <Stat icon="🤝" label="クロージング滞留" value={closingStalled.length} sub="7日以上動きなし" href="/proposals" tone="#b42318" />
-      </div>
-
-      {/* お金レーン：見込み → 確定 → 粗利 */}
-      <div className="kpi-grid">
-        <div className="kpi brand"><div><div className="val tnum">{yen(pipelineMan)}</div><div className="label">見込み（進行中の月額）</div><div className="note">{activeProps.length} 件の提案</div></div></div>
-        <div className="kpi accent"><div><div className="val tnum">{yen(confirmedMan)}</div><div className="label">確定（稼働中の月額）</div><div className="note">{liveEngs.length} 名 稼働</div></div></div>
-        <div className="kpi"><div><div className="val tnum">{grossMan == null ? "—" : yen(grossMan)}</div><div className="label">粗利（月額）</div><div className="note">{grossMan == null ? "原価データ未設定（agent-ops.sql）" : "売上−原価"}</div></div></div>
-        <div className="kpi warn"><div><div className="val tnum">{funnel[1].n ? Math.round((fActive / funnel[1].n) * 100) : 0}<span className="unit">%</span></div><div className="label">提案→稼働 率</div><div className="note">面談到達 {fProposed ? Math.round((fMet / fProposed) * 100) : 0}%</div></div></div>
-      </div>
 
       {/* リード品質（母数の整流：接触前失注・NGを除外） */}
       <div className="card">
@@ -386,6 +379,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
             <Link href="/proposals" className="btn brand btn-xs" style={{ marginLeft: "auto", textDecoration: "none" }}>提案管理へ</Link>
           </div>
         </div>
+      )}
+      </Collapsible>
       )}
     </div>
   );
