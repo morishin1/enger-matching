@@ -3,6 +3,7 @@ import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
+import { FocusList } from "@/components/FocusList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, type Job } from "@/lib/match";
 
@@ -245,16 +246,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             </div>
             {focusJobs.length === 0 ? (
               <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>案件一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
-            ) : focusJobs.map((j) => (
-              <div key={j.job_no} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)" }}>
-                <FocusHeart table="jobs" idField="job_no" idValue={j.job_no} initial={!!j.is_focus} revalidate="/matching" />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</div>
-                  <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {remoteLabel(j.remote_type)} · {salaryLabel(j.salary_min, j.salary_max)}</div>
-                </div>
-                <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
-              </div>
-            ))}
+            ) : <FocusList kind="jobs" items={focusJobs} />}
           </div>
           {/* 注力人材 */}
           <div className="card flush">
@@ -263,16 +255,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             </div>
             {focusCands.length === 0 ? (
               <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>人材一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
-            ) : focusCands.map((c) => (
-              <div key={c.candidate_no} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)" }}>
-                <FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{c.name}</div>
-                  <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "—"} · {c.affiliation ?? c.source_company ?? ""} · {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
-                </div>
-                <Link href={`/matching?person=${c.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
-              </div>
-            ))}
+            ) : <FocusList kind="people" items={focusCands} />}
           </div>
         </div>
       </div>
