@@ -66,18 +66,19 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   let jobs: any[] = [], proposals: any[] = [], engs: any[] = [], cands: any[] = [];
   let setup = false;
 
-  let staff: any[] = [];
+  let staff: any[] = [], meetings: any[] = [];
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const [J, P, E, C, S] = await Promise.all([
+      const [J, P, E, C, S, M] = await Promise.all([
         grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published, outside_owner", "job_no, title, client_name, created_at"),
         grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified", "id, job_title, company, stage, rate, created_at"),
         grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status"),
         grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num"),
         grab(sb, "staff", "name, position", "name"),
+        grab(sb, "meetings", "id, company_name, our_owner, fb_sentiment, follow_up_date, follow_done, next_action_us", "id, company_name, our_owner, fb_sentiment"),
       ]);
-      jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows; staff = S.rows;
+      jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows; staff = S.rows; meetings = M.rows;
       if (!J.ok && !P.ok) setup = true;
     } catch { setup = true; }
   } else setup = true;
@@ -162,7 +163,16 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const myClosingStalled = closingStalled.filter(mineOutside);
   const myMeetings = (hasMeetingDate ? todaysMeetings : meetingsAdjusting).filter(mineOutside);
   const outsideEndDev = pub.filter((j) => (hasOwnerData && myName ? j.outside_owner === myName : true) && !activeTitles.has(j.title) && daysAgo(j.created_at) >= 14);
+  // 打合せの要フォロー（期限到来 or ネガ反応・未完了）。自分が担当(our_owner)のもの
+  const myFollows = meetings.filter((m) => {
+    if (m.follow_done) return false;
+    const due = m.follow_up_date && String(m.follow_up_date).slice(0, 10) <= today;
+    const neg = (m.fb_sentiment ?? "").includes("ネガ");
+    if (!due && !neg) return false;
+    return myName ? m.our_owner === myName : true;
+  });
   const outsideActions: Action[] = [
+    { icon: "🔔", title: "打合せフォロー", count: myFollows.length, detail: "フォロー期限到来 / ネガ反応の対応", href: "/meetings", items: myFollows.map((m: any) => `${m.company_name ?? "—"}${m.next_action_us ? `：${m.next_action_us}` : ""}`) },
     { icon: "📅", title: hasMeetingDate ? "本日の面談・商談" : "面談調整を進める", count: myMeetings.length, detail: hasMeetingDate ? "本日予定の面談" : "面談調整中の案件", href: "/proposals", items: myMeetings.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
     { icon: "🤝", title: "クロージング", count: myClosingStalled.length, detail: "クロージング中で停滞", href: "/proposals", items: myClosingStalled.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
     { icon: "🔄", title: "契約更新の確認", count: renewSoon.length, detail: "30日以内に満了する稼働", href: "/progress", items: renewSoon.map((e: any) => `${e.candidate_name || "—"}（${e.company ?? "—"}）`) },
