@@ -65,12 +65,19 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
         const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
         const bandScore = (j: any) => { const v = j.salary_max ?? j.salary_min ?? 0; return v >= 90 ? 8 : v >= 70 ? 10 : v > 0 ? 5 : 0; };
-        const score = (j: any) => {
+        const scoreOf = (j: any) => {
           const s = stat[(j.client_name || "").trim()];
           const closeRate = s && s.total ? s.won / s.total : 0;
-          return Math.round(closeRate * 40 + (j.is_focus ? 20 : 0) + freshScore(j.created_at) + ((j.skills?.length) ? 10 : 0) + bandScore(j));
+          const reasons: string[] = [];
+          if (closeRate >= 0.25 && s && s.total >= 2) reasons.push(`この企業の成約率 ${Math.round(closeRate * 100)}%`);
+          if (j.is_focus) reasons.push("注力案件");
+          if (days(j.created_at) <= 3) reasons.push("新着");
+          if (j.skills?.length) reasons.push("スキル要件が明確");
+          const v = j.salary_max ?? j.salary_min ?? 0; if (v >= 70 && v < 90) reasons.push("動きやすい単価帯");
+          const score = Math.round(closeRate * 40 + (j.is_focus ? 20 : 0) + freshScore(j.created_at) + ((j.skills?.length) ? 10 : 0) + bandScore(j));
+          return { score, reasons: reasons.slice(0, 3) };
         };
-        jobs = jobs.map((j: any) => ({ ...j, _score: score(j) })).sort((a: any, b: any) => b._score - a._score);
+        jobs = jobs.map((j: any) => { const r = scoreOf(j); return { ...j, _score: r.score, _reasons: r.reasons }; }).sort((a: any, b: any) => b._score - a._score);
       } catch { /* 並べ替え失敗時は元の順 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
@@ -157,8 +164,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件一覧 <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· 決まりやすい順</span></h3>
-        <div className="muted" style={{ fontSize: 11.5 }}>50件ずつ表示・検索/絞り込み・チェックで注力に一括登録</div>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件 おすすめランキング</h3>
+        <div className="muted" style={{ fontSize: 11.5 }}>決まりやすい順に1位〜表示・行クリックで詳細・検索/絞り込み可</div>
       </div>
 
       <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={client} outsideOptions={ownerOptions} />

@@ -187,13 +187,15 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     });
   }, [rows, q, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ページング（描画負荷を抑える：50件/ページ）
-  const PAGE_SIZE = 50;
+  // ページング（描画負荷を抑える：既定20件/ページ・件数選択可）
+  const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(0);
-  useEffect(() => { setPage(0); }, [q, filters]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const [detail, setDetail] = useState<any | null>(null);
+  useEffect(() => { setPage(0); }, [q, filters, pageSize]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const ranked = filtered.some((r) => r._score != null);
 
   const visibleCols = cols.filter((c) => !c.filterOnly && !hidden.has(c.key));
   const allIds = filtered.map((r) => r[idField]).filter((v) => v != null) as number[];
@@ -220,8 +222,19 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     ? { url: r.source_mail_url, search: r.client_name || r.title, to: r.contact_email }
     : { url: r.source_mail_url, search: r.name || r.source_company, to: r.email ?? r.contact_email };
   const matchHref = (r: any) => kind === "jobs" ? `/matching?job=${r.job_no}` : `/matching?person=${r.candidate_no}`;
+  const titleOf = (r: any) => kind === "jobs" ? (r.title ?? `案件#${r.job_no}`) : (r.name ?? `人材#${r.candidate_no}`);
+  const rankBadge = (n: number) => n === 1 ? "🥇" : n === 2 ? "🥈" : n === 3 ? "🥉" : `${n}`;
 
-  const colSpan = visibleCols.length + 3; // checkbox + actions + heart
+  // 番号ページネーション（… で省略）
+  const buildPages = (cur1: number, count: number) => {
+    const win = [1, 2, cur1 - 1, cur1, cur1 + 1, count - 1, count].filter((n) => n >= 1 && n <= count);
+    const uniq = [...new Set(win)].sort((a, b) => a - b);
+    const out: (number | "…")[] = []; let prev = 0;
+    for (const n of uniq) { if (n - prev > 1) out.push("…"); out.push(n); prev = n; }
+    return out;
+  };
+
+  const colSpan = visibleCols.length + (ranked ? 4 : 3); // checkbox + (rank) + actions + heart
 
   return (
     <div className="card flush">
@@ -276,8 +289,9 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
           <thead>
             <tr>
               <th style={{ width: 32 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="全選択" /></th>
+              {ranked && <th style={{ width: 150 }}>おすすめ順・理由</th>}
               {visibleCols.map((c) => <th key={c.key} className={c.num ? "num" : ""} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}
-              <th style={{ width: 200 }}>アクション</th>
+              <th style={{ width: 230 }}>アクション</th>
               <th style={{ width: 44 }}>注力</th>
             </tr>
           </thead>
@@ -290,12 +304,22 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               pageRows.map((r, i) => {
                 const id = r[idField] as number;
                 const m = mailFor(r);
+                const rank = safePage * pageSize + i + 1;
                 return (
                   <tr key={id ?? i} className={selected.has(id) ? "row-sel" : ""}>
                     <td><input type="checkbox" checked={selected.has(id)} onChange={() => toggleOne(id)} aria-label="選択" /></td>
+                    {ranked && (
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <span style={{ fontWeight: 800, fontSize: rank <= 3 ? 16 : 13, color: rank <= 3 ? "var(--color-brand-700,#0b5cab)" : "var(--color-ink-3)" }}>{rankBadge(rank)}{rank > 3 ? <span style={{ fontSize: 10, fontWeight: 400 }}> 位</span> : ""}</span>
+                          {(r._reasons ?? []).slice(0, 2).map((rs: string) => <span key={rs} className="tag" style={{ fontSize: 9.5, padding: "1px 6px" }}>{rs}</span>)}
+                        </div>
+                      </td>
+                    )}
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button type="button" className="btn ghost btn-xs" onClick={() => setDetail(r)}>詳細</button>
                         <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
@@ -312,18 +336,51 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
       </div>
 
       <div className="tbl-foot muted" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <span>
-          {filtered.length === 0 ? "0 件" : `${(safePage * PAGE_SIZE + 1).toLocaleString("ja-JP")}–${Math.min(filtered.length, safePage * PAGE_SIZE + PAGE_SIZE).toLocaleString("ja-JP")} 件`}
-          {" / "}全 {filtered.length.toLocaleString("ja-JP")} 件（取得 {rows.length.toLocaleString("ja-JP")} / 総数 {total.toLocaleString("ja-JP")}）
+        <span style={{ whiteSpace: "nowrap" }}>{filtered.length.toLocaleString("ja-JP")} 件</span>
+
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+          <button type="button" className="pg-btn" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} aria-label="前へ">‹</button>
+          {buildPages(safePage + 1, pageCount).map((p, idx) => p === "…"
+            ? <span key={`e${idx}`} style={{ padding: "0 4px", color: "var(--color-ink-4)" }}>…</span>
+            : <button key={p} type="button" className={"pg-btn" + (p === safePage + 1 ? " active" : "")} onClick={() => setPage(p - 1)}>{p}</button>)}
+          <button type="button" className="pg-btn" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} aria-label="次へ">›</button>
         </span>
-        {pageCount > 1 && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <button type="button" className="btn ghost btn-xs" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)}>← 前</button>
-            <span className="mono" style={{ fontSize: 11.5 }}>{safePage + 1} / {pageCount}</span>
-            <button type="button" className="btn ghost btn-xs" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>次 →</button>
-          </span>
-        )}
+
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+          件数：
+          <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ fontFamily: "inherit", fontSize: 12, padding: "4px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+            {[20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </span>
       </div>
+
+      {/* 詳細モーダル */}
+      {detail && (
+        <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{titleOf(detail)}</h3>
+                {detail._reasons?.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>{detail._reasons.map((rs: string) => <span key={rs} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{rs}</span>)}</div>}
+              </div>
+              <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
+              {[...visibleCols, ...cols.filter((c) => c.filterOnly)].map((c) => (
+                <div key={c.key} style={{ background: "var(--color-surface)", padding: "9px 11px" }}>
+                  <div style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 600 }}>{c.label}</div>
+                  <div style={{ fontSize: 13, marginTop: 2 }}>{c.render ? c.render(detail) : "—"}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+              {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
+              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

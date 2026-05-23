@@ -45,10 +45,17 @@ export default async function PeoplePage() {
       const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
       const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
       const rankScore = (r: string | null) => r === "B" ? 15 : r === "A" ? 10 : r === "C" ? 5 : 0;
-      const score = (p: any) => Math.round(
-        ((p.status ?? "").includes("提案") ? 25 : 0) + ((p.skills?.length) ? 20 : 0) + rankScore(p.rank ?? null) + freshScore(p.created_at) + ((p.saved || p.is_focus) ? 10 : 0)
-      );
-      people = people.map((p: any) => ({ ...p, _score: score(p) })).sort((a: any, b: any) => b._score - a._score);
+      const scoreOf = (p: any) => {
+        const reasons: string[] = [];
+        if ((p.status ?? "").includes("提案")) reasons.push("提案可ステータス");
+        if (p.skills?.length) reasons.push("スキル登録あり");
+        if (p.rank) reasons.push(`ランク${p.rank}`);
+        if (days(p.created_at) <= 3) reasons.push("新着");
+        if (p.saved || p.is_focus) reasons.push("注力人材");
+        const score = Math.round(((p.status ?? "").includes("提案") ? 25 : 0) + ((p.skills?.length) ? 20 : 0) + rankScore(p.rank ?? null) + freshScore(p.created_at) + ((p.saved || p.is_focus) ? 10 : 0));
+        return { score, reasons: reasons.slice(0, 3) };
+      };
+      people = people.map((p: any) => { const r = scoreOf(p); return { ...p, _score: r.score, _reasons: r.reasons }; }).sort((a: any, b: any) => b._score - a._score);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -135,8 +142,8 @@ export default async function PeoplePage() {
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材一覧 <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>· 決まりやすい順</span></h3>
-        <div className="muted" style={{ fontSize: 11.5 }}>50件ずつ表示・検索/絞り込み・チェックで注力に一括登録</div>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材 おすすめランキング</h3>
+        <div className="muted" style={{ fontSize: 11.5 }}>決まりやすい順に1位〜表示・行クリックで詳細・検索/絞り込み可</div>
       </div>
 
       <EntityTable kind="people" rows={people} total={total} />

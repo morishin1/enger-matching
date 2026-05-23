@@ -269,6 +269,12 @@ button { font-family: inherit; }
 }
 
 /* ============ アプリ全体のレスポンシブ（エージェント/企業のスマホ・タブレット利用） ============ */
+/* 番号ページネーション */
+.pg-btn { min-width: 28px; height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-ink-2); font: 600 12px var(--font-sans); cursor: pointer; }
+.pg-btn:hover:not(:disabled) { background: var(--color-surface-soft); color: var(--color-ink); }
+.pg-btn:disabled { opacity: .4; cursor: default; }
+.pg-btn.active { background: var(--color-brand-600); color: #fff; border-color: var(--color-brand-600); }
+
 .nav-toggle { display: none; width: 38px; height: 38px; border-radius: 10px; background: var(--color-surface-soft); border: 1px solid var(--color-border); align-items: center; justify-content: center; color: var(--color-ink-2); cursor: pointer; flex: 0 0 38px; }
 .nav-toggle:hover { background: var(--color-brand-50); color: var(--color-brand-700); }
 .nav-overlay { display: none; }
