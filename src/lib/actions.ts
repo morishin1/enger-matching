@@ -184,7 +184,7 @@ export async function convertToEngagement(proposalId: string) {
     if (error && /affiliation/.test(error.message)) { delete row.affiliation; ({ error } = await admin.from("engagements").insert(row)); }
     if (error) return { ok: false, error: error.message };
   }
-  await admin.from("proposals").update({ stage: "稼働決定", updated_at: new Date().toISOString() }).eq("id", proposalId);
+  await admin.from("proposals").update({ stage: "稼働", updated_at: new Date().toISOString() }).eq("id", proposalId);
   revalidatePath("/proposals");
   bustCounts();
   revalidatePath("/progress");

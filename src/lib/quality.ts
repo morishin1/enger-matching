@@ -7,7 +7,7 @@ const LOST_STAGES = ["見送り", "失注"];
 // 「接触できた」とみなす架電進捗
 const CONTACTED_CALLER = ["電話済み", "LINE確認中", "メール確認中", "返信あり"];
 // 接触後とみなすステージ（面談以降は確実に接触済み）
-const CONTACTED_STAGES = ["面談調整", "クロージング中", "稼働決定"];
+const CONTACTED_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 
 export type Prop = {
   id?: string; stage?: string | null; caller_status?: string | null; created_at?: string | null;

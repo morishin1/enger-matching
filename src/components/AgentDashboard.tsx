@@ -3,8 +3,8 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
 import { leadKpi, isContacted } from "@/lib/quality";
 
-const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中"];
-const MET_STAGES = ["面談調整", "クロージング中", "稼働決定"];
+const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
+const MET_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const DAY = 86400000;
 
 function parseManYen(rate?: string | number | null): number {

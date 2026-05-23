@@ -7,7 +7,7 @@ import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS,
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
-  未対応: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 稼働決定: "#1aa260",
+  未対応: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
 };
 const CALLER_TONE: Record<string, string> = {
   返信あり: "#1aa260", 電話済み: "#0095D9", "電話(不在)": "#d98a2b", LINE確認中: "#7c5cff", メール確認中: "#7c5cff", 未架電: "#9aa7b4",
@@ -57,7 +57,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx <= 0 || busy} onClick={() => onMove(p.id, STAGES[stageIdx - 1])} title="前へ">←</button>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
-        {p.stage === "稼働決定" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)}>稼働化</button>}
+        {p.stage === "面談合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
         <button type="button" className="btn ghost btn-xs" onClick={() => setOpen((v) => !v)} style={{ marginLeft: "auto" }}>{open ? "閉じる" : "編集"}</button>
       </div>
 

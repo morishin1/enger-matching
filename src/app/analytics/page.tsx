@@ -3,8 +3,8 @@ import { leadKpi } from "@/lib/quality";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中"];
-const MET_STAGES = ["面談調整", "クロージング中", "稼働決定"];
+const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
+const MET_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const LOST_STAGES = ["見送り", "失注"];
 
 function parseManYen(rate?: string | number | null): number {
@@ -63,7 +63,7 @@ export default async function AnalyticsPage() {
   // リード品質
   const kpi = leadKpi(proposals);
   const active = proposals.filter((p) => ACTIVE_STAGES.includes(p.stage) && !p.disqualified);
-  const won = proposals.filter((p) => p.stage === "稼働決定");
+  const won = proposals.filter((p) => p.stage === "稼働" || p.stage === "稼働決定");
 
   // ファネル
   const funnel = [
@@ -93,7 +93,7 @@ export default async function AnalyticsPage() {
     const who = p.proposer || "未割当";
     byProposer[who] ??= { active: 0, won: 0, man: 0 };
     if (ACTIVE_STAGES.includes(p.stage) && !p.disqualified) { byProposer[who].active++; byProposer[who].man += parseManYen(p.rate); }
-    if (p.stage === "稼働決定") byProposer[who].won++;
+    if (p.stage === "稼働" || p.stage === "稼働決定") byProposer[who].won++;
   }
   const proposers = Object.entries(byProposer).sort((a, b) => (b[1].active + b[1].won) - (a[1].active + a[1].won)).slice(0, 10);
 

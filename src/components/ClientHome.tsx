@@ -35,10 +35,10 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
   const remote = (t?: string | null) => ({ full: "フルリモート", hybrid: "ハイブリッド", onsite: "出社" } as Record<string, string>)[t ?? ""] ?? (t || "—");
 
   const activeProps = proposals.filter((p) => p.stage !== "見送り" && p.stage !== "失注");
-  const won = proposals.filter((p) => p.stage === "稼働決定" || p.stage === "稼働中");
+  const won = proposals.filter((p) => ["面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage));
 
   const stageTone = (s?: string) => {
-    if (s === "稼働決定" || s === "稼働中") return { bg: "#e7f7ee", fg: "#067647" };
+    if (s === "面談合格" || s === "稼働" || s === "稼働中" || s === "稼働決定") return { bg: "#e7f7ee", fg: "#067647" };
     if (s === "見送り" || s === "失注") return { bg: "#fdecef", fg: "#b42318" };
     return { bg: "#eaf4fd", fg: "#0b5cab" };
   };
@@ -60,7 +60,7 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
         <div className="kpi brand"><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
         <div className="kpi"><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
-        <div className="kpi accent"><div><div className="val tnum">{won.length}</div><div className="label">稼働決定</div></div></div>
+        <div className="kpi accent"><div><div className="val tnum">{won.length}</div><div className="label">合格・稼働</div></div></div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

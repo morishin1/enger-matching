@@ -3,7 +3,9 @@
 //   定数(配列)はこの通常モジュールに置き、クライアント/サーバ双方から import する。
 
 // インサイド提案DBの運用に準拠
-export const PROPOSAL_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "稼働決定"] as const;
+export const PROPOSAL_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"] as const;
+// 稼働化後の終端ステージ（提案ボードからは除外し、稼働管理へ移る）
+export const CONVERTED_STAGE = "稼働";
 
 export const CALLER_STATUSES = ["未架電", "電話(不在)", "電話済み", "LINE確認中", "メール確認中", "返信あり"];
 export const MEETING_STATUSES = ["調整中", "日程確定", "実施済", "リスケ", "キャンセル"];

@@ -28,7 +28,8 @@ export default async function ProposalsPage() {
         needSetup = true;
       } else {
         const all = res.data ?? [];
-        proposals = all.filter((p: any) => p.stage !== "見送り" && p.stage !== "失注");
+        // 稼働化済(稼働/旧稼働決定)・見送り・失注 はボードから除外
+        proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
         lost = lostRows.length;
         // 企業フィードバックを紐付け（ミスマッチ低減の材料）
@@ -46,7 +47,7 @@ export default async function ProposalsPage() {
   }
 
   const active = proposals.length;
-  const won = proposals.filter((p) => p.stage === "稼働決定").length;
+  const passed = proposals.filter((p) => p.stage === "面談合格").length;
 
   // 失注理由サマリー（上位）
   const reasonCounts = lostRows.reduce((m: Record<string, number>, p) => {
@@ -60,7 +61,7 @@ export default async function ProposalsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Proposals · 提案管理</div>
           <h1>提案管理</h1>
-          <div className="sub">インサイド運用に準拠：<b>未対応 → 提案中 → 面談調整 → クロージング中 → 稼働決定</b> のカンバン。各カードで架電進捗・提案者/クロージング担当・失注理由を管理できます。</div>
+          <div className="sub">インサイド運用に準拠：<b>未対応 → 提案中 → 面談調整 → クロージング中 → 面談合格</b> のカンバン。面談合格カードの「稼働化」を押すと<b>稼働管理</b>へ移り、この一覧から消えます。</div>
         </div>
       </div>
 
@@ -80,8 +81,8 @@ export default async function ProposalsPage() {
               <div><div className="val tnum">{active}<span className="unit">件</span></div><div className="label">進行中の提案</div><div className="note">失注を除く</div></div>
             </div>
             <div className="kpi accent">
-              <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">稼働決定</div></div>
-              <div><div className="val tnum">{won}<span className="unit">件</span></div><div className="label">稼働決定</div><div className="note">稼働化できます</div></div>
+              <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">面談合格</div></div>
+              <div><div className="val tnum">{passed}<span className="unit">件</span></div><div className="label">面談合格</div><div className="note">「稼働化」で稼働管理へ</div></div>
             </div>
             <div className="kpi">
               <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip flat">見送り</div></div>
