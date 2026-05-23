@@ -71,3 +71,36 @@ export async function listEngineerActions(): Promise<Record<string, EngineerActi
     return map;
   } catch { return {}; }
 }
+
+export type Scout = {
+  id: string;
+  engineer_id: string;
+  engineer_name: string | null;
+  agent: string | null;
+  job_title: string | null;
+  message: string;
+  status: "sent" | "read" | "interested" | "declined";
+  reply: string | null;
+  created_at: string;
+  read_at: string | null;
+  replied_at: string | null;
+};
+
+/** 全エンジニアへのスカウト（enger.scouts）。engineer_id でグルーピングして使う。 */
+export async function listScouts(): Promise<Record<string, Scout[]>> {
+  if (!dbConfigured) return {};
+  try {
+    const sb = engerClient();
+    const { data, error } = await sb
+      .from("scouts")
+      .select("id, engineer_id, engineer_name, agent, job_title, message, status, reply, created_at, read_at, replied_at")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (error) return {};
+    const map: Record<string, Scout[]> = {};
+    for (const r of (data ?? []) as Scout[]) {
+      (map[r.engineer_id] ??= []).push(r);
+    }
+    return map;
+  } catch { return {}; }
+}

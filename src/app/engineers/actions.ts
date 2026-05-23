@@ -28,6 +28,41 @@ export async function addEngineerAction(input: { engineer_id: string; engineer_n
   return { ok: true };
 }
 
+/** エンジニアへスカウトを送る。対応履歴にも「スカウト送信」を自動記録。 */
+export async function sendScout(input: { engineer_id: string; engineer_name?: string | null; job_title?: string | null; message: string }): Promise<Result> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  if (!input.engineer_id) return { ok: false, error: "対象エンジニアが未指定です" };
+  if (!input.message?.trim()) return { ok: false, error: "スカウト本文が空です" };
+
+  const access = await currentAccess();
+  const agent = access?.name || access?.email || null;
+  const engineer_name = input.engineer_name?.trim() || null;
+  const job_title = input.job_title?.trim() || null;
+
+  const { error } = await admin.from("scouts").insert({
+    engineer_id: input.engineer_id,
+    engineer_name,
+    agent,
+    job_title,
+    message: input.message.trim(),
+    status: "sent",
+  });
+  if (error) return { ok: false, error: error.message };
+
+  // 履歴にも残す（重複アプローチ防止・引き継ぎ）
+  await admin.from("engineer_actions").insert({
+    engineer_id: input.engineer_id,
+    engineer_name,
+    action: "スカウト送信",
+    note: job_title ? `案件: ${job_title}` : null,
+    operator: agent,
+  });
+
+  revalidatePath("/engineers");
+  return { ok: true };
+}
+
 /** 対応履歴を1件削除（誤記録の取り消し）。 */
 export async function deleteEngineerAction(id: string): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;

@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Engineer, EngineerAction } from "@/lib/engineers";
-import { addEngineerAction, deleteEngineerAction } from "@/app/engineers/actions";
+import type { Engineer, EngineerAction, Scout } from "@/lib/engineers";
+import { addEngineerAction, deleteEngineerAction, sendScout } from "@/app/engineers/actions";
 
 const pay = (e: Engineer) => {
   const lo = e.estimated_pay_low, hi = e.estimated_pay_high, mid = e.estimated_pay_mid;
@@ -21,7 +21,14 @@ const ACTION_COLOR: Record<string, string> = {
 };
 const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
-export function EngineersClient({ engineers, actions = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]> }) {
+const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
+  sent: { label: "送信済み", color: "#0b5cab" },
+  read: { label: "既読", color: "#475467" },
+  interested: { label: "興味あり", color: "#067647" },
+  declined: { label: "見送り", color: "#b42318" },
+};
+
+export function EngineersClient({ engineers, actions = {}, scouts = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]> }) {
   const [q, setQ] = useState("");
   const [detail, setDetail] = useState<Engineer | null>(null);
 
@@ -45,6 +52,7 @@ export function EngineersClient({ engineers, actions = {} }: { engineers: Engine
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
         {filtered.map((e) => {
           const log = actions[e.id] ?? [];
+          const sc = scouts[e.id] ?? [];
           return (
           <button key={e.id} onClick={() => setDetail(e)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -62,27 +70,46 @@ export function EngineersClient({ engineers, actions = {} }: { engineers: Engine
               <span>想定単価 <b style={{ color: "var(--color-ink)" }}>{pay(e)}</b></span>
               <span>★{e.total_stars}</span>
               <span>repo {e.total_repos}</span>
-              {log.length > 0 && (
-                <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応 {log.length}</span>
-              )}
+              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 5 }}>
+                {sc.length > 0 && (
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカウト {sc.length}</span>
+                )}
+                {log.length > 0 && (
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応 {log.length}</span>
+                )}
+              </span>
             </div>
           </button>
         );})}
       </div>
 
       {detail && (
-        <DetailModal engineer={detail} log={actions[detail.id] ?? []} onClose={() => setDetail(null)} />
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} onClose={() => setDetail(null)} />
       )}
     </>
   );
 }
 
-function DetailModal({ engineer: detail, log, onClose }: { engineer: Engineer; log: EngineerAction[]; onClose: () => void }) {
+function DetailModal({ engineer: detail, log, scoutLog, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [action, setAction] = useState<string>("");
   const [note, setNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [scoutMsg, setScoutMsg] = useState("");
+  const [scoutJob, setScoutJob] = useState("");
+  const [scoutErr, setScoutErr] = useState<string | null>(null);
+
+  const submitScout = () => {
+    if (!scoutMsg.trim()) { setScoutErr("スカウト本文を入力してください"); return; }
+    setScoutErr(null);
+    start(async () => {
+      const res = await sendScout({ engineer_id: detail.id, engineer_name: detail.display_name || detail.github_login, job_title: scoutJob, message: scoutMsg });
+      if (!res.ok) { setScoutErr(res.error || "送信に失敗しました"); return; }
+      setScoutMsg(""); setScoutJob("");
+      router.refresh();
+    });
+  };
 
   const submit = () => {
     if (!action) { setErr("対応の種類を選んでください"); return; }
@@ -126,6 +153,39 @@ function DetailModal({ engineer: detail, log, onClose }: { engineer: Engineer; l
           </div>
         </div>
         {detail.email && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>連絡先：<a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a></div>}
+
+        {/* スカウト */}
+        <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>スカウト <span className="muted" style={{ fontWeight: 400 }}>（{scoutLog.length}件）</span></div>
+
+          <div style={{ background: "var(--color-bg, #f7f8fa)", border: "1px solid var(--color-border)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+            <input value={scoutJob} onChange={(e) => setScoutJob(e.target.value)} placeholder="対象案件名（任意）" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
+            <textarea value={scoutMsg} onChange={(e) => setScoutMsg(e.target.value)} rows={3} placeholder="スカウト本文：案件の魅力・なぜあなたか・次のステップを簡潔に" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)", resize: "vertical" }} />
+            {scoutErr && <div style={{ fontSize: 11.5, color: "#b42318" }}>{scoutErr}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-xs" disabled={pending} onClick={submitScout} style={{ opacity: pending ? 0.6 : 1 }}>{pending ? "送信中…" : "スカウトを送る"}</button>
+            </div>
+          </div>
+
+          {scoutLog.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {scoutLog.map((s) => {
+                const st = SCOUT_STATUS[s.status] ?? SCOUT_STATUS.sent;
+                return (
+                  <div key={s.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, color: "#fff", background: st.color }}>{st.label}</span>
+                      {s.job_title && <span className="muted" style={{ fontSize: 11 }}>{s.job_title}</span>}
+                      <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>{fmtDate(s.created_at)}{s.agent ? ` · ${s.agent}` : ""}</span>
+                    </div>
+                    <div style={{ color: "var(--color-ink-2)", marginTop: 4, whiteSpace: "pre-wrap" }}>{s.message}</div>
+                    {s.reply && <div style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6, background: "var(--color-bg,#f7f8fa)", fontSize: 11.5 }}><b>返信：</b>{s.reply}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* 対応履歴 */}
         <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
