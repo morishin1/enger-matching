@@ -43,6 +43,8 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
   const [transcript, setTranscript] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
+  const [aiDone, setAiDone] = useState(false);
   const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
   const toggle = (k: "competitors" | "tags", v: string) => setF((p) => ({ ...p, [k]: p[k].includes(v) ? p[k].filter((x) => x !== v) : [...p[k], v] }));
 
@@ -70,7 +72,8 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
         competitors: (r.competitors?.length ? r.competitors : p.competitors),
         tags: (r.tags?.length ? r.tags : p.tags),
       }));
-      setAiMsg("AI解析を各項目に反映しました（内容を確認して保存してください）");
+      setAiMsg("AI解析を反映しました。下のプルダウンを確認して保存してください。");
+      setAiDone(true);
     } catch (e) {
       setAiMsg(e instanceof Error ? e.message : "解析に失敗しました");
     } finally { setAnalyzing(false); }
@@ -89,43 +92,61 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
 
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+      {/* 基本（最小） */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
         <div><L>相手企業 *</L><input style={inp} list="company-list" value={f.company_name} onChange={(e) => set("company_name", e.target.value)} placeholder="企業名" /><datalist id="company-list">{companies.map((c) => <option key={c} value={c} />)}</datalist></div>
         <div><L>打ち合わせ日</L><input style={inp} type="date" value={f.meeting_date} onChange={(e) => set("meeting_date", e.target.value)} /></div>
         <div><L>自社担当者</L><select style={inp} value={f.our_owner} onChange={(e) => set("our_owner", e.target.value)}><option value="">—</option>{MEETING_OWNERS.map((o) => <option key={o}>{o}</option>)}</select></div>
-        <div><L>相手側担当者</L><input style={inp} value={f.their_contact} onChange={(e) => set("their_contact", e.target.value)} /></div>
-        <div><L>新規/既存</L><select style={inp} value={f.new_or_existing} onChange={(e) => set("new_or_existing", e.target.value)}><option>新規</option><option>既存</option></select></div>
-        <div><L>関係性ステータス</L><select style={inp} value={f.relation_status} onChange={(e) => set("relation_status", e.target.value)}>{MEETING_RELATIONS.map((o) => <option key={o}>{o}</option>)}</select></div>
-        <div><L>FB感情</L><select style={inp} value={f.fb_sentiment} onChange={(e) => set("fb_sentiment", e.target.value)}>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select></div>
-        <div><L>次回フォロー予定日</L><input style={inp} type="date" value={f.follow_up_date} onChange={(e) => set("follow_up_date", e.target.value)} /></div>
-        <div><L>配信可否</L><select style={inp} value={f.publishable} onChange={(e) => set("publishable", e.target.value)}><option>配信可能</option><option>配信不可</option></select></div>
       </div>
 
-      {/* 文字起こしAI分析（Meet/Geminiの文字起こしを貼って自動入力） */}
-      <div style={{ border: "1px solid var(--color-brand-100)", background: "var(--color-brand-25)", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* ① 営業はここだけ：Meetメモを貼ってAI自動入力 */}
+      <div style={{ border: "1.5px solid var(--color-brand-200, var(--color-brand-100))", background: "var(--color-brand-25)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-          <L>📝 文字起こしをAI分析（Meet/Gemini の文字起こしを貼り付け → 各項目を自動入力）</L>
-          <button type="button" className="btn brand btn-xs" disabled={analyzing} onClick={analyze}>{analyzing ? "解析中…" : "✨ AI分析"}</button>
+          <b style={{ fontSize: 13 }}>① Google Meet のメモを貼り付け → AIが自動入力</b>
+          <button type="button" className="btn brand" disabled={analyzing} onClick={analyze}>{analyzing ? "解析中…" : "✨ AIで自動入力"}</button>
         </div>
-        <textarea style={{ ...inp, resize: "vertical" }} rows={4} value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Google Drive に保存された打ち合わせの文字起こしテキストをここに貼り付け…" />
-        {aiMsg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{aiMsg}</div>}
-        <div style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>※ Driveの原本リンクは下の「元文字起こしリンク」に貼ってください。AI分析はここに貼ったテキストを解析します。</div>
+        <textarea style={{ ...inp, resize: "vertical" }} rows={5} value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Google Meet / Gemini のメモ（文字起こし・要約）をここに貼り付けて『AIで自動入力』を押すだけ。温度感・刺さった点・競合・次回アクション等を自動で埋めます。" />
+        <div><L>Meetノート / Drive の共有URL</L><input style={inp} value={f.transcript_url} onChange={(e) => set("transcript_url", e.target.value)} placeholder="https://docs.google.com/... または https://drive.google.com/..." /></div>
+        {aiMsg && <div style={{ fontSize: 11.5, color: aiDone ? "#067647" : "var(--color-ink-3)" }}>{aiMsg}</div>}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <div><L>AI要約 / メモ</L><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.ai_summary} onChange={(e) => set("ai_summary", e.target.value)} /></div>
-        <div><L>エンジャーへのFB</L><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.enger_fb} onChange={(e) => set("enger_fb", e.target.value)} /></div>
-        <div><L>刺さった訴求点</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.hit_points} onChange={(e) => set("hit_points", e.target.value)} /></div>
-        <div><L>響かなかった点</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.miss_points} onChange={(e) => set("miss_points", e.target.value)} /></div>
-        <div><L>顧客の課題・ニーズ</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.needs} onChange={(e) => set("needs", e.target.value)} /></div>
-        <div><L>戦略的示唆</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.strategy} onChange={(e) => set("strategy", e.target.value)} /></div>
-        <div><L>次回アクション(自社)</L><input style={inp} value={f.next_action_us} onChange={(e) => set("next_action_us", e.target.value)} /></div>
-        <div><L>次回アクション(相手)</L><input style={inp} value={f.next_action_them} onChange={(e) => set("next_action_them", e.target.value)} /></div>
+      {/* ② 確認（プルダウン中心・最小） */}
+      <div>
+        <L>② 確認（プルダウンを選ぶだけ）</L>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+          <div><L>FB感情（温度感）</L><select style={inp} value={f.fb_sentiment} onChange={(e) => set("fb_sentiment", e.target.value)}>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select></div>
+          <div><L>関係性</L><select style={inp} value={f.relation_status} onChange={(e) => set("relation_status", e.target.value)}>{MEETING_RELATIONS.map((o) => <option key={o}>{o}</option>)}</select></div>
+          <div><L>新規/既存</L><select style={inp} value={f.new_or_existing} onChange={(e) => set("new_or_existing", e.target.value)}><option>新規</option><option>既存</option></select></div>
+          <div><L>次回フォロー予定日</L><input style={inp} type="date" value={f.follow_up_date} onChange={(e) => set("follow_up_date", e.target.value)} /></div>
+        </div>
       </div>
-      <div><L>競合・他社言及</L><Chips all={MEETING_COMPETITORS} sel={f.competitors} onToggle={(v) => toggle("competitors", v)} /></div>
-      <div><L>競合言及の詳細</L><input style={inp} value={f.competitor_detail} onChange={(e) => set("competitor_detail", e.target.value)} /></div>
-      <div><L>横串タグ</L><Chips all={MEETING_TAGS} sel={f.tags} onToggle={(v) => toggle("tags", v)} /></div>
-      <div><L>元文字起こしリンク(Drive)</L><input style={inp} value={f.transcript_url} onChange={(e) => set("transcript_url", e.target.value)} placeholder="https://drive.google.com/..." /></div>
+
+      {/* 一言メモ（任意・短く） */}
+      <div><L>一言メモ / 要約（AI入力・編集可）</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.ai_summary} onChange={(e) => set("ai_summary", e.target.value)} placeholder="ひとことメモ（任意）。AI分析すると要約が入ります。" /></div>
+
+      {/* 管理用の詳細データ（AIが自動入力・折りたたみ） */}
+      <button type="button" onClick={() => setShowDetail((v) => !v)} style={{ alignSelf: "flex-start", border: 0, background: "transparent", color: "var(--color-brand-700, #0b5cab)", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+        {showDetail ? "▾ 詳細データを隠す" : "▸ 詳細データ（AIが自動入力・管理用）"}
+      </button>
+      {showDetail && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, borderTop: "1px dashed var(--color-border)", paddingTop: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><L>刺さった訴求点</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.hit_points} onChange={(e) => set("hit_points", e.target.value)} /></div>
+            <div><L>響かなかった点</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.miss_points} onChange={(e) => set("miss_points", e.target.value)} /></div>
+            <div><L>顧客の課題・ニーズ</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.needs} onChange={(e) => set("needs", e.target.value)} /></div>
+            <div><L>戦略的示唆</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.strategy} onChange={(e) => set("strategy", e.target.value)} /></div>
+            <div><L>次回アクション(自社)</L><input style={inp} value={f.next_action_us} onChange={(e) => set("next_action_us", e.target.value)} /></div>
+            <div><L>次回アクション(相手)</L><input style={inp} value={f.next_action_them} onChange={(e) => set("next_action_them", e.target.value)} /></div>
+            <div><L>エンジャーへのFB</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.enger_fb} onChange={(e) => set("enger_fb", e.target.value)} /></div>
+            <div><L>相手側担当者</L><input style={inp} value={f.their_contact} onChange={(e) => set("their_contact", e.target.value)} /></div>
+          </div>
+          <div><L>競合・他社言及</L><Chips all={MEETING_COMPETITORS} sel={f.competitors} onToggle={(v) => toggle("competitors", v)} /></div>
+          <div><L>競合言及の詳細</L><input style={inp} value={f.competitor_detail} onChange={(e) => set("competitor_detail", e.target.value)} /></div>
+          <div><L>横串タグ</L><Chips all={MEETING_TAGS} sel={f.tags} onToggle={(v) => toggle("tags", v)} /></div>
+          <div style={{ maxWidth: 200 }}><L>配信可否</L><select style={inp} value={f.publishable} onChange={(e) => set("publishable", e.target.value)}><option>配信可能</option><option>配信不可</option></select></div>
+        </div>
+      )}
+
       {err && <div style={{ color: "var(--color-danger)", fontSize: 12 }}>{err}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" className="btn brand" disabled={saving} onClick={submit}>{saving ? "保存中…" : "記録を保存"}</button>
