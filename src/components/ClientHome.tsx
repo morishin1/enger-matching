@@ -45,22 +45,27 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div style={{ maxWidth: 760 }}>
-          <div className="meta">ポータル · {companyName ?? "—"}</div>
-          <h1>{displayName ? `${displayName} 様` : "自社ポータル"}</h1>
-          <div className="sub">貴社の案件と、ご提案中の人材の進捗をご確認いただけます。</div>
+      {/* グリーンのヒーロー */}
+      <div style={{ borderRadius: 18, padding: "26px 28px", color: "#fff", background: "linear-gradient(135deg, var(--color-brand-600), var(--color-brand-800))", boxShadow: "0 18px 40px -24px rgba(6,95,70,.6)" }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: ".08em", opacity: .85, textTransform: "uppercase" }}>ENGER · 企業ポータル</div>
+        <h1 style={{ margin: "8px 0 6px", fontSize: 24, fontWeight: 800 }}>{displayName ? `${displayName} 様` : "自社ポータル"}</h1>
+        <div style={{ fontSize: 13.5, opacity: .92, maxWidth: 640, lineHeight: 1.8 }}>
+          {companyName ? <><b>{companyName}</b> の案件と、ご提案中の人材の進捗をご確認いただけます。</> : "貴社の案件と、ご提案中の人材の進捗をご確認いただけます。"}
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+          <a href="/portal/jobs" style={{ background: "#fff", color: "var(--color-brand-700)", fontWeight: 700, fontSize: 13, padding: "9px 16px", borderRadius: 9, textDecoration: "none" }}>自社案件を見る →</a>
+          <a href="/portal/candidates" style={{ background: "rgba(255,255,255,.18)", color: "#fff", fontWeight: 700, fontSize: 13, padding: "9px 16px", borderRadius: 9, textDecoration: "none", border: "1px solid rgba(255,255,255,.35)" }}>おすすめ人材を見る →</a>
         </div>
       </div>
 
       {note && (
-        <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>{note}</div>
+        <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginTop: 16 }}>{note}</div>
       )}
 
-      <div className="kpi-grid" style={{ marginBottom: 16 }}>
-        <div className="kpi brand"><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
-        <div className="kpi"><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
-        <div className="kpi accent"><div><div className="val tnum">{won.length}</div><div className="label">合格・稼働</div></div></div>
+      <div className="kpi-grid" style={{ margin: "16px 0" }}>
+        <div className="kpi brand"><div className="top"><div className="ico-box">📋</div></div><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
+        <div className="kpi"><div className="top"><div className="ico-box">🤝</div></div><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
+        <div className="kpi accent"><div className="top"><div className="ico-box">✅</div></div><div><div className="val tnum">{won.length}</div><div className="label">合格・稼働</div></div></div>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

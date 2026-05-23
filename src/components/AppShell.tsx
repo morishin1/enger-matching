@@ -73,7 +73,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
   };
 
   return (
-    <div className="app">
+    <div className={"app" + (role === "client" ? " theme-client" : "")}>
       <Sidebar counts={counts} role={role} open={navOpen} functions={functions} />
       <div className={"nav-overlay" + (navOpen ? " show" : "")} onClick={() => setNavOpen(false)} aria-hidden />
       <main className="main">
