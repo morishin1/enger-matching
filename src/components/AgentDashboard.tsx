@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
+import { IssueBoard, type Issue } from "./IssueBoard";
 import { leadKpi, isContacted } from "@/lib/quality";
 
 const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
@@ -72,7 +73,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       const sb = engerClient();
       const [J, P, E, C, S, M] = await Promise.all([
         grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published, outside_owner", "job_no, title, client_name, created_at"),
-        grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified", "id, job_title, company, stage, rate, created_at"),
+        grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified, lost_reason", "id, job_title, company, stage, rate, created_at"),
         grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status"),
         grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num"),
         grab(sb, "staff", "name, position", "name"),
@@ -183,6 +184,35 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const actions = myPosition === "outside" ? outsideActions : insideActions;
   const actionsTotal = actions.reduce((s, a) => s + a.count, 0);
 
+  // ===== 深掘りイシュー（カテゴリ別） =====
+  const metRate = fProposed ? Math.round((fMet / fProposed) * 100) : 0;
+  const lostRows = proposals.filter((p) => ["見送り", "失注"].includes(p.stage));
+  const issueCategory = role === "admin" ? "管理者ビュー" : "営業ビュー";
+
+  const agentIssues: Issue[] = [];
+  if (fProposed >= 8 && metRate < 35) agentIssues.push({ id: "meet", sev: "high", title: "提案は出ているが面談に進んでいない", metric: `提案${fProposed}→面談${fMet}（${metRate}%）`, advice: "提案の質・初動フォローを見直し。提案中で接触できていない先を優先架電。", href: "/proposals", items: proposals.filter((p) => p.stage === "提案中" && !isContacted(p)).map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) });
+  if (callPending.length >= 3) agentIssues.push({ id: "call", sev: "mid", title: "初動（架電・対応）が滞っている", metric: `未対応/未架電 ${callPending.length}件`, advice: "当日中の初動が歩留まりを左右します。上から順に連絡。", href: "/proposals", items: callPending.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) });
+  if (staleJobs.length >= 5) agentIssues.push({ id: "stale", sev: "mid", title: "鮮度切れ案件が積み上がっている", metric: `14日以上・未提案 ${staleJobs.length}件`, advice: "古い案件はマッチングし直すか、クローズ判断を。", href: "/jobs", items: staleJobs.map(jLabel) });
+  if (renewSoon.length >= 1) agentIssues.push({ id: "renew", sev: "high", title: "契約満了が近い稼働がある（売上防衛）", metric: `30日以内に満了 ${renewSoon.length}名`, advice: "更新交渉を前倒し。終了予定なら後任の手配を。", href: "/progress", items: renewSoon.map((e: any) => `${e.candidate_name || "—"}（${e.company ?? "—"} / 満了まで${daysUntil(e.end_date)}日）`) });
+  if (agentIssues.length === 0) agentIssues.push({ id: "ok", sev: "good", title: "大きなボトルネックはありません", metric: `面談化 ${metRate}% / 進行中 ${activeProps.length}件`, advice: "在庫から次の仕込み（注力案件の提案・新規開拓）を進めましょう。" });
+
+  // 管理者：組織レベルの課題
+  const adminIssues: Issue[] = [];
+  if (lostRows.length >= 5) {
+    const rc: Record<string, number> = {}; for (const p of lostRows) { const k = p.lost_reason || "（理由未入力）"; rc[k] = (rc[k] ?? 0) + 1; }
+    const top = Object.entries(rc).sort((a, b) => b[1] - a[1]); const share = Math.round((top[0][1] / lostRows.length) * 100);
+    adminIssues.push({ id: "lost", sev: share >= 40 ? "high" : "mid", title: "失注が特定要因に偏っている", metric: `${top[0][0]} が${share}%（失注${lostRows.length}件）`, advice: "最多要因に的を絞った打ち手（単価・スピード・要件詰め）を。", href: "/analytics", hrefLabel: "失注分析へ", items: top.slice(0, 6).map(([r, n]) => `${r}：${n}件`) });
+  }
+  const jcov = pub.length ? Math.round((pub.filter((j) => j.skills?.length).length / pub.length) * 100) : 100;
+  const ccov = cands.length ? Math.round((cands.filter((c) => c.skills?.length).length / cands.length) * 100) : 100;
+  if (jcov < 70 || ccov < 70) adminIssues.push({ id: "cov", sev: "mid", title: "重要データの充足が不足（仮説の信頼性低下）", metric: `案件スキル ${jcov}% / 人材スキル ${ccov}%`, advice: "取込ゲートで『完備のみ取込』を徹底。未入力の補完を依頼。", href: "/analytics", hrefLabel: "充足を確認" });
+  const renewYen = renewSoon.reduce((s: number, e: any) => s + parseManYen(e.monthly_rate), 0);
+  if (renewYen > 0) adminIssues.push({ id: "renewyen", sev: "high", title: "更新リスクのある売上がある", metric: `30日以内に満了 ${renewSoon.length}名 / 月額${yen(renewYen)}`, advice: "更新確度を担当に確認。終了予定は早期に後任提案を。", href: "/progress", hrefLabel: "稼働管理へ" });
+  if (fProposed >= 10 && metRate < 30) adminIssues.push({ id: "funnel", sev: "mid", title: "全体の面談到達率が低い", metric: `提案→面談 ${metRate}%`, advice: "提案の質（マッチ精度）と初動プロセスを組織で標準化。", href: "/analytics", hrefLabel: "ファネルを見る" });
+  if (adminIssues.length === 0) adminIssues.push({ id: "okadmin", sev: "good", title: "組織レベルの重大な課題はありません", metric: `面談化 ${metRate}% / 失注 ${lostRows.length}件`, advice: "担当者別の動き（分析）で個別の伸びしろを確認しましょう。", href: "/analytics", hrefLabel: "担当者別分析へ" });
+
+  const issues = role === "admin" ? adminIssues : agentIssues;
+
   return (
     <div className="page">
       <div className="page-head">
@@ -235,6 +265,9 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
           {actionsTotal === 0 && <div className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>今すぐ対応すべきものはありません 👍 在庫から次の仕込みを進めましょう。</div>}
         </div>
       )}
+
+      {/* 深掘りイシュー（カテゴリ別） */}
+      {!setup && <IssueBoard title="深掘りイシュー" category={issueCategory} issues={issues} />}
 
       {/* AIブリーフィング（今日やるべきこと） */}
       {!setup && (
