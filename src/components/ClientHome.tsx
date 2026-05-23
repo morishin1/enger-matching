@@ -64,6 +64,22 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginTop: 16 }}>{note}</div>
       )}
 
+      {/* ENGER business でできること（強み・機能を一目で） */}
+      <div style={{ margin: "16px 0", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+        {[
+          { ic: "post_add", t: "求人を無料で掲載", d: "SES／紹介／派遣を選んで掲載。審査後すぐ人材に公開。", href: "/portal/jobs", cta: "案件を掲載" },
+          { ic: "auto_awesome", t: "AIが“合う人材”を提案", d: "マッチ度＋一致スキルの根拠つき。ミスマッチを減らせます。", href: "/portal/candidates", cta: "おすすめ人材" },
+          { ic: "forum", t: "評価で精度UP・面談へ", d: "「会いたい/検討中/見送り」で精度向上。営業が面談まで伴走。", href: "/portal/candidates", cta: "評価する" },
+        ].map((c) => (
+          <a key={c.t} href={c.href} className="card" style={{ display: "flex", flexDirection: "column", gap: 7, textDecoration: "none", color: "inherit", padding: 16 }}>
+            <span style={{ width: 38, height: 38, borderRadius: 10, background: "var(--color-brand-50)", color: "var(--color-brand-700)", display: "grid", placeItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 20 }}>{c.ic}</span></span>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--color-ink)" }}>{c.t}</div>
+            <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>{c.d}</div>
+            <span style={{ marginTop: "auto", paddingTop: 6, fontSize: 12, fontWeight: 700, color: "var(--color-brand-700)" }}>{c.cta} →</span>
+          </a>
+        ))}
+      </div>
+
       <div className="kpi-grid" style={{ margin: "16px 0" }}>
         <div className="kpi brand"><div className="top"><div className="ico-box"><Icons.jobs /></div></div><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
         <div className="kpi"><div className="top"><div className="ico-box"><Icons.proposals /></div></div><div><div className="val tnum">{activeProps.length}</div><div className="label">進行中のご提案</div></div></div>
