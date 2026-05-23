@@ -3,8 +3,16 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
-import { createMeeting } from "@/lib/actions";
+import { createMeeting, setMeetingFollowDone } from "@/lib/actions";
 import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_OWNERS, MEETING_COMPETITORS, MEETING_TAGS } from "@/lib/proposal-constants";
+
+const TODAY = new Date().toISOString().slice(0, 10);
+/** 要フォロー：未完了 かつ（期限到来 or ネガティブ反応）。 */
+function needsFollow(m: any): boolean {
+  if (m.follow_done) return false;
+  if (m.follow_up_date && String(m.follow_up_date).slice(0, 10) <= TODAY) return true;
+  return (m.fb_sentiment ?? "").includes("ネガ");
+}
 
 const SENT_TONE: Record<string, string> = { "👍ポジティブ": "#1aa260", "😐中立": "#6b7280", "👎ネガティブ": "#d23f57", "⚠️競合比較": "#d98a2b" };
 const dateLabel = (d: string | null) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${t.getMonth() + 1}/${t.getDate()}`; };
@@ -13,7 +21,7 @@ const empty = {
   company_name: "", meeting_date: "", their_contact: "", our_owner: "", new_or_existing: "新規",
   relation_status: "🆕新規", fb_sentiment: "😐中立", ai_summary: "", enger_fb: "", hit_points: "",
   miss_points: "", needs: "", strategy: "", next_action_us: "", next_action_them: "",
-  competitors: [] as string[], competitor_detail: "", tags: [] as string[], transcript_url: "", publishable: "配信可能",
+  competitors: [] as string[], competitor_detail: "", tags: [] as string[], transcript_url: "", publishable: "配信可能", follow_up_date: "",
 };
 
 function Chips({ all, sel, onToggle }: { all: string[]; sel: string[]; onToggle: (v: string) => void }) {
@@ -89,6 +97,7 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
         <div><L>新規/既存</L><select style={inp} value={f.new_or_existing} onChange={(e) => set("new_or_existing", e.target.value)}><option>新規</option><option>既存</option></select></div>
         <div><L>関係性ステータス</L><select style={inp} value={f.relation_status} onChange={(e) => set("relation_status", e.target.value)}>{MEETING_RELATIONS.map((o) => <option key={o}>{o}</option>)}</select></div>
         <div><L>FB感情</L><select style={inp} value={f.fb_sentiment} onChange={(e) => set("fb_sentiment", e.target.value)}>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select></div>
+        <div><L>次回フォロー予定日</L><input style={inp} type="date" value={f.follow_up_date} onChange={(e) => set("follow_up_date", e.target.value)} /></div>
         <div><L>配信可否</L><select style={inp} value={f.publishable} onChange={(e) => set("publishable", e.target.value)}><option>配信可能</option><option>配信不可</option></select></div>
       </div>
 
@@ -127,22 +136,28 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
 }
 
 export function MeetingsClient({ meetings, companies }: { meetings: any[]; companies: string[] }) {
+  const router = useRouter();
   const [show, setShow] = useState(false);
   const [sent, setSent] = useState("");
   const [rel, setRel] = useState("");
   const [q, setQ] = useState("");
+  const [onlyFollow, setOnlyFollow] = useState(false);
 
+  const followCount = useMemo(() => meetings.filter(needsFollow).length, [meetings]);
   const filtered = useMemo(() => meetings.filter((m) =>
     (!sent || m.fb_sentiment === sent) && (!rel || m.relation_status === rel) &&
+    (!onlyFollow || needsFollow(m)) &&
     (!q.trim() || (m.company_name ?? "").includes(q.trim()) || (m.title ?? "").includes(q.trim()))
-  ), [meetings, sent, rel, q]);
+  ), [meetings, sent, rel, q, onlyFollow]);
 
   const sel = { fontFamily: "inherit", fontSize: 12, padding: "6px 10px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" } as const;
+  const markDone = (id: string, done: boolean) => setMeetingFollowDone(id, done).then(() => router.refresh());
 
   return (
     <>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn brand" onClick={() => setShow((v) => !v)}><Icons.plus /><span>{show ? "フォームを閉じる" : "打合せを記録"}</span></button>
+        <button onClick={() => setOnlyFollow((v) => !v)} style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${onlyFollow ? "#d98a2b" : "var(--color-border-strong)"}`, background: onlyFollow ? "#fff1e6" : "var(--color-surface)", color: onlyFollow ? "#b45309" : "var(--color-ink-3)" }}>🔔 要フォロー {followCount}</button>
         <div className="tbl-search" style={{ width: 220, flex: "0 0 220px" }}><Icons.search /><input placeholder="企業名で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select style={sel} value={sent} onChange={(e) => setSent(e.target.value)}><option value="">FB感情：すべて</option>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select>
         <select style={sel} value={rel} onChange={(e) => setRel(e.target.value)}><option value="">関係性：すべて</option>{MEETING_RELATIONS.map((o) => <option key={o}>{o}</option>)}</select>
@@ -173,6 +188,14 @@ export function MeetingsClient({ meetings, companies }: { meetings: any[]; compa
                 {m.miss_points && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>⚠️ 響かず：{m.miss_points}</div>}
                 {m.enger_fb && <div style={{ fontSize: 11.5, color: "var(--color-brand-700)" }}>📣 ENGER FB：{m.enger_fb}</div>}
                 {m.next_action_us && <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>▶ 次(自社)：{m.next_action_us}</div>}
+                {(m.follow_up_date || needsFollow(m)) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    {m.follow_up_date && <span className="pill" style={{ fontSize: 10.5, borderColor: "transparent", background: needsFollow(m) ? "#fff1e6" : "var(--color-surface-inset)", color: needsFollow(m) ? "#b45309" : "var(--color-ink-3)" }}>🔔 フォロー {dateLabel(m.follow_up_date)}</span>}
+                    {m.follow_done
+                      ? <span style={{ fontSize: 10.5, color: "#1aa260" }}>✓ 完了</span>
+                      : <button type="button" className="btn ghost btn-xs" onClick={() => markDone(m.id, true)}>フォロー完了</button>}
+                  </div>
+                )}
                 {(m.competitors?.length > 0 || m.tags?.length > 0) && (
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     {(m.competitors ?? []).filter((c: string) => c !== "言及なし").map((c: string) => <span key={c} className="tag" style={{ fontSize: 10, color: "#d23f57" }}>vs {c}</span>)}

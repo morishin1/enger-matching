@@ -297,7 +297,7 @@ export type MeetingInput = {
   enger_fb?: string; hit_points?: string; miss_points?: string; needs?: string;
   strategy?: string; next_action_us?: string; next_action_them?: string;
   competitors?: string[]; competitor_detail?: string; tags?: string[];
-  transcript_url?: string; publishable?: string;
+  transcript_url?: string; publishable?: string; follow_up_date?: string | null;
 };
 
 /** 打ち合わせ記録を作成 (service role)。 */
@@ -326,11 +326,27 @@ export async function createMeeting(input: MeetingInput) {
     tags: input.tags ?? [],
     transcript_url: input.transcript_url?.trim() || null,
     publishable: input.publishable || null,
+    follow_up_date: input.follow_up_date || null,
   };
-  const { error } = await admin.from("meetings").insert(row);
+  let { error } = await admin.from("meetings").insert(row);
+  if (error && /follow_up_date/.test(error.message)) {
+    // 列未追加(meetings-followup.sql 未実行)時はフォロー列を除いて再試行
+    const { follow_up_date, ...rest } = row;
+    ({ error } = await admin.from("meetings").insert(rest));
+  }
   if (error) return { ok: false, error: error.message };
   revalidatePath("/meetings");
   revalidatePath("/companies");
+  return { ok: true };
+}
+
+/** 打合せのフォロー完了/未完了を切替。 */
+export async function setMeetingFollowDone(id: string, done: boolean) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("meetings").update({ follow_done: done }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/meetings");
   return { ok: true };
 }
 
