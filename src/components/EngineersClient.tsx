@@ -3,7 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Engineer, EngineerAction, Scout, Application } from "@/lib/engineers";
-import { addEngineerAction, deleteEngineerAction, sendScout } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage } from "@/app/engineers/actions";
+import { APPLICATION_STAGES } from "@/lib/engineers";
 
 const pay = (e: Engineer) => {
   const lo = e.estimated_pay_low, hi = e.estimated_pay_high, mid = e.estimated_pay_mid;
@@ -128,6 +129,9 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const remove = (id: string) => {
     start(async () => { await deleteEngineerAction(id); router.refresh(); });
   };
+  const changeStage = (id: string, stage: string) => {
+    start(async () => { await updateApplicationStage(id, stage); router.refresh(); });
+  };
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
@@ -178,13 +182,20 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
           <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>応募した案件 <span className="muted" style={{ fontWeight: 400 }}>（{appLog.length}件）</span></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {appLog.map((a) => (
-                <div key={a.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, color: "#fff", background: "#067647" }}>応募</span>
-                  <span style={{ color: "var(--color-ink-2)", minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
-                  <span className="muted" style={{ fontSize: 10.5 }}>{fmtDate(a.created_at)}</span>
-                </div>
-              ))}
+              {appLog.map((a) => {
+                const stg = a.stage || "応募";
+                const tone = stg === "稼働" ? "#067647" : stg === "面談合格" ? "#0b5cab" : stg === "見送り" ? "#b42318" : "#475467";
+                return (
+                  <div key={a.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 99, background: tone, flex: "0 0 auto" }} />
+                    <span style={{ color: "var(--color-ink-2)", minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
+                    <select value={stg} disabled={pending} onChange={(e) => changeStage(a.id, e.target.value)} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: tone, fontWeight: 700 }}>
+                      {APPLICATION_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <span className="muted" style={{ fontSize: 10.5, width: "100%", textAlign: "right" }}>{fmtDate(a.created_at)}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

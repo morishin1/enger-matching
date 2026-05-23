@@ -89,6 +89,8 @@ export type Scout = {
   replied_at: string | null;
 };
 
+export const APPLICATION_STAGES = ["応募", "書類選考", "面談", "面談合格", "稼働", "見送り"] as const;
+
 export type Application = {
   id: string;
   engineer_id: string;
@@ -98,6 +100,7 @@ export type Application = {
   job_title: string | null;
   message: string | null;
   status: string;
+  stage: string;
   created_at: string;
 };
 
@@ -108,7 +111,7 @@ export async function listApplications(): Promise<Record<string, Application[]>>
     const sb = engerClient();
     const { data, error } = await sb
       .from("applications")
-      .select("id, engineer_id, engineer_name, job_id, job_no, job_title, message, status, created_at")
+      .select("id, engineer_id, engineer_name, job_id, job_no, job_title, message, status, stage, created_at")
       .order("created_at", { ascending: false })
       .limit(2000);
     if (error) return {};

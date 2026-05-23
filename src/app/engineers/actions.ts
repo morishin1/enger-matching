@@ -63,6 +63,20 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   return { ok: true };
 }
 
+/** 応募の選考ステージを更新（営業/管理者）。応募→面談合格→稼働を追跡。 */
+export async function updateApplicationStage(id: string, stage: string): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません" };
+  const allowed = ["応募", "書類選考", "面談", "面談合格", "稼働", "見送り"];
+  if (!allowed.includes(stage)) return { ok: false, error: "不正なステージです" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const { error } = await admin.from("applications").update({ stage, stage_updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/engineers");
+  return { ok: true };
+}
+
 /** 対応履歴を1件削除（誤記録の取り消し）。 */
 export async function deleteEngineerAction(id: string): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
