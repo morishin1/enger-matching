@@ -73,8 +73,8 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input ref={attRef} type="file" hidden onChange={(e) => { if (e.target.files?.[0]) upload("attendance", e.target.files[0]); e.target.value = ""; }} />
-          <button className="btn ghost btn-xs" disabled={pending} onClick={() => attRef.current?.click()}>勤怠表を添付</button>
-          {t.attendance_file && <a href={t.attendance_file} target="_blank" rel="noreferrer" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>📄 添付を見る</a>}
+          <button className="btn brand" style={{ fontSize: 12.5 }} disabled={pending} onClick={() => attRef.current?.click()}>📎 {pending ? "アップロード中…" : t.attendance_file ? "勤怠表を差し替え" : "勤怠表をアップロード"}</button>
+          {t.attendance_file && <a href={t.attendance_file} target="_blank" rel="noreferrer" className="btn" style={{ fontSize: 12.5, textDecoration: "none" }}>📄 添付を見る</a>}
           <button className="btn ghost btn-xs" disabled={pending} onClick={() => { setAiKind(aiKind === "attendance" ? null : "attendance"); setAiMsg(null); }}>✨ テキストからAI抽出</button>
         </div>
       </div>
@@ -91,8 +91,8 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input ref={invRef} type="file" hidden onChange={(e) => { if (e.target.files?.[0]) upload("invoice", e.target.files[0]); e.target.value = ""; }} />
-          <button className="btn ghost btn-xs" disabled={pending} onClick={() => invRef.current?.click()}>請求書を添付</button>
-          {t.invoice_file && <a href={t.invoice_file} target="_blank" rel="noreferrer" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>📄 添付を見る</a>}
+          <button className="btn brand" style={{ fontSize: 12.5 }} disabled={pending} onClick={() => invRef.current?.click()}>📎 {pending ? "アップロード中…" : t.invoice_file ? "請求書を差し替え" : "請求書をアップロード"}</button>
+          {t.invoice_file && <a href={t.invoice_file} target="_blank" rel="noreferrer" className="btn" style={{ fontSize: 12.5, textDecoration: "none" }}>📄 添付を見る</a>}
           <button className="btn ghost btn-xs" disabled={pending} onClick={() => { setAiKind(aiKind === "invoice" ? null : "invoice"); setAiMsg(null); }}>✨ テキストからAI抽出</button>
         </div>
       </div>
