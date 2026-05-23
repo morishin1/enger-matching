@@ -1,8 +1,9 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateEngagementStatus, updateEngagementFields } from "@/lib/actions";
+import { EngagementTimeline } from "./EngagementTimeline";
 import type { Role } from "@/lib/roles";
 
 const STATUSES = ["予定", "稼働中", "終了"] as const;
@@ -25,6 +26,7 @@ const Locked = () => <span title="閲覧権限がありません" style={{ fontS
 export function EngagementsView({ rows, role = "admin" }: { rows: any[]; role?: Role }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [view, setView] = useState<"timeline" | "list">("timeline");
   const isAdmin = role === "admin";
   const setStatus = (id: string, status: string) => start(async () => { await updateEngagementStatus(id, status); router.refresh(); });
   const save = (id: string, patch: Record<string, any>) => start(async () => { await updateEngagementFields(id, patch); router.refresh(); });
@@ -33,7 +35,16 @@ export function EngagementsView({ rows, role = "admin" }: { rows: any[]; role?: 
     return <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>まだ稼働がありません。<b style={{ color: "var(--color-ink-2)" }}>提案管理</b>で成約した提案の「稼働化」を押すと表示されます。</div>;
   }
 
+  const tabBtn = (id: "timeline" | "list", label: string) => (
+    <button onClick={() => setView(id)} style={{ padding: "6px 14px", borderRadius: 99, border: 0, fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: view === id ? "var(--color-surface)" : "transparent", color: view === id ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: view === id ? "0 1px 2px rgba(15,23,42,0.06)" : "none" }}>{label}</button>
+  );
+
   return (
+    <>
+      <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start", width: "fit-content" }}>
+        {tabBtn("timeline", "📅 タイムライン")}{tabBtn("list", "📋 リスト")}
+      </div>
+      {view === "timeline" ? <EngagementTimeline rows={rows} /> : (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", gap: 14 }}>
       {rows.map((e) => {
         const tone = TONE[e.status] ?? TONE["予定"];
@@ -103,5 +114,7 @@ export function EngagementsView({ rows, role = "admin" }: { rows: any[]; role?: 
         );
       })}
     </div>
+      )}
+    </>
   );
 }
