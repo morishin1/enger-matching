@@ -11,6 +11,7 @@ export type CandidateInput = {
   name: string;
   title?: string | null;
   company?: string | null;
+  affiliation?: string | null;
   skills?: string[];
   rate?: string | null;
   rate_num?: number | null;
@@ -39,6 +40,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       initials: initialsOf(r.name),
       title: r.title?.trim() || null,
       company: r.company?.trim() || null,
+      affiliation: r.affiliation?.trim() || null,
       skills: r.skills ?? [],
       rate: r.rate?.trim() || null,
       rate_num: r.rate_num ?? null,

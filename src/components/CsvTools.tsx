@@ -26,6 +26,7 @@ export function ExportButton({ filename, headers, rows, label = "CSV書き出し
 const CAND_COL: Record<string, keyof CandidateInput> = {
   "コード": "code", "id": "code", "ID": "code", "氏名": "name", "名前": "name", "name": "name",
   "職種": "title", "タイトル": "title", "所属": "company", "会社": "company",
+  "所属区分": "affiliation", "区分": "affiliation", "雇用形態": "affiliation",
   "スキル": "skills", "必要スキル": "skills", "単価": "rate", "希望単価": "rate",
   "稼働開始": "avail", "稼働": "avail", "勤務地": "location", "場所": "location",
   "経験": "exp", "経験年数": "exp", "ステータス": "status", "状態": "status",
@@ -36,7 +37,20 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max"> = 
   "単価下限": "_salary_min", "単価上限": "_salary_max", "リモート可否": "remote_type", "リモート": "remote_type",
   "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "案件詳細": "detail", "ステータス": "status",
 };
-const CAND_TEMPLATE = ["氏名", "職種", "所属", "スキル", "希望単価", "稼働開始", "勤務地", "経験", "ステータス"];
+const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始", "勤務地", "経験", "ステータス"];
+
+/** 仮説立案・マッチングに不可欠な重要データの欠落（取込ゲート用）。 */
+function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
+  const m: string[] = [];
+  if (!(rec.skills?.length)) m.push("スキル");
+  if (kind === "candidates") {
+    if (rec.rate_num == null && !rec.rate) m.push("単価");
+  } else {
+    if (rec.salary_min == null && rec.salary_max == null) m.push("単価");
+    if (!rec.client_name) m.push("クライアント");
+  }
+  return m;
+}
 const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス"];
 
 type ValRow = { rowNo: number; rec: any; label: string; errors: string[]; warnings: string[] };
@@ -103,9 +117,14 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     setPreview(validate(kind, grid));
   };
 
-  const doImport = (onlyValid: boolean) => {
+  const doImport = (mode: "all" | "clean" | "strict") => {
     if (!preview) return;
-    const recs = preview.rows.filter((r) => r.errors.length === 0 && (!onlyValid || r.warnings.length === 0)).map((r) => r.rec);
+    const recs = preview.rows.filter((r) => {
+      if (r.errors.length > 0) return false;
+      if (mode === "clean") return r.warnings.length === 0;
+      if (mode === "strict") return criticalMissing(kind, r.rec).length === 0;
+      return true; // all（取込可能）
+    }).map((r) => r.rec);
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
     start(async () => {
       const res = kind === "candidates" ? await importCandidates(recs as CandidateInput[], fileName) : await importJobs(recs as JobInput[], fileName);
@@ -115,13 +134,22 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   };
 
   const template = kind === "candidates"
-    ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,Java/Spring/AWS,¥80万,即日,東京,8y,提案可" }
+    ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,個人事業,Java/Spring/AWS,¥80万,即日,東京,8y,提案可" }
     : { name: "案件テンプレート.csv", body: "﻿" + JOB_TEMPLATE.join(",") + "\nReact開発案件,株式会社サンプル,フロントエンドエンジニア,React/TypeScript/AWS,70,90,一部リモート,東京,2026/06/01,募集中" };
 
   const errCount = preview?.rows.filter((r) => r.errors.length).length ?? 0;
   const warnCount = preview?.rows.filter((r) => !r.errors.length && r.warnings.length).length ?? 0;
   const okCount = preview ? preview.rows.length - errCount - warnCount : 0;
   const problems = preview?.rows.filter((r) => r.errors.length || r.warnings.length) ?? [];
+
+  // 重要データ充足（取込分）
+  const importable = preview?.rows.filter((r) => r.errors.length === 0) ?? [];
+  const cov = {
+    skills: importable.filter((r) => r.rec.skills?.length).length,
+    money: importable.filter((r) => (kind === "candidates" ? (r.rec.rate_num != null || r.rec.rate) : (r.rec.salary_min != null || r.rec.salary_max != null))).length,
+    extra: importable.filter((r) => (kind === "candidates" ? r.rec.affiliation : r.rec.client_name)).length,
+  };
+  const strictCount = importable.filter((r) => criticalMissing(kind, r.rec).length === 0).length;
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -152,6 +180,18 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
               {preview.unmapped.length > 0 && <div style={{ color: "var(--color-warn)" }}>未対応の列（無視）：{preview.unmapped.join(" / ")}</div>}
             </div>
 
+            {/* 重要データ充足（この取込分） */}
+            {importable.length > 0 && (
+              <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>📋 重要データの充足（取込可能 {importable.length} 件中）</div>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12 }}>
+                  <span>スキル <b style={{ color: cov.skills === importable.length ? "#067647" : "#b42318" }}>{cov.skills}/{importable.length}</b></span>
+                  <span>単価 <b style={{ color: cov.money === importable.length ? "#067647" : "#b45309" }}>{cov.money}/{importable.length}</b></span>
+                  <span>{kind === "candidates" ? "所属区分" : "クライアント"} <b style={{ color: cov.extra === importable.length ? "#067647" : "#b45309" }}>{cov.extra}/{importable.length}</b></span>
+                </div>
+              </div>
+            )}
+
             {/* 問題行 */}
             {problems.length > 0 ? (
               <div className="card flush" style={{ maxHeight: 320, overflowY: "auto" }}>
@@ -175,11 +215,12 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
             ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
 
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button className="btn brand" disabled={pending} onClick={() => doImport(false)}>取込可能な {preview.rows.length - errCount} 件を取込</button>
-              <button className="btn" disabled={pending || okCount === 0} onClick={() => doImport(true)}>正常な {okCount} 件のみ取込</button>
+              <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価（案件はクライアントも）が揃った行だけ取り込みます">重要データ完備の {strictCount} 件のみ取込（推奨）</button>
+              <button className="btn" disabled={pending} onClick={() => doImport("all")}>取込可能な {preview.rows.length - errCount} 件を取込</button>
+              <button className="btn ghost" disabled={pending || okCount === 0} onClick={() => doImport("clean")}>正常 {okCount} 件のみ</button>
               <button className="btn ghost" onClick={() => setPreview(null)}>キャンセル</button>
             </div>
-            <div style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>※「取込不可（✗）」の行は除外されます。警告（⚠）行は「取込可能」には含み、「正常のみ」には含みません。</div>
+            <div style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>※「取込不可（✗）」は常に除外。<b>重要データ完備</b>＝スキル・単価{kind === "jobs" ? "・クライアント" : ""}が揃った行のみ。質を担保するなら「完備のみ」を推奨します。</div>
           </div>
         </div>
       )}
