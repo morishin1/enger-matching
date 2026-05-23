@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Engineer, EngineerAction, Scout } from "@/lib/engineers";
+import type { Engineer, EngineerAction, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout } from "@/app/engineers/actions";
 
 const pay = (e: Engineer) => {
@@ -28,7 +28,7 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
   declined: { label: "見送り", color: "#b42318" },
 };
 
-export function EngineersClient({ engineers, actions = {}, scouts = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]> }) {
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]> }) {
   const [q, setQ] = useState("");
   const [detail, setDetail] = useState<Engineer | null>(null);
 
@@ -53,6 +53,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {} }: { engi
         {filtered.map((e) => {
           const log = actions[e.id] ?? [];
           const sc = scouts[e.id] ?? [];
+          const ap = applications[e.id] ?? [];
           return (
           <button key={e.id} onClick={() => setDetail(e)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -71,6 +72,9 @@ export function EngineersClient({ engineers, actions = {}, scouts = {} }: { engi
               <span>★{e.total_stars}</span>
               <span>repo {e.total_repos}</span>
               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 5 }}>
+                {ap.length > 0 && (
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募 {ap.length}</span>
+                )}
                 {sc.length > 0 && (
                   <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカウト {sc.length}</span>
                 )}
@@ -84,13 +88,13 @@ export function EngineersClient({ engineers, actions = {}, scouts = {} }: { engi
       </div>
 
       {detail && (
-        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} onClose={() => setDetail(null)} />
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} onClose={() => setDetail(null)} />
       )}
     </>
   );
 }
 
-function DetailModal({ engineer: detail, log, scoutLog, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; onClose: () => void }) {
+function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [action, setAction] = useState<string>("");
@@ -166,6 +170,22 @@ function DetailModal({ engineer: detail, log, scoutLog, onClose }: { engineer: E
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>スキルシート{detail.skill_sheet_name ? `（${detail.skill_sheet_name}）` : ""}
               </a>
             )}
+          </div>
+        )}
+
+        {/* 応募（エンジニアからの応募） */}
+        {appLog.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>応募した案件 <span className="muted" style={{ fontWeight: 400 }}>（{appLog.length}件）</span></div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {appLog.map((a) => (
+                <div key={a.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, color: "#fff", background: "#067647" }}>応募</span>
+                  <span style={{ color: "var(--color-ink-2)", minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
+                  <span className="muted" style={{ fontSize: 10.5 }}>{fmtDate(a.created_at)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

@@ -89,6 +89,37 @@ export type Scout = {
   replied_at: string | null;
 };
 
+export type Application = {
+  id: string;
+  engineer_id: string;
+  engineer_name: string | null;
+  job_id: string | null;
+  job_no: string | null;
+  job_title: string | null;
+  message: string | null;
+  status: string;
+  created_at: string;
+};
+
+/** エンジニアからの応募（enger.applications）。engineer_id でグルーピング。 */
+export async function listApplications(): Promise<Record<string, Application[]>> {
+  if (!dbConfigured) return {};
+  try {
+    const sb = engerClient();
+    const { data, error } = await sb
+      .from("applications")
+      .select("id, engineer_id, engineer_name, job_id, job_no, job_title, message, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (error) return {};
+    const map: Record<string, Application[]> = {};
+    for (const r of (data ?? []) as Application[]) {
+      (map[r.engineer_id] ??= []).push(r);
+    }
+    return map;
+  } catch { return {}; }
+}
+
 /** 全エンジニアへのスカウト（enger.scouts）。engineer_id でグルーピングして使う。 */
 export async function listScouts(): Promise<Record<string, Scout[]>> {
   if (!dbConfigured) return {};
