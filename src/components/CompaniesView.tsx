@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
-import { targetScore, type CompanyRow } from "@/lib/companies";
+import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";
 import { saveCompany, deleteCompany } from "@/lib/actions";
 
 type Registered = {
@@ -12,7 +12,7 @@ type Registered = {
   owner_staff?: string | null; contact_name?: string | null; contact_email?: string | null;
   phone?: string | null; website?: string | null; address?: string | null; note?: string | null;
 };
-type Merged = CompanyRow & { score: number; reasons: string[]; reg?: Registered; registered: boolean };
+type Merged = CompanyRow & { score: number; reasons: string[]; reg?: Registered; registered: boolean; action: ProspectAction };
 
 const sentTone = (s?: string | null) => !s ? null : s.includes("ポジ") ? { c: "#1aa260", t: s } : s.includes("ネガ") ? { c: "#d23f57", t: s } : s.includes("競合") ? { c: "#d98a2b", t: s } : { c: "#6b7280", t: s };
 const scoreColor = (n: number) => n >= 70 ? "#1aa260" : n >= 45 ? "#0095D9" : n >= 25 ? "#d98a2b" : "#9aa7b4";
@@ -28,6 +28,7 @@ type SortKey = "target" | "job_count" | "active_jobs" | "avg_rate" | "last_job_a
 
 export function CompaniesView({ companies, registered = [] }: { companies: CompanyRow[]; registered?: Registered[] }) {
   const [tier, setTier] = useState("ALL");
+  const [act, setAct] = useState("ALL");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("target");
   const [modal, setModal] = useState<Merged | "new" | null>(null);
@@ -38,24 +39,30 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
     const list: Merged[] = companies.map((c) => {
       const reg = regMap.get(c.name);
       const withReg = { ...c, tier: (reg?.tier as any) || c.tier, status: reg?.status || c.status } as CompanyRow;
-      return { ...withReg, ...targetScore(withReg), reg, registered: !!reg };
+      return { ...withReg, ...targetScore(withReg), action: prospectAction(withReg), reg, registered: !!reg };
     });
     // 案件が無い登録企業も表示
     const inDerived = new Set(companies.map((c) => c.name));
     for (const r of registered) {
       if (inDerived.has(r.name)) continue;
       const base: CompanyRow = { name: r.name, job_count: 0, active_jobs: 0, focus_jobs: 0, last_job_at: null, avg_rate: null, tier: (r.tier as any) || "C", status: r.status || "新規", proposals_total: 0, won: 0, lost: 0, last_sentiment: null, last_relation: null, last_meeting_at: null, meeting_count: 0 };
-      list.push({ ...base, ...targetScore(base), reg: r, registered: true });
+      list.push({ ...base, ...targetScore(base), action: prospectAction(base), reg: r, registered: true });
     }
     return list;
   }, [companies, registered, regMap]);
 
   const counts = useMemo(() => ({ ALL: merged.length, A: merged.filter((c) => c.tier === "A").length, B: merged.filter((c) => c.tier === "B").length, C: merged.filter((c) => c.tier === "C").length }), [merged]);
+  const actCounts = useMemo(() => ({
+    hot: merged.filter((c) => c.action?.key === "hot").length,
+    reapproach: merged.filter((c) => c.action?.key === "reapproach").length,
+    new: merged.filter((c) => c.action?.key === "new").length,
+    recover: merged.filter((c) => c.action?.key === "recover").length,
+  }), [merged]);
   const filtered = useMemo(() => {
     const needle = search.trim();
-    const rows = merged.filter((c) => (tier === "ALL" || c.tier === tier) && (!needle || c.name.includes(needle)));
+    const rows = merged.filter((c) => (tier === "ALL" || c.tier === tier) && (act === "ALL" || c.action?.key === act) && (!needle || c.name.includes(needle)));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
-  }, [merged, tier, search, sort]);
+  }, [merged, tier, act, search, sort]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
   return (
@@ -76,6 +83,23 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
             </button>
           ))}
         </div>
+      </div>
+
+      {/* 開拓アクション（アウトサイドの動線） */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <span className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>開拓アクション</span>
+        {[
+          { id: "ALL", label: "全て", tone: "var(--color-ink-3)", n: merged.length },
+          { id: "hot", label: "🔥 ポジ→深掘り", tone: "#1aa260", n: actCounts.hot },
+          { id: "reapproach", label: "🌥 再アプローチ", tone: "#d98a2b", n: actCounts.reapproach },
+          { id: "new", label: "🆕 新規フォロー", tone: "#7a5cc4", n: actCounts.new },
+          { id: "recover", label: "💔 失注リカバリ", tone: "#d23f57", n: actCounts.recover },
+        ].map((a) => (
+          <button key={a.id} onClick={() => setAct(a.id)} style={{ padding: "5px 11px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+            border: `1px solid ${act === a.id ? a.tone : "var(--color-border)"}`, background: act === a.id ? `${a.tone}1a` : "var(--color-surface)", color: act === a.id ? a.tone : "var(--color-ink-3)" }}>
+            {a.label} <span className="tnum" style={{ marginLeft: 3 }}>{a.n}</span>
+          </button>
+        ))}
       </div>
 
       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -109,6 +133,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
                     <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14.5, color: "var(--color-ink)", lineHeight: 1.3 }}>{c.name}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
+                      {c.action && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${c.action.tone}1a`, color: c.action.tone, fontWeight: 700 }}>{c.action.label}</span>}
                       {c.reg?.industry && <span className="tag" style={{ fontSize: 10 }}>{c.reg.industry}</span>}
                       {c.focus_jobs > 0 && <span className="tag" style={{ fontSize: 10, color: "#e0567f" }}>♥ 注力{c.focus_jobs}</span>}
                     </div>

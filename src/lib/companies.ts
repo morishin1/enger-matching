@@ -53,6 +53,22 @@ export function targetScore(c: CompanyRow): { score: number; reasons: string[] }
   return { score: Math.max(0, Math.min(100, Math.round(s))), reasons: reasons.slice(0, 3) };
 }
 
+export type ProspectAction = { key: "hot" | "reapproach" | "new" | "recover"; label: string; tone: string } | null;
+
+/** エンド開拓の「次アクション」分類。アウトサイドが今アプローチすべき種別。 */
+export function prospectAction(c: CompanyRow): ProspectAction {
+  const days = c.last_job_at ? (Date.now() - new Date(c.last_job_at).getTime()) / 86400000 : 999;
+  const sent = c.last_sentiment ?? "";
+  const status = c.status ?? "";
+  const rel = c.last_relation ?? "";
+  // 優先度順
+  if (sent.includes("ポジ") && (c.active_jobs ?? 0) === 0) return { key: "hot", label: "ポジ→深掘り", tone: "#1aa260" };
+  if ((status === "休眠" || days > 90) && (c.job_count ?? 0) > 0) return { key: "reapproach", label: "再アプローチ", tone: "#d98a2b" };
+  if (status === "新規" || rel.includes("新規")) return { key: "new", label: "新規フォロー", tone: "#7a5cc4" };
+  if ((c.lost ?? 0) > 0 && (c.active_jobs ?? 0) === 0) return { key: "recover", label: "失注リカバリ", tone: "#d23f57" };
+  return null;
+}
+
 async function fetchCompanies(): Promise<CompanyRow[] | null> {
   if (!dbConfigured) return null;
   try {
