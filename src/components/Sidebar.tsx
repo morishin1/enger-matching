@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
-import { canAccess, type Role } from "@/lib/roles";
+import { type Role } from "@/lib/roles";
 
 const NAV = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
@@ -42,8 +42,14 @@ export function Sidebar({ counts, role = "admin", open = false }: { counts?: Sid
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
   const isClient = role === "client";
-  const nav = isClient ? CLIENT_NAV : NAV.filter((n) => canAccess(role, n.href));
-  const tools = isClient ? [] : TOOLS.filter((n) => canAccess(role, n.href));
+  // 営業（一般）には管理者向けメニューを出さない（実務に集中）
+  const AGENT_HIDE = new Set(["/analytics", "/pipeline", "/billing"]);
+  const nav = isClient ? CLIENT_NAV
+    : role === "agent" ? NAV.filter((n) => !AGENT_HIDE.has(n.href))
+    : NAV; // admin は全部
+  const tools = isClient ? []
+    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings")
+    : TOOLS; // admin は設定含む全部
 
   return (
     <aside className={"side" + (open ? " open" : "")}>

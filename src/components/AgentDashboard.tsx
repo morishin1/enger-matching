@@ -218,11 +218,24 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
-          <div className="meta">Dashboard · エージェント</div>
-          <h1>今日のアクション{actionTotal > 0 ? <span style={{ color: "var(--color-brand-600)" }}> {actionTotal}件</span> : ""}</h1>
-          <div className="sub">締切のある対応を上段で、需要（案件）と供給（人材）を両輪で、既存売上は契約更新で守る。効率よくマッチして売上を伸ばしましょう。</div>
+          <div className="meta">Dashboard · {role === "admin" ? "管理者" : "エージェント"}</div>
+          <h1>{role === "admin" ? "経営ダッシュボード" : <>今日のアクション{actionTotal > 0 ? <span style={{ color: "var(--color-brand-600)" }}> {actionTotal}件</span> : ""}</>}</h1>
+          <div className="sub">{role === "admin"
+            ? "組織の課題（深掘りイシュー）と売上見込みを把握し、担当者別の動きから改善に手を打ちます。"
+            : "締切のある対応を上段で、需要（案件）と供給（人材）を両輪で。効率よくマッチして売上を伸ばしましょう。"}</div>
         </div>
       </div>
+
+      {/* 管理者の確認導線 */}
+      {role === "admin" && !setup && (
+        <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>🧭 管理メニュー：</span>
+          <Link href="/analytics" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>分析・担当者別の動き</Link>
+          <Link href="/pipeline" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>売上フォーキャスト</Link>
+          <Link href="/reports" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>日報フィードバック</Link>
+          <Link href="/settings" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>品質ルール・権限</Link>
+        </div>
+      )}
 
       {setup && (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
