@@ -2,7 +2,7 @@ import { engerClient, dbConfigured } from "./supabase";
 
 export type Actuals = { proposalsToday: number; activeProps: number; meetingsToday: number; meetingsWeek: number };
 export type DailyReport = {
-  id: string; author: string; report_date: string; did: string[]; did_note: string | null;
+  id: string; author: string; team: string | null; report_date: string; did: string[]; did_note: string | null;
   learned: string | null; next_action: string | null; mood: string | null; metrics: any; ai_comment: string | null;
 };
 

@@ -7,6 +7,7 @@
 create table if not exists enger.daily_reports (
   id          uuid primary key default gen_random_uuid(),
   author      text not null,
+  team        text,                            -- 営業/バックオフィス/開発/EC/サポート/その他
   report_date date not null default current_date,
   did         text[] not null default '{}',   -- やったこと（タップ選択）
   did_note    text,                            -- やったこと 自由記入
@@ -18,6 +19,9 @@ create table if not exists enger.daily_reports (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+
+-- 再実行用
+alter table enger.daily_reports add column if not exists team text;
 
 create unique index if not exists daily_reports_uniq on enger.daily_reports (author, report_date);
 create index if not exists daily_reports_date_idx on enger.daily_reports (report_date desc);

@@ -8,12 +8,13 @@ import { logUsage } from "@/lib/ai-usage";
 type Result = { ok: boolean; error?: string };
 
 /** 日報を保存（著者×日付で1件）。 */
-export async function saveReport(input: { author: string; report_date: string; did: string[]; did_note: string; learned: string; next_action: string; mood: string; metrics: any }): Promise<Result> {
+export async function saveReport(input: { author: string; team: string; report_date: string; did: string[]; did_note: string; learned: string; next_action: string; mood: string; metrics: any }): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   if (!input.author?.trim()) return { ok: false, error: "報告者が未設定です" };
   const row = {
     author: input.author.trim(),
+    team: input.team || null,
     report_date: input.report_date || new Date().toISOString().slice(0, 10),
     did: input.did ?? [],
     did_note: input.did_note?.trim() || null,
