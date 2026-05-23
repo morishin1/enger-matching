@@ -2,6 +2,8 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin } from "./supabase";
+import { currentAccess } from "./accounts";
+import { canSeeMargin } from "./engagement-access";
 
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
 const bustCounts = () => revalidateTag("sidebar-counts", "max");
@@ -167,12 +169,19 @@ export async function convertToEngagement(proposalId: string) {
   const { data: p } = await admin.from("proposals").select("id, job_title, company, candidate_name, rate").eq("id", proposalId).maybeSingle();
   if (!p?.id) return { ok: false, error: "提案が見つかりません" };
 
+  // 人材マスタから所属区分を引き継ぐ（原価マスク判定キー）
+  let affiliation: string | null = null;
+  if (p.candidate_name) { try { const { data: c } = await admin.from("candidates").select("affiliation").eq("name", p.candidate_name).maybeSingle(); affiliation = (c as any)?.affiliation ?? null; } catch { /* 列なし無視 */ } }
+
   const { data: existing } = await admin.from("engagements").select("id").eq("proposal_id", proposalId).maybeSingle();
   if (!existing?.id) {
-    const { error } = await admin.from("engagements").insert({
+    const row: Record<string, any> = {
       proposal_id: proposalId, job_title: p.job_title, company: p.company,
       candidate_name: p.candidate_name, monthly_rate: parseRateNum(p.rate), status: "予定",
-    });
+    };
+    if (affiliation) row.affiliation = affiliation;
+    let { error } = await admin.from("engagements").insert(row);
+    if (error && /affiliation/.test(error.message)) { delete row.affiliation; ({ error } = await admin.from("engagements").insert(row)); }
     if (error) return { ok: false, error: error.message };
   }
   await admin.from("proposals").update({ stage: "稼働決定", updated_at: new Date().toISOString() }).eq("id", proposalId);
@@ -192,13 +201,27 @@ export async function updateEngagementStatus(id: string, status: string) {
   return { ok: true };
 }
 
-/** 稼働(契約)の項目を更新（月額/原価/満了日/更新意向/更新回答期限）。 */
+/** 稼働(契約)の項目を更新。原価/所属区分は権限ガードあり（F-4）。 */
 export async function updateEngagementFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const allowed = ["monthly_rate", "cost", "start_date", "end_date", "renewal_due", "renewal_status", "status"];
+
+  // 閲覧/編集権限の判定（プロパー原価の保護）
+  const access = await currentAccess();
+  const role = access?.role ?? "admin";
+  let affiliation: string | null = null;
+  try { const { data } = await admin.from("engagements").select("affiliation").eq("id", id).maybeSingle(); affiliation = (data as any)?.affiliation ?? null; } catch { /* 列なし等は無視 */ }
+
+  const allowed = ["monthly_rate", "cost", "affiliation", "settle_min", "settle_max", "work_hours", "contract_status", "po_status", "start_date", "end_date", "renewal_due", "renewal_status", "status"];
   const patch: Record<string, any> = {};
   for (const k of allowed) if (k in fields) patch[k] = fields[k] === "" ? null : fields[k];
+
+  // 所属区分の変更は管理者のみ（区分を書き換えて原価を露出させる経路を遮断）
+  if ("affiliation" in patch && role !== "admin") delete patch.affiliation;
+  // 原価は閲覧権限のある行のみ更新可
+  if ("cost" in patch && !canSeeMargin(role, affiliation)) return { ok: false, error: "この稼働の原価を編集する権限がありません" };
+  if (Object.keys(patch).length === 0) return { ok: true };
+
   const { error } = await admin.from("engagements").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/progress"); revalidatePath("/");
@@ -275,6 +298,16 @@ export async function deleteStaff(id: string) {
   const { error } = await admin.from("staff").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/settings"); revalidatePath("/proposals");
+  return { ok: true };
+}
+
+/** 人材の所属区分（プロパー/BP/フリーランス）を設定。 */
+export async function setCandidateAffiliation(candidateNo: number, affiliation: string | null) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("candidates").update({ affiliation: affiliation || null }).eq("candidate_no", candidateNo);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/people");
   return { ok: true };
 }
 

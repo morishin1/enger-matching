@@ -7,6 +7,7 @@ import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
+import { AffiliationSelect } from "./AffiliationSelect";
 import { bulkSetFocus } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
@@ -117,7 +118,7 @@ const PEOPLE_COLS: Col[] = [
     ),
   },
   { key: "client", label: "クライアント名", search: (p) => p.source_company ?? "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.source_company ?? "—"}</span> },
-  { key: "affiliation", label: "所属", width: 130, filterLabel: "所属", filter: (p) => p.affiliation || "", render: (p) => (p.affiliation ? <span className="tag" style={{ fontSize: 10.5 }}>{p.affiliation}</span> : <span className="muted">—</span>) },
+  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
   { key: "remote", label: "リモート", width: 110, filterLabel: "リモート", filter: (p) => p.remote_pref || "", render: (p) => <span className="pill open">{p.remote_pref ?? "—"}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
