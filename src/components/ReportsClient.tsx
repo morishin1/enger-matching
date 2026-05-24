@@ -198,19 +198,77 @@ function ReportCard({ r }: { r: DailyReport }) {
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports, isAdmin = false }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean }) {
+/** 管理者向け：誰がいつ提出したかの提出カレンダー（直近14日）。 */
+function SubmissionCalendar({ members, reports, today }: { members: string[]; reports: DailyReport[]; today: string }) {
+  const DAYS = 14;
+  const days: string[] = [];
+  const base = new Date(today + "T00:00:00");
+  for (let i = DAYS - 1; i >= 0; i--) { const d = new Date(base); d.setDate(base.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
+  const submitted = new Set(reports.map((r) => `${r.author}|${r.report_date}`));
+  // メンバー：staff名 ∪ 日報の著者（マスタ未登録でも拾う）
+  const names = Array.from(new Set([...members, ...reports.map((r) => r.author)].filter(Boolean)));
+  const todaySubmitted = names.filter((n) => submitted.has(`${n}|${today}`)).length;
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  const dlabel = (d: string) => { const dt = new Date(d + "T00:00:00"); return { md: `${dt.getMonth() + 1}/${dt.getDate()}`, w: wd[dt.getDay()], we: dt.getDay() === 0 || dt.getDay() === 6 }; };
+  const rate = (n: string) => days.filter((d) => submitted.has(`${n}|${d}`)).length;
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>calendar_month</span>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>日報 提出カレンダー</h3>
+        <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: todaySubmitted >= names.length && names.length ? "#dcfce7" : "#fef3c7", color: todaySubmitted >= names.length && names.length ? "#166534" : "#92400e" }}>本日 {todaySubmitted}/{names.length} 名 提出</span>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>直近{DAYS}日 · ✓=提出</span>
+      </div>
+      {names.length === 0 ? (
+        <div className="muted" style={{ fontSize: 13 }}>対象メンバーがいません。設定→担当者マスタで登録してください。</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: 600 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "6px 10px", position: "sticky", left: 0, background: "var(--color-surface)", zIndex: 1 }}>メンバー</th>
+                {days.map((d) => { const l = dlabel(d); return <th key={d} style={{ padding: "4px 6px", textAlign: "center", color: d === today ? "var(--color-brand-700)" : l.we ? "var(--color-ink-4)" : "var(--color-ink-3)", fontWeight: d === today ? 800 : 600, whiteSpace: "nowrap" }}>{l.md}<br /><span style={{ fontSize: 9 }}>{l.w}</span></th>; })}
+                <th style={{ padding: "4px 8px", textAlign: "center" }}>計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {names.map((n) => (
+                <tr key={n}>
+                  <td style={{ padding: "6px 10px", fontWeight: 600, whiteSpace: "nowrap", position: "sticky", left: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)" }}>{n}</td>
+                  {days.map((d) => { const ok = submitted.has(`${n}|${d}`); const l = dlabel(d); return <td key={d} style={{ padding: "5px 6px", textAlign: "center", borderTop: "1px solid var(--color-border)", background: d === today ? "var(--color-brand-25)" : l.we ? "var(--color-surface-soft)" : undefined }}>{ok ? <span style={{ color: "#067647", fontWeight: 800 }}>✓</span> : <span style={{ color: "var(--color-ink-5)" }}>・</span>}</td>; })}
+                  <td style={{ padding: "5px 8px", textAlign: "center", borderTop: "1px solid var(--color-border)", fontWeight: 700, color: "var(--color-ink-2)" }}>{rate(n)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ReportsClient({ author, today, actuals, reports, isAdmin = false, members = [] }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; members?: string[] }) {
   const [q, setQ] = useState("");
   const todays = reports.find((r) => r.author === author && r.report_date === today);
   const filtered = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
   return (
     <>
-      {isAdmin && <ManagerReview reports={reports} />}
-      {todays ? (
-        <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
-          ✓ 本日（{today}）の日報は提出済みです。もう一度フォームから保存すると上書き更新されます。
-        </div>
-      ) : null}
-      <ReportForm author={author} today={today} actuals={actuals} />
+      {isAdmin ? (
+        <>
+          <SubmissionCalendar members={members} reports={reports} today={today} />
+          <ManagerReview reports={reports} />
+        </>
+      ) : (
+        <>
+          {todays ? (
+            <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
+              ✓ 本日（{today}）の日報は提出済みです。もう一度フォームから保存すると上書き更新されます。
+            </div>
+          ) : null}
+          <ReportForm author={author} today={today} actuals={actuals} />
+        </>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px", gap: 10, flexWrap: "wrap" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>これまでの日報</h3>
