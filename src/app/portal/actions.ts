@@ -65,6 +65,29 @@ export async function reviewClientJob(jobNo: number | string, approve: boolean):
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 企業が「おすすめ人材（匿名）」に話を聞きたい旨を申し込む。client のみ。営業が仲介。 */
+export async function expressTalentInterest(input: { kind: "candidate" | "profile"; ref: string; label?: string }): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  if (!access.companyName) return { ok: false, error: "会社名が未設定です。管理者にご連絡ください。" };
+  if (!input.ref || (input.kind !== "candidate" && input.kind !== "profile")) return { ok: false, error: "入力が不正です" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("talent_interest").insert({
+      company: access.companyName,
+      kind: input.kind,
+      candidate_id: input.kind === "candidate" ? input.ref : null,
+      engineer_id: input.kind === "profile" ? input.ref : null,
+      label: input.label?.slice(0, 80) ?? null,
+      status: "new",
+    });
+    // 既に申込済み（unique制約違反）はエラー扱いしない
+    if (error && !/duplicate|unique/i.test(error.message)) return { ok: false, error: error.message };
+    revalidatePath("/portal/candidates");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 企業が提案人材へフィードバック（会いたい/検討中/ミスマッチ）。本人(client)のみ・自社提案のみ。 */
 export async function submitClientFeedback(proposalId: string, verdict: Verdict, reason: string): Promise<Result> {
   const access = await currentAccess();
