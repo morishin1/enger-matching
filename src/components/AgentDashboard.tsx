@@ -271,8 +271,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         </div>
       )}
 
-      {/* 🎯 区分別「今日の次の一手」（ヒーロー） */}
-      {!setup && (
+      {/* 🎯 区分別「今日の次の一手」（ヒーロー）※ 個人向け。管理者は経営ボードを見るため非表示 */}
+      {role !== "admin" && !setup && (
         <div className="card" style={{ borderColor: "var(--color-brand-200, var(--color-brand-100))" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -308,8 +308,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         </div>
       )}
 
-      {/* ② あなたのKPI（区分別） */}
-      {!setup && myName && (
+      {/* ② あなたのKPI（区分別）※ 個人向け。管理者は非表示 */}
+      {role !== "admin" && !setup && myName && (
         <div className="card">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🎯 あなたのKPI</h3>
