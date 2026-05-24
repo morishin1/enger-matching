@@ -75,7 +75,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       const sb = engerClient();
       const [J, P, E, C, S, M] = await Promise.all([
         grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published, outside_owner", "job_no, title, client_name, created_at"),
-        grab(sb, "proposals", "id, job_title, company, stage, proposer, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified, lost_reason", "id, job_title, company, stage, rate, created_at"),
+        grab(sb, "proposals", "id, job_title, company, stage, proposer, partner, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified, lost_reason", "id, job_title, company, stage, rate, created_at"),
         grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status"),
         grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num"),
         grab(sb, "staff", "name, position", "name"),
@@ -88,10 +88,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
     } catch { setup = true; }
   } else setup = true;
 
-  // 区分（インサイド/アウトサイド）の判定：アカウント設定を優先、無ければ担当者マスタ
-  const myPosition: "inside" | "outside" | null = position ?? ((staff.find((s) => s.name === myName)?.position as any) ?? null);
+  // 区分（インサイド/アウトサイド）は廃止：全員が提案・クロージング・打合せを担当する。
   const jobByTitle = new Map(jobs.map((j) => [j.title, j]));
-  const outsideOwnerOf = (p: any) => (jobByTitle.get(p.job_title)?.outside_owner ?? null);
 
   // ===== 集計 =====
   // リード品質KPI（接触前失注・NG除外を母数から外す）は全提案で算出
@@ -155,7 +153,9 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   type Action = { icon: string; title: string; count: number; detail: string; href: string; items: string[] };
   const mineProposer = (p: any) => (myName ? p.proposer === myName : true);
   const hasOwnerData = jobs.some((j) => j.outside_owner);
-  const mineOutside = (p: any) => (myName && hasOwnerData ? outsideOwnerOf(p) === myName : true);
+  // 区分(インサイド/アウトサイド)撤廃：2人1組(提案者/パートナー/クロージング)のいずれかなら自分の担当
+  const inPair = (p: any) => (myName ? (p.proposer === myName || p.partner === myName || p.closer === myName) : true);
+  const mineOutside = inPair;
 
   const insideStalled = proposals.filter((p) => p.stage === "提案中" && !isContacted(p) && daysAgo(p.created_at) >= 7 && mineProposer(p));
   const insideActions: Action[] = [
@@ -184,8 +184,16 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
     { icon: "🏢", title: "エンド開拓・掘り起こし", count: outsideEndDev.length, detail: "担当案件で動きが止まっている", href: "/companies", items: outsideEndDev.map(jLabel) },
   ];
 
-  const posLabel = myPosition === "inside" ? "インサイド" : myPosition === "outside" ? "アウトサイド" : "区分未設定";
-  const actions = myPosition === "outside" ? outsideActions : insideActions;
+  // 区分撤廃：全員が「提案・面談・クロージング・打合せ」を担当する統合動線
+  const actions: Action[] = [
+    insideActions[0],   // 注力案件を提案する
+    insideActions[1],   // 新着をマッチング
+    insideActions[2],   // 提案の初動
+    outsideActions[1],  // 面談（本日/調整）
+    outsideActions[2],  // クロージング
+    outsideActions[0],  // 打合せフォロー
+    outsideActions[3],  // 契約更新の確認
+  ].filter(Boolean);
   const actionsTotal = actions.reduce((s, a) => s + a.count, 0);
 
   // ===== 深掘りイシュー（カテゴリ別） =====
@@ -224,15 +232,15 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const myMeetingsWeek = meetings.filter((m) => m.our_owner === myName && String(m.meeting_date ?? "").slice(0, 10) >= weekAgo).length;
   const KPI_PROPOSAL = 20, KPI_MEETING = 3;
 
-  // 2人1組（提案者=インサイド / エンド担当=アウトサイド）でクロージングまで。期限1週間。
+  // 2人1組（提案者＋パートナー）でクロージングまで。期限1週間。区分は問わない。
   const CLOSING_STAGES = ["面談合格", "クロージング中"];
-  const mineInTeam = (p: any) => (myName ? (p.proposer === myName || outsideOwnerOf(p) === myName) : true);
+  const mineInTeam = (p: any) => (myName ? (p.proposer === myName || p.partner === myName || p.closer === myName) : true);
   const closingTeam = proposals.filter((p) => CLOSING_STAGES.includes(p.stage) && mineInTeam(p)).map((p: any) => {
     const d = daysAgo(p.created_at);
-    return { p, inside: p.proposer || "—", outside: outsideOwnerOf(p) || "—", days: d, overdue: d >= 7, hasReason: !!(p.next_action || p.lost_reason) };
+    return { p, inside: p.proposer || "—", outside: p.partner || "—", closer: p.closer || "未定", days: d, overdue: d >= 7, hasReason: !!(p.next_action || p.lost_reason) };
   }).sort((a, b) => b.days - a.days);
-  // チーム未成立：進行中だがアウトサイド(エンド担当)未割当
-  const teamMissing = activeProps.filter((p) => p.proposer && !outsideOwnerOf(p));
+  // ペア未成立：進行中だがパートナー未割当
+  const teamMissing = activeProps.filter((p) => p.proposer && !p.partner);
 
   return (
     <div className="page">
@@ -271,20 +279,15 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         </div>
       )}
 
-      {/* 🎯 区分別「今日の次の一手」（ヒーロー）※ 個人向け。管理者は経営ボードを見るため非表示 */}
+      {/* 🎯「今日の次の一手」（ヒーロー）※ 個人向け。管理者は経営ボードを見るため非表示。区分問わず提案・面談・クロージング・打合せを担当 */}
       {role !== "admin" && !setup && (
         <div className="card" style={{ borderColor: "var(--color-brand-200, var(--color-brand-100))" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>🎯 あなたの次の一手</h3>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: myPosition === "outside" ? "#fff1e6" : myPosition === "inside" ? "#eaf4fd" : "#eef0f3", color: myPosition === "outside" ? "#b45309" : myPosition === "inside" ? "#0b5cab" : "#6b7280" }}>{posLabel}</span>
             </div>
-            <span className="muted" style={{ fontSize: 11 }}>{myPosition === "outside" ? "エンド開拓・打合せ中心" : "マッチング・提案中心"} · 上から順に対応</span>
+            <span className="muted" style={{ fontSize: 11 }}>提案・面談・クロージング・打合せ · 上から順に対応</span>
           </div>
-
-          {myPosition == null && (
-            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>区分が未設定です。設定 → 担当者マスタで「インサイド/アウトサイド」を選ぶと、あなた専用の動線に切り替わります（暫定でインサイド表示）。</div>
-          )}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
             {actions.map((a, i) => (
@@ -308,30 +311,30 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         </div>
       )}
 
-      {/* ② あなたのKPI（区分別）※ 個人向け。管理者は非表示 */}
+      {/* ② あなたのKPI ※ 個人向け。管理者は非表示。区分問わず提案・打合せ両方を計測 */}
       {role !== "admin" && !setup && myName && (
         <div className="card">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🎯 あなたのKPI</h3>
-            <span className="muted" style={{ fontSize: 11 }}>{myPosition === "outside" ? "アウトサイド：打合せ重視" : myPosition === "inside" ? "インサイド：提案重視" : "区分未設定"}</span>
+            <span className="muted" style={{ fontSize: 11 }}>提案・打合せの両方を計測</span>
           </div>
           <div className="kpi-grid">
-            {(() => { const v = myProposalsMonth, t = KPI_PROPOSAL, ok = v >= t; const hi = myPosition !== "outside"; return (
-              <div className="kpi" style={hi ? { borderColor: "var(--color-brand-300, var(--color-brand-100))" } : { opacity: .7 }}><div>
+            {(() => { const v = myProposalsMonth, t = KPI_PROPOSAL, ok = v >= t; return (
+              <div className="kpi" style={{ borderColor: "var(--color-brand-300, var(--color-brand-100))" }}><div>
                 <div className="val tnum" style={{ color: ok ? "#067647" : "var(--color-ink)" }}>{v}<span className="unit">/{t}</span></div>
-                <div className="label">提案（今月）{hi ? "★" : ""}</div>
+                <div className="label">提案（今月）</div>
                 <div style={{ height: 5, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden", marginTop: 6 }}><div style={{ width: `${Math.min(100, (v / t) * 100)}%`, height: "100%", background: ok ? "#1aa260" : "var(--color-brand-600)" }} /></div>
                 <div className="note">{ok ? "達成 🎉" : `あと ${t - v} 件`}</div>
               </div></div>); })()}
-            {(() => { const v = myMeetingsWeek, t = KPI_MEETING, ok = v >= t; const hi = myPosition === "outside"; return (
-              <div className="kpi" style={hi ? { borderColor: "var(--color-brand-300, var(--color-brand-100))" } : { opacity: .7 }}><div>
+            {(() => { const v = myMeetingsWeek, t = KPI_MEETING, ok = v >= t; return (
+              <div className="kpi" style={{ borderColor: "var(--color-brand-300, var(--color-brand-100))" }}><div>
                 <div className="val tnum" style={{ color: ok ? "#067647" : "var(--color-ink)" }}>{v}<span className="unit">/{t}</span></div>
-                <div className="label">打合せ（今週）{hi ? "★" : ""}</div>
+                <div className="label">打合せ（今週）</div>
                 <div style={{ height: 5, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden", marginTop: 6 }}><div style={{ width: `${Math.min(100, (v / t) * 100)}%`, height: "100%", background: ok ? "#1aa260" : "var(--color-brand-600)" }} /></div>
                 <div className="note">{ok ? "達成 🎉" : `あと ${t - v} 件`}</div>
               </div></div>); })()}
-            <div className="kpi accent"><div><div className="val tnum">{closingTeam.length}<span className="unit">件</span></div><div className="label">担当チームのクロージング</div><div className="note">{closingTeam.filter((c) => c.overdue).length} 件が期限超過</div></div></div>
-            <div className="kpi warn"><div><div className="val tnum">{teamMissing.length}<span className="unit">件</span></div><div className="label">チーム未成立</div><div className="note">アウトサイド未割当</div></div></div>
+            <div className="kpi accent"><div><div className="val tnum">{closingTeam.length}<span className="unit">件</span></div><div className="label">担当ペアのクロージング</div><div className="note">{closingTeam.filter((c) => c.overdue).length} 件が期限超過</div></div></div>
+            <div className="kpi warn"><div><div className="val tnum">{teamMissing.length}<span className="unit">件</span></div><div className="label">ペア未成立</div><div className="note">パートナー未割当</div></div></div>
           </div>
         </div>
       )}
@@ -340,16 +343,17 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       {!setup && (closingTeam.length > 0 || teamMissing.length > 0) && (
         <div className="card">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🤝 クロージング・チーム</h3>
-            <span className="muted" style={{ fontSize: 11 }}>提案者×エンド担当の2人1組で、1週間以内に決着（延長は理由を記載）</span>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🤝 クロージング・ペア</h3>
+            <span className="muted" style={{ fontSize: 11 }}>提案者＋パートナーの2人1組で、1週間以内に決着（延長は理由を記載）</span>
           </div>
           {closingTeam.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {closingTeam.slice(0, 8).map((c, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10, background: c.overdue ? "#fdecef" : "var(--color-surface)" }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.p.company ?? "—"}：{c.p.job_title ?? "—"}</span>
-                  <span className="tag" style={{ fontSize: 10 }}>イン {c.inside}</span>
-                  <span className="tag" style={{ fontSize: 10 }}>アウト {c.outside}</span>
+                  <span className="tag" style={{ fontSize: 10 }}>提案 {c.inside}</span>
+                  <span className="tag" style={{ fontSize: 10 }}>組 {c.outside}</span>
+                  <span className="tag" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647" }}>CL {c.closer}</span>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: c.overdue ? "#b42318" : "#b45309", whiteSpace: "nowrap" }}>{c.overdue ? `期限超過(${c.days}日)` : `あと${Math.max(0, 7 - c.days)}日`}</span>
                   {c.overdue && (c.hasReason ? <span style={{ fontSize: 10, color: "#067647" }}>延長理由あり</span> : <span style={{ fontSize: 10, color: "#b42318" }}>要・延長理由</span>)}
                 </div>
@@ -358,7 +362,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
           )}
           {teamMissing.length > 0 && (
             <div style={{ marginTop: 10, background: "#fff5e6", border: "1px solid #f6d9a7", borderRadius: 10, padding: "9px 12px", fontSize: 12.5 }}>
-              ⚠️ <b>チーム未成立 {teamMissing.length}件</b>：提案済みだがアウトサイド（エンド担当）が未割当です。<Link href="/jobs" style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 700 }}>案件でエンド担当を設定 →</Link>
+              ⚠️ <b>ペア未成立 {teamMissing.length}件</b>：提案済みだがパートナーが未割当です。<Link href="/proposals" style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 700 }}>提案管理でパートナーを設定 →</Link>
             </div>
           )}
         </div>

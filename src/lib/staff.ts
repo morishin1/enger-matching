@@ -18,7 +18,7 @@ export async function isAllowedEmail(email: string): Promise<boolean> {
 }
 
 /** 担当者マスタを取得。テーブル未作成時は定数にフォールバック。 */
-export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; closers: string[]; fromTable: boolean }> {
+export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; closers: string[]; members: string[]; fromTable: boolean }> {
   if (dbConfigured) {
     try {
       const sb = engerClient();
@@ -28,15 +28,18 @@ export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; 
       const { data, error } = res;
       if (!error && data) {
         const rows = data as Staff[];
+        const members = rows.map((s) => s.name);
         return {
           rows,
-          proposers: rows.filter((s) => s.is_proposer).map((s) => s.name),
-          closers: ["未割当", ...rows.filter((s) => s.is_closer).map((s) => s.name)],
+          // 区分(インサイド/アウトサイド)に関係なく、全員が提案・クロージング担当になれる
+          proposers: members,
+          closers: ["未割当", ...members],
+          members,
           fromTable: true,
         };
       }
     } catch { /* fallthrough */ }
   }
   // フォールバック（staff.sql 未実行時）
-  return { rows: [], proposers: PROPOSERS, closers: CLOSERS, fromTable: false };
+  return { rows: [], proposers: PROPOSERS, closers: CLOSERS, members: PROPOSERS, fromTable: false };
 }

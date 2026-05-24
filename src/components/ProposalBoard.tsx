@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -25,10 +25,11 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, closers }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: any) {
   const [open, setOpen] = useState(false);
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
+  const [partner, setPartner] = useState(p.partner ?? "");
   const [closer, setCloser] = useState(p.closer ?? "");
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
@@ -51,7 +52,9 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
         {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
         {(p.meeting_date || p.meeting_status) && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: "#fff1e6", color: "#b45309" }}>📅 {[p.meeting_date, p.meeting_status].filter(Boolean).join(" ")}</span>}
         {p.proposer && <span className="tag" style={{ fontSize: 10 }}>提案 {p.proposer}</span>}
-        {p.closer && p.closer !== "未割当" && <span className="tag" style={{ fontSize: 10 }}>CL {p.closer}</span>}
+        {p.partner && <span className="tag" style={{ fontSize: 10 }}>組 {p.partner}</span>}
+        {p.proposer && !p.partner && <span className="tag" style={{ fontSize: 10, color: "#b45309", background: "#fff1e6" }}>パートナー未定</span>}
+        {p.closer && p.closer !== "未割当" && <span className="tag" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647" }}>CL {p.closer}</span>}
       </div>
 
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
@@ -64,11 +67,22 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
       {open && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 8 }}>
           <Field label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
+          {/* 2人1組（提案者＋パートナー）。区分に関係なく全員が担当できる */}
+          <div style={{ fontSize: 10.5, color: "#0b5cab", fontWeight: 600 }}>👥 2人1組</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            <Field label="提案者" value={proposer} options={proposers ?? PROPOSERS} onChange={setProposer} />
-            <Field label="クロージング" value={closer} options={closers ?? CLOSERS} onChange={setCloser} />
+            <Field label="提案者" value={proposer} options={members ?? PROPOSERS} onChange={setProposer} />
+            <Field label="パートナー" value={partner} options={members ?? PROPOSERS} onChange={setPartner} placeholder="相手を選ぶ" />
           </div>
-          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, closer })}>保存</button>
+          {/* クロージングは2人のうちどちらか（ペアで相談して決定） */}
+          <Field
+            label="クロージング担当（2人のうちどちらか）"
+            value={closer}
+            options={[proposer, partner].filter((x) => x && x !== "")}
+            onChange={setCloser}
+            placeholder="未定（あとで決める）"
+          />
+          {!proposer && <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>※ まず提案者とパートナーを選ぶと、クロージング担当を選べます。</div>}
+          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner, closer })}>保存</button>
 
           {/* 面談（これから捌く予定）— ファネルの面談到達率の素 */}
           <div style={{ paddingTop: 8, borderTop: "1px dashed var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -95,7 +109,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, proposers, 
   );
 }
 
-export function ProposalBoard({ proposals, proposers, closers }: { proposals: any[]; proposers?: string[]; closers?: string[] }) {
+export function ProposalBoard({ proposals, members }: { proposals: any[]; members?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -123,7 +137,7 @@ export function ProposalBoard({ proposals, proposers, closers }: { proposals: an
             </div>
             {items.length === 0 && <div style={{ fontSize: 11, color: "var(--color-ink-4)", textAlign: "center", padding: "16px 0" }}>—</div>}
             {items.map((p) => (
-              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} proposers={proposers} closers={closers}
+              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members}
                 onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} />
             ))}
           </div>

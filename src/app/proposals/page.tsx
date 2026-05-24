@@ -21,6 +21,10 @@ export default async function ProposalsPage() {
       const base = "id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await sb.from("proposals")
+        .select(`${base}, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
+        .order("created_at", { ascending: false }).limit(400);
+      // partner 列が無い環境でも落ちないようフォールバック
+      if (res.error) res = await sb.from("proposals")
         .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
       if (res.error) res = await sb.from("proposals").select(base).order("created_at", { ascending: false }).limit(400);
@@ -61,7 +65,7 @@ export default async function ProposalsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Proposals · 提案管理</div>
           <h1>提案管理</h1>
-          <div className="sub">インサイド運用に準拠：<b>未対応 → 提案中 → 面談調整 → クロージング中 → 面談合格</b> のカンバン。面談合格カードの「稼働化」を押すと<b>稼働管理</b>へ移り、この一覧から消えます。</div>
+          <div className="sub"><b>未対応 → 提案中 → 面談調整 → クロージング中 → 面談合格</b> のカンバン。提案は<b>2人1組（提案者＋パートナー）</b>で進め、クロージング担当は2人のうちどちらかをカードで選べます。面談合格の「稼働化」で<b>稼働管理</b>へ移ります。</div>
         </div>
       </div>
 
@@ -99,7 +103,7 @@ export default async function ProposalsPage() {
               まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。
             </div>
           ) : (
-            <ProposalBoard proposals={proposals} proposers={staff.proposers} closers={staff.closers} />
+            <ProposalBoard proposals={proposals} members={staff.members} />
           )}
 
           {feedbackList.length > 0 && (
