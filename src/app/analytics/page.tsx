@@ -1,5 +1,6 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { leadKpi } from "@/lib/quality";
+import { GripBoard } from "@/components/GripBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -48,9 +49,9 @@ export default async function AnalyticsPage() {
     try {
       const sb = engerClient();
       [jobs, cands, proposals, engs, meetings] = await Promise.all([
-        grab(sb, "jobs", "job_no, title, client_name, skills, salary_min, salary_max, is_published, outside_owner, created_at", "job_no, title, client_name, created_at"),
-        grab(sb, "candidates", "candidate_no, skills, rate, salary_min, salary_max, affiliation, title, status, created_at", "candidate_no, skills, status, created_at"),
-        grab(sb, "proposals", "id, stage, caller_status, created_at, proposer, closer, rate, score, ai_match, disqualified, lost_reason, company, job_title", "id, stage, created_at, rate"),
+        grab(sb, "jobs", "job_no, title, client_name, skills, salary_min, salary_max, is_published, outside_owner, posted_by_client, created_at", "job_no, title, client_name, created_at"),
+        grab(sb, "candidates", "id, candidate_no, name, skills, rate, salary_min, salary_max, affiliation, title, status, created_at", "candidate_no, skills, status, created_at"),
+        grab(sb, "proposals", "id, stage, caller_status, created_at, proposed_at, called_at, proposer, closer, rate, score, ai_match, disqualified, lost_reason, lost_phase, company, job_title, candidate_id, candidate_name", "id, stage, created_at, rate"),
         grab(sb, "engagements", "id, monthly_rate, cost, end_date, status", "id, monthly_rate, status"),
         grab(sb, "meetings", "id, our_owner, new_or_existing, fb_sentiment, company_name", "id, our_owner"),
       ]);
@@ -174,6 +175,9 @@ export default async function AnalyticsPage() {
           ))}
         </div>
       </div>
+
+      {/* グリップ分析（在庫の出所 × 歩留まり） */}
+      <GripBoard proposals={proposals} candidates={cands} jobs={jobs} />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--gap, 20px)" }} className="duo-grid">
         {/* 失注理由 */}
