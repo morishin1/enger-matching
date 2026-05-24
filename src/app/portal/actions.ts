@@ -88,6 +88,29 @@ export async function expressTalentInterest(input: { kind: "candidate" | "profil
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 企業が自社プロフィール（Mission等）を保存。client のみ・自社のみ。 */
+export async function saveCompanyProfile(input: { mission?: string; culture?: string; ideal_persona?: string; appeal?: string; website?: string }): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  if (!access.companyName) return { ok: false, error: "会社名が未設定です。管理者にご連絡ください。" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("company_profiles").upsert({
+      company: access.companyName,
+      mission: input.mission?.trim() || null,
+      culture: input.culture?.trim() || null,
+      ideal_persona: input.ideal_persona?.trim() || null,
+      appeal: input.appeal?.trim() || null,
+      website: input.website?.trim() || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "company" });
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/portal/company");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 営業/管理者：企業からの人材リクエストの対応状況を更新（new/contacted/closed）。 */
 export async function updateTalentRequestStatus(id: string, status: "new" | "contacted" | "closed"): Promise<Result> {
   const access = await currentAccess();

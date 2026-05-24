@@ -31,6 +31,8 @@ const CRUMBS: Record<string, string[]> = {
   "/portal": ["ENGER", "ポータル"],
   "/portal/jobs": ["ENGER", "自社案件"],
   "/portal/candidates": ["ENGER", "おすすめ人材"],
+  "/portal/selection": ["ENGER", "選考管理"],
+  "/portal/company": ["ENGER", "企業プロフィール"],
 };
 
 const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {

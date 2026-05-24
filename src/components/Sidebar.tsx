@@ -34,6 +34,8 @@ const CLIENT_NAV = [
   { href: "/", id: "home", label: "ホーム", icon: "dashboard" },
   { href: "/portal/jobs", id: "portal-jobs", label: "自社案件", icon: "jobs" },
   { href: "/portal/candidates", id: "portal-candidates", label: "おすすめ人材", icon: "people" },
+  { href: "/portal/selection", id: "portal-selection", label: "選考管理", icon: "proposals" },
+  { href: "/portal/company", id: "portal-company", label: "企業プロフィール", icon: "company" },
 ] as const;
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
