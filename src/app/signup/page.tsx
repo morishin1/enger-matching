@@ -58,6 +58,14 @@ export default function SignupPage() {
                 <input name="password" type="password" required minLength={8} autoComplete="new-password" placeholder="••••••••" style={input} />
               </label>
 
+              <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#4b5563", lineHeight: 1.7, cursor: "pointer" }}>
+                <input type="checkbox" name="agree" required style={{ marginTop: 2, width: 16, height: 16, accentColor: "#0095D9", flex: "0 0 16px" }} />
+                <span>
+                  <a href="https://enger.jp/terms" target="_blank" rel="noreferrer" style={{ color: "#0095D9", fontWeight: 600 }}>利用規約</a>・
+                  <a href="https://enger.jp/privacy" target="_blank" rel="noreferrer" style={{ color: "#0095D9", fontWeight: 600 }}>プライバシーポリシー</a>に同意します。
+                </span>
+              </label>
+
               {state?.error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{state.error}</div>}
               <button type="submit" disabled={pending} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: "pointer", opacity: pending ? 0.6 : 1, boxShadow: "0 6px 16px rgba(0,149,217,.3)" }}>{pending ? "登録中…" : "登録する →"}</button>
             </form>

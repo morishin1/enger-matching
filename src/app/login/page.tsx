@@ -14,7 +14,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
   const [state, action, pending] = useActionState<LoginState, FormData>(signIn, null);
   const error = state?.error || err;
 
-  const input = { padding: "12px 14px", border: "1px solid #d6dce5", borderRadius: 10, fontSize: 14, fontFamily: "inherit", background: "#fff", outline: "none", width: "100%" } as const;
+  const input = { padding: "13px 14px", border: "1.5px solid #cbd5e1", borderRadius: 10, fontSize: 15, fontFamily: "inherit", background: "#fff", outline: "none", width: "100%", color: "#0F2440" } as const;
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", overflow: "hidden" }}>
@@ -66,10 +66,10 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
               </div>
 
               <input type="hidden" name="redirect" value={redirect} />
-              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>メールアドレス
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, color: "#475569", fontWeight: 600 }}>メールアドレス
                 <input name="email" type="email" required autoComplete="username" placeholder="you@example.com" style={input} />
               </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>パスワード
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, color: "#475569", fontWeight: 600 }}>パスワード
                 <input name="password" type="password" required autoComplete="current-password" placeholder="••••••••" style={input} />
               </label>
               {error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{error}</div>}

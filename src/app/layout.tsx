@@ -7,8 +7,32 @@ import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess, type Role } from "@/lib/accounts";
 
 export const metadata: Metadata = {
-  title: "ENGER v2 — Matching",
-  description: "案件×人材マッチング・提案・稼働・企業管理プラットフォーム",
+  metadataBase: new URL("https://dx.enger.jp"),
+  title: {
+    default: "ENGER（エンジャー）｜案件×人材マッチング・採用管理プラットフォーム",
+    template: "%s｜ENGER",
+  },
+  description:
+    "ENGER（エンジャー）は、エンジニア採用・人材紹介/派遣/SESを、AIマッチングから提案・契約・稼働管理までひとつの画面で完結する採用管理プラットフォームです。",
+  applicationName: "ENGER",
+  keywords: ["ENGER", "エンジャー", "人材マッチング", "エンジニア採用", "SES", "人材紹介", "派遣", "採用管理", "マッチングプラットフォーム"],
+  openGraph: {
+    type: "website",
+    locale: "ja_JP",
+    url: "https://dx.enger.jp",
+    siteName: "ENGER",
+    title: "ENGER（エンジャー）｜案件×人材マッチング・採用管理プラットフォーム",
+    description: "エンジニア採用・人材紹介/派遣/SESを、AIマッチングから提案・契約・稼働管理までひとつの画面で。",
+    images: [{ url: "/15.png", width: 1200, height: 630, alt: "ENGER" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ENGER（エンジャー）｜案件×人材マッチング・採用管理",
+    description: "エンジニア採用・人材紹介/派遣/SESをひとつの画面で。",
+    images: ["/15.png"],
+  },
+  robots: { index: true, follow: true },
+  icons: { icon: "/enger-logo.png" },
 };
 
 const fontsHref =
