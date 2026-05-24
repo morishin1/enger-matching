@@ -45,7 +45,8 @@ export async function draftCompanyProfileFromUrl(url: string): Promise<{ ok: boo
   return { ok: true, draft: { mission: draft.mission ?? "", culture: draft.culture ?? "", ideal_persona: draft.ideal_persona ?? "", appeal: draft.appeal ?? "" } };
 }
 
-export const CONTRACT_TYPES = ["SES", "紹介", "派遣"] as const;
+// 注意: "use server" ファイルは async 関数のみ export 可。定数は内部に留める（クライアントは独自定義を使用）。
+const CONTRACT_TYPES = ["SES", "紹介", "派遣"] as const;
 
 /** 企業が自社案件を掲載（下書き→審査中）。client のみ。承認後に公開される。 */
 export async function createClientJob(input: {

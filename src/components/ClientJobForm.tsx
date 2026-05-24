@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClientJob, CONTRACT_TYPES } from "@/app/portal/actions";
+import { createClientJob } from "@/app/portal/actions";
 
+const CONTRACT_TYPES = ["SES", "紹介", "派遣"] as const;
 const REMOTE = [{ v: "full_remote", l: "フルリモート" }, { v: "partial_remote", l: "一部リモート" }, { v: "onsite", l: "出社" }];
 
 export function ClientJobForm() {
