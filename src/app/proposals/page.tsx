@@ -32,6 +32,22 @@ export default async function ProposalsPage() {
         needSetup = true;
       } else {
         const all = res.data ?? [];
+        // 企業担当（案件の outside_owner / 企業マスタ owner）を解決し、各提案に company_owner として付与
+        try {
+          const titles = Array.from(new Set(all.map((p: any) => p.job_title).filter(Boolean)));
+          const names = Array.from(new Set(all.map((p: any) => p.company).filter(Boolean)));
+          const ownerByTitle: Record<string, string> = {};
+          const ownerByCompany: Record<string, string> = {};
+          if (titles.length) {
+            let jr: any = await sb.from("jobs").select("title, outside_owner").in("title", titles as string[]).limit(1000);
+            if (!jr.error) for (const j of (jr.data ?? [])) if (j.outside_owner) ownerByTitle[j.title] = j.outside_owner;
+          }
+          if (names.length) {
+            const cr: any = await sb.from("companies").select("name, owner").in("name", names as string[]).limit(1000);
+            if (!cr.error) for (const c of (cr.data ?? [])) if (c.owner) ownerByCompany[c.name] = c.owner;
+          }
+          for (const p of all) p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
+        } catch { /* 列未整備でも続行 */ }
         // 稼働化済(稼働/旧稼働決定)・見送り・失注 はボードから除外
         proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");

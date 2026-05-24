@@ -126,10 +126,15 @@ const parseRateNum = (rate?: string | null): number | null => {
 export async function createProposal(jobNo: number, candNo: number, score?: number) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const [{ data: job }, { data: cand }] = await Promise.all([
-    admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle(),
-    admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle(),
-  ]);
+  let job: any = null, cand: any = null;
+  {
+    // outside_owner（企業担当）列が無い環境でも落ちないようフォールバック
+    let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
+    if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
+    job = jr.data;
+    const cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
+    cand = cr.data;
+  }
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
   // 重複チェック (同一 job × candidate)
@@ -140,10 +145,20 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     return { ok: true, id: dup.id, existed: true };
   }
 
+  // デフォルトのクロージング担当 = 案件企業の担当者（案件の outside_owner、無ければ企業マスタの owner）。後で変更可。
+  let defaultCloser: string | null = (job.outside_owner ?? "").trim() || null;
+  if (!defaultCloser && job.client_name) {
+    try {
+      const { data: co } = await admin.from("companies").select("owner").ilike("name", job.client_name).maybeSingle();
+      defaultCloser = ((co as any)?.owner ?? "").trim() || null;
+    } catch { /* companies 未整備 */ }
+  }
+
   const { data, error } = await admin.from("proposals").insert({
     job_id: job.id, candidate_id: cand.id, stage: "未対応",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
+    closer: defaultCloser, // 企業担当をデフォルトのクロージング担当に
   }).select("id").single();
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");

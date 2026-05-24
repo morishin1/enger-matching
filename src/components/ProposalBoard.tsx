@@ -30,7 +30,8 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: 
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
   const [partner, setPartner] = useState(p.partner ?? "");
-  const [closer, setCloser] = useState(p.closer ?? "");
+  // クロージング担当の既定 = 企業担当（案件の担当者）。未設定なら企業担当を初期表示。
+  const [closer, setCloser] = useState(p.closer ?? p.company_owner ?? "");
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
@@ -51,10 +52,11 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: 
       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
         {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
         {(p.meeting_date || p.meeting_status) && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: "#fff1e6", color: "#b45309" }}>📅 {[p.meeting_date, p.meeting_status].filter(Boolean).join(" ")}</span>}
+        {p.company_owner && <span className="tag" style={{ fontSize: 10, background: "#eef5fd", color: "#0b5cab" }}>企業担当 {p.company_owner}</span>}
         {p.proposer && <span className="tag" style={{ fontSize: 10 }}>提案 {p.proposer}</span>}
         {p.partner && <span className="tag" style={{ fontSize: 10 }}>組 {p.partner}</span>}
         {p.proposer && !p.partner && <span className="tag" style={{ fontSize: 10, color: "#b45309", background: "#fff1e6" }}>パートナー未定</span>}
-        {p.closer && p.closer !== "未割当" && <span className="tag" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647" }}>CL {p.closer}</span>}
+        {(p.closer ?? p.company_owner) && (p.closer ?? p.company_owner) !== "未割当" && <span className="tag" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647" }}>CL {p.closer ?? p.company_owner}</span>}
       </div>
 
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
@@ -73,15 +75,17 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: 
             <Field label="提案者" value={proposer} options={members ?? PROPOSERS} onChange={setProposer} />
             <Field label="パートナー" value={partner} options={members ?? PROPOSERS} onChange={setPartner} placeholder="相手を選ぶ" />
           </div>
-          {/* クロージングは2人のうちどちらか（ペアで相談して決定） */}
+          {/* クロージング担当：企業担当者がデフォルト。提案者・パートナー・他メンバーからも選べる */}
           <Field
-            label="クロージング担当（2人のうちどちらか）"
+            label="クロージング担当"
             value={closer}
-            options={[proposer, partner].filter((x) => x && x !== "")}
+            options={Array.from(new Set([p.company_owner, proposer, partner, ...(members ?? PROPOSERS)].filter((x) => x && x !== "")))}
             onChange={setCloser}
             placeholder="未定（あとで決める）"
           />
-          {!proposer && <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>※ まず提案者とパートナーを選ぶと、クロージング担当を選べます。</div>}
+          <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>
+            {p.company_owner ? <>※ 既定は企業担当の <b>{p.company_owner}</b> さん。ペアで相談して変更できます。</> : <>※ 企業担当が未設定です。案件管理で企業担当を設定すると既定になります。</>}
+          </div>
           <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner, closer })}>保存</button>
 
           {/* 面談（これから捌く予定）— ファネルの面談到達率の素 */}
