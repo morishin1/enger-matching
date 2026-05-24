@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "./supabase";
 import { PROPOSERS, CLOSERS } from "./proposal-constants";
 
@@ -17,8 +18,11 @@ export async function isAllowedEmail(email: string): Promise<boolean> {
   } catch { return true; }
 }
 
+/** 担当者マスタを取得（120秒キャッシュ）。スタッフ編集時は revalidateTag("staff") で更新。 */
+export const getStaff = unstable_cache(fetchStaff, ["staff-master"], { revalidate: 120, tags: ["staff"] });
+
 /** 担当者マスタを取得。テーブル未作成時は定数にフォールバック。 */
-export async function getStaff(): Promise<{ rows: Staff[]; proposers: string[]; closers: string[]; members: string[]; fromTable: boolean }> {
+async function fetchStaff(): Promise<{ rows: Staff[]; proposers: string[]; closers: string[]; members: string[]; fromTable: boolean }> {
   if (dbConfigured) {
     try {
       const sb = engerClient();

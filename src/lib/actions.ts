@@ -290,7 +290,7 @@ export async function addStaff(name: string, isProposer: boolean, isCloser: bool
   if (email && email.trim()) row.email = email.trim();
   const { error } = await admin.from("staff").upsert(row, { onConflict: "name" });
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/settings"); revalidatePath("/proposals");
+  revalidatePath("/settings"); revalidatePath("/proposals"); revalidateTag("staff", "max");
   return { ok: true };
 }
 
@@ -302,7 +302,7 @@ export async function updateStaff(id: string, fields: { name?: string; email?: s
   for (const k of ["name", "email", "is_proposer", "is_closer", "active", "position"] as const) if (k in fields) patch[k] = (fields as any)[k];
   const { error } = await admin.from("staff").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/settings"); revalidatePath("/proposals");
+  revalidatePath("/settings"); revalidatePath("/proposals"); revalidateTag("staff", "max");
   return { ok: true };
 }
 
@@ -312,7 +312,7 @@ export async function deleteStaff(id: string) {
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const { error } = await admin.from("staff").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/settings"); revalidatePath("/proposals");
+  revalidatePath("/settings"); revalidatePath("/proposals"); revalidateTag("staff", "max");
   return { ok: true };
 }
 

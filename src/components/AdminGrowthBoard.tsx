@@ -1,24 +1,19 @@
+import { unstable_cache } from "next/cache";
 import { engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 
-/**
- * 管理者向け 経営ボード：KGI(売上)につながる成長ファネルと、登録KPI、
- * エージェント別の動きを一画面で。「エンジニアが増える→企業がスカウト→成約→売上」を可視化。
- */
-export async function AdminGrowthBoard() {
+type AgentRow = { name: string; proposals: number; scouts: number; meetings: number; won: number };
+type GrowthData = { engTotal: number; engGithub: number; eng30: number; clientTotal: number; client30: number; jobsPub: number; scoutCnt: number; appCnt: number; appPass: number; appActive: number; agents: AgentRow[] };
+
+// 経営ボードの集計（重い count×10 ＋ 担当者集計）を120秒キャッシュ。書込時はタグで即時更新。
+const getGrowthData = unstable_cache(async (): Promise<GrowthData | null> => {
   if (!dbConfigured) return null;
-
-  let engTotal = 0, engGithub = 0, eng30 = 0, clientTotal = 0, client30 = 0, jobsPub = 0;
-  let scoutCnt = 0, appCnt = 0, appPass = 0, appActive = 0;
-  type AgentRow = { name: string; proposals: number; scouts: number; meetings: number; won: number };
-  let agents: AgentRow[] = [];
-
   try {
     const sb = engerAdmin();
     const pub = publicAdmin();
     const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
     const cnt = async (q: any) => { try { const { count } = await q; return count ?? 0; } catch { return 0; } };
 
-    [engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive] = await Promise.all([
+    const [engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive] = await Promise.all([
       cnt(pub.from("profiles").select("id", { count: "exact", head: true }).or("github_id.not.is.null,display_name.not.is.null")),
       cnt(pub.from("profiles").select("id", { count: "exact", head: true }).not("github_id", "is", null)),
       cnt(pub.from("profiles").select("id", { count: "exact", head: true }).or("github_id.not.is.null,display_name.not.is.null").gte("created_at", since30)),
@@ -32,6 +27,7 @@ export async function AdminGrowthBoard() {
     ]);
 
     // エージェント別の動き
+    let agents: AgentRow[] = [];
     try {
       const [pr, sc, mt] = await Promise.all([
         sb.from("proposals").select("proposer, stage").limit(5000),
@@ -45,7 +41,19 @@ export async function AdminGrowthBoard() {
       for (const m of (mt.data ?? []) as any[]) { const a = get(m.our_owner); if (a) a.meetings++; }
       agents = [...map.values()].sort((a, b) => (b.proposals + b.scouts + b.meetings) - (a.proposals + a.scouts + a.meetings)).slice(0, 12);
     } catch { /* 集計失敗は無視 */ }
+
+    return { engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive, agents };
   } catch { return null; }
+}, ["admin-growth-board"], { revalidate: 120, tags: ["dashboard", "sidebar-counts"] });
+
+/**
+ * 管理者向け 経営ボード：KGI(売上)につながる成長ファネルと、登録KPI、
+ * エージェント別の動きを一画面で。「エンジニアが増える→企業がスカウト→成約→売上」を可視化。
+ */
+export async function AdminGrowthBoard() {
+  const data = await getGrowthData();
+  if (!data) return null;
+  const { engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive, agents } = data;
 
   const pctOf = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
   const funnel = [

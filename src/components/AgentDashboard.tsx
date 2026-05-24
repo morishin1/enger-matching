@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
 import { IssueBoard, type Issue } from "./IssueBoard";
@@ -64,29 +65,34 @@ function Bucket({ icon, label, count, items, href, tone, muted }: { icon: string
   );
 }
 
-export async function AgentDashboard({ role, myName, position }: { role: "admin" | "agent"; myName?: string | null; position?: "inside" | "outside" | null }) {
-  let jobs: any[] = [], proposals: any[] = [], engs: any[] = [], cands: any[] = [];
-  let setup = false;
+// 組織全体の集計データ（ユーザーに依存しない）。60秒キャッシュ＋タグで書込時に即時更新。
+// ダッシュボードの体感速度を左右する重い6テーブル取得をここで一括キャッシュする。
+const getDashboardData = unstable_cache(async () => {
+  if (!dbConfigured) return { jobs: [], proposals: [], engs: [], cands: [], staff: [], meetings: [], setup: true };
+  try {
+    const sb = engerClient();
+    const [J, P, E, C, S, M] = await Promise.all([
+      grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published, outside_owner", "job_no, title, client_name, created_at", 600),
+      grab(sb, "proposals", "id, job_title, company, stage, proposer, partner, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified, lost_reason", "id, job_title, company, stage, rate, created_at", 600),
+      grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status", 400),
+      grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num", 600),
+      grab(sb, "staff", "name, position", "name", 200),
+      grab(sb, "meetings", "id, company_name, our_owner, fb_sentiment, follow_up_date, follow_done, next_action_us", "id, company_name, our_owner, fb_sentiment", 400),
+    ]);
+    return { jobs: J.rows, proposals: P.rows, engs: E.rows, cands: C.rows, staff: S.rows, meetings: M.rows, setup: !J.ok && !P.ok };
+  } catch { return { jobs: [], proposals: [], engs: [], cands: [], staff: [], meetings: [], setup: true }; }
+}, ["agent-dashboard-data"], { revalidate: 60, tags: ["dashboard", "sidebar-counts"] });
 
-  let staff: any[] = [], meetings: any[] = [];
+export async function AgentDashboard({ role, myName, position }: { role: "admin" | "agent"; myName?: string | null; position?: "inside" | "outside" | null }) {
+  const d = await getDashboardData();
+  const jobs = d.jobs, engs = d.engs, cands = d.cands, staff = d.staff, meetings = d.meetings, setup = d.setup;
+  let proposals = d.proposals; // 下で NG除外フィルタを再代入するため let
+
+  // 当日の日報提出チェック（ユーザー依存・軽量なのでキャッシュ外。インデックス済みの単一行取得）
   let reportToday = false;
-  if (dbConfigured) {
-    try {
-      const sb = engerClient();
-      const [J, P, E, C, S, M] = await Promise.all([
-        grab(sb, "jobs", "job_no, title, client_name, is_focus, status, created_at, is_published, outside_owner", "job_no, title, client_name, created_at"),
-        grab(sb, "proposals", "id, job_title, company, stage, proposer, partner, closer, rate, created_at, caller_status, meeting_date, meeting_status, disqualified, lost_reason", "id, job_title, company, stage, rate, created_at"),
-        grab(sb, "engagements", "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, cost, renewal_due, renewal_status", "id, job_title, company, monthly_rate, end_date, status"),
-        grab(sb, "candidates", "id, initials, title, status, saved, rate_num, affiliation, start_date, last_contact_at", "id, initials, title, status, rate_num"),
-        grab(sb, "staff", "name, position", "name"),
-        grab(sb, "meetings", "id, company_name, our_owner, fb_sentiment, follow_up_date, follow_done, next_action_us", "id, company_name, our_owner, fb_sentiment"),
-      ]);
-      jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows; staff = S.rows; meetings = M.rows;
-      if (!J.ok && !P.ok) setup = true;
-      // 当日の日報提出チェック
-      if (myName) { try { const dr = await sb.from("daily_reports").select("id").eq("author", myName).eq("report_date", new Date().toISOString().slice(0, 10)).maybeSingle(); reportToday = !!dr.data; } catch { /* 列なし等 */ } }
-    } catch { setup = true; }
-  } else setup = true;
+  if (dbConfigured && myName && !setup) {
+    try { const sb = engerClient(); const dr = await sb.from("daily_reports").select("id").eq("author", myName).eq("report_date", new Date().toISOString().slice(0, 10)).maybeSingle(); reportToday = !!dr.data; } catch { /* 列なし等 */ }
+  }
 
   // 区分（インサイド/アウトサイド）は廃止：全員が提案・クロージング・打合せを担当する。
   const jobByTitle = new Map(jobs.map((j) => [j.title, j]));

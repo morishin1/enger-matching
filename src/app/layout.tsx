@@ -41,8 +41,19 @@ const fontsHref =
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const counts = await getSidebarCounts();
-  const staff = await getStaff();
+  // サイドバーカウント・担当者マスタ・認証(ユーザー＋権限)を並列取得（逐次awaitによる体感遅延を解消）
+  const authP = (async (): Promise<{ email: string; access: Awaited<ReturnType<typeof resolveAccess>> }> => {
+    if (!authConfigured) return { email: "", access: null };
+    try {
+      const sb = await authServerClient();
+      const { data: { user } } = await sb.auth.getUser();
+      const em = user?.email?.toLowerCase();
+      if (!em) return { email: "", access: null };
+      return { email: em, access: await resolveAccess(em) };
+    } catch { return { email: "", access: null }; }
+  })();
+  const [counts, staff, auth] = await Promise.all([getSidebarCounts(), getStaff(), authP]);
+
   // 担当者候補（提案者∪クロージング、重複排除、未割当除外）
   const operators = Array.from(new Set([...staff.proposers, ...staff.closers.filter((c) => c !== "未割当")]));
 
@@ -52,18 +63,10 @@ export default async function RootLayout({
   let position: "inside" | "outside" | null = null;
   let userEmail = "";
   let functions: string[] = [];
-  if (authConfigured) {
-    try {
-      const sb = await authServerClient();
-      const { data: { user } } = await sb.auth.getUser();
-      const em = user?.email?.toLowerCase();
-      if (em) {
-        userEmail = em;
-        defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === em)?.name ?? "";
-        const access = await resolveAccess(em);
-        if (access) { role = access.role; position = access.position; functions = access.functions ?? []; if (!defaultOperator && access.name) defaultOperator = access.name; }
-      }
-    } catch { /* noop */ }
+  if (auth.email) {
+    userEmail = auth.email;
+    defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === auth.email)?.name ?? "";
+    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
   }
   return (
     <html lang="ja" data-density="regular">
