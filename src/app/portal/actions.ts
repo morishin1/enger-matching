@@ -88,6 +88,20 @@ export async function expressTalentInterest(input: { kind: "candidate" | "profil
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 営業/管理者：企業からの人材リクエストの対応状況を更新（new/contacted/closed）。 */
+export async function updateTalentRequestStatus(id: string, status: "new" | "contacted" | "closed"): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません" };
+  if (!["new", "contacted", "closed"].includes(status)) return { ok: false, error: "不正なステータスです" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("talent_interest").update({ status }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 企業が提案人材へフィードバック（会いたい/検討中/ミスマッチ）。本人(client)のみ・自社提案のみ。 */
 export async function submitClientFeedback(proposalId: string, verdict: Verdict, reason: string): Promise<Result> {
   const access = await currentAccess();

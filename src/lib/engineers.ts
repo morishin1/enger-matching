@@ -75,6 +75,32 @@ export async function listEngineerActions(): Promise<Record<string, EngineerActi
   } catch { return {}; }
 }
 
+export type TalentRequest = {
+  id: string;
+  company: string;
+  kind: "candidate" | "profile";
+  candidate_id: string | null;
+  engineer_id: string | null;
+  label: string | null;
+  status: string;
+  created_at: string;
+};
+
+/** 企業からの人材リクエスト（enger.talent_interest）。営業が確認・対応する。 */
+export async function listTalentRequests(): Promise<TalentRequest[]> {
+  if (!dbConfigured) return [];
+  try {
+    const sb = engerClient();
+    const { data, error } = await sb
+      .from("talent_interest")
+      .select("id, company, kind, candidate_id, engineer_id, label, status, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) return [];
+    return (data ?? []) as TalentRequest[];
+  } catch { return []; }
+}
+
 export type Scout = {
   id: string;
   engineer_id: string;

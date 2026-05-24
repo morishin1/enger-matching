@@ -1,8 +1,10 @@
 import { ClientHome } from "@/components/ClientHome";
 import { AgentDashboard } from "@/components/AgentDashboard";
 import { WorkHome } from "@/components/WorkHome";
+import { TalentRequests } from "@/components/TalentRequests";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction } from "@/lib/roles";
+import { listTalentRequests } from "@/lib/engineers";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,16 @@ export default async function DashboardPage() {
   if (access?.role === "agent" && !hasSalesFunction(fns)) {
     return <WorkHome name={access?.name ?? ""} functions={fns} />;
   }
-  // 営業・管理者 → 営業/経営ダッシュボード
-  return <AgentDashboard role={access?.role === "agent" ? "agent" : "admin"} myName={access?.name ?? null} position={access?.position ?? null} />;
+  // 営業・管理者 → 企業からの人材リクエスト ＋ 営業/経営ダッシュボード
+  const talentRequests = await listTalentRequests();
+  return (
+    <>
+      {talentRequests.length > 0 && (
+        <div className="page" style={{ paddingBottom: 0 }}>
+          <TalentRequests rows={talentRequests} />
+        </div>
+      )}
+      <AgentDashboard role={access?.role === "agent" ? "agent" : "admin"} myName={access?.name ?? null} position={access?.position ?? null} />
+    </>
+  );
 }
