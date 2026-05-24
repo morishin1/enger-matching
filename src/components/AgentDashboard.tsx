@@ -83,8 +83,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
       ]);
       jobs = J.rows; proposals = P.rows; engs = E.rows; cands = C.rows; staff = S.rows; meetings = M.rows;
       if (!J.ok && !P.ok) setup = true;
-      // 当日の日報提出チェック
-      if (myName) { try { const dr = await sb.from("daily_reports").select("id").eq("author", myName).eq("report_date", new Date().toISOString().slice(0, 10)).maybeSingle(); reportToday = !!dr.data; } catch { /* 列なし等 */ } }
+      // 当日の日報提出チェック（管理者は日報提出が不要のためスキップ）
+      if (myName && role !== "admin") { try { const dr = await sb.from("daily_reports").select("id").eq("author", myName).eq("report_date", new Date().toISOString().slice(0, 10)).maybeSingle(); reportToday = !!dr.data; } catch { /* 列なし等 */ } }
     } catch { setup = true; }
   } else setup = true;
 
@@ -263,8 +263,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         </div>
       )}
 
-      {/* ① 日報リマインダー */}
-      {myName && !reportToday && (
+      {/* ① 日報リマインダー（管理者は日報提出が不要のため未提出アラートを出さない） */}
+      {myName && role !== "admin" && !reportToday && (
         <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", background: "#fff5e6", border: "1px solid #f6d9a7" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>📝 今日の日報がまだ未提出です。1日の振り返りを記録しましょう。</span>
           <Link href="/reports" className="btn brand btn-xs" style={{ textDecoration: "none" }}>日報を書く →</Link>
