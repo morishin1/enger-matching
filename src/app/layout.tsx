@@ -3,8 +3,7 @@ import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts } from "@/lib/counts";
 import { getStaff } from "@/lib/staff";
-import { authServerClient, authConfigured } from "@/lib/supabase-auth";
-import { resolveAccess, type Role } from "@/lib/accounts";
+import { getSessionEmail, resolveAccess, type Role } from "@/lib/accounts";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://dx.enger.jp"),
@@ -42,15 +41,11 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   // サイドバーカウント・担当者マスタ・認証(ユーザー＋権限)を並列取得（逐次awaitによる体感遅延を解消）
+  // 認証は getSessionEmail/resolveAccess とも cache() 済みのため、各ページ側の currentAccess と重複呼び出しされない。
   const authP = (async (): Promise<{ email: string; access: Awaited<ReturnType<typeof resolveAccess>> }> => {
-    if (!authConfigured) return { email: "", access: null };
-    try {
-      const sb = await authServerClient();
-      const { data: { user } } = await sb.auth.getUser();
-      const em = user?.email?.toLowerCase();
-      if (!em) return { email: "", access: null };
-      return { email: em, access: await resolveAccess(em) };
-    } catch { return { email: "", access: null }; }
+    const em = await getSessionEmail();
+    if (!em) return { email: "", access: null };
+    return { email: em, access: await resolveAccess(em) };
   })();
   const [counts, staff, auth] = await Promise.all([getSidebarCounts(), getStaff(), authP]);
 

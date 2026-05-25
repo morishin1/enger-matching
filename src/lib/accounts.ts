@@ -1,6 +1,17 @@
+import { cache } from "react";
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
 import { authServerClient, authConfigured } from "./supabase-auth";
 import { type Role, type AccountStatus, canAccess, roleHome } from "./roles";
+
+/** 1リクエスト内でログインユーザーのメールを1回だけ解決（layout と各ページの二重 getUser を防ぐ）。 */
+export const getSessionEmail = cache(async (): Promise<string> => {
+  if (!authConfigured) return "";
+  try {
+    const sb = await authServerClient();
+    const { data: { user } } = await sb.auth.getUser();
+    return user?.email?.toLowerCase() ?? "";
+  } catch { return ""; }
+});
 
 export { canAccess, roleHome };
 export type { Role, AccountStatus };
@@ -37,7 +48,7 @@ export async function getAccountByEmail(email: string): Promise<Account | null> 
  *  2) 無い場合は staff の email 許可リストにあれば admin 扱い（移行期の締め出し防止）
  *  3) どちらも無ければ null（未許可）
  */
-export async function resolveAccess(email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[] } | null> {
+export const resolveAccess = cache(async (email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[] } | null> => {
   const acc = await getAccountByEmail(email);
   if (acc) return { role: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition, functions: (acc.functions ?? []) as string[] };
 
@@ -57,7 +68,7 @@ export async function resolveAccess(email: string): Promise<{ role: Role; status
     }
     return null;
   } catch { return null; }
-}
+});
 
 /** 承認待ちアカウントを作成（自己登録 / Google初回）。既存はそのまま。 */
 export async function createPendingAccount(opts: { email: string; name?: string | null; role?: "agent" | "client"; companyName?: string | null }): Promise<{ ok: boolean; created: boolean; error?: string }> {
@@ -84,9 +95,7 @@ export async function createPendingAccount(opts: { email: string; name?: string 
 export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; email: string } | null> {
   if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [], email: "" };
   try {
-    const sb = await authServerClient();
-    const { data: { user } } = await sb.auth.getUser();
-    const email = user?.email?.toLowerCase();
+    const email = await getSessionEmail(); // cache() でリクエスト内1回に集約
     if (!email) return null;
     const access = await resolveAccess(email);
     if (!access) return null;

@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { publicAdmin, engerClient, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
@@ -86,8 +87,8 @@ export type TalentRequest = {
   created_at: string;
 };
 
-/** 企業からの人材リクエスト（enger.talent_interest）。営業が確認・対応する。 */
-export async function listTalentRequests(): Promise<TalentRequest[]> {
+/** 企業からの人材リクエスト（enger.talent_interest）。営業が確認・対応する。60秒キャッシュ。 */
+export const listTalentRequests = unstable_cache(async (): Promise<TalentRequest[]> => {
   if (!dbConfigured) return [];
   try {
     const sb = engerClient();
@@ -99,7 +100,7 @@ export async function listTalentRequests(): Promise<TalentRequest[]> {
     if (error) return [];
     return (data ?? []) as TalentRequest[];
   } catch { return []; }
-}
+}, ["talent-requests"], { revalidate: 60, tags: ["dashboard", "sidebar-counts"] });
 
 export type Scout = {
   id: string;
