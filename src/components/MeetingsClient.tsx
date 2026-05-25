@@ -186,9 +186,89 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
   );
 }
 
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const ymd = (y: number, mo: number, d: number) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+/** 月カレンダー：打ち合わせ予定（meeting_date）とフォロー予定（follow_up_date）を可視化。 */
+function MonthCalendar({ meetings, onPick }: { meetings: any[]; onPick: (company: string) => void }) {
+  const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const byDay = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const mt of meetings) { const d = mt.meeting_date ? String(mt.meeting_date).slice(0, 10) : null; if (!d) continue; (m[d] ||= []).push(mt); }
+    return m;
+  }, [meetings]);
+  const followByDay = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const mt of meetings) { if (mt.follow_done) continue; const d = mt.follow_up_date ? String(mt.follow_up_date).slice(0, 10) : null; if (!d) continue; m[d] = (m[d] ?? 0) + 1; }
+    return m;
+  }, [meetings]);
+  const monthCount = useMemo(() => Object.keys(byDay).filter((d) => d.startsWith(ymd(year, month, 1).slice(0, 7))).reduce((a, d) => a + byDay[d].length, 0), [byDay, year, month]);
+
+  const startDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const navBtn = { padding: "5px 11px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" } as const;
+
+  return (
+    <div className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button style={navBtn} onClick={() => setCursor(new Date(year, month - 1, 1))}>‹ 前月</button>
+        <div style={{ fontSize: 16, fontWeight: 800, minWidth: 130, textAlign: "center" }}>{year}年 {month + 1}月</div>
+        <button style={navBtn} onClick={() => setCursor(new Date(year, month + 1, 1))}>翌月 ›</button>
+        <button style={{ ...navBtn, fontWeight: 600 }} onClick={() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); setCursor(d); }}>今月</button>
+        <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>この月の打ち合わせ {monthCount} 件</span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
+        {WEEKDAYS.map((w, i) => (
+          <div key={w} style={{ background: "var(--color-surface-inset)", textAlign: "center", padding: "6px 0", fontSize: 11.5, fontWeight: 700, color: i === 0 ? "#d23f57" : i === 6 ? "#0b5cab" : "var(--color-ink-3)" }}>{w}</div>
+        ))}
+        {cells.map((d, idx) => {
+          if (d == null) return <div key={`e${idx}`} style={{ background: "var(--color-surface-soft)", minHeight: 92 }} />;
+          const key = ymd(year, month, d);
+          const items = byDay[key] ?? [];
+          const follows = followByDay[key] ?? 0;
+          const isToday = key === todayStr;
+          const dow = (startDow + d - 1) % 7;
+          return (
+            <div key={key} style={{ background: "var(--color-surface)", minHeight: 92, padding: 5, display: "flex", flexDirection: "column", gap: 3, outline: isToday ? "2px solid var(--color-brand-500,#0b5cab)" : "none", outlineOffset: -2 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: isToday ? "var(--color-brand-700,#0b5cab)" : dow === 0 ? "#d23f57" : dow === 6 ? "#0b5cab" : "var(--color-ink-3)" }}>{d}</span>
+                {follows > 0 && <span title={`フォロー予定 ${follows}件`} style={{ fontSize: 9.5 }}>🔔{follows}</span>}
+              </div>
+              {items.slice(0, 3).map((m, i) => {
+                const tone = SENT_TONE[m.fb_sentiment] ?? "#6b7280";
+                return (
+                  <button key={i} type="button" onClick={() => onPick(m.company_name ?? "")} title={`${m.company_name ?? ""}${m.our_owner ? ` / ${m.our_owner}` : ""}`}
+                    style={{ textAlign: "left", border: 0, borderLeft: `3px solid ${tone}`, background: `${tone}14`, color: "var(--color-ink-2)", borderRadius: 4, padding: "2px 5px", fontSize: 10.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {m.company_name ?? "—"}
+                  </button>
+                );
+              })}
+              {items.length > 3 && <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>＋{items.length - 3}件</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-4)" }}>
+        <span>● 色＝FB感情</span><span>🔔＝フォロー予定（未完了）</span><span>枠の人材名クリックで検索に反映</span>
+      </div>
+    </div>
+  );
+}
+
 export function MeetingsClient({ meetings, companies }: { meetings: any[]; companies: string[] }) {
   const router = useRouter();
   const [show, setShow] = useState(false);
+  const [view, setView] = useState<"calendar" | "cards">("calendar");
   const [sent, setSent] = useState("");
   const [rel, setRel] = useState("");
   const [q, setQ] = useState("");
@@ -212,11 +292,18 @@ export function MeetingsClient({ meetings, companies }: { meetings: any[]; compa
         <div className="tbl-search" style={{ width: 220, flex: "0 0 220px" }}><Icons.search /><input placeholder="企業名で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select style={sel} value={sent} onChange={(e) => setSent(e.target.value)}><option value="">FB感情：すべて</option>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select>
         <select style={sel} value={rel} onChange={(e) => setRel(e.target.value)}><option value="">関係性：すべて</option>{MEETING_RELATIONS.map((o) => <option key={o}>{o}</option>)}</select>
+        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, marginLeft: "auto" }}>
+          {([["calendar", "🗓 カレンダー"], ["cards", "🗂 カード"]] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} style={{ padding: "6px 14px", borderRadius: 99, border: 0, fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: view === id ? "var(--color-surface)" : "transparent", color: view === id ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: view === id ? "0 1px 2px rgba(15,23,42,0.06)" : "none" }}>{label}</button>
+          ))}
+        </div>
       </div>
 
       {show && <MeetingForm companies={companies} onDone={() => setShow(false)} />}
 
-      {filtered.length === 0 ? (
+      {view === "calendar" ? (
+        <MonthCalendar meetings={filtered} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} />
+      ) : filtered.length === 0 ? (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>記録がありません。「打合せを記録」から追加してください。</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>

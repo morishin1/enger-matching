@@ -1,5 +1,6 @@
 import { Icons } from "@/components/icons";
 import { EngagementsView } from "@/components/EngagementsView";
+import { EngagementTools } from "@/components/EngagementTools";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { canSeeMargin, maskEngagement } from "@/lib/engagement-access";
@@ -55,6 +56,9 @@ export default async function ProgressPage() {
   // F-4: 原価をサーバ側でマスクしてからクライアントへ
   const masked = rows.map((e) => maskEngagement(e, role));
 
+  // 一括取込/書き出し・新規追加は 管理者・バックオフィス のみ
+  const canManage = role === "admin" || (access?.functions ?? []).includes("バックオフィス");
+
   return (
     <div className="page">
       <div className="page-head">
@@ -93,6 +97,7 @@ export default async function ProgressPage() {
             </div>
           </div>
 
+          {canManage && <EngagementTools rows={masked} />}
           <EngagementsView rows={masked} role={role} />
         </>
       )}

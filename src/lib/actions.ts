@@ -243,6 +243,90 @@ export async function updateEngagementFields(id: string, fields: Record<string, 
   return { ok: true };
 }
 
+// ----- 稼働の新規追加 / 一括インポート・エクスポート（管理者・バックオフィスのみ）-----
+
+export type EngagementInput = {
+  job_title?: string | null; company?: string | null; candidate_name?: string | null;
+  monthly_rate?: number | string | null; cost?: number | string | null; affiliation?: string | null;
+  status?: string | null; start_date?: string | null; end_date?: string | null;
+  settle_min?: number | string | null; settle_max?: number | string | null; work_hours?: number | string | null;
+  contract_status?: string | null; po_status?: string | null;
+  renewal_due?: string | null; renewal_status?: string | null;
+};
+
+/** 稼働の新規追加・一括取込は 管理者 / バックオフィス（職能）のみ許可。 */
+async function canManageEngagements(): Promise<boolean> {
+  const access = await currentAccess();
+  if (!access) return true; // 認証未設定のローカルは通す
+  if (access.role === "admin") return true;
+  return access.role === "agent" && (access.functions ?? []).includes("バックオフィス");
+}
+
+const _str = (v: any) => (v == null ? null : (String(v).trim() || null));
+const _num = (v: any) => { if (v == null || v === "") return null; const n = Number(String(v).replace(/[^\d.\-]/g, "")); return isNaN(n) ? null : n; };
+const _date = (v: any) => { const s = _str(v); if (!s) return null; const m = s.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/); return m ? `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}` : null; };
+
+function cleanEngagementRow(r: EngagementInput): Record<string, any> {
+  const row: Record<string, any> = {};
+  if (r.job_title !== undefined) row.job_title = _str(r.job_title);
+  if (r.company !== undefined) row.company = _str(r.company);
+  if (r.candidate_name !== undefined) row.candidate_name = _str(r.candidate_name);
+  if (r.monthly_rate !== undefined) row.monthly_rate = _num(r.monthly_rate);
+  if (r.cost !== undefined) row.cost = _num(r.cost);
+  if (r.affiliation !== undefined) row.affiliation = _str(r.affiliation);
+  if (r.start_date !== undefined) row.start_date = _date(r.start_date);
+  if (r.end_date !== undefined) row.end_date = _date(r.end_date);
+  if (r.settle_min !== undefined) row.settle_min = _num(r.settle_min);
+  if (r.settle_max !== undefined) row.settle_max = _num(r.settle_max);
+  if (r.work_hours !== undefined) row.work_hours = _num(r.work_hours);
+  if (r.contract_status !== undefined) row.contract_status = _str(r.contract_status);
+  if (r.po_status !== undefined) row.po_status = _str(r.po_status);
+  if (r.renewal_due !== undefined) row.renewal_due = _date(r.renewal_due);
+  if (r.renewal_status !== undefined) row.renewal_status = _str(r.renewal_status);
+  row.status = _str(r.status) ?? "予定";
+  return row;
+}
+
+/** 列が無い環境でも落ちないよう、エラーが指す列を外して再試行する insert。 */
+async function insertEngagements(admin: ReturnType<typeof engerAdmin>, rows: Record<string, any>[]) {
+  let attempt = rows;
+  for (let i = 0; i < 10; i++) {
+    const { error, count } = await admin.from("engagements").insert(attempt, { count: "exact" });
+    if (!error) return { ok: true as const, inserted: count ?? attempt.length };
+    const m = error.message.match(/'([^']+)' column/) || error.message.match(/column "([^"]+)"/);
+    const col = m?.[1];
+    if (col && attempt[0] && col in attempt[0]) { attempt = attempt.map((r) => { const c = { ...r }; delete c[col]; return c; }); continue; }
+    return { ok: false as const, error: error.message };
+  }
+  return { ok: false as const, error: "取込に失敗しました（列不一致）" };
+}
+
+/** 稼働を1件新規追加。 */
+export async function createEngagement(input: EngagementInput) {
+  if (!(await canManageEngagements())) return { ok: false, error: "権限がありません（管理者・バックオフィスのみ）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const row = cleanEngagementRow(input);
+  if (!row.job_title && !row.candidate_name && !row.company) return { ok: false, error: "案件名・企業・氏名のいずれかは必須です" };
+  const res = await insertEngagements(admin, [row]);
+  if (!res.ok) return { ok: false, error: res.error };
+  revalidatePath("/progress"); revalidatePath("/"); bustCounts();
+  return { ok: true };
+}
+
+/** 稼働をCSVから一括取込。 */
+export async function importEngagements(records: EngagementInput[]) {
+  if (!(await canManageEngagements())) return { ok: false, inserted: 0, error: "権限がありません（管理者・バックオフィスのみ）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, inserted: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const rows = records.map(cleanEngagementRow).filter((r) => r.job_title || r.candidate_name || r.company);
+  if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（案件名・企業・氏名のいずれか必須）" };
+  const res = await insertEngagements(admin, rows);
+  if (!res.ok) return { ok: false, inserted: 0, error: res.error };
+  revalidatePath("/progress"); revalidatePath("/"); bustCounts();
+  return { ok: true, inserted: res.inserted };
+}
+
 // ===================== 企業マスタ =====================
 
 export type CompanyInput = {
