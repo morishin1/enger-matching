@@ -9,13 +9,16 @@ const inp = { fontFamily: "inherit", fontSize: 13, padding: "9px 11px", borderRa
 const L = ({ children }: { children: React.ReactNode }) => <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>{children}</div>;
 
 function RuleForm({ title, hint, rule, onChange }: { title: string; hint: string; rule: FocusRule; onChange: (r: FocusRule) => void }) {
+  // スキル/キーワードは入力中の生テキストを保持（毎キー splitList すると区切り文字が消えてしまうため）
+  const [skillsText, setSkillsText] = useState(rule.skills.join(", "));
+  const [kwText, setKwText] = useState(rule.keywords.join(", "));
   return (
     <div style={{ border: "1px solid var(--color-border)", borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
       <div><b style={{ fontSize: 13.5 }}>{title}</b><div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
         <div><L>単価下限（万）</L><input style={inp} type="number" value={rule.minRate ?? ""} onChange={(e) => onChange({ ...rule, minRate: e.target.value === "" ? null : Number(e.target.value) })} placeholder="例：70" /></div>
-        <div><L>重視スキル（カンマ区切り・いずれか合致）</L><input style={inp} value={rule.skills.join(", ")} onChange={(e) => onChange({ ...rule, skills: splitList(e.target.value) })} placeholder="React, AWS, Go" /></div>
-        <div><L>重視キーワード（カンマ区切り・いずれか含む）</L><input style={inp} value={rule.keywords.join(", ")} onChange={(e) => onChange({ ...rule, keywords: splitList(e.target.value) })} placeholder="リモート, PM, 即日" /></div>
+        <div><L>重視スキル（カンマ区切り・いずれか合致）</L><input style={inp} value={skillsText} onChange={(e) => { setSkillsText(e.target.value); onChange({ ...rule, skills: splitList(e.target.value) }); }} placeholder="React, AWS, Go" /></div>
+        <div><L>重視キーワード（カンマ区切り・いずれか含む）</L><input style={inp} value={kwText} onChange={(e) => { setKwText(e.target.value); onChange({ ...rule, keywords: splitList(e.target.value) }); }} placeholder="リモート, PM, 即日" /></div>
       </div>
       <div><L>注力方針メモ（アラートに表示）</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={rule.note} onChange={(e) => onChange({ ...rule, note: e.target.value })} placeholder="例：高単価×即戦力を優先。低単価案件は注力しない。" /></div>
     </div>
