@@ -8,6 +8,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
   const [state, action, pending] = useActionState<LoginState, FormData>(signIn, null);
   const [agree, setAgree] = useState(false);
   const [needAgree, setNeedAgree] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const error = state?.error || err;
   const locked = !agree;
 
@@ -55,7 +56,10 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
             <input name="email" type="email" required autoComplete="username" placeholder="you@example.com" disabled={locked} style={{ ...input, opacity: locked ? 0.55 : 1 }} />
           </label>
           <label style={label}>パスワード
-            <input name="password" type="password" required autoComplete="current-password" placeholder="パスワード" disabled={locked} style={{ ...input, opacity: locked ? 0.55 : 1 }} />
+            <div style={{ position: "relative" }}>
+              <input name="password" type={showPw ? "text" : "password"} required autoComplete="current-password" placeholder="パスワード" disabled={locked} style={{ ...input, paddingRight: 52, opacity: locked ? 0.55 : 1 }} />
+              <button type="button" onClick={() => setShowPw((v) => !v)} disabled={locked} aria-label={showPw ? "パスワードを隠す" : "パスワードを表示"} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: 0, background: "none", cursor: locked ? "not-allowed" : "pointer", color: "#0095D9", fontSize: 12, fontWeight: 700, padding: "4px 6px" }}>{showPw ? "隠す" : "表示"}</button>
+            </div>
           </label>
 
           <a href="/forgot-password" style={{ color: "#0095D9", fontSize: 13, fontWeight: 600, textDecoration: "none", marginTop: -4 }}>パスワードをお忘れですか？</a>
