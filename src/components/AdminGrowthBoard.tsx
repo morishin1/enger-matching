@@ -2,7 +2,8 @@ import { unstable_cache } from "next/cache";
 import { engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 
 type AgentRow = { name: string; proposals: number; scouts: number; meetings: number; won: number };
-type GrowthData = { engTotal: number; engGithub: number; eng30: number; clientTotal: number; client30: number; jobsPub: number; scoutCnt: number; appCnt: number; appPass: number; appActive: number; agents: AgentRow[] };
+type RecentRow = { name: string; at: string | null; sub?: string };
+type GrowthData = { engTotal: number; engGithub: number; eng30: number; clientTotal: number; client30: number; jobsPub: number; scoutCnt: number; appCnt: number; appPass: number; appActive: number; agents: AgentRow[]; recentEng: RecentRow[]; recentClient: RecentRow[] };
 
 // 経営ボードの集計（重い count×10 ＋ 担当者集計）を120秒キャッシュ。書込時はタグで即時更新。
 const getGrowthData = unstable_cache(async (): Promise<GrowthData | null> => {
@@ -42,7 +43,16 @@ const getGrowthData = unstable_cache(async (): Promise<GrowthData | null> => {
       agents = [...map.values()].sort((a, b) => (b.proposals + b.scouts + b.meetings) - (a.proposals + a.scouts + a.meetings)).slice(0, 12);
     } catch { /* 集計失敗は無視 */ }
 
-    return { engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive, agents };
+    // 最近の登録者（誰が登録したか）— エンジニア / 企業
+    let recentEng: RecentRow[] = [], recentClient: RecentRow[] = [];
+    try {
+      const er = await pub.from("profiles").select("display_name, github_login, primary_language, created_at").or("github_id.not.is.null,display_name.not.is.null").order("created_at", { ascending: false }).limit(6);
+      recentEng = ((er.data ?? []) as any[]).map((r) => ({ name: r.display_name || r.github_login || "（無名）", at: r.created_at, sub: r.primary_language || (r.github_login ? "GitHub連携" : "メール登録") }));
+      const cr = await sb.from("app_users").select("name, company_name, status, created_at").eq("role", "client").order("created_at", { ascending: false }).limit(6);
+      recentClient = ((cr.data ?? []) as any[]).map((r) => ({ name: r.company_name || r.name || "（企業）", at: r.created_at, sub: r.status === "pending" ? "承認待ち" : "承認済み" }));
+    } catch { /* 一覧取得失敗は無視 */ }
+
+    return { engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive, agents, recentEng, recentClient };
   } catch { return null; }
 }, ["admin-growth-board"], { revalidate: 120, tags: ["dashboard", "sidebar-counts"] });
 
@@ -53,7 +63,8 @@ const getGrowthData = unstable_cache(async (): Promise<GrowthData | null> => {
 export async function AdminGrowthBoard() {
   const data = await getGrowthData();
   if (!data) return null;
-  const { engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive, agents } = data;
+  const { engTotal, engGithub, eng30, clientTotal, client30, jobsPub, scoutCnt, appCnt, appPass, appActive, agents, recentEng, recentClient } = data;
+  const fmtD = (s: string | null) => (s ? new Date(s).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" }) : "—");
 
   const pctOf = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 100) : 0);
   const funnel = [
@@ -132,6 +143,46 @@ export async function AdminGrowthBoard() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* 最近の登録者（誰が登録したか） */}
+      <div className="duo-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>person_add</span>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>最近の登録エンジニア</h3>
+            <a href="/engineers" style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-brand-700)", fontWeight: 700 }}>一覧 →</a>
+          </div>
+          {recentEng.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>登録はまだありません。</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentEng.map((r, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                  {r.sub && <span className="tag" style={{ fontSize: 10.5 }}>{r.sub}</span>}
+                  <span className="muted" style={{ fontSize: 11 }}>{fmtD(r.at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>domain_add</span>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>最近の登録企業</h3>
+            <a href="/settings" style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-brand-700)", fontWeight: 700 }}>承認・管理 →</a>
+          </div>
+          {recentClient.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>登録はまだありません。</div> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentClient.map((r, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                  {r.sub && <span className="tag" style={{ fontSize: 10.5, color: r.sub === "承認待ち" ? "#b45309" : "#067647" }}>{r.sub}</span>}
+                  <span className="muted" style={{ fontSize: 11 }}>{fmtD(r.at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
