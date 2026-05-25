@@ -4,9 +4,10 @@ import { use, useActionState, useState } from "react";
 import { signIn, type LoginState } from "./actions";
 
 const FEATURES = [
-  { icon: "target", t: "AIマッチング", d: "案件×人材をスコアリングしてランキング" },
-  { icon: "forward_to_inbox", t: "提案・稼働管理", d: "提案ボードから稼働まで一気通貫" },
-  { icon: "graphic_eq", t: "打合せAI分析", d: "文字起こしから温度感を自動抽出" },
+  { icon: "target", t: "AIマッチング", d: "案件×人材をスコアリングして最適な提案を即提示" },
+  { icon: "forward_to_inbox", t: "スカウト・提案・選考を一元管理", d: "提案ボードから面談・稼働まで一気通貫。応募も自動で反映" },
+  { icon: "campaign", t: "X集客・PRで母数を拡大", d: "ワンクリック投稿で登録エンジニアを増やす" },
+  { icon: "groups", t: "企業ポータル", d: "匿名人材のスカウト・選考、自社案件の掲載まで" },
 ];
 
 export default function LoginPage({ searchParams }: { searchParams: Promise<{ redirect?: string; err?: string }> }) {
@@ -33,7 +34,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
             <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 20, letterSpacing: ".04em", color: "#38BDF8" }}>business</span>
           </div>
           <h1 style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.3, margin: "36px 0 16px", letterSpacing: ".01em" }}>マッチング業務を、<br />ひとつの画面で。</h1>
-          <p style={{ fontSize: 14.5, lineHeight: 1.9, color: "rgba(255,255,255,.78)", maxWidth: 420 }}>案件・人材・提案・稼働の進捗をひとつの画面で。企業・エージェント・運営をつなぐエンジニアマッチングプラットフォーム。</p>
+          <p style={{ fontSize: 14.5, lineHeight: 1.9, color: "rgba(255,255,255,.78)", maxWidth: 440 }}>AIマッチング・スカウト・選考管理から、X集客（PR）まで一画面で。企業・エージェント・運営をつなぎ、登録エンジニアを増やして成約につなげるマッチングプラットフォーム。</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 36 }}>
             {FEATURES.map((f) => (
               <div key={f.t} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>

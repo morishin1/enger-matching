@@ -17,8 +17,10 @@ export default function SignupPage() {
 
       <div style={{ position: "relative", minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
         <div style={{ width: "100%", maxWidth: 420 }}>
-          <div style={{ textAlign: "center", marginBottom: 16 }}>
-            <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 24, color: "#fff" }}>ENGER <span style={{ color: "#38BDF8" }}>DX</span></span>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 16 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/enger-logo.png" alt="ENGER" style={{ height: 30, width: "auto", filter: "brightness(0) invert(1)" }} />
+            <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 20, letterSpacing: ".04em", color: "#38BDF8" }}>business</span>
           </div>
 
           {state?.ok ? (
