@@ -9,6 +9,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const origin = publicOrigin(req);
   const code = url.searchParams.get("code");
+  const nextRaw = url.searchParams.get("next");
+  // オープンリダイレクト防止：自サイト内の相対パスのみ許可
+  const next = nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/";
   const errParam = url.searchParams.get("error_description") || url.searchParams.get("error");
   if (errParam) return NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(errParam)}`);
   if (!code) return NextResponse.redirect(`${origin}/login?err=missing_code`);
@@ -31,5 +34,5 @@ export async function GET(req: Request) {
   if (access.status === "pending") return deny("このアカウントは承認待ちです。管理者の承認後にログインできます。");
   if (access.status === "disabled") return deny("このアカウントは無効化されています。管理者にお問い合わせください。");
 
-  return NextResponse.redirect(`${origin}/`);
+  return NextResponse.redirect(`${origin}${next}`);
 }

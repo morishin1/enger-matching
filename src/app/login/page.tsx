@@ -85,6 +85,10 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
               {error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{error}</div>}
               <button type="submit" disabled={pending || !agree} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: (pending || !agree) ? "not-allowed" : "pointer", opacity: (pending || !agree) ? 0.55 : 1, boxShadow: "0 6px 16px rgba(0,149,217,.3)" }}>{pending ? "ログイン中…" : "メールでログイン →"}</button>
 
+              <div style={{ textAlign: "center", marginTop: 2 }}>
+                <a href="/forgot-password" style={{ color: "#0095D9", fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>パスワードをお忘れですか？</a>
+              </div>
+
               {/* 同意（必須）：画面下にまとめて配置。チェックすると上のログインが有効化 */}
               <div style={{ borderTop: "1px solid #eef2f7", marginTop: 4, paddingTop: 12 }}>
                 <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#4b5563", lineHeight: 1.7, cursor: "pointer" }}>
