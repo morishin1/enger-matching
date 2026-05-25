@@ -8,7 +8,8 @@ const STAGE: Record<string, { c: string }> = {
   "応募": { c: "#64748b" }, "書類選考": { c: "#64748b" }, "面談": { c: "#0b5cab" },
   "面談合格": { c: "#0b5cab" }, "稼働": { c: "#067647" }, "見送り": { c: "#b42318" },
 };
-const initialsOf = (name: string | null) => (name ? name.slice(0, 2) : "—");
+// 企業側は仲介前のため実名を出さない。先頭1文字のイニシャルのみ表示（実名確認は担当が仲介）。
+const initialsOf = (name: string | null) => (name ? name.slice(0, 1) : "—");
 const fmt = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
 /** ユーザー企業(client)向け：自社案件への応募者と選考ステージ（匿名）。 */
