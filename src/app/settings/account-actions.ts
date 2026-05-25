@@ -1,12 +1,15 @@
 "use server";
 
 import { randomBytes } from "crypto";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin, authAdmin } from "@/lib/supabase";
 import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
 
 type Result = { ok: boolean; error?: string };
+
+/** アカウント変更時：提案者/クロージング候補（getStaff）のキャッシュも更新。 */
+const bustMembers = () => { revalidateTag("staff", "max"); revalidatePath("/settings"); };
 
 /** 紛らわしい文字を除いた強固な仮パスワード（記号・数字を必ず含む、約16桁）。 */
 function genTempPassword(): string {
@@ -60,7 +63,7 @@ export async function approveAccount(formData: FormData): Promise<Result> {
       approved_at: new Date().toISOString(),
     }).eq("id", id);
     if (error) return { ok: false, error: error.message };
-    revalidatePath("/settings");
+    bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
@@ -74,7 +77,7 @@ export async function setAccountStatus(id: string, status: "active" | "disabled"
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({ status }).eq("id", id);
     if (error) return { ok: false, error: error.message };
-    revalidatePath("/settings");
+    bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
@@ -88,7 +91,7 @@ export async function setAccountRole(id: string, role: "admin" | "agent" | "clie
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({ role }).eq("id", id);
     if (error) return { ok: false, error: error.message };
-    revalidatePath("/settings");
+    bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
@@ -102,7 +105,7 @@ export async function setAccountFunctions(id: string, functions: string[]): Prom
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({ functions }).eq("id", id);
     if (error) return { ok: false, error: error.message };
-    revalidatePath("/settings");
+    bustMembers();
     revalidatePath("/");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
@@ -117,7 +120,7 @@ export async function setAccountPosition(id: string, position: "inside" | "outsi
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({ position }).eq("id", id);
     if (error) return { ok: false, error: error.message };
-    revalidatePath("/settings");
+    bustMembers();
     revalidatePath("/");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
@@ -175,7 +178,7 @@ export async function createAgent(formData: FormData): Promise<Result & { passwo
     }, { onConflict: "email" });
     if (dbErr) return { ok: false, error: `認証ユーザーは作成しましたが権限登録に失敗: ${dbErr.message}` };
 
-    revalidatePath("/settings");
+    bustMembers();
     return { ok: true, password, email };
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e) };
@@ -209,7 +212,7 @@ export async function deleteAccount(id: string): Promise<Result> {
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").delete().eq("id", id);
     if (error) return { ok: false, error: error.message };
-    revalidatePath("/settings");
+    bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }

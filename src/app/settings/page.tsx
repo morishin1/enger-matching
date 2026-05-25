@@ -1,8 +1,6 @@
-import { StaffManager } from "@/components/StaffManager";
 import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
-import { getStaff } from "@/lib/staff";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
@@ -24,7 +22,6 @@ async function getQuality(): Promise<{ rules: Rule[]; available: boolean; ngCoun
 }
 
 export default async function SettingsPage() {
-  const staff = await getStaff();
   const accounts = await listAccounts();
   const usage = await getUsageStats();
   const quality = await getQuality();
@@ -37,7 +34,7 @@ export default async function SettingsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Settings · 設定</div>
           <h1>設定</h1>
-          <div className="sub">担当者マスタの管理と、AI機能の使用量・概算コストを確認できます。</div>
+          <div className="sub">アカウント・権限、注力の定義、品質ルール、AI使用量を管理します。提案者・クロージング担当の選択肢は「アカウント・権限管理」の社内メンバー（管理者・エージェント）から自動で作られます。</div>
         </div>
       </div>
 
@@ -92,8 +89,6 @@ export default async function SettingsPage() {
       <div id="quality" style={{ scrollMarginTop: 80 }}><QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} /></div>
 
       <div id="accounts" style={{ scrollMarginTop: 80 }}><AccountManager accounts={accounts} /></div>
-
-      <div id="staff" style={{ scrollMarginTop: 80 }}><StaffManager rows={staff.rows} fromTable={staff.fromTable} /></div>
     </div>
   );
 }

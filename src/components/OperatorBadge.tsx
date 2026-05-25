@@ -30,8 +30,7 @@ export function OperatorBadge({ defaultName = "", email = "", compact = false, r
     role === "admin"
       ? [
           { label: "管理設定", items: [
-            { label: "👤 アカウント・権限管理", href: "/settings#accounts" },
-            { label: "🧑‍💼 担当者マスタ", href: "/settings#staff" },
+            { label: "👤 アカウント・権限管理（担当者）", href: "/settings#accounts" },
             { label: "⭐ 注力の定義", href: "/settings#focus" },
             { label: "🚦 品質ルール", href: "/settings#quality" },
             { label: "🤖 AI使用量・コスト", href: "/settings#ai-usage" },
