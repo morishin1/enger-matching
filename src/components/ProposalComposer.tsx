@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, buildProposalPrompt } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
 
@@ -20,6 +21,7 @@ export function ProposalComposer({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [sender, setSender] = useState("");
+  const router = useRouter();
 
   // 操作中の担当者名（サイドバー/トップ右で選択した名前）を差出人に
   useEffect(() => { try { setSender(localStorage.getItem("enger.operator") || ""); } catch { /* noop */ } }, []);
@@ -77,7 +79,7 @@ export function ProposalComposer({
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(job.job_no, cand.candidate_no, score);
-      if (res.ok) { setSaved(true); setMsg(res.existed ? "既に提案ボードにあります" : "提案ボードに記録しました"); }
+      if (res.ok) { setSaved(true); setMsg(res.existed ? "既に提案ボードにあります" : "提案ボードに記録しました"); router.refresh(); }
       else setMsg(res.error || "記録に失敗しました");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "記録に失敗しました");
