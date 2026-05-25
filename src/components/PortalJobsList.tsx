@@ -80,9 +80,15 @@ export function PortalJobsList({ jobs }: { jobs: PortalJob[] }) {
                   ))}
                 </div>
               )}
-              <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid var(--color-border)", display: "flex", gap: 14, fontSize: 12 }}>
+              <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid var(--color-border)", display: "flex", gap: 14, fontSize: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <span>ご提案 <b>{j.proposalCount}</b> 件</span>
                 <span style={{ color: "var(--color-brand-700, #0b5cab)" }}>進行中 <b>{j.activeCount}</b> 件</span>
+                <a
+                  href={`https://twitter.com/intent/tweet?${new URLSearchParams({ text: `【エンジニア募集】${[j.role_label, remote(j.remote_type), salary(j.salary_min, j.salary_max)].filter(Boolean).join(" · ")}\n${(j.skills ?? []).slice(0,4).join(" / ")}\n詳細・ご応募はENGERから👇\n#エンジニア募集 #エンジニア転職`, url: "https://enger.jp/jobs" }).toString()}`}
+                  target="_blank" rel="noopener"
+                  title="この募集をXでシェア（エンジニアに届けます）"
+                  style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700,#0b5cab)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                >𝕏 シェア</a>
               </div>
             </div>
           ))}
