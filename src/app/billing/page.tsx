@@ -4,10 +4,11 @@ import { getBillingTasks, currentPeriod } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 
-export default async function BillingPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
-  const { period: p } = await searchParams;
+export default async function BillingPage({ searchParams }: { searchParams: Promise<{ period?: string; name?: string }> }) {
+  const { period: p, name } = await searchParams;
   const period = /^\d{4}-\d{2}$/.test(p ?? "") ? (p as string) : currentPeriod();
   const { tasks, available } = await getBillingTasks(period);
+  const focusName = (name ?? "").trim();
 
   const total = tasks.length;
   const attPending = tasks.filter((t) => t.attendance_status !== "確認済").length;
@@ -23,6 +24,13 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
           <div className="sub">稼働中の契約ごとに、当月の<b>勤怠チェック</b>と<b>請求書発行</b>を処理。ファイルを添付しAIで金額・時間を抽出。両方終わるとタスクが消えます。</div>
         </div>
       </div>
+
+      {focusName && (
+        <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <span>稼働管理から <b>{focusName}</b> さんの請求・勤怠を表示しています。下の一覧で対象月の勤怠/請求を処理してください。</span>
+          <a href="/billing" style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>絞り込みを解除</a>
+        </div>
+      )}
 
       {!available && (
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 13 }}>
