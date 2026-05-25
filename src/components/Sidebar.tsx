@@ -49,7 +49,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
   const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
-  const allowed = new Set<string>(["/"]); // ダッシュボードは常時
+  const allowed = new Set<string>(["/", "/billing"]); // ダッシュボード・請求/勤怠は全エージェント可
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
   if (functions.includes("バックオフィス")) { allowed.add("/billing"); allowed.add("/progress"); }
 

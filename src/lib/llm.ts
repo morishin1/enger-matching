@@ -62,6 +62,64 @@ export async function callLLM(opts: { system: string; prompt: string; maxTokens?
   }
 }
 
+/**
+ * 画像/PDF を読み取れる LLM 呼び出し（勤怠表のOCR・集計など）。
+ *  - Anthropic: 画像(image/*) と PDF(application/pdf) に対応
+ *  - OpenAI互換: 画像のみ対応（PDFは不可）
+ */
+export async function callLLMVision(opts: { system: string; prompt: string; files: { mediaType: string; dataB64: string }[]; maxTokens?: number }): Promise<LLMResult> {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const openaiKey = process.env.LLM_API_KEY;
+  const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
+  const modelEnv = process.env.LLM_MODEL || process.env.CLAUDE_MODEL || "";
+  const useAnthropic = explicit === "anthropic" || (!explicit && (!!anthropicKey || /claude/i.test(modelEnv)));
+  const apiKey = useAnthropic ? (anthropicKey || openaiKey) : (openaiKey || anthropicKey);
+  if (!apiKey) return { ok: false, status: 503, error: "APIキー未設定（ANTHROPIC_API_KEY か LLM_API_KEY を設定してください）" };
+  const maxTokens = opts.maxTokens ?? 600;
+
+  try {
+    if (useAnthropic) {
+      // 画像/PDF 入力に対応した既定モデル（Vision 必須なので haiku ではなく sonnet を既定に）
+      const model = modelEnv && !/haiku/i.test(modelEnv) ? modelEnv : "claude-3-5-sonnet-latest";
+      const content: any[] = [{ type: "text", text: opts.prompt }];
+      for (const f of opts.files) {
+        if (f.mediaType === "application/pdf") content.push({ type: "document", source: { type: "base64", media_type: f.mediaType, data: f.dataB64 } });
+        else content.push({ type: "image", source: { type: "base64", media_type: f.mediaType, data: f.dataB64 } });
+      }
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model, max_tokens: maxTokens, system: opts.system, messages: [{ role: "user", content }] }),
+      });
+      if (!res.ok) return { ok: false, status: 502, error: `Claude エラー (${res.status})` };
+      const data = await res.json();
+      const text = (data?.content?.map((b: any) => b?.text ?? "").join("") ?? "").trim();
+      const usage = { input: data?.usage?.input_tokens ?? 0, output: data?.usage?.output_tokens ?? 0 };
+      return text ? { ok: true, text, model, usage } : { ok: false, status: 502, error: "空の応答" };
+    }
+    // OpenAI互換（画像のみ）
+    const baseUrl = (process.env.LLM_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+    const model = modelEnv || "gpt-4o-mini";
+    const content: any[] = [{ type: "text", text: opts.prompt }];
+    for (const f of opts.files) {
+      if (f.mediaType.startsWith("image/")) content.push({ type: "image_url", image_url: { url: `data:${f.mediaType};base64,${f.dataB64}` } });
+    }
+    if (content.length === 1) return { ok: false, status: 415, error: "この形式（PDF等）はOpenAIでは読み取れません。画像/CSVをご利用ください。" };
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: opts.system }, { role: "user", content }] }),
+    });
+    if (!res.ok) return { ok: false, status: 502, error: `LLM エラー (${res.status})` };
+    const data = await res.json();
+    const text = (data?.choices?.[0]?.message?.content ?? "").trim();
+    const usage = { input: data?.usage?.prompt_tokens ?? 0, output: data?.usage?.completion_tokens ?? 0 };
+    return text ? { ok: true, text, model, usage } : { ok: false, status: 502, error: "空の応答" };
+  } catch (e) {
+    return { ok: false, status: 500, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** ```json ... ``` などを剥がして JSON.parse する。 */
 export function parseJsonLoose<T = any>(text: string): T | null {
   let s = text.trim();

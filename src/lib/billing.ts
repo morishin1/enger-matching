@@ -22,17 +22,32 @@ export type BillingTask = {
 
 export const currentPeriod = () => new Date().toISOString().slice(0, 7); // YYYY-MM
 
-/** 指定月の請求・勤怠タスク（稼働中/予定の稼働 × 月）。既存の billing_tasks をマージ。 */
-export async function getBillingTasks(period: string): Promise<{ tasks: BillingTask[]; available: boolean }> {
+/**
+ * 指定月の請求・勤怠タスク（稼働中/予定の稼働 × 月）。既存の billing_tasks をマージ。
+ * agentName を渡すと、その人が担当（提案者/パートナー/クローザー）の稼働のみに絞り込む。
+ */
+export async function getBillingTasks(period: string, opts?: { agentName?: string | null }): Promise<{ tasks: BillingTask[]; available: boolean }> {
   if (!dbConfigured) return { tasks: [], available: false };
   try {
     const sb = engerClient();
     // 稼働（対象：稼働中・予定）
-    const engRes = await sb.from("engagements")
+    let engRes: any = await sb.from("engagements")
+      .select("id, proposal_id, candidate_name, company, job_title, monthly_rate, status, settle_min, settle_max")
+      .in("status", ["稼働中", "予定"]).limit(500);
+    if (engRes.error) engRes = await sb.from("engagements")
       .select("id, candidate_name, company, job_title, monthly_rate, status, settle_min, settle_max")
       .in("status", ["稼働中", "予定"]).limit(500);
     if (engRes.error) return { tasks: [], available: false };
-    const engs = engRes.data ?? [];
+    let engs = engRes.data ?? [];
+
+    // エージェント絞り込み：自分が担当する提案に紐づく稼働のみ
+    const me = (opts?.agentName ?? "").trim();
+    if (me) {
+      const pr = await sb.from("proposals").select("id, candidate_name").or(`proposer.eq.${me},partner.eq.${me},closer.eq.${me}`).limit(2000);
+      const ids = new Set((pr.data ?? []).map((p: any) => p.id));
+      const names = new Set((pr.data ?? []).map((p: any) => p.candidate_name).filter(Boolean));
+      engs = engs.filter((e: any) => ids.has(e.proposal_id) || (e.candidate_name && names.has(e.candidate_name)));
+    }
 
     // 当月の billing_tasks
     const btRes = await sb.from("billing_tasks").select("*").eq("period", period);

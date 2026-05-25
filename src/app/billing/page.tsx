@@ -1,13 +1,21 @@
 import { Icons } from "@/components/icons";
 import { BillingClient } from "@/components/BillingClient";
 import { getBillingTasks, currentPeriod } from "@/lib/billing";
+import { currentAccess } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
 export default async function BillingPage({ searchParams }: { searchParams: Promise<{ period?: string; name?: string }> }) {
   const { period: p, name } = await searchParams;
   const period = /^\d{4}-\d{2}$/.test(p ?? "") ? (p as string) : currentPeriod();
-  const { tasks, available } = await getBillingTasks(period);
+
+  // エージェント（バックオフィス専任を除く）は自分が担当する稼働のみ。管理者・バックオフィスは全件。
+  const access = await currentAccess();
+  const role = access?.role ?? "admin";
+  const isBackoffice = (access?.functions ?? []).includes("バックオフィス");
+  const agentName = role === "agent" && !isBackoffice ? (access?.name ?? null) : null;
+
+  const { tasks, available } = await getBillingTasks(period, { agentName });
   const focusName = (name ?? "").trim();
 
   const total = tasks.length;
@@ -19,9 +27,9 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
-          <div className="meta">Billing · 請求・勤怠（バックオフィス）</div>
+          <div className="meta">Billing · 請求・勤怠</div>
           <h1>請求・勤怠</h1>
-          <div className="sub">稼働中の契約ごとに、当月の<b>勤怠チェック</b>と<b>請求書発行</b>を処理。ファイルを添付しAIで金額・時間を抽出。両方終わるとタスクが消えます。</div>
+          <div className="sub">稼働中の契約ごとに、当月の<b>勤怠チェック</b>と<b>請求書発行</b>を処理。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します（CSV/画像/PDF対応）。{agentName ? "自分が担当する稼働のみ表示しています。" : "両方終わるとタスクが消えます。"}</div>
         </div>
       </div>
 

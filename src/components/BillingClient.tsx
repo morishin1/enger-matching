@@ -28,11 +28,17 @@ function TaskCard({ t, onChanged }: { t: BillingTask; onChanged: () => void }) {
   const save = (patch: Record<string, any>) => start(async () => { await upsertBillingTask(t.engagement_id, t.period, patch); onChanged(); });
   const upload = (kind: "attendance" | "invoice", file: File) => {
     if (file.size > MAX_MB * 1024 * 1024) { setMsg({ ok: false, text: `ファイルが大きすぎます（最大${MAX_MB}MB）。現在 ${(file.size / 1024 / 1024).toFixed(1)}MB` }); return; }
-    setMsg({ ok: true, text: `「${file.name}」をアップロード中…` });
+    setMsg({ ok: true, text: kind === "attendance" ? `「${file.name}」を解析中…（AIが稼働時間を計算します）` : `「${file.name}」をアップロード中…` });
     start(async () => {
       const fd = new FormData(); fd.set("engagement_id", t.engagement_id); fd.set("period", t.period); fd.set("kind", kind); fd.set("file", file);
       const r = await uploadBillingFile(fd);
-      setMsg(r.ok ? { ok: true, text: `✓ ${kind === "invoice" ? "請求書" : "勤怠表"}を添付しました（${file.name}）` } : { ok: false, text: r.error ?? "アップロードに失敗しました" });
+      if (!r.ok) { setMsg({ ok: false, text: r.error ?? "アップロードに失敗しました" }); onChanged(); return; }
+      if (kind === "attendance") {
+        if (r.hours != null) { setHours(r.hours); setMsg({ ok: true, text: `✓ 勤怠表を解析しました。AI算出の稼働時間：${r.hours}h（必要なら修正できます）` }); }
+        else setMsg({ ok: true, text: `✓ 勤怠表を添付しました（${file.name}）。${r.aiError ? "稼働時間の自動計算に失敗：" + r.aiError : r.aiNote ?? "稼働時間は手入力してください。"}` });
+      } else {
+        setMsg({ ok: true, text: `✓ 請求書を添付しました（${file.name}）` });
+      }
       onChanged();
     });
   };
