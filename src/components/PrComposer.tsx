@@ -1,0 +1,89 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+type Sample = { skills: string[]; rate: string; remote: string; role: string };
+
+const SIGNUP = "https://enger.jp/signup";
+const TOP = "https://enger.jp";
+const JOBS = "https://enger.jp/jobs";
+
+function xIntent(text: string, url: string) {
+  const u = new URLSearchParams({ text, url });
+  return `https://twitter.com/intent/tweet?${u.toString()}`;
+}
+
+export function PrComposer({ engTotal, jobsPub, sample }: { engTotal: number; jobsPub: number; sample: Sample[] }) {
+  // 注目案件（匿名）の一文
+  const sampleLine = useMemo(() => {
+    if (!sample.length) return "フルリモート・高単価のエンジニア案件を多数掲載中。";
+    return sample.map((s) => [s.remote, s.skills.join("/"), s.rate].filter(Boolean).join(" ")).filter(Boolean).slice(0, 2).join("／");
+  }, [sample]);
+
+  const templates = useMemo(() => ([
+    {
+      id: "count",
+      title: "登録数アピール",
+      url: SIGNUP,
+      text: `ENGERにエンジニアが${engTotal.toLocaleString("ja-JP")}名登録🎉\nGitHub連携で3分、あなたの市場価値と“合う案件”が見えるダッシュボードへ。\n登録は完全無料・カード登録なし。\n#エンジニア #フリーランスエンジニア #ITエンジニア`,
+    },
+    {
+      id: "jobs",
+      title: "今週の新着案件",
+      url: JOBS,
+      text: `【ENGER 注目案件】公開中${jobsPub.toLocaleString("ja-JP")}件\n${sampleLine}\nスキルに合う案件をマッチ度順で。まずは無料登録から👇\n#エンジニア募集 #SES #業務委託`,
+    },
+    {
+      id: "value",
+      title: "市場価値診断",
+      url: TOP,
+      text: `あなたの“市場価値”、知っていますか？\nGitHubを連携するだけで、想定単価レンジと合う案件をその場で診断。\n3分・無料でできます。\n#エンジニア #キャリア #年収`,
+    },
+  ]), [engTotal, jobsPub, sampleLine]);
+
+  const [drafts, setDrafts] = useState<Record<string, string>>(Object.fromEntries(templates.map((t) => [t.id, t.text])));
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); setMsg("投稿文をコピーしました"); } catch { setMsg("コピーに失敗しました"); }
+    setTimeout(() => setMsg(null), 2000);
+  };
+
+  return (
+    <>
+      <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 12.5, lineHeight: 1.8, marginBottom: 16 }}>
+        💡 使い方：文面を編集 → <b>「Xに投稿」</b>でX投稿画面が開きます（画像はリンク先(enger.jp)のOGPカードが自動添付）。担当者・運営の発信で、エンジニア登録の母数を増やしましょう。
+      </div>
+      {msg && <div style={{ fontSize: 12.5, color: "#067647", marginBottom: 10 }}>{msg}</div>}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {templates.map((t) => {
+          const text = drafts[t.id] ?? t.text;
+          return (
+            <div key={t.id} className="card">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>{t.title}</h3>
+                <span className="muted" style={{ fontSize: 11 }}>リンク先：{t.url}</span>
+                <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{text.length} 文字</span>
+              </div>
+              <textarea
+                value={text}
+                onChange={(e) => setDrafts((d) => ({ ...d, [t.id]: e.target.value }))}
+                rows={5}
+                style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)" }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <a className="btn brand" href={xIntent(text, t.url)} target="_blank" rel="noopener" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
+                <button type="button" className="btn ghost" onClick={() => copy(text)}>本文をコピー</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card" style={{ marginTop: 16, fontSize: 12, color: "var(--color-ink-3)", lineHeight: 1.8 }}>
+        <b>運用のコツ</b>：①週2〜3回、登録数の節目・新着案件・市場価値ネタを使い分け。②エンジニア本人の「市場価値カード」シェア（enger.jp/dashboard・/card）が最も拡散します。③ハッシュタグは案件領域に合わせて調整。
+      </div>
+    </>
+  );
+}

@@ -25,6 +25,7 @@ const NAV = [
 const TOOLS = [
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
   { href: "/inbox", id: "inbox", label: "受信箱", icon: "inbox" },
+  { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
 ] as const;
