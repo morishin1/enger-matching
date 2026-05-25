@@ -46,7 +46,7 @@ export async function proxy(req: NextRequest) {
         return NextResponse.redirect(login);
       }
       // ロール別ルート制限。許可外は自分のホームへ。
-      if (!canAccess(access.role, pathname)) {
+      if (!canAccess(access.role, pathname, access.functions)) {
         const home = req.nextUrl.clone();
         home.pathname = "/";
         home.search = "";

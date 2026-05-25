@@ -19,12 +19,21 @@ export function roleHome(_role: Role): string {
 const ADMIN_PREFIXES = ["/settings"];
 /** client(ユーザー企業) が開けるルート。ここ以外は自社ポータル"/"へ戻す。 */
 const CLIENT_ALLOWED = ["/", "/portal"];
+/**
+ * 営業系の職能を持つ人だけがアクセスできる業務ルート。
+ * バックオフィス専任（営業系職能なし）には案件・人材・打合せ記録・パイプライン等を非表示にする。
+ */
+export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/companies", "/meetings", "/pipeline"];
 
-/** 指定ロールが pathname にアクセスできるか。 */
-export function canAccess(role: Role, pathname: string): boolean {
+/** 指定ロール（＋職能）が pathname にアクセスできるか。 */
+export function canAccess(role: Role, pathname: string, functions?: string[] | null): boolean {
   if (role === "admin") return true;
   const hit = (list: string[]) => list.some((p) => (p === "/" ? pathname === "/" : (pathname === p || pathname.startsWith(p + "/"))));
-  if (role === "agent") return !hit(ADMIN_PREFIXES);  // 営業は settings 以外すべて可
+  if (role === "agent") {
+    if (hit(ADMIN_PREFIXES)) return false;               // settings は admin のみ
+    if (!hasSalesFunction(functions) && hit(SALES_ONLY_PREFIXES)) return false; // バックオフィス専任は営業業務を非表示
+    return true;
+  }
   // client: 自社ポータルのみ。他の内部画面はデータ分離前のため非表示。
   return hit(CLIENT_ALLOWED);
 }

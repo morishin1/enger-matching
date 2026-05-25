@@ -17,12 +17,24 @@ export default async function ProgressPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, created_at";
+      const base = "id, proposal_id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, created_at";
       const rich = `${base}, cost, affiliation, settle_min, settle_max, work_hours, contract_status, po_status, renewal_due, renewal_status`;
       let res: any = await sb.from("engagements").select(rich).order("created_at", { ascending: false }).limit(300);
       if (res.error) res = await sb.from("engagements").select(base).order("created_at", { ascending: false }).limit(300);
       if (res.error) needSetup = true;
       else rows = res.data ?? [];
+
+      // エージェント（バックオフィス専任を除く）は「自分が担当している人材」のみ表示。
+      // バックオフィス／管理者は全件（契約・請求管理のため）。
+      const isBackoffice = (access?.functions ?? []).includes("バックオフィス");
+      if (role === "agent" && !isBackoffice && access?.name && rows.length > 0) {
+        const me = access.name;
+        // 自分が提案者・パートナー・クローザーの提案 → そこに紐づく稼働だけを残す
+        const pr = await sb.from("proposals").select("id, candidate_name").or(`proposer.eq.${me},partner.eq.${me},closer.eq.${me}`).limit(2000);
+        const myProposalIds = new Set((pr.data ?? []).map((p: any) => p.id));
+        const myCandidates = new Set((pr.data ?? []).map((p: any) => p.candidate_name).filter(Boolean));
+        rows = rows.filter((e) => myProposalIds.has(e.proposal_id) || (e.candidate_name && myCandidates.has(e.candidate_name)));
+      }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
