@@ -101,7 +101,7 @@ export function jobProposalMail(opts: {
     `氏名：${candidate.name}`,
     candidate.title ? `職種：${candidate.title}` : "",
     candidate.affiliation ? `所属：${candidate.affiliation}` : "",
-    candidate.exp ? `経験：${candidate.exp}` : "",
+    candidate.exp ? `経験年数：${/^\d+$/.test(String(candidate.exp).trim()) ? `${String(candidate.exp).trim()}年` : candidate.exp}` : "",
     `希望単価：${candidate.rate ?? "応相談"}`,
     `スキル：${(candidate.skills ?? []).join(" / ") || "—"}`,
     opts.matchedSkills?.length ? `→ 案件要件との合致スキル：${opts.matchedSkills.join(" / ")}` : "",

@@ -348,7 +348,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company, c.age_band, c.affiliation, c.rate, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company, c.age_band, c.affiliation, c.title].filter(Boolean).join(" / ")}</div>
+                        <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                          <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
+                          {c.exp != null && String(c.exp).trim() !== "" && <span>経験年数 <b style={{ color: "var(--color-ink)" }}>{/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp}</b></span>}
+                        </div>
                       </div>
                       <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} /></div>
                     </div>
