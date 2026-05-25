@@ -59,7 +59,24 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
     operator: agent,
   });
 
+  // 提案管理(未対応)にも反映：スカウト後の動きを営業が追えるように（best-effort）
+  try {
+    if (engineer_name) {
+      const cInit = engineer_name.slice(0, 2);
+      const { data: dup } = await admin.from("proposals")
+        .select("id").eq("candidate_name", engineer_name).eq("job_title", job_title ?? "").is("candidate_id", null).maybeSingle();
+      if (!dup?.id) {
+        await admin.from("proposals").insert({
+          job_id: null, candidate_id: null, stage: "未対応",
+          job_title: job_title ?? "（スカウト）", candidate_name: engineer_name, c_init: cInit,
+          proposer: agent, ai: false, next_action: "スカウト送信（返信待ち）",
+        });
+      }
+    }
+  } catch { /* proposals 未整備でもスカウトは成功 */ }
+
   revalidatePath("/engineers");
+  revalidatePath("/proposals");
   return { ok: true };
 }
 
