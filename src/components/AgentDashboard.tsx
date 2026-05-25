@@ -94,6 +94,12 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
     try { const sb = engerClient(); const dr = await sb.from("daily_reports").select("id").eq("author", myName).eq("report_date", new Date().toISOString().slice(0, 10)).maybeSingle(); reportToday = !!dr.data; } catch { /* 列なし等 */ }
   }
 
+  // 当日のPR投稿チェック（運用者がX集客をやったか）。やっていなければアラート。
+  let prToday = false;
+  if (dbConfigured && myName && !setup) {
+    try { const sb = engerClient(); const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0); const pr = await sb.from("pr_posts").select("id").eq("operator", myName).gte("created_at", todayStart.toISOString()).limit(1); prToday = !!(pr.data && pr.data.length); } catch { /* テーブル未作成等 */ }
+  }
+
   // 区分（インサイド/アウトサイド）は廃止：全員が提案・クロージング・打合せを担当する。
   const jobByTitle = new Map(jobs.map((j) => [j.title, j]));
 
@@ -282,6 +288,14 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", background: "#fff5e6", border: "1px solid #f6d9a7" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>📝 今日の日報がまだ未提出です。1日の振り返りを記録しましょう。</span>
           <Link href="/reports" className="btn brand btn-xs" style={{ textDecoration: "none" }}>日報を書く →</Link>
+        </div>
+      )}
+
+      {/* 📣 今日のPRリマインダー（運用者がX集客を忘れないように。本人がまだ投稿していなければ表示） */}
+      {myName && !prToday && (
+        <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", background: "#eef6ff", border: "1px solid #bcdcff" }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#0b5cab" }}>📣 今日のPR投稿（X集客）がまだです。登録者を増やすため1日1回の発信を。</span>
+          <Link href="/pr" className="btn brand btn-xs" style={{ textDecoration: "none" }}>XでPRする →</Link>
         </div>
       )}
 

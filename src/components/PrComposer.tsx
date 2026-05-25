@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { logPrPost } from "@/app/pr/actions";
 
 type Sample = { skills: string[]; rate: string; remote: string; role: string };
 
@@ -73,7 +74,7 @@ export function PrComposer({ engTotal, jobsPub, sample }: { engTotal: number; jo
                 style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)" }}
               />
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                <a className="btn brand" href={xIntent(text, t.url)} target="_blank" rel="noopener" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
+                <a className="btn brand" href={xIntent(text, t.url)} target="_blank" rel="noopener" onClick={() => { logPrPost(t.id); setMsg("PR投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }} style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
                 <button type="button" className="btn ghost" onClick={() => copy(text)}>本文をコピー</button>
               </div>
             </div>

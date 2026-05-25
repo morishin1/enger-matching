@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 
-type AgentRow = { name: string; proposals: number; scouts: number; meetings: number; won: number };
+type AgentRow = { name: string; proposals: number; scouts: number; meetings: number; won: number; pr: number };
 type RecentRow = { name: string; at: string | null; sub?: string };
 type GrowthData = { engTotal: number; engGithub: number; eng30: number; clientTotal: number; client30: number; jobsPub: number; scoutCnt: number; appCnt: number; appPass: number; appActive: number; agents: AgentRow[]; recentEng: RecentRow[]; recentClient: RecentRow[] };
 
@@ -30,16 +30,19 @@ const getGrowthData = unstable_cache(async (): Promise<GrowthData | null> => {
     // エージェント別の動き
     let agents: AgentRow[] = [];
     try {
-      const [pr, sc, mt] = await Promise.all([
+      const week = new Date(Date.now() - 7 * 86400000).toISOString();
+      const [pr, sc, mt, prp] = await Promise.all([
         sb.from("proposals").select("proposer, stage").limit(5000),
         sb.from("scouts").select("agent").limit(5000),
         sb.from("meetings").select("our_owner").limit(3000),
+        sb.from("pr_posts").select("operator, created_at").gte("created_at", week).limit(5000),
       ]);
       const map = new Map<string, AgentRow>();
-      const get = (n: string) => { const k = (n || "").trim(); if (!k) return null; if (!map.has(k)) map.set(k, { name: k, proposals: 0, scouts: 0, meetings: 0, won: 0 }); return map.get(k)!; };
+      const get = (n: string) => { const k = (n || "").trim(); if (!k) return null; if (!map.has(k)) map.set(k, { name: k, proposals: 0, scouts: 0, meetings: 0, won: 0, pr: 0 }); return map.get(k)!; };
       for (const p of (pr.data ?? []) as any[]) { const a = get(p.proposer); if (a) { a.proposals++; if (["面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage)) a.won++; } }
       for (const s of (sc.data ?? []) as any[]) { const a = get(s.agent); if (a) a.scouts++; }
       for (const m of (mt.data ?? []) as any[]) { const a = get(m.our_owner); if (a) a.meetings++; }
+      for (const x of (prp.data ?? []) as any[]) { const a = get(x.operator); if (a) a.pr++; }
       agents = [...map.values()].sort((a, b) => (b.proposals + b.scouts + b.meetings) - (a.proposals + a.scouts + a.meetings)).slice(0, 12);
     } catch { /* 集計失敗は無視 */ }
 
@@ -126,6 +129,7 @@ export async function AdminGrowthBoard() {
                   <th style={{ textAlign: "right", padding: "6px 10px" }}>提案</th>
                   <th style={{ textAlign: "right", padding: "6px 10px" }}>スカウト</th>
                   <th style={{ textAlign: "right", padding: "6px 10px" }}>打合せ</th>
+                  <th style={{ textAlign: "right", padding: "6px 10px" }}>PR(週)</th>
                   <th style={{ textAlign: "right", padding: "6px 10px" }}>成約</th>
                 </tr>
               </thead>
@@ -136,6 +140,7 @@ export async function AdminGrowthBoard() {
                     <td style={{ padding: "7px 10px", textAlign: "right" }} className="tnum">{a.proposals}</td>
                     <td style={{ padding: "7px 10px", textAlign: "right" }} className="tnum">{a.scouts}</td>
                     <td style={{ padding: "7px 10px", textAlign: "right" }} className="tnum">{a.meetings}</td>
+                    <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 700, color: a.pr > 0 ? "#0b5cab" : "#b42318" }} className="tnum">{a.pr === 0 ? "0 ⚠" : a.pr}</td>
                     <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 700, color: a.won > 0 ? "#067647" : "var(--color-ink-3)" }} className="tnum">{a.won}</td>
                   </tr>
                 ))}
