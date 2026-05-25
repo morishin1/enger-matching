@@ -16,8 +16,15 @@ import { resolveAccess, canAccess } from "@/lib/accounts";
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 公開パス（ログイン画面・新規登録・API・認証）
-  if (pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/api/")) return NextResponse.next();
+  // 公開パス（ログイン画面・新規登録・パスワード再設定・API・認証）
+  // ※ パスワードを忘れた未ログインユーザーがアクセスするため /forgot-password と /reset-password も公開必須。
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/api/")
+  ) return NextResponse.next();
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
