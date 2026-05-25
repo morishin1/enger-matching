@@ -5,6 +5,32 @@ import { useRouter } from "next/navigation";
 import type { Engineer, EngineerAction, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage } from "@/app/engineers/actions";
 import { APPLICATION_STAGES } from "@/lib/engineers";
+import { gmailComposeUrl, reSubject } from "@/lib/gmail";
+
+/** #14: 応募エンジニアを案件側へ紹介する人材紹介メールの Gmail 下書きを開く */
+function openIntroMail(e: Engineer, jobTitle: string) {
+  const skills = (e.skills ?? []).map((s) => s.name).join(" / ") || "—";
+  const payLabel = e.estimated_pay_low && e.estimated_pay_high ? `¥${e.estimated_pay_low}〜${e.estimated_pay_high}万` : (e.estimated_pay_mid ? `¥${e.estimated_pay_mid}万` : "応相談");
+  const name = e.display_name || e.github_login || "ご紹介人材";
+  const body = [
+    `ご担当者 様`, ``,
+    `お世話になっております。エンジャー事務局でございます。`,
+    `ご案内の「${jobTitle}」につきまして、ご応募いただいた人材をご紹介申し上げます。`, ``,
+    `■ サマリ`,
+    `${name}／${e.primary_language ?? "—"}／想定単価 ${payLabel}`, ``,
+    `── ご紹介人材 ────────────`,
+    `氏名：${name}`,
+    `主要言語：${e.primary_language ?? "—"}`,
+    `スキル：${skills}`,
+    e.skill_sheet_url ? `スキルシート：${e.skill_sheet_url}` : "",
+    e.portfolio_url ? `ポートフォリオ：${e.portfolio_url}` : "",
+    e.github_login ? `GitHub：https://github.com/${e.github_login}` : "",
+    `────────────────────`, ``,
+    `ご面談のご希望などございましたらご返信ください。`,
+    `何卒よろしくお願いいたします。`,
+  ].filter((l) => l !== "").join("\n");
+  window.open(gmailComposeUrl({ to: null, subject: reSubject(jobTitle), body }), "_blank", "noopener");
+}
 
 const pay = (e: Engineer) => {
   const lo = e.estimated_pay_low, hi = e.estimated_pay_high, mid = e.estimated_pay_mid;
@@ -206,6 +232,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                     <select value={stg} disabled={pending} onChange={(e) => changeStage(a.id, e.target.value)} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: tone, fontWeight: 700 }}>
                       {APPLICATION_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
+                    <button type="button" onClick={() => openIntroMail(detail, a.job_title || a.job_no || "ご案件")} title="案件側へ人材紹介メールをGmailで作成" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, cursor: "pointer" }}>📧 紹介メール</button>
                     <span className="muted" style={{ fontSize: 10.5, width: "100%", textAlign: "right" }}>{fmtDate(a.created_at)}</span>
                   </div>
                 );

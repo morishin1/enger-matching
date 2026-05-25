@@ -87,6 +87,16 @@ export async function createPendingAccount(opts: { email: string; name?: string 
       company_name: opts.companyName ?? null,
     });
     if (error) return { ok: false, created: false, error: error.message };
+    // 管理者へアプリ内通知（#15：登録申請時に通知が来ない問題への対応）。best-effort。
+    try {
+      const who = opts.companyName ? `${opts.companyName}（${e}）` : (opts.name ? `${opts.name}（${e}）` : e);
+      await sb.from("notifications").insert({
+        recipient: "all",
+        title: "新規アカウント登録申請",
+        body: `${who} が登録申請しました。設定 → アカウント・権限管理で承認してください。`,
+        kind: "info",
+      });
+    } catch { /* notifications 未整備でも登録は成功 */ }
     return { ok: true, created: true };
   } catch (err: any) { return { ok: false, created: false, error: String(err?.message ?? err) }; }
 }
