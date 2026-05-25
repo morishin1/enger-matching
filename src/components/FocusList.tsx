@@ -27,7 +27,7 @@ export function FocusList({ kind, items }: { kind: "jobs" | "people"; items: any
       {items.map((r) => (
         <div key={r[idField]} className="focus-row" style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)" }}
           onClick={(e) => { if ((e.target as HTMLElement).closest("a,button,label,input")) return; setDetail(r); }} title="クリックで詳細">
-          <FocusHeart table={isJob ? "jobs" : "candidates"} idField={idField as "job_no" | "candidate_no"} idValue={r[idField]} initial={!!r.is_focus} revalidate="/matching" />
+          <FocusHeart table={isJob ? "jobs" : "candidates"} idField={idField as "job_no" | "candidate_no"} idValue={r[idField]} initial={!!r.is_focus} revalidate="/matching" row={r} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title(r)}</div>
             <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub(r)}</div>

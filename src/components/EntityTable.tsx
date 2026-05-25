@@ -327,7 +327,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                       </div>
                     </td>
                     <td>
-                      <FocusHeart key={`${id}-${r.is_focus ? 1 : 0}`} table={table} idField={idField as "job_no" | "candidate_no"} idValue={id} initial={!!r.is_focus} revalidate={revalidate} />
+                      <FocusHeart key={`${id}-${r.is_focus ? 1 : 0}`} table={table} idField={idField as "job_no" | "candidate_no"} idValue={id} initial={!!r.is_focus} revalidate={revalidate} row={r} />
                     </td>
                   </tr>
                 );

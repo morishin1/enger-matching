@@ -1,9 +1,11 @@
 import { StaffManager } from "@/components/StaffManager";
 import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
+import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { getStaff } from "@/lib/staff";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
+import { loadFocusCriteria } from "@/lib/focus";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,7 @@ export default async function SettingsPage() {
   const accounts = await listAccounts();
   const usage = await getUsageStats();
   const quality = await getQuality();
+  const focusCriteria = await loadFocusCriteria();
   const maxDaily = Math.max(0.0001, ...usage.daily.map((d) => d.usd));
 
   return (
@@ -83,6 +86,8 @@ export default async function SettingsPage() {
           </>
         )}
       </div>
+
+      <div id="focus" style={{ scrollMarginTop: 80 }}><FocusCriteriaEditor initial={focusCriteria} /></div>
 
       <div id="quality" style={{ scrollMarginTop: 80 }}><QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} /></div>
 
