@@ -101,7 +101,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
           {position && POSITION_LABEL[position] && (
             <span title="営業区分" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: position === "outside" ? "#fff1e6" : "#eaf4fd", color: position === "outside" ? "#b45309" : "#0b5cab", whiteSpace: "nowrap" }}>{POSITION_LABEL[position]}</span>
           )}
-          <OperatorBadge defaultName={defaultOperator} email={userEmail} compact />
+          <OperatorBadge defaultName={defaultOperator} email={userEmail} role={role} compact />
         </div>
         {children}
       </main>

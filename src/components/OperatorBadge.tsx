@@ -4,8 +4,11 @@ import { useState, useEffect, useRef } from "react";
 
 const KEY = "enger.operator";
 
+type MenuItem = { label: string; href: string; icon?: string; danger?: boolean };
+type MenuGroup = { label?: string; items: MenuItem[] };
+
 /** ログイン中の本人。アカウントに紐づく表示＋メニュー（提案文の差出人にも使用）。 */
-export function OperatorBadge({ defaultName = "", email = "", compact = false }: { operators?: string[]; defaultName?: string; email?: string; compact?: boolean }) {
+export function OperatorBadge({ defaultName = "", email = "", compact = false, role = "admin" }: { operators?: string[]; defaultName?: string; email?: string; compact?: boolean; role?: "admin" | "agent" | "client" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const name = defaultName || "";
@@ -21,6 +24,31 @@ export function OperatorBadge({ defaultName = "", email = "", compact = false }:
 
   const display = name || "アカウント";
   const initials = name ? name.slice(0, 2) : "👤";
+
+  // ロール別メニュー（設定は1ページに束ねず、各セクションへ直接ジャンプ）
+  const groups: MenuGroup[] =
+    role === "admin"
+      ? [
+          { label: "管理設定", items: [
+            { label: "👤 アカウント・権限管理", href: "/settings#accounts" },
+            { label: "🧑‍💼 担当者マスタ", href: "/settings#staff" },
+            { label: "🚦 品質ルール", href: "/settings#quality" },
+            { label: "🤖 AI使用量・コスト", href: "/settings#ai-usage" },
+          ] },
+          { label: "ツール", items: [
+            { label: "📣 PR・X集客", href: "/pr" },
+            { label: "🔔 お知らせ", href: "/notifications" },
+            { label: "⚙ 設定トップ", href: "/settings" },
+          ] },
+        ]
+      : role === "agent"
+      ? [{ items: [
+          { label: "📣 PR・X集客", href: "/pr" },
+          { label: "🔔 お知らせ", href: "/notifications" },
+        ] }]
+      : [{ items: [
+          { label: "🏢 企業プロフィール", href: "/portal/company" },
+        ] }];
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -42,8 +70,15 @@ export function OperatorBadge({ defaultName = "", email = "", compact = false }:
             <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--color-ink)" }}>{display}</div>
             {email && <div style={{ fontSize: 11, color: "var(--color-ink-4)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis" }}>{email}</div>}
           </div>
-          <a href="/settings" onClick={() => setOpen(false)} style={{ display: "block", padding: "8px 10px", color: "var(--color-ink-2)", textDecoration: "none", fontSize: 12.5, borderRadius: 8 }}>設定</a>
-          <a href="/api/auth/signout" style={{ display: "block", marginTop: 2, padding: "8px 10px", color: "var(--color-danger)", textDecoration: "none", fontSize: 12.5, borderRadius: 8 }}>ログアウト</a>
+          {groups.map((g, gi) => (
+            <div key={gi} style={{ paddingTop: gi > 0 ? 6 : 4, marginTop: gi > 0 ? 4 : 0, borderTop: gi > 0 ? "1px solid var(--color-border)" : "none" }}>
+              {g.label && <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".08em", color: "var(--color-ink-4)", padding: "2px 10px 4px" }}>{g.label}</div>}
+              {g.items.map((it) => (
+                <a key={it.href} href={it.href} onClick={() => setOpen(false)} style={{ display: "block", padding: "8px 10px", color: "var(--color-ink-2)", textDecoration: "none", fontSize: 12.5, borderRadius: 8 }}>{it.label}</a>
+              ))}
+            </div>
+          ))}
+          <a href="/api/auth/signout" style={{ display: "block", marginTop: 4, paddingTop: 8, padding: "8px 10px", borderTop: "1px solid var(--color-border)", color: "var(--color-danger)", textDecoration: "none", fontSize: 12.5, borderRadius: 8 }}>ログアウト</a>
         </div>
       )}
     </div>

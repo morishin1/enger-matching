@@ -39,7 +39,7 @@ export default async function SettingsPage() {
       </div>
 
       {/* AI使用量 */}
-      <div className="card">
+      <div className="card" id="ai-usage" style={{ scrollMarginTop: 80 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🤖 AI使用量・概算コスト</h3>
           <span className="muted" style={{ fontSize: 11 }}>直近30日 / 概算（¥{YEN_PER_USD}/$ 換算）</span>
@@ -84,11 +84,11 @@ export default async function SettingsPage() {
         )}
       </div>
 
-      <QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} />
+      <div id="quality" style={{ scrollMarginTop: 80 }}><QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} /></div>
 
-      <AccountManager accounts={accounts} />
+      <div id="accounts" style={{ scrollMarginTop: 80 }}><AccountManager accounts={accounts} /></div>
 
-      <StaffManager rows={staff.rows} fromTable={staff.fromTable} />
+      <div id="staff" style={{ scrollMarginTop: 80 }}><StaffManager rows={staff.rows} fromTable={staff.fromTable} /></div>
     </div>
   );
 }
