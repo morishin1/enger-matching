@@ -62,23 +62,40 @@ export function candidateProposalMail(opts: {
   return { subject, body };
 }
 
-/** クライアントへ「人材のご提案」を返信する本文（案件窓口宛て） */
+/**
+ * クライアントへ「人材のご提案」を返信する本文（案件窓口宛て）。
+ *  - 件名は元の案件メールの件名をそのまま（Re:）にする（#1）
+ *  - 冒頭にサマリ（#7）、スキルシートURL（#3/#8）、元メール参照リンク（#2/#4/#9）を入れる
+ *  - 元の案件メール本文（detail等）はそのまま引用して残す（来たメールを保持）
+ *  - 不要な定型文「ご面談の可否やスキルシートのご要望など…」は削除（#10）
+ */
 export function jobProposalMail(opts: {
   jobTitle: string;
   clientName?: string | null;
   contactName?: string | null;
   sender?: string | null;
-  candidate: { name: string; title?: string | null; skills?: string[] | null; rate?: string | null; affiliation?: string | null; exp?: string | null };
+  candidate: { name: string; title?: string | null; skills?: string[] | null; rate?: string | null; affiliation?: string | null; exp?: string | null; skillSheetUrl?: string | null };
   matchedSkills?: string[];
   score?: number;
+  originalBody?: string | null;   // 元の案件メール本文（detail/description）
+  originalMailUrl?: string | null; // 元メールURL（あれば）
 }) {
   const { jobTitle, candidate } = opts;
-  const subject = reSubject(`【人材のご提案】${jobTitle}`);
+  // 件名は元メールの件名（≒案件名）をそのまま Re: で保持する
+  const subject = reSubject(jobTitle);
+  // 元メールへの参照：URLがあればそれ、無ければ Gmail 検索リンク（電話連絡先・原文確認用）
+  const mailRef = opts.originalMailUrl
+    ? opts.originalMailUrl
+    : gmailSearchUrl([opts.clientName, jobTitle].filter(Boolean).join(" "));
+  const orig = (opts.originalBody ?? "").trim();
   const body = [
     `${opts.contactName ?? opts.clientName ?? "ご担当者"} 様`,
     ``,
     `お世話になっております。${senderLabel(opts.sender)} でございます。`,
-    `「${jobTitle}」にマッチ度の高い人材（マッチ度 ${opts.score ?? "—"}%）をご提案申し上げます。`,
+    `ご案内の「${jobTitle}」につきまして、マッチ度の高い人材をご提案申し上げます。`,
+    ``,
+    `■ サマリ`,
+    `${candidate.name}／${candidate.title ?? "—"}／マッチ ${opts.score ?? "—"}%／希望単価 ${candidate.rate ?? "応相談"}`,
     ``,
     `── ご提案人材 ────────────`,
     `氏名：${candidate.name}`,
@@ -88,10 +105,14 @@ export function jobProposalMail(opts: {
     `希望単価：${candidate.rate ?? "応相談"}`,
     `スキル：${(candidate.skills ?? []).join(" / ") || "—"}`,
     opts.matchedSkills?.length ? `→ 案件要件との合致スキル：${opts.matchedSkills.join(" / ")}` : "",
+    candidate.skillSheetUrl ? `スキルシート：${candidate.skillSheetUrl}` : "",
     `────────────────────`,
     ``,
-    `ご面談の可否やスキルシートのご要望など、ご返信いただけますと幸いです。`,
-    `詳細資料はすぐにご送付いたします。`,
+    `▼ 元の案件メール：${mailRef}`,
+    orig ? `` : "",
+    orig ? `── 以下、いただいた案件内容 ──` : "",
+    ...(orig ? quote(orig.split(/\r?\n/)).split("\n") : []),
+    orig ? `────────────────────` : "",
     ``,
     `何卒よろしくお願いいたします。`,
   ].filter((l) => l !== "").join("\n");

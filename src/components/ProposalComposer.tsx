@@ -29,8 +29,10 @@ export function ProposalComposer({
     if (target === "client") {
       const m = jobProposalMail({
         jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name, sender,
-        candidate: { name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate, affiliation: cand.affiliation, exp: cand.exp },
+        candidate: { name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate, affiliation: cand.affiliation, exp: cand.exp, skillSheetUrl: cand.skill_sheet_url ?? cand.skillSheetUrl ?? null },
         matchedSkills, score,
+        originalBody: job.detail ?? job.description ?? null,
+        originalMailUrl: job.source_mail_url ?? null,
       });
       return { to: job.contact_email as string | null, subject: m.subject, body: m.body };
     }
