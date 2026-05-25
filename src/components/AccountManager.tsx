@@ -5,7 +5,7 @@ import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, s
 import type { Account, Role } from "@/lib/accounts";
 import { FUNCTIONS } from "@/lib/roles";
 
-const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "営業", client: "ユーザー企業" };
+const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "エージェント", client: "ユーザー企業" };
 const ROLE_TONE: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe7fb", fg: "#6b21a8" },
   agent: { bg: "#eaf4fd", fg: "#0b5cab" },
@@ -26,7 +26,7 @@ function PendingRow({ a, busy, onApprove }: { a: Account; busy: boolean; onAppro
       </div>
       <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={{ padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }}>
         <option value="client">ユーザー企業</option>
-        <option value="agent">営業</option>
+        <option value="agent">エージェント</option>
         <option value="admin">管理者</option>
       </select>
       <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="会社名（企業の場合）" style={{ padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5, width: 160 }} />
@@ -95,7 +95,7 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <select name="role" defaultValue="agent" style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }}>
-              <option value="agent">営業</option>
+              <option value="agent">エージェント</option>
               <option value="admin">管理者</option>
               <option value="client">ユーザー企業</option>
             </select>
@@ -154,7 +154,7 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
                   <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: t.bg, color: t.fg }}>{ROLE_LABEL[a.role]}</span>
                   <select value={a.role} onChange={(e) => run(() => setAccountRole(a.id, e.target.value as Role))} disabled={pending} style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12 }}>
                     <option value="client">ユーザー企業</option>
-                    <option value="agent">営業</option>
+                    <option value="agent">エージェント</option>
                     <option value="admin">管理者</option>
                   </select>
                   {(a.role === "agent" || a.role === "admin") && (

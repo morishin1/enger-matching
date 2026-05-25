@@ -37,7 +37,7 @@ const CRUMBS: Record<string, string[]> = {
 
 const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
   admin: { label: "管理者", bg: "#efe7fb", fg: "#6b21a8" },
-  agent: { label: "営業", bg: "#eaf4fd", fg: "#0b5cab" },
+  agent: { label: "エージェント", bg: "#eaf4fd", fg: "#0b5cab" },
   client: { label: "ユーザー企業", bg: "#e7f7ee", fg: "#067647" },
 };
 
