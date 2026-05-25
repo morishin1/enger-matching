@@ -143,6 +143,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             <div>
               <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login}</h3>
               <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : ""} · {detail.primary_language ?? "—"}</div>
+              {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>
           <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
@@ -174,8 +175,21 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>スキルシート{detail.skill_sheet_name ? `（${detail.skill_sheet_name}）` : ""}
               </a>
             )}
+            {detail.qiita_id && (
+              <a href={`https://qiita.com/${detail.qiita_id}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>article</span>Qiita
+              </a>
+            )}
           </div>
         )}
+
+        {detail.bio && <div style={{ fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.7, whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: "8px 11px", borderRadius: 8 }}>{detail.bio}</div>}
+
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-4)" }}>
+          <span>想定単価レンジ：{detail.estimated_pay_low ?? "—"}〜{detail.estimated_pay_high ?? "—"}万</span>
+          <span>登録日：{detail.created_at ? new Date(detail.created_at).toLocaleDateString("ja-JP") : "—"}</span>
+          {detail.last_login_at && <span>最終ログイン：{new Date(detail.last_login_at).toLocaleDateString("ja-JP")}</span>}
+        </div>
 
         {/* 応募（エンジニアからの応募） */}
         {appLog.length > 0 && (
