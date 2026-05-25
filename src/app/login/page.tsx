@@ -29,8 +29,8 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
         <section className="login-brand" style={{ display: "flex", flexDirection: "column", justifyContent: "center", padding: "56px 64px", color: "#fff" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/enger-logo.png" alt="ENGER" style={{ height: 32, width: "auto", filter: "brightness(0) invert(1)" }} />
-            <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 22, letterSpacing: ".06em", color: "#38BDF8" }}>DX</span>
+            <img src="/enger-logo.png" alt="ENGER" style={{ height: 34, width: "auto", filter: "brightness(0) invert(1)" }} />
+            <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 20, letterSpacing: ".04em", color: "#38BDF8" }}>business</span>
           </div>
           <h1 style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.3, margin: "36px 0 16px", letterSpacing: ".01em" }}>マッチング業務を、<br />ひとつの画面で。</h1>
           <p style={{ fontSize: 14.5, lineHeight: 1.9, color: "rgba(255,255,255,.78)", maxWidth: 420 }}>案件・人材・提案・稼働の進捗をひとつの画面で。企業・エージェント・運営をつなぐエンジニアマッチングプラットフォーム。</p>
@@ -48,7 +48,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
         <section style={{ display: "grid", placeItems: "center", padding: 24 }}>
           <div style={{ width: "100%", maxWidth: 380 }}>
             <div className="login-mobile-brand" style={{ display: "none", textAlign: "center", marginBottom: 16 }}>
-              <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 24, color: "#fff" }}>ENGER <span style={{ color: "#38BDF8" }}>DX</span></span>
+              <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 24, color: "#fff" }}>ENGER <span style={{ color: "#38BDF8" }}>business</span></span>
             </div>
             <form action={action} style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, display: "flex", flexDirection: "column", gap: 13, boxShadow: "0 24px 70px rgba(0,0,0,.35)", backdropFilter: "blur(6px)" }}>
               <div>
@@ -80,7 +80,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
                 </div>
               </label>
               {error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{error}</div>}
-              <button type="submit" disabled={pending} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: pending ? "not-allowed" : "pointer", opacity: pending ? 0.6 : 1, boxShadow: "0 6px 16px rgba(0,149,217,.3)" }}>{pending ? "ログイン中…" : "メールでログイン →"}</button>
+              <button type="submit" disabled={pending} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: pending ? "not-allowed" : "pointer", opacity: pending ? 0.6 : 1, boxShadow: "0 6px 16px rgba(0,149,217,.3)" }}>{pending ? "ログイン中…" : "ログイン"}</button>
 
               <div style={{ textAlign: "center", marginTop: 2 }}>
                 <a href="/forgot-password" style={{ color: "#0095D9", fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>パスワードをお忘れですか？</a>
