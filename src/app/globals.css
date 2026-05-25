@@ -333,4 +333,9 @@ button { font-family: inherit; }
   .kpi-grid { grid-template-columns: 1fr; }
   .page-head h1 { font-size: 21px; }
   .crumbs { font-size: 12px; }
+  /* スマホ：横長テーブルは横スクロールで崩さない（#28） */
+  .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tbl-scroll .tbl { min-width: 600px; }
+  .page { padding-left: 14px; padding-right: 14px; }
+  .duo-grid, .kpi-grid { gap: 12px; }
 }
