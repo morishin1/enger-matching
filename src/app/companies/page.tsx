@@ -1,12 +1,14 @@
 import { Icons } from "@/components/icons";
 import { CompaniesView } from "@/components/CompaniesView";
-import { getCompanyOverview } from "@/lib/companies";
+import { CompanyStructure } from "@/components/CompanyStructure";
+import { getCompanyOverview, getCompanyMatrix } from "@/lib/companies";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   const companies = (await getCompanyOverview()) ?? [];
+  const matrix = await getCompanyMatrix();
 
   // 手動登録した企業マスタ（連絡先・業種・担当・メモ）。名寄せして詳細/編集に使う。
   let registered: any[] = [];
@@ -63,6 +65,8 @@ export default async function CompaniesPage() {
           <div><div className="val tnum">{dormant.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">休眠（90日超）</div><div className="note">再アプローチ候補</div></div>
         </div>
       </div>
+
+      {matrix && (matrix.endCount > 0 || matrix.partnerCount > 0) && <CompanyStructure matrix={matrix} />}
 
       {!needSetup && <CompaniesView companies={companies} registered={registered} />}
     </div>
