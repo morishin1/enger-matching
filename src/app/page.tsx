@@ -2,7 +2,6 @@ import { ClientHome } from "@/components/ClientHome";
 import { AgentDashboard } from "@/components/AgentDashboard";
 import { AdminGrowthBoard } from "@/components/AdminGrowthBoard";
 import { CostReport } from "@/components/CostReport";
-import { ImportCounts } from "@/components/ImportCounts";
 import { WorkHome } from "@/components/WorkHome";
 import { TalentRequests } from "@/components/TalentRequests";
 import { currentAccess } from "@/lib/accounts";
@@ -35,7 +34,6 @@ export default async function DashboardPage() {
       {isAdmin && (
         <div className="page" style={{ paddingBottom: 0 }}>
           <AdminGrowthBoard />
-          <ImportCounts />
           <CostReport />
         </div>
       )}
