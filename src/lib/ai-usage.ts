@@ -26,6 +26,43 @@ export type UsageStats = {
 const FEATURE_LABEL: Record<string, string> = { proposal: "提案文生成", meeting: "打合せAI分析", rerank: "AI再ランキング", brief: "今日のAIブリーフィング", billing: "請求・勤怠AI抽出", coach: "日報AIコーチング", review: "日報AI講評" };
 export const featureLabel = (f: string) => FEATURE_LABEL[f] ?? f;
 
+export type CostReport = {
+  available: boolean;
+  thisMonth: { label: string; count: number; usd: number };
+  lastMonth: { label: string; count: number; usd: number };
+  byFeature: { feature: string; count: number; usd: number }[]; // 今月分
+};
+
+/** ダッシュボード用：今月・前月のAIコスト（ENGER内蔵AIのみ）。 */
+export async function getCostReport(): Promise<CostReport> {
+  const empty: CostReport = { available: false, thisMonth: { label: "", count: 0, usd: 0 }, lastMonth: { label: "", count: 0, usd: 0 }, byFeature: [] };
+  if (!dbConfigured) return empty;
+  try {
+    const sb = engerClient();
+    const now = new Date();
+    const thisStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const ym = (d: Date) => `${d.getFullYear()}/${d.getMonth() + 1}`;
+    const { data, error } = await sb.from("ai_usage").select("feature, cost_usd, created_at").gte("created_at", lastStart.toISOString()).limit(20000);
+    if (error) return empty;
+    const rows = data ?? [];
+    const tm = { label: ym(thisStart), count: 0, usd: 0 };
+    const lm = { label: ym(lastStart), count: 0, usd: 0 };
+    const fmap = new Map<string, { count: number; usd: number }>();
+    for (const r of rows) {
+      const usd = Number(r.cost_usd) || 0;
+      const d = new Date(r.created_at);
+      if (d >= thisStart) {
+        tm.count++; tm.usd += usd;
+        const fk = r.feature || "other";
+        const fm = fmap.get(fk) ?? { count: 0, usd: 0 }; fm.count++; fm.usd += usd; fmap.set(fk, fm);
+      } else if (d >= lastStart) { lm.count++; lm.usd += usd; }
+    }
+    const byFeature = [...fmap.entries()].map(([feature, v]) => ({ feature, ...v })).sort((a, b) => b.usd - a.usd);
+    return { available: true, thisMonth: tm, lastMonth: lm, byFeature };
+  } catch { return empty; }
+}
+
 /** 設定ページ用の集計（直近の使用量）。 */
 export async function getUsageStats(): Promise<UsageStats> {
   const empty: UsageStats = { available: false, total: { count: 0, usd: 0 }, thisMonth: { count: 0, usd: 0 }, byFeature: [], daily: [] };
