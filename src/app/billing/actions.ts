@@ -46,7 +46,7 @@ export async function upsertBillingTask(engagementId: string, period: string, pa
   for (const k of allowed) if (k in patch) row[k] = patch[k] === "" ? null : patch[k];
   const { error } = await admin.from("billing_tasks").upsert(row, { onConflict: "engagement_id,period" });
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/billing");
+  revalidatePath("/billing"); revalidatePath("/progress");
   return { ok: true };
 }
 
@@ -79,7 +79,7 @@ export async function uploadBillingFile(formData: FormData): Promise<Result & { 
     }
 
     await admin.from("billing_tasks").upsert(row, { onConflict: "engagement_id,period" });
-    revalidatePath("/billing");
+    revalidatePath("/billing"); revalidatePath("/progress");
     return { ok: true, url, hours, aiNote, aiError };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }

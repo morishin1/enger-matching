@@ -11,7 +11,8 @@ export function canSeeMargin(role: Role | null | undefined, affiliation?: string
   if (role === "admin") return true;
   if (role === "agent") {
     const a = affiliation ?? "";
-    return /BP|フリー|業務委託|個人事業|partner/i.test(a);
+    // BP / FL（フリーランス）は原価開示可。PP（プロパー）・不明は給与保護で非開示。
+    return /\bBP\b|\bFL\b|フリー|業務委託|個人事業|partner/i.test(a);
   }
   return false;
 }

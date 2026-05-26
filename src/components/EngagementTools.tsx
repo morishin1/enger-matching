@@ -33,7 +33,7 @@ const EXPORT_HEADERS = [
 const TEMPLATE = ["案件名", "企業", "氏名", "月額(万)", "原価(万)", "所属区分", "ステータス", "開始日", "満了日", "清算下限", "清算上限", "当月稼働", "契約書", "注文書", "更新期限", "更新ステータス"];
 
 const STATUSES = ["予定", "稼働中", "終了"];
-const AFFILIATIONS = ["プロパー", "BP", "フリーランス"];
+const AFFILIATIONS = ["PP", "BP", "FL"];
 const d10 = (v: unknown) => (v ? String(v).slice(0, 10) : "");
 
 export function EngagementTools({ rows }: { rows: any[] }) {
