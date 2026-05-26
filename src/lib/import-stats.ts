@@ -1,5 +1,30 @@
 import { engerClient, dbConfigured } from "./supabase";
 
+export type EntityDelta = { d1: number; d7: number; d30: number; total: number };
+
+/** 案件/人材の新規件数（1日/7日/30日/累計）。imported_at基準（無ければ created_at）。 */
+export async function getEntityDelta(table: "jobs" | "candidates"): Promise<EntityDelta> {
+  const zero = { d1: 0, d7: 0, d30: 0, total: 0 };
+  if (!dbConfigured) return zero;
+  try {
+    const sb = engerClient();
+    const idCol = table === "jobs" ? "job_no" : "candidate_no";
+    const now = Date.now();
+    const iso = (d: number) => new Date(now - d * 86400000).toISOString();
+    let dateCol = "imported_at";
+    const probe = await sb.from(table).select(idCol, { count: "exact", head: true }).gte("imported_at", iso(30));
+    if (probe.error) dateCol = "created_at";
+    const c = async (since: string | null) => {
+      let q = sb.from(table).select(idCol, { count: "exact", head: true });
+      if (since) q = q.gte(dateCol, since);
+      const { count, error } = await q;
+      return error ? 0 : (count ?? 0);
+    };
+    const [d1, d7, d30, total] = await Promise.all([c(iso(1)), c(iso(7)), c(iso(30)), c(null)]);
+    return { d1, d7, d30, total };
+  } catch { return zero; }
+}
+
 export type ImportCounts = {
   available: boolean;
   today: { jobs: number; candidates: number };

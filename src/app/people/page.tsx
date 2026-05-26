@@ -1,6 +1,8 @@
 import { CandidateImportButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
+import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { getEntityDelta } from "@/lib/import-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +60,7 @@ export default async function PeoplePage() {
   }
 
   const exportRows = people.map((p) => ({ ...p, kanriNo: `P-${String(p.candidate_no ?? 0).padStart(5, "0")}`, skillsCsv: (p.skills ?? []).join(" / ") }));
+  const growth = await getEntityDelta("candidates");
 
   return (
     <div className="page">
@@ -65,10 +68,7 @@ export default async function PeoplePage() {
         <div style={{ maxWidth: 820 }}>
           <div className="meta">People · 人材マスタ（実データ）</div>
           <h1>人材</h1>
-          <div className="sub">
-            登録人材 <b style={{ color: "var(--color-ink)" }}>{total.toLocaleString("ja-JP")} 名</b>。
-            CSVで人材をアップロードすると、案件とのマッチング母数になります（<b className="mono">enger.candidates</b>）。
-          </div>
+          <EntityGrowthLine unit="名" delta={growth} />
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
           <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />

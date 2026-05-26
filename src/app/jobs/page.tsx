@@ -1,8 +1,10 @@
 import { ExportButton, JobImportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
+import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
+import { getEntityDelta } from "@/lib/import-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +100,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const staff = await getStaff();
   const outsideNames = staff.rows.filter((s) => s.position === "outside").map((s) => s.name);
   const ownerOptions = outsideNames.length ? outsideNames : staff.rows.map((s) => s.name);
+  const growth = await getEntityDelta("jobs");
 
   return (
     <div className="page">
@@ -105,9 +108,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Jobs · 案件マスタ（実データ）</div>
           <h1>案件</h1>
-          <div className="sub">
-            中央 Supabase <b className="mono">enger.jobs</b> から取得した実案件です。CSVで取り込んだ案件がここに一覧表示され、マッチングの母数になります。
-          </div>
+          <EntityGrowthLine unit="件" delta={growth} />
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
           <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />
