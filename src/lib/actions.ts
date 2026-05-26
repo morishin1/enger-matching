@@ -388,6 +388,41 @@ export async function deleteCompany(name: string) {
   return { ok: true };
 }
 
+/** 企業マスタをCSVから一括登録/更新（name で upsert）。案件/人材が無くても企業として残る。 */
+export async function importCompanies(records: CompanyInput[]) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, inserted: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const rows = records.filter((r) => r.name?.trim()).map((r) => {
+    const row: Record<string, any> = { name: r.name.trim() };
+    for (const k of ["industry", "tier", "status", "owner_staff", "contact_name", "contact_email", "phone", "website", "address", "note"] as const) {
+      const v = (r as any)[k]; if (v != null && String(v).trim()) row[k] = String(v).trim();
+    }
+    return row;
+  });
+  if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（企業名必須）" };
+  let inserted = 0; const BATCH = 500;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH);
+    const { error, count } = await admin.from("companies").upsert(batch, { onConflict: "name", count: "exact" });
+    if (error) return { ok: false, inserted, error: error.message };
+    inserted += count ?? batch.length;
+  }
+  revalidatePath("/companies"); bustCounts();
+  return { ok: true, inserted };
+}
+
+/** 企業へ連絡したことを記録（last_contacted_at を現在時刻に）。3ヶ月ごとのフォロー管理用。 */
+export async function markCompanyContacted(name: string) {
+  const n = (name || "").trim();
+  if (!n) return { ok: false, error: "企業名がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("companies").upsert({ name: n, last_contacted_at: new Date().toISOString() }, { onConflict: "name" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
 // ===================== 担当者マスタ (提案者/クロージング) =====================
 
 /** 担当者を追加（提案者/クロージングの役割フラグ + ログイン用メール）。 */
