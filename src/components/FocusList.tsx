@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
 
+const dt = (d: string | null | undefined) => (d ? new Date(d).toLocaleString("ja-JP", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const remoteLabel = (r: string | null) => r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 const salaryLabel = (lo: number | null, hi: number | null) => { if (lo && hi) return lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`; if (hi) return `〜¥${hi}万`; if (lo) return `¥${lo}万〜`; return "スキル見合い"; };
 
@@ -31,6 +32,10 @@ export function FocusList({ kind, items }: { kind: "jobs" | "people"; items: any
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title(r)}</div>
             <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub(r)}</div>
+            <div className="muted" style={{ fontSize: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+              <span>🕒 登録 {dt(r.created_at)}</span>
+              {(r._focusWhy ?? []).map((w: string) => <span key={w} className="tag" style={{ fontSize: 9, padding: "0 5px" }}>{w}</span>)}
+            </div>
           </div>
           <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
         </div>
