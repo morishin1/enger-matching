@@ -29,6 +29,9 @@ function initialsOf(name: string): string {
   return (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "");
 }
 
+/** 重複判定用の正規化（空白・全角・記号を除去）。 */
+const normKey = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　]/g, "").replace(/[（）()・,，、。．.\-－_/／]/g, "");
+
 /** 人材CSVの取り込み (service role)。バッチで insert。 */
 export async function importCandidates(records: CandidateInput[], sourceLabel: string) {
   let admin: ReturnType<typeof engerAdmin>;
@@ -58,10 +61,32 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 
   if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（氏名必須）" };
 
+  // 重複排除（氏名×会社）。バッチ内＋既存DBと突合し、新規のみ取り込む。
+  const dkey = (name?: string | null, company?: string | null) =>
+    normKey(name) + "|" + normKey(company);
+  const existing = new Set<string>();
+  try {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await admin.from("candidates").select("name, company, source_company").range(from, from + 999);
+      if (error || !data) break;
+      for (const r of data as any[]) existing.add(dkey(r.name, r.company || r.source_company));
+      if (data.length < 1000) break;
+    }
+  } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
+
+  const seen = new Set<string>();
+  const fresh = rows.filter((r) => {
+    const k = dkey(r.name, r.company);
+    if (existing.has(k) || seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+  const skipped = rows.length - fresh.length;
+  if (fresh.length === 0) { revalidatePath("/people"); bustCounts(); return { ok: true, inserted: 0, skipped }; }
+
   let inserted = 0;
   const BATCH = 500;
-  for (let i = 0; i < rows.length; i += BATCH) {
-    const batch = rows.slice(i, i + BATCH);
+  for (let i = 0; i < fresh.length; i += BATCH) {
+    const batch = fresh.slice(i, i + BATCH);
     const { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
     if (error) return { ok: false, inserted, error: error.message };
     inserted += count ?? batch.length;
@@ -69,7 +94,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 
   revalidatePath("/people");
   bustCounts();
-  return { ok: true, inserted };
+  return { ok: true, inserted, skipped };
 }
 
 /** 注力フラグのトグル (service role)。案件=jobs/job_no、人材=candidates/candidate_no */

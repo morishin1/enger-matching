@@ -128,7 +128,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
     start(async () => {
       const res = kind === "candidates" ? await importCandidates(recs as CandidateInput[], fileName) : await importJobs(recs as JobInput[], fileName);
-      if (res.ok) { setMsg({ ok: true, text: `${res.inserted} 件を取り込みました` }); setPreview(null); router.refresh(); }
+      if (res.ok) { const sk = (res as any).skipped; setMsg({ ok: true, text: `${res.inserted} 件を取り込みました${sk ? `（重複 ${sk} 件はスキップ）` : ""}` }); setPreview(null); router.refresh(); }
       else setMsg({ ok: false, text: res.error || "取込に失敗しました" });
     });
   };
