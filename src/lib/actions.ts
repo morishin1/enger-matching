@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin } from "./supabase";
 import { currentAccess } from "./accounts";
 import { canSeeMargin } from "./engagement-access";
+import { normalizeSkills } from "./skills";
 
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
 const bustCounts = () => revalidateTag("sidebar-counts", "max");
@@ -43,7 +44,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       title: r.title?.trim() || null,
       company: r.company?.trim() || null,
       affiliation: r.affiliation?.trim() || null,
-      skills: r.skills ?? [],
+      skills: normalizeSkills(r.skills ?? []),
       rate: r.rate?.trim() || null,
       rate_num: r.rate_num ?? null,
       avail: r.avail?.trim() || null,
@@ -511,7 +512,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
       title: r.title.trim(),
       client_name: r.client_name?.trim() || null,
       role_label: r.role_label?.trim() || null,
-      skills: r.skills ?? [],
+      skills: normalizeSkills(r.skills ?? []),
       salary_min: r.salary_min ?? null,
       salary_max: r.salary_max ?? null,
       salary_label: salaryLabel(r.salary_min, r.salary_max),

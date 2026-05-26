@@ -15,34 +15,9 @@ export type Candidate = {
 
 export type MatchResult = { score: number; matchedSkills: string[]; missingSkills: string[]; reasons: string[] };
 
-const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").replace(/[.．・/／]/g, "");
-
-// 表記揺れ・同義語を正規形に寄せる辞書（スコアリングのスキル一致精度を上げる）
-const SYNONYMS: Record<string, string> = {
-  reactjs: "react", リアクト: "react",
-  nextjs: "next", ネクストjs: "next", ネクスト: "next",
-  vuejs: "vue", ビュー: "vue",
-  nodejs: "node", node: "node",
-  ts: "typescript", タイプスクリプト: "typescript",
-  js: "javascript", ジャバスクリプト: "javascript", ジャヴァスクリプト: "javascript",
-  golang: "go", go言語: "go",
-  k8s: "kubernetes", クバネティス: "kubernetes", クーベネティス: "kubernetes",
-  amazonwebservices: "aws", エーダブリューエス: "aws",
-  gcp: "googlecloud", googlecloudplatform: "googlecloud",
-  postgres: "postgresql", postgre: "postgresql", ポスグレ: "postgresql",
-  mysql: "mysql",
-  csharp: "c#", "c＃": "c#", シーシャープ: "c#",
-  "cplusplus": "c++", シープラ: "c++",
-  rubyonrails: "rails", ror: "rails", レイルズ: "rails",
-  laravel: "laravel", ララベル: "laravel",
-  django: "django", ジャンゴ: "django",
-  springboot: "spring", スプリング: "spring",
-  dotnet: ".net", "net": ".net",
-  tensorflow: "tensorflow", pytorch: "pytorch",
-  swiftui: "swift", jetpackcompose: "kotlin",
-};
-// 正規化＋同義語寄せ
-export const canon = (s: string) => { const n = norm(s); return SYNONYMS[n] ?? n; };
+// スキル正規化は正典辞書（skills.ts）に集約。役職テキストの素正規化のみローカルに持つ。
+import { canon, normToken as norm } from "./skills";
+export { canon };
 
 /** 2つのスキル配列の一致スキル（candidate側の元表記で返す）。 */
 export function overlapSkills(jobSkills?: string[] | null, candSkills?: string[] | null): string[] {

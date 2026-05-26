@@ -1,4 +1,5 @@
 // 注力(お気に入り)定義の型と評価ロジック（クライアント/サーバ両用・純粋関数のみ）。
+import { canon } from "./skills";
 
 export type FocusRule = {
   minRate: number | null;   // 単価下限（万）
@@ -43,7 +44,9 @@ export function evaluateFocus(rule: FocusRule, e: FocusEntity): FocusEval {
     checks.push({ label: `単価 ${rule.minRate}万以上`, pass: ok, detail: e.rate != null ? `${e.rate}万` : "単価不明" });
   }
   if (rule.skills.length) {
-    const matched = rule.skills.filter((s) => s && hay.includes(s.toLowerCase()));
+    // 正典辞書(canon)でスキル一致を判定。表記ゆれ(React/ReactJS等)を吸収。テキスト内包もフォールバック。
+    const eskills = new Set(e.skills.map(canon));
+    const matched = rule.skills.filter((s) => s && (eskills.has(canon(s)) || hay.includes(s.toLowerCase())));
     checks.push({ label: `重視スキル（${rule.skills.join("・")}）`, pass: matched.length > 0, detail: matched.length ? `合致：${matched.join("・")}` : "該当なし" });
   }
   if (rule.keywords.length) {
