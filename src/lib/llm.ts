@@ -13,6 +13,8 @@ const PRICES: { match: RegExp; in: number; out: number }[] = [
   { match: /3-5-haiku|3\.5-haiku|haiku/i, in: 0.8, out: 4.0 },
   { match: /sonnet/i, in: 3.0, out: 15.0 },
   { match: /opus/i, in: 15.0, out: 75.0 },
+  { match: /gemini.*flash|flash/i, in: 0.10, out: 0.40 },
+  { match: /gemini.*pro/i, in: 1.25, out: 5.0 },
   { match: /4o-mini|4\.1-mini|gpt-5-mini|mini/i, in: 0.15, out: 0.6 },
   { match: /gpt-4o|gpt-4\.1|gpt-5/i, in: 2.5, out: 10.0 },
 ];

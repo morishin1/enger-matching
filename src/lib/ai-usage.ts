@@ -30,12 +30,17 @@ export type CostReport = {
   available: boolean;
   thisMonth: { label: string; count: number; usd: number };
   lastMonth: { label: string; count: number; usd: number };
-  byFeature: { feature: string; count: number; usd: number }[]; // 今月分
+  byFeature: { feature: string; count: number; usd: number }[]; // 今月分（ENGER内蔵）
+  providers: { provider: string; label: string; count: number; usd: number }[]; // 今月分（内蔵/Gemini等）
 };
 
-/** ダッシュボード用：今月・前月のAIコスト（ENGER内蔵AIのみ）。 */
+const PROVIDER_LABEL: Record<string, string> = { internal: "ENGER内蔵AI", anthropic: "ENGER内蔵AI（Anthropic）", openai: "ENGER内蔵AI（OpenAI）", google: "Gemini（GAS）", gemini: "Gemini（GAS）" };
+export const providerLabel = (p: string) => PROVIDER_LABEL[p] ?? p;
+const isExternal = (p: string) => p === "google" || p === "gemini";
+
+/** ダッシュボード用：今月・前月のAIコスト（ENGER内蔵AI＋Gemini(GAS)を合算）。 */
 export async function getCostReport(): Promise<CostReport> {
-  const empty: CostReport = { available: false, thisMonth: { label: "", count: 0, usd: 0 }, lastMonth: { label: "", count: 0, usd: 0 }, byFeature: [] };
+  const empty: CostReport = { available: false, thisMonth: { label: "", count: 0, usd: 0 }, lastMonth: { label: "", count: 0, usd: 0 }, byFeature: [], providers: [] };
   if (!dbConfigured) return empty;
   try {
     const sb = engerClient();
@@ -43,23 +48,31 @@ export async function getCostReport(): Promise<CostReport> {
     const thisStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const ym = (d: Date) => `${d.getFullYear()}/${d.getMonth() + 1}`;
-    const { data, error } = await sb.from("ai_usage").select("feature, cost_usd, created_at").gte("created_at", lastStart.toISOString()).limit(20000);
-    if (error) return empty;
-    const rows = data ?? [];
+    // provider 列が無い環境でも落ちないようフォールバック
+    let res: any = await sb.from("ai_usage").select("feature, provider, cost_usd, created_at").gte("created_at", lastStart.toISOString()).limit(20000);
+    if (res.error) res = await sb.from("ai_usage").select("feature, cost_usd, created_at").gte("created_at", lastStart.toISOString()).limit(20000);
+    if (res.error) return empty;
+    const rows = res.data ?? [];
     const tm = { label: ym(thisStart), count: 0, usd: 0 };
     const lm = { label: ym(lastStart), count: 0, usd: 0 };
     const fmap = new Map<string, { count: number; usd: number }>();
+    const pmap = new Map<string, { count: number; usd: number }>();
     for (const r of rows) {
       const usd = Number(r.cost_usd) || 0;
       const d = new Date(r.created_at);
       if (d >= thisStart) {
         tm.count++; tm.usd += usd;
-        const fk = r.feature || "other";
-        const fm = fmap.get(fk) ?? { count: 0, usd: 0 }; fm.count++; fm.usd += usd; fmap.set(fk, fm);
+        const prov = (r.provider as string) || "internal";
+        const pm = pmap.get(prov) ?? { count: 0, usd: 0 }; pm.count++; pm.usd += usd; pmap.set(prov, pm);
+        if (!isExternal(prov)) { // 機能別内訳は内蔵AIのみ（Geminiはprovider側で見る）
+          const fk = r.feature || "other";
+          const fm = fmap.get(fk) ?? { count: 0, usd: 0 }; fm.count++; fm.usd += usd; fmap.set(fk, fm);
+        }
       } else if (d >= lastStart) { lm.count++; lm.usd += usd; }
     }
     const byFeature = [...fmap.entries()].map(([feature, v]) => ({ feature, ...v })).sort((a, b) => b.usd - a.usd);
-    return { available: true, thisMonth: tm, lastMonth: lm, byFeature };
+    const providers = [...pmap.entries()].map(([provider, v]) => ({ provider, label: providerLabel(provider), ...v })).sort((a, b) => b.usd - a.usd);
+    return { available: true, thisMonth: tm, lastMonth: lm, byFeature, providers };
   } catch { return empty; }
 }
 

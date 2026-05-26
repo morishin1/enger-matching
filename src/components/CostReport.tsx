@@ -36,12 +36,22 @@ export async function CostReport() {
             <div className="kpi accent"><div><div className="val tnum" style={{ color: up ? "#b42318" : "#067647" }}>{up ? "▲" : "▼"} {yen(Math.abs(diff))}</div><div className="label">前月差</div><div className="note">{up ? "増加" : "減少"}</div></div></div>
           </div>
 
-          {r.byFeature.length > 0 && (
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "var(--color-ink-3)", marginBottom: 8 }}>
-              {r.byFeature.map((f) => <span key={f.feature}>{featureLabel(f.feature)}：<b style={{ color: "var(--color-ink)" }}>{yen(f.usd)}</b>（{f.count}回）</span>)}
+          {r.providers.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              {r.providers.map((p) => (
+                <span key={p.provider} style={{ fontSize: 12, fontWeight: 600, padding: "5px 10px", borderRadius: 99, background: p.provider === "google" || p.provider === "gemini" ? "#fff1e6" : "#eaf4fd", color: p.provider === "google" || p.provider === "gemini" ? "#b45309" : "#0b5cab" }}>
+                  {p.label}：{yen(p.usd)}（{p.count}回）
+                </span>
+              ))}
             </div>
           )}
-          <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginBottom: 12 }}>※ ここに出るのは ENGER内蔵AI（Anthropic）の概算のみ。Gemini(GAS)・インフラ費は各社ダッシュボードで確認してください。</div>
+          {r.byFeature.length > 0 && (
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12, color: "var(--color-ink-3)", marginBottom: 8 }}>
+              <span className="muted" style={{ fontSize: 11 }}>内蔵AI内訳：</span>
+              {r.byFeature.map((f) => <span key={f.feature}>{featureLabel(f.feature)} <b style={{ color: "var(--color-ink)" }}>{yen(f.usd)}</b></span>)}
+            </div>
+          )}
+          <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginBottom: 12 }}>※ ENGER内蔵AI（Anthropic）＋Gemini（GAS）の合算概算。GASからの送信が無い月はGeminiは0表示。インフラ費は各社ダッシュボードで確認してください。</div>
         </>
       )}
 
