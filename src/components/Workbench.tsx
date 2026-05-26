@@ -180,7 +180,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
   return (
     <>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>{tabBtn("list", "📋 リスト")}{tabBtn("card", "🗂 カード")}{tabBtn("graph", "📊 推移")}</div>
+        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>{tabBtn("list", "📋 リスト")}{tabBtn("card", "🗂 カード")}{tabBtn("graph", "🗓 稼働")}</div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <button className="btn ghost btn-xs" onClick={() => setMonth(-1)}>← 前月</button>
           <span style={{ fontWeight: 700, fontSize: 13.5, minWidth: 78, textAlign: "center" }}>{period}</span>
@@ -196,7 +196,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
       </div>
 
       {view === "graph" ? (
-        <GraphView rows={rows} period={period} role={role} />
+        <ScheduleView rows={rows} />
       ) : visible.length === 0 ? (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
           {searched.length > 0 && doneCount > 0 ? <>未処理の稼働はありません 🎉 「✓ 済 {doneCount}」で完了分を表示できます。</> : <>対象の稼働がありません。提案管理で成約 →「稼働化」、または「＋新規追加」で登録してください。</>}
@@ -222,51 +222,66 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
   );
 }
 
-/** 直近3ヶ月の月次売上(稼働中・予定の月額合計)を棒グラフで表示。 */
-function GraphView({ rows, period, role }: { rows: Eng[]; period: string; role: Role }) {
-  const [y, m] = period.split("-").map(Number);
-  const months = [-2, -1, 0].map((d) => {
-    const dt = new Date(y, m - 1 + d, 1);
-    return { y: dt.getFullYear(), m: dt.getMonth(), label: `${dt.getFullYear()}/${dt.getMonth() + 1}` };
+/** 稼働中・予定の契約期間を横棒(ガント)で表示。満了が近い順（上から）に並べる。 */
+function ScheduleView({ rows }: { rows: Eng[] }) {
+  const today = Date.now();
+  const items = rows.filter((e) => e.status !== "終了");
+  // 満了が近い順（end_date昇順、未設定は最後）
+  const sorted = [...items].sort((a, b) => {
+    const ae = a.end_date ? new Date(a.end_date).getTime() : Infinity;
+    const be = b.end_date ? new Date(b.end_date).getTime() : Infinity;
+    return ae - be;
   });
-  const inMonth = (e: Eng, my: number, mm: number) => {
-    if (e.status === "終了" && !e.end_date) return false;
-    const ms = new Date(my, mm, 1).getTime();
-    const me = new Date(my, mm + 1, 0).getTime();
-    const s = e.start_date ? new Date(e.start_date).getTime() : -Infinity;
-    const en = e.end_date ? new Date(e.end_date).getTime() : Infinity;
-    return s <= me && en >= ms;
-  };
-  const data = months.map((mo) => {
-    const active = rows.filter((e) => inMonth(e, mo.y, mo.m));
-    const sales = active.reduce((a, e) => a + (Number(e.monthly_rate) || 0), 0);
-    const gross = active.filter((e) => !e._maskMargin && e.cost != null).reduce((a, e) => a + ((Number(e.monthly_rate) || 0) - (Number(e.cost) || 0)), 0);
-    return { ...mo, sales, gross, count: active.length };
-  });
-  const max = Math.max(1, ...data.map((d) => d.sales));
+  const starts = items.map((e) => (e.start_date ? new Date(e.start_date).getTime() : null)).filter((n): n is number => n != null);
+  const ends = items.map((e) => (e.end_date ? new Date(e.end_date).getTime() : null)).filter((n): n is number => n != null);
+  const axisStart = Math.min(today, ...(starts.length ? starts : [today]));
+  const axisEnd = Math.max(today + 30 * DAY, ...(ends.length ? ends : [today + 180 * DAY]));
+  const range = Math.max(1, axisEnd - axisStart);
+  const pct = (t: number) => Math.max(0, Math.min(100, ((t - axisStart) / range) * 100));
+  const fmt = (t?: string | null) => (t ? new Date(t).toLocaleDateString("ja-JP", { year: "numeric", month: "numeric", day: "numeric" }) : "未設定");
+  const todayPct = pct(today);
+
+  if (items.length === 0) return <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>稼働中・予定の契約がありません。</div>;
 
   return (
-    <div className="card" style={{ padding: 20 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>📊 月次売上の推移（直近3ヶ月）</h3>
-        <span className="muted" style={{ fontSize: 11 }}>各月に稼働している契約の月額合計（万）</span>
+    <div className="card" style={{ padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🗓 稼働中の契約期間（満了が近い順）</h3>
+        <span className="muted" style={{ fontSize: 11 }}>赤=30日以内に満了 / 点線=満了日未設定 ・ 縦線=今日</span>
       </div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 28, height: 220, padding: "16px 8px 0", justifyContent: "center" }}>
-        {data.map((d) => (
-          <div key={d.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, width: 110 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--color-brand-700,#0b5cab)" }}>{d.sales.toLocaleString("ja-JP")}<span style={{ fontSize: 10, fontWeight: 600 }}>万</span></div>
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 150 }}>
-              <div title={`売上 ${d.sales}万`} style={{ width: 38, height: `${Math.max(d.sales > 0 ? 6 : 0, Math.round((d.sales / max) * 100))}%`, background: "linear-gradient(180deg,#38BDF8,#0095D9)", borderRadius: "5px 5px 0 0" }} />
-              {role === "admin" && <div title={`粗利 ${d.gross}万`} style={{ width: 38, height: `${Math.max(d.gross > 0 ? 4 : 0, Math.round((d.gross / max) * 100))}%`, background: "linear-gradient(180deg,#86efac,#22c55e)", borderRadius: "5px 5px 0 0" }} />}
+      <div style={{ display: "flex", justifyContent: "flex-end", paddingLeft: 200, fontSize: 10.5, color: "var(--color-ink-4)", marginBottom: 4 }}>
+        <span>{fmt(new Date(axisStart).toISOString())}</span><span style={{ marginLeft: "auto" }}>{fmt(new Date(axisEnd).toISOString())}</span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {sorted.map((e) => {
+          const s = e.start_date ? new Date(e.start_date).getTime() : axisStart;
+          const hasEnd = !!e.end_date;
+          const en = hasEnd ? new Date(e.end_date).getTime() : axisEnd;
+          const left = pct(s), right = pct(en);
+          const width = Math.max(1.5, right - left);
+          const d = hasEnd ? Math.floor((en - today) / DAY) : null;
+          const soon = d != null && d >= 0 && d <= 31;
+          const over = d != null && d < 0;
+          const barColor = over ? "#9ca3af" : soon ? "linear-gradient(90deg,#fb923c,#ef4444)" : "linear-gradient(90deg,#38BDF8,#0095D9)";
+          return (
+            <div key={e.id} style={{ display: "grid", gridTemplateColumns: "192px 1fr", gap: 8, alignItems: "center" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.candidate_name ?? "—"}</div>
+                <div className="muted" style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.company ?? ""}</div>
+              </div>
+              <div style={{ position: "relative", height: 30, background: "var(--color-surface-inset)", borderRadius: 6 }}>
+                {/* 今日線 */}
+                <div style={{ position: "absolute", left: `${todayPct}%`, top: -2, bottom: -2, width: 2, background: "#0F2440", opacity: 0.45, zIndex: 2 }} />
+                {/* 契約バー */}
+                <div title={`${fmt(e.start_date)} 〜 ${fmt(e.end_date)}`} style={{ position: "absolute", left: `${left}%`, width: `${width}%`, top: 4, bottom: 4, background: hasEnd ? barColor : "transparent", border: hasEnd ? 0 : "1.5px dashed #94a3b8", borderRadius: 6, display: "flex", alignItems: "center", paddingLeft: 8, overflow: "hidden" }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: hasEnd && !over ? "#fff" : "var(--color-ink-3)", whiteSpace: "nowrap" }}>
+                    {fmt(e.start_date)} 〜 {hasEnd ? fmt(e.end_date) : "満了未設定"}{d != null ? (over ? `（${-d}日超過）` : `（残り${d}日）`) : ""}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 12, fontWeight: 700 }}>{d.label}{d.label.endsWith(`/${m}`) ? "（当月）" : ""}</div>
-            <div className="muted" style={{ fontSize: 10.5 }}>{d.count}名稼働</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 8, fontSize: 11, color: "var(--color-ink-4)" }}>
-        <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#0095D9", borderRadius: 2, marginRight: 4 }} />売上(万)</span>
-        {role === "admin" && <span><span style={{ display: "inline-block", width: 10, height: 10, background: "#22c55e", borderRadius: 2, marginRight: 4 }} />粗利(万)</span>}
+          );
+        })}
       </div>
     </div>
   );
