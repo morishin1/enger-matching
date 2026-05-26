@@ -14,6 +14,36 @@ const remoteLabel = (r: string | null | undefined) =>
 const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
 
+const ageDays = (d: any) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
+const isProper = (a: any) => /\bPP\b|プロパー|自社/i.test(String(a || ""));
+
+/**
+ * 注力マッチングの対象を選定（定義）：
+ *   ① ♡お気に入り(is_focus)  ② プロパー(PP)  ③ 最近(30日内)登録 かつ 決まりやすい(スキル有 or 提案可)
+ *   注力スコアで並べ、上限60件に絞る（母数=300のような無意味な数を避ける）。
+ */
+function curateFocus(kind: "jobs" | "cands", rows: any[]): any[] {
+  const seen = new Set<number>(); const out: any[] = [];
+  for (const r of rows) {
+    const id = kind === "jobs" ? r.job_no : r.candidate_no;
+    if (id == null || seen.has(id)) continue;
+    const d = ageDays(r.created_at);
+    const likely = !!(r.skills?.length) || String(r.status || "").includes("提案");
+    const pp = kind === "cands" && isProper(r.affiliation);
+    const qualifies = !!r.is_focus || pp || (d <= 30 && likely);
+    if (!qualifies) continue;
+    seen.add(id);
+    let s = 0; const why: string[] = [];
+    if (r.is_focus) { s += 100; why.push("♡注力"); }
+    if (pp) { s += 50; why.push("プロパー"); }
+    if (d <= 7) { s += 30; why.push("新着"); } else if (d <= 30) { s += 15; why.push("最近登録"); }
+    if (String(r.status || "").includes("提案")) s += 10;
+    if (r.skills?.length) s += 10;
+    out.push({ ...r, _focusScore: s, _focusWhy: why.slice(0, 2) });
+  }
+  return out.sort((a, b) => b._focusScore - a._focusScore || ageDays(a.created_at) - ageDays(b.created_at)).slice(0, 60);
+}
+
 function Stars({ score }: { score: number }) {
   const n = Math.max(0, Math.min(5, Math.round(score / 20)));
   return (
@@ -72,13 +102,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
         }
       } else if (tab === "focus") {
-        // ---- 注力マッチング = ハートを付けた案件・人材の一覧（未マッチング・ウォッチリスト）----
-        const [fjl, fcl] = await Promise.all([
-          sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).order("job_no", { ascending: false }).limit(300),
-          sb.from("candidates").select(CAND_BASE).eq("is_focus", true).order("candidate_no", { ascending: true }).limit(300),
+        // ---- 注力マッチング = ♡お気に入り ＋ プロパー(PP) ＋ 最近登録&決まりやすい を自動表示 ----
+        const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
+        const JOB_F = `${JOB_BASE}, status, created_at`;
+        const CAND_F = `${CAND_BASE}, created_at`;
+        const safe = async (q: any, fb: any) => { const r = await q; return r.error ? ((await fb)?.data ?? []) : (r.data ?? []); };
+        const [hjJobs, recJobs, hfCands, ppCands, recCands] = await Promise.all([
+          safe(sb.from("jobs").select(JOB_F).eq("is_published", true).eq("is_focus", true).limit(200), sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).limit(200)),
+          safe(sb.from("jobs").select(JOB_F).eq("is_published", true).gte("created_at", since30).limit(300), Promise.resolve({ data: [] })),
+          safe(sb.from("candidates").select(CAND_F).eq("is_focus", true).limit(200), sb.from("candidates").select(CAND_BASE).eq("is_focus", true).limit(200)),
+          safe(sb.from("candidates").select(CAND_F).or("affiliation.eq.PP,affiliation.ilike.%プロパー%").limit(300), Promise.resolve({ data: [] })),
+          safe(sb.from("candidates").select(CAND_F).gte("created_at", since30).limit(400), Promise.resolve({ data: [] })),
         ]);
-        focusJobs = fjl.data ?? [];
-        focusCands = fcl.data ?? [];
+        focusJobs = curateFocus("jobs", [...hjJobs, ...recJobs]);
+        focusCands = curateFocus("cands", [...hfCands, ...ppCands, ...recCands]);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
         const buildList = (cols: string) =>
@@ -230,9 +267,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       <div className="page">
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
-            <div className="meta">Matching · 注力（ウォッチリスト）</div>
+            <div className="meta">Matching · 注力（優先対応）</div>
             <h1>注力マッチング</h1>
-            <div className="sub">ハート <span style={{ color: "#e0567f" }}>♥</span> を付けた案件・人材の一覧です（未マッチング）。各カードの「マッチング」から自動マッチングに進めます。</div>
+            <div className="sub">注力 = <span style={{ color: "#e0567f" }}>♥</span>お気に入り ＋ プロパー(PP) ＋ 最近(30日内)登録で決まりやすい 案件・人材。優先的にマッチングを進める対象です。</div>
           </div>
         </div>
         {Tabs}
@@ -245,7 +282,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               <div style={{ fontSize: 14, fontWeight: 700 }}>注力案件</div><span className="tag brand">{focusJobs.length}件</span>
             </div>
             {focusJobs.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>案件一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
+              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}><span style={{ color: "#e0567f" }}>♥</span> お気に入り・新着の決まりやすい案件がここに表示されます</div>
             ) : <FocusList kind="jobs" items={focusJobs} />}
           </div>
           {/* 注力人材 */}
@@ -254,7 +291,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               <div style={{ fontSize: 14, fontWeight: 700 }}>注力人材</div><span className="tag brand">{focusCands.length}名</span>
             </div>
             {focusCands.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>人材一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
+              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}><span style={{ color: "#e0567f" }}>♥</span> お気に入り・プロパー・新着の決まりやすい人材がここに表示されます</div>
             ) : <FocusList kind="people" items={focusCands} />}
           </div>
         </div>
