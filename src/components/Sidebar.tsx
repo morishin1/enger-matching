@@ -9,7 +9,7 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 
 const NAV = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
-  { href: "/matching", id: "matching", label: "マッチング", icon: "matching", count: "matching", hot: true },
+  { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
   { href: "/engineers", id: "engineers", label: "エンジャー登録", icon: "engineers" },
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
   { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
