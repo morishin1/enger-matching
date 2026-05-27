@@ -4,6 +4,8 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateEngagementStatus, updateEngagementFields } from "@/lib/actions";
 import { upsertBillingTask, uploadBillingFile } from "@/app/billing/actions";
+import { setBoardProjectId } from "@/app/billing/board-actions";
+import { BoardSync } from "./BoardSync";
 import { EngagementTools } from "./EngagementTools";
 import { RateHistoryButton } from "./RateHistory";
 import { AFFILIATIONS, affiliationShort } from "@/lib/affiliation";
@@ -82,7 +84,20 @@ function AttCell({ e, period, onChanged }: { e: Eng; period: string; onChanged: 
   );
 }
 
-function InvCell({ e, period, onChanged }: { e: Eng; period: string; onChanged: () => void }) {
+/** board 案件IDの手動ひもづけ入力（管理者・バックオフィスのみ表示）。 */
+function BoardIdField({ e, onChanged }: { e: Eng; onChanged: () => void }) {
+  const [pending, start] = useTransition();
+  const [v, setV] = useState<string>(e.board_project_id ?? "");
+  const save = () => {
+    if ((v.trim() || null) === (e.board_project_id ?? null)) return;
+    start(async () => { await setBoardProjectId(e.id, v); onChanged(); });
+  };
+  return (
+    <input value={v} disabled={pending} placeholder="board案件ID" title="board の案件IDを設定すると、同期で送付状況を自動更新します" style={{ ...inp, width: 110, fontSize: 10.5, padding: "3px 6px" }} onChange={(ev) => setV(ev.target.value)} onBlur={save} />
+  );
+}
+
+function InvCell({ e, period, onChanged, canManage }: { e: Eng; period: string; onChanged: () => void; canManage: boolean }) {
   const b = e.bill ?? {};
   const [amount, setAmount] = useState<number | "">(b.invoice_amount ?? "");
   const { pending, saveBill } = useBilling(e.id, period, onChanged);
@@ -92,9 +107,9 @@ function InvCell({ e, period, onChanged }: { e: Eng; period: string; onChanged: 
     <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 150 }}>
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         <input type="number" value={amount} disabled={pending} placeholder="請求額(万)" title="請求額（万円・任意）" style={{ ...inp, width: 78 }} onChange={(ev) => setAmount(ev.target.value === "" ? "" : Number(ev.target.value))} onBlur={() => saveBill({ invoice_amount: amount === "" ? null : Number(amount) })} />
-        <button type="button" className="btn ghost btn-xs" disabled={pending} title="boardで請求書を送付したらここを「送付完了」に" onClick={() => saveBill({ invoice_status: sent ? "未" : "送付完了" })} style={{ color: sent ? "#1aa260" : "var(--color-ink-4)", fontWeight: 600 }}>{sent ? "✓送付完了" : "未送付"}</button>
+        <button type="button" className="btn ghost btn-xs" disabled={pending} title="boardで請求書を送付したらここを「送付完了」に（同期でも自動更新）" onClick={() => saveBill({ invoice_status: sent ? "未" : "送付完了" })} style={{ color: sent ? "#1aa260" : "var(--color-ink-4)", fontWeight: 600 }}>{sent ? "✓送付完了" : "未送付"}</button>
       </div>
-      <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>請求書は board で作成・送付</div>
+      {canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>請求書は board で作成・送付</div>}
     </div>
   );
 }
@@ -141,7 +156,7 @@ function Row({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Ro
           <select defaultValue={e.po_status ?? ""} style={{ ...inp, width: 78, color: collectTone(e.po_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ po_status: ev.target.value || null })}><option value="">注文書:未</option>{COLLECT.map((s) => <option key={s} value={s}>注文{s}</option>)}</select>
         </div>
       </td>
-      <td style={td}><InvCell e={e} period={period} onChanged={onChanged} /></td>
+      <td style={td}><InvCell e={e} period={period} onChanged={onChanged} canManage={canManage} /></td>
       <td style={td}><input type="date" defaultValue={dateVal(e.end_date)} style={{ ...inp, width: 124 }} disabled={pending} onBlur={(ev) => { if (ev.target.value !== dateVal(e.end_date)) save({ end_date: ev.target.value || null }); }} /></td>
     </tr>
   );
@@ -150,7 +165,7 @@ function Row({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Ro
 /** 当月の処理が完了か：請求書=送付完了 かつ 注文書=回収済。 */
 const isDone = (e: Eng) => (e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
 
-export function Workbench({ rows, role = "admin", period, canManage, agentScoped }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean }) {
+export function Workbench({ rows, role = "admin", period, canManage, agentScoped, boardLastSynced }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean; boardLastSynced?: string | null }) {
   const router = useRouter();
   const [view, setView] = useState<"list" | "card" | "graph">("list");
   const [q, setQ] = useState("");
@@ -188,7 +203,10 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
           <button onClick={() => setShowDone((v) => !v)} title="請求書＋注文書が揃った稼働" style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${showDone ? "#1aa260" : "var(--color-border-strong)"}`, background: showDone ? "#e7f3ea" : "var(--color-surface)", color: showDone ? "#067647" : "var(--color-ink-3)" }}>✓ 済 {doneCount}{showDone ? "（表示中）" : "（非表示）"}</button>
         )}
         {agentScoped && <span className="muted" style={{ fontSize: 11 }}>自分の担当のみ</span>}
-        <div style={{ marginLeft: "auto" }}>{canManage && <EngagementTools rows={rows} />}</div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {canManage && <BoardSync period={period} lastSyncedAt={boardLastSynced} />}
+          {canManage && <EngagementTools rows={rows} />}
+        </div>
       </div>
 
       {view === "graph" ? (
@@ -315,7 +333,7 @@ function Card({ e, role, period, onChanged, done, canManage }: { e: Eng; role: R
       <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 8 }}>
         <Lbl c={`当月勤怠（${period}）`} /><AttCell e={e} period={period} onChanged={onChanged} />
       </div>
-      <div><Lbl c={`請求（${period}）`} /><InvCell e={e} period={period} onChanged={onChanged} /></div>
+      <div><Lbl c={`請求（${period}）`} /><InvCell e={e} period={period} onChanged={onChanged} canManage={canManage} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <div><Lbl c="契約書" /><select defaultValue={e.contract_status ?? ""} style={{ ...inp, color: collectTone(e.contract_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ contract_status: ev.target.value || null })}><option value="">未</option>{COLLECT.map((s) => <option key={s}>{s}</option>)}</select></div>
         <div><Lbl c="注文書" /><select defaultValue={e.po_status ?? ""} style={{ ...inp, color: collectTone(e.po_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ po_status: ev.target.value || null })}><option value="">未</option>{COLLECT.map((s) => <option key={s}>{s}</option>)}</select></div>
