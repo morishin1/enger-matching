@@ -26,33 +26,17 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       let res: any = await sb
         .from("candidates")
         .select(`${baseCols}, rank, email, contact_email, source_mail_url`, { count: "exact" })
-        .order("candidate_no", { ascending: true })
+        .order("candidate_no", { ascending: false })
         .limit(300);
       if (res.error) {
         res = await sb
           .from("candidates")
           .select(baseCols, { count: "exact" })
-          .order("candidate_no", { ascending: true })
+          .order("candidate_no", { ascending: false })
           .limit(300);
       }
       people = res.data ?? [];
       total = res.count ?? people.length;
-
-      // 「決まりやすい順」：提案可・スキル有・単価帯(B)・鮮度・注力 で並べる（AI不使用）
-      const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
-      const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
-      const rankScore = (r: string | null) => r === "B" ? 15 : r === "A" ? 10 : r === "C" ? 5 : 0;
-      const scoreOf = (p: any) => {
-        const reasons: string[] = [];
-        if ((p.status ?? "").includes("提案")) reasons.push("提案可ステータス");
-        if (p.skills?.length) reasons.push("スキル登録あり");
-        if (p.rank) reasons.push(`ランク${p.rank}`);
-        if (days(p.created_at) <= 3) reasons.push("新着");
-        if (p.saved || p.is_focus) reasons.push("注力人材");
-        const score = Math.round(((p.status ?? "").includes("提案") ? 25 : 0) + ((p.skills?.length) ? 20 : 0) + rankScore(p.rank ?? null) + freshScore(p.created_at) + ((p.saved || p.is_focus) ? 10 : 0));
-        return { score, reasons: reasons.slice(0, 3) };
-      };
-      people = people.map((p: any) => { const r = scoreOf(p); return { ...p, _score: r.score, _reasons: r.reasons }; }).sort((a: any, b: any) => b._score - a._score);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
