@@ -1,16 +1,13 @@
-import { Icons } from "@/components/icons";
 import { CompaniesView } from "@/components/CompaniesView";
-import { CompanyStructure } from "@/components/CompanyStructure";
 import { CompanyCsv } from "@/components/CompanyCsv";
 import { CompanyFollowups, type FollowupRow } from "@/components/CompanyFollowups";
-import { getCompanyOverview, getCompanyMatrix } from "@/lib/companies";
+import { getCompanyOverview } from "@/lib/companies";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   const companies = (await getCompanyOverview()) ?? [];
-  const matrix = await getCompanyMatrix();
 
   // 手動登録した企業マスタ（連絡先・業種・担当・メモ）。名寄せして詳細/編集に使う。
   let registered: any[] = [];
@@ -40,11 +37,7 @@ export default async function CompaniesPage() {
   const needSetup = dbConfigured && companies.length === 0 && registered.length === 0;
 
   const total = companies.length;
-  const tierA = companies.filter((c) => c.tier === "A").length;
   const activeTotal = companies.reduce((a, c) => a + (c.active_jobs ?? 0), 0);
-  const focusTotal = companies.reduce((a, c) => a + (c.focus_jobs ?? 0), 0);
-  const dormant = companies.filter((c) => c.status === "休眠").length;
-  const newCount = companies.filter((c) => c.status === "新規").length;
 
   return (
     <div className="page">
@@ -65,27 +58,6 @@ export default async function CompaniesPage() {
           <b>集計関数が未作成です。</b> SQL Editor で <span className="mono">supabase/companies-rpc.sql</span> を実行すると、案件のクライアント名から企業一覧が表示されます。
         </div>
       )}
-
-      <div className="kpi-grid">
-        <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.company /></div><div className="chip flat">{tierA}社 / A</div></div>
-          <div><div className="val tnum">{total.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">取引先 全数</div><div className="note">{newCount} 新規 · {dormant} 休眠</div></div>
-        </div>
-        <a className="kpi" href="/jobs" style={{ textDecoration: "none", color: "inherit" }}>
-          <div className="top"><div className="ico-box"><Icons.jobs /></div><div className="chip">募集中</div></div>
-          <div><div className="val tnum">{activeTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">進行中案件 ›</div><div className="note">{total} 社合計</div></div>
-        </a>
-        <a className="kpi accent" href="/matching?tab=focus" style={{ textDecoration: "none", color: "inherit" }}>
-          <div className="top"><div className="ico-box"><Icons.star /></div><div className="chip">♥</div></div>
-          <div><div className="val tnum">{focusTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">注力案件 ›</div><div className="note">企業横断</div></div>
-        </a>
-        <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip">休眠</div></div>
-          <div><div className="val tnum">{dormant.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">休眠（90日超）</div><div className="note">再アプローチ候補</div></div>
-        </div>
-      </div>
-
-      {matrix && (matrix.endCount > 0 || matrix.partnerCount > 0) && <CompanyStructure matrix={matrix} />}
 
       {followups.length > 0 && <CompanyFollowups items={followups} />}
 
