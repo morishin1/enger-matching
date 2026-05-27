@@ -10,6 +10,9 @@ export default async function MeetingsPage() {
   let dbError: string | null = null;
   let needSetup = false;
 
+  // 提案管理の面談予定（meeting_date のある提案）をカレンダーに連動表示する
+  let interviews: any[] = [];
+
   if (dbConfigured) {
     try {
       const sb = engerClient();
@@ -20,6 +23,16 @@ export default async function MeetingsPage() {
         .limit(300);
       if (error) needSetup = true;
       else meetings = data ?? [];
+
+      // 面談予定（提案）: 失注・稼働済みを除く、面談日が入った提案
+      try {
+        const { data: pv } = await sb
+          .from("proposals")
+          .select("id, job_title, company, candidate_name, c_init, meeting_date, meeting_status, closer, proposer, stage")
+          .not("meeting_date", "is", null)
+          .limit(300);
+        interviews = (pv ?? []).filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
+      } catch { /* meeting_date 列が無い環境では面談予定なし */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -70,7 +83,7 @@ export default async function MeetingsPage() {
         </div>
       </div>
 
-      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} />}
+      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} interviews={interviews} />}
     </div>
   );
 }

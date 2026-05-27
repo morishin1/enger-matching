@@ -68,9 +68,9 @@ function SegButtons({ options, value, onChange }: { options: string[]; value: st
   );
 }
 
-function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () => void }) {
+function MeetingForm({ companies, onDone, initial }: { companies: string[]; onDone: () => void; initial?: Partial<typeof empty> }) {
   const router = useRouter();
-  const [f, setF] = useState({ ...empty });
+  const [f, setF] = useState({ ...empty, ...(initial ?? {}) });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
@@ -189,8 +189,8 @@ function MeetingForm({ companies, onDone }: { companies: string[]; onDone: () =>
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const ymd = (y: number, mo: number, d: number) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
-/** 月カレンダー：打ち合わせ予定（meeting_date）とフォロー予定（follow_up_date）を可視化。 */
-function MonthCalendar({ meetings, onPick }: { meetings: any[]; onPick: (company: string) => void }) {
+/** 月カレンダー：打ち合わせ記録（meeting_date）・面談予定（提案）・フォロー予定（follow_up_date）を可視化。 */
+function MonthCalendar({ meetings, interviews, onPick, onInterview }: { meetings: any[]; interviews: any[]; onPick: (company: string) => void; onInterview: (iv: any) => void }) {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -201,6 +201,11 @@ function MonthCalendar({ meetings, onPick }: { meetings: any[]; onPick: (company
     for (const mt of meetings) { const d = mt.meeting_date ? String(mt.meeting_date).slice(0, 10) : null; if (!d) continue; (m[d] ||= []).push(mt); }
     return m;
   }, [meetings]);
+  const ivByDay = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const iv of interviews) { const d = iv.meeting_date ? String(iv.meeting_date).slice(0, 10) : null; if (!d) continue; (m[d] ||= []).push(iv); }
+    return m;
+  }, [interviews]);
   const followByDay = useMemo(() => {
     const m: Record<string, number> = {};
     for (const mt of meetings) { if (mt.follow_done) continue; const d = mt.follow_up_date ? String(mt.follow_up_date).slice(0, 10) : null; if (!d) continue; m[d] = (m[d] ?? 0) + 1; }
@@ -235,6 +240,7 @@ function MonthCalendar({ meetings, onPick }: { meetings: any[]; onPick: (company
           if (d == null) return <div key={`e${idx}`} style={{ background: "var(--color-surface-soft)", minHeight: 92 }} />;
           const key = ymd(year, month, d);
           const items = byDay[key] ?? [];
+          const ivs = ivByDay[key] ?? [];
           const follows = followByDay[key] ?? 0;
           const isToday = key === todayStr;
           const dow = (startDow + d - 1) % 7;
@@ -244,6 +250,14 @@ function MonthCalendar({ meetings, onPick }: { meetings: any[]; onPick: (company
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: isToday ? "var(--color-brand-700,#0b5cab)" : dow === 0 ? "#d23f57" : dow === 6 ? "#0b5cab" : "var(--color-ink-3)" }}>{d}</span>
                 {follows > 0 && <span title={`フォロー予定 ${follows}件`} style={{ fontSize: 9.5 }}>🔔{follows}</span>}
               </div>
+              {/* 面談予定（提案）: クリックで記録作成（企業名・日付・候補名をプリフィル） */}
+              {ivs.slice(0, 2).map((iv, i) => (
+                <button key={`iv${i}`} type="button" onClick={() => onInterview(iv)} title={`面談予定：${iv.company_name ?? iv.company ?? ""}${iv.candidate_name ? ` / ${iv.candidate_name}` : ""}${iv.meeting_status ? `（${iv.meeting_status}）` : ""}　クリックで記録作成`}
+                  style={{ textAlign: "left", border: "1px dashed #7c5cff", background: "#7c5cff14", color: "#5b3fd1", borderRadius: 4, padding: "2px 5px", fontSize: 10, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  🗣 {iv.company ?? iv.company_name ?? "—"}
+                </button>
+              ))}
+              {ivs.length > 2 && <span style={{ fontSize: 10, color: "#5b3fd1" }}>面談＋{ivs.length - 2}</span>}
               {items.slice(0, 3).map((m, i) => {
                 const tone = SENT_TONE[m.fb_sentiment] ?? "#6b7280";
                 return (
@@ -259,16 +273,29 @@ function MonthCalendar({ meetings, onPick }: { meetings: any[]; onPick: (company
         })}
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-4)" }}>
-        <span>● 色＝FB感情</span><span>🔔＝フォロー予定（未完了）</span><span>枠の人材名クリックで検索に反映</span>
+        <span>● 色＝FB感情（記録）</span><span style={{ color: "#5b3fd1" }}>🗣 破線＝面談予定（提案）・クリックで記録作成</span><span>🔔＝フォロー予定（未完了）</span>
       </div>
     </div>
   );
 }
 
-export function MeetingsClient({ meetings, companies }: { meetings: any[]; companies: string[] }) {
+export function MeetingsClient({ meetings, companies, interviews = [] }: { meetings: any[]; companies: string[]; interviews?: any[] }) {
   const router = useRouter();
   const [show, setShow] = useState(false);
+  const [formInitial, setFormInitial] = useState<Partial<typeof empty> | undefined>(undefined);
   const [view, setView] = useState<"calendar" | "cards">("calendar");
+
+  // 面談予定（提案）をクリック → 記録フォームを企業名・日付・候補名でプリフィルして開く
+  const openFromInterview = (iv: any) => {
+    setFormInitial({
+      company_name: iv.company ?? iv.company_name ?? "",
+      meeting_date: iv.meeting_date ? String(iv.meeting_date).slice(0, 10) : "",
+      our_owner: iv.closer ?? iv.proposer ?? "",
+      ai_summary: `面談: ${iv.candidate_name ?? ""}${iv.c_init ? `（${iv.c_init}）` : ""}${iv.job_title ? ` / ${iv.job_title}` : ""}`.trim(),
+    });
+    setShow(true);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const [sent, setSent] = useState("");
   const [rel, setRel] = useState("");
   const [q, setQ] = useState("");
@@ -287,7 +314,7 @@ export function MeetingsClient({ meetings, companies }: { meetings: any[]; compa
   return (
     <>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button className="btn brand" onClick={() => setShow((v) => !v)}><Icons.plus /><span>{show ? "フォームを閉じる" : "打合せを記録"}</span></button>
+        <button className="btn brand" onClick={() => { setFormInitial(undefined); setShow((v) => !v); }}><Icons.plus /><span>{show ? "フォームを閉じる" : "打合せを記録"}</span></button>
         <button onClick={() => setOnlyFollow((v) => !v)} style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${onlyFollow ? "#d98a2b" : "var(--color-border-strong)"}`, background: onlyFollow ? "#fff1e6" : "var(--color-surface)", color: onlyFollow ? "#b45309" : "var(--color-ink-3)" }}>🔔 要フォロー {followCount}</button>
         <div className="tbl-search" style={{ width: 220, flex: "0 0 220px" }}><Icons.search /><input placeholder="企業名で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select style={sel} value={sent} onChange={(e) => setSent(e.target.value)}><option value="">FB感情：すべて</option>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select>
@@ -299,10 +326,10 @@ export function MeetingsClient({ meetings, companies }: { meetings: any[]; compa
         </div>
       </div>
 
-      {show && <MeetingForm companies={companies} onDone={() => setShow(false)} />}
+      {show && <MeetingForm key={JSON.stringify(formInitial ?? {})} companies={companies} initial={formInitial} onDone={() => { setShow(false); setFormInitial(undefined); }} />}
 
       {view === "calendar" ? (
-        <MonthCalendar meetings={filtered} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} />
+        <MonthCalendar meetings={filtered} interviews={interviews} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} />
       ) : filtered.length === 0 ? (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>記録がありません。「打合せを記録」から追加してください。</div>
       ) : (
