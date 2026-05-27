@@ -22,6 +22,7 @@ export type CandidateInput = {
   location?: string | null;
   exp?: string | null;
   status?: string | null;
+  skill_sheet_url?: string | null;
 };
 
 function initialsOf(name: string): string {
@@ -54,6 +55,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       location: r.location?.trim() || null,
       exp: r.exp?.trim() || null,
       status: r.status?.trim() || "提案可",
+      skill_sheet_url: r.skill_sheet_url?.trim() || null,
       score: 0,
       source_csv: sourceLabel,
       imported_at: now,
@@ -87,7 +89,12 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   const BATCH = 500;
   for (let i = 0; i < fresh.length; i += BATCH) {
     const batch = fresh.slice(i, i + BATCH);
-    const { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
+    let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
+    // skill_sheet_url 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /skill_sheet_url|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.skill_sheet_url; return o; });
+      ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
+    }
     if (error) return { ok: false, inserted, error: error.message };
     inserted += count ?? batch.length;
   }
@@ -163,12 +170,14 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
-  // 重複チェック (同一 job × candidate)
-  const { data: dup } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).maybeSingle();
-  if (dup?.id) {
+  // 重複チェック (同一 job × candidate)。
+  //   maybeSingle() は2件以上ヒット時にエラーで null を返し「未登録」と誤判定→二重登録が雪だるま式に増える。
+  //   limit(1) で先頭を取り、既存があれば必ず existed として返す（冪等）。
+  const { data: dups } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
+  if (dups && dups.length > 0) {
     revalidatePath("/proposals");
-  bustCounts();
-    return { ok: true, id: dup.id, existed: true };
+    bustCounts();
+    return { ok: true, id: dups[0].id, existed: true };
   }
 
   // デフォルトのクロージング担当 = 案件企業の担当者（案件の outside_owner、無ければ企業マスタの owner）。後で変更可。

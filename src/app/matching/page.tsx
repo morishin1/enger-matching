@@ -83,7 +83,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
       if (personNo) {
         // ---- 人材 → 案件（逆マッチング）----
-        const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email`).eq("candidate_no", personNo).maybeSingle();
+        const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", personNo).maybeSingle();
         person = pr.error ? (await sb.from("candidates").select(CAND_BASE).eq("candidate_no", personNo).maybeSingle()).data : pr.data;
 
         if (person?.skills?.length) {
@@ -92,7 +92,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             if (tab === "focus") q = q.eq("is_focus", true);
             return q.limit(tab === "focus" ? 500 : 200);
           };
-          let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
+          let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
+          if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
           rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
         }
@@ -119,7 +120,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
         const buildList = (cols: string) =>
           sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(80);
-        let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name`);
+        let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
+        if (jlRes.error) jlRes = await buildList(`${JOB_BASE}, contact_email, contact_name`);
         if (jlRes.error) jlRes = await buildList(JOB_BASE);
         jobList = jlRes.data ?? [];
 
@@ -128,7 +130,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
         if (job?.skills?.length) {
           const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
-          let cr: any = await buildC(`${CAND_BASE}, email, contact_email`);
+          let cr: any = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
+          if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
           ranked = rankCandidates(job as Job, cr.data ?? [], 10);
         }
@@ -274,24 +277,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         {Tabs}
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
-        {/* 注力（♥お気に入り・手動） */}
+        {/* 注力（♥お気に入り・手動）：ハートを外すと即座に件数・行が減る */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-          <div className="card flush">
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}><span style={{ color: "#e0567f" }}>♥</span> 注力案件</div><span className="tag brand">{focusJobs.length}件</span>
-            </div>
-            {focusJobs.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>案件一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
-            ) : <FocusList kind="jobs" items={focusJobs} />}
-          </div>
-          <div className="card flush">
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}><span style={{ color: "#e0567f" }}>♥</span> 注力人材</div><span className="tag brand">{focusCands.length}名</span>
-            </div>
-            {focusCands.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>人材一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
-            ) : <FocusList kind="people" items={focusCands} />}
-          </div>
+          <FocusList kind="jobs" items={focusJobs} unit="件" removeOnUnheart
+            headerTitle={<><span style={{ color: "#e0567f" }}>♥</span> 注力案件</>}
+            emptyText={<>案件一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</>} />
+          <FocusList kind="people" items={focusCands} unit="名" removeOnUnheart
+            headerTitle={<><span style={{ color: "#e0567f" }}>♥</span> 注力人材</>}
+            emptyText={<>人材一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</>} />
         </div>
 
         {/* 自動おすすめ（プロパー・新着で決まりやすい・is_focus以外） */}

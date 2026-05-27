@@ -23,13 +23,15 @@ export function ExportButton({ filename, headers, rows, label = "CSV書き出し
   );
 }
 
-const CAND_COL: Record<string, keyof CandidateInput> = {
+const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max"> = {
   "コード": "code", "id": "code", "ID": "code", "氏名": "name", "名前": "name", "name": "name",
-  "職種": "title", "タイトル": "title", "所属": "company", "会社": "company",
+  "職種": "title", "タイトル": "title", "所属": "company", "会社": "company", "会社名": "company", "所属会社": "company",
   "所属区分": "affiliation", "区分": "affiliation", "雇用形態": "affiliation",
-  "スキル": "skills", "必要スキル": "skills", "単価": "rate", "希望単価": "rate",
-  "稼働開始": "avail", "稼働": "avail", "勤務地": "location", "場所": "location",
-  "経験": "exp", "経験年数": "exp", "ステータス": "status", "状態": "status",
+  "スキル": "skills", "必要スキル": "skills", "保有スキル": "skills", "技術スキル": "skills",
+  "単価": "rate", "希望単価": "rate", "希望単価下限": "_rate_min", "希望単価上限": "_rate_max", "単価下限": "_rate_min", "単価上限": "_rate_max",
+  "稼働開始": "avail", "稼働": "avail", "稼働開始可能日": "avail", "勤務地": "location", "場所": "location", "希望勤務地": "location",
+  "経験": "exp", "経験年数": "exp", "実務経験年数": "exp", "ステータス": "status", "状態": "status", "現在のステータス": "status",
+  "スキルシートURL": "skill_sheet_url", "スキルシート": "skill_sheet_url", "職務経歴書": "skill_sheet_url", "添付ファイルID": "skill_sheet_url", "添付ファイル": "skill_sheet_url",
 };
 const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max"> = {
   "案件名": "title", "クライアント名": "client_name", "クライアント": "client_name",
@@ -37,7 +39,7 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max"> = 
   "単価下限": "_salary_min", "単価上限": "_salary_max", "リモート可否": "remote_type", "リモート": "remote_type",
   "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "案件詳細": "detail", "ステータス": "status",
 };
-const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始", "勤務地", "経験", "ステータス"];
+const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始", "勤務地", "経験", "ステータス", "スキルシートURL"];
 
 /** 仮説立案・マッチングに不可欠な重要データの欠落（取込ゲート用）。 */
 function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
@@ -62,22 +64,33 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
   const unmapped = header.filter((h) => h && !COL[h]);
   const rows: ValRow[] = [];
   const seen = new Map<string, number>();
+  // 生GAS人材CSVは「所属」=雇用形態・「会社名」=会社名。会社名列がある場合は所属を区分として解釈する。
+  const candRaw = kind === "candidates" && header.includes("会社名");
+  const rateText = (lo: number | null, hi: number | null) =>
+    lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "";
+  const driveUrl = (v: string) => /^https?:\/\//i.test(v) ? v : (/^[\w-]{20,}$/.test(v) ? `https://drive.google.com/file/d/${v}/view` : v);
 
   grid.slice(1).forEach((cols, idx) => {
     if (cols.every((c) => !(c || "").trim())) return; // 空行スキップ
     const rec: any = { skills: [] };
     let rawGarbled = false;
     header.forEach((h, i) => {
-      const key = COL[h]; const v = (cols[i] ?? "").trim();
+      let key = COL[h]; const v = (cols[i] ?? "").trim();
       if (v && garbled(v)) rawGarbled = true;
+      if (candRaw && h === "所属") key = "affiliation"; // 生GAS: 所属=区分
       if (!key) return;
       if (key === "skills") rec.skills = kind === "candidates" ? v.split(/[,、\/／]+/).map((s) => s.trim()).filter(Boolean) : splitSkills(v);
       else if (key === "_salary_min") rec.salary_min = numOf(v);
       else if (key === "_salary_max") rec.salary_max = numOf(v);
+      else if (key === "_rate_min") rec._rate_min = numOf(v);
+      else if (key === "_rate_max") rec._rate_max = numOf(v);
       else if (key === "remote_type") rec.remote_type = remoteOf(v);
       else if (key === "start_date") rec.start_date = dateOf(v);
+      else if (key === "skill_sheet_url") { if (v) rec.skill_sheet_url = driveUrl(v); }
       else rec[key] = v;
     });
+    // 希望単価が下限/上限のみの場合はレンジ表記を組み立てる
+    if (kind === "candidates" && !rec.rate && (rec._rate_min != null || rec._rate_max != null)) rec.rate = rateText(rec._rate_min ?? null, rec._rate_max ?? null);
     if (kind === "candidates" && rec.rate) rec.rate_num = numOf(rec.rate);
 
     const errors: string[] = []; const warnings: string[] = [];
@@ -134,7 +147,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   };
 
   const template = kind === "candidates"
-    ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,個人事業,Java/Spring/AWS,¥80万,即日,東京,8y,提案可" }
+    ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,個人事業,Java/Spring/AWS,¥80万,即日,東京,8y,提案可,https://drive.google.com/file/d/XXXX/view" }
     : { name: "案件テンプレート.csv", body: "﻿" + JOB_TEMPLATE.join(",") + "\nReact開発案件,株式会社サンプル,フロントエンドエンジニア,React/TypeScript/AWS,70,90,一部リモート,東京,2026/06/01,募集中" };
 
   const errCount = preview?.rows.filter((r) => r.errors.length).length ?? 0;

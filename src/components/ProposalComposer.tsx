@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { candidateProposalMail, jobProposalMail, gmailComposeUrl, buildProposalPrompt } from "@/lib/gmail";
-import { createProposal } from "@/lib/actions";
+import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, reSubject, buildProposalPrompt } from "@/lib/gmail";
+import { createProposal, deleteProposal } from "@/lib/actions";
+import { MailBodyModal } from "./MailBodyModal";
 
 type Job = any;
 type Cand = any;
@@ -19,6 +20,7 @@ export function ProposalComposer({
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [proposalId, setProposalId] = useState<string | null>(null);
   const [sender, setSender] = useState("");
 
   // 操作中の担当者名（サイドバー/トップ右で選択した名前）を差出人に
@@ -74,12 +76,31 @@ export function ProposalComposer({
     window.open(gmailComposeUrl({ to: tpl.to, subject: tpl.subject, body: effectiveBody }), "_blank", "noopener");
   };
 
-  const saveToBoard = async () => {
+  // ① 元メール（案件メール）へのアクセス：内容確認は本文モーダル、原文/返信は Gmail を該当アカウントで開く
+  const origMailUrl = job?.source_mail_url || gmailSearchUrl([job?.client_name, job?.title].filter(Boolean).join(" "));
+  const openOriginal = () => window.open(origMailUrl, "_blank", "noopener");
+  const replyToOriginal = () => {
+    // 元メールの差出人（案件窓口）に「Re:」で返信を作成
+    window.open(gmailComposeUrl({ to: job?.contact_email ?? null, subject: reSubject(job?.title ?? ""), body: "" }), "_blank", "noopener");
+  };
+
+  // ⑤ 記録のトグル：未記録→記録／記録済み→取消
+  const toggleBoard = async () => {
+    if (saved && proposalId) {
+      setSaving(true); setMsg(null);
+      try {
+        const res = await deleteProposal(proposalId);
+        if (res.ok) { setSaved(false); setProposalId(null); setMsg("記録を取り消しました"); }
+        else setMsg(res.error || "取消に失敗しました");
+      } catch (e) { setMsg(e instanceof Error ? e.message : "取消に失敗しました"); }
+      finally { setSaving(false); }
+      return;
+    }
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案ボードに記録できません（ID不足）"); return; }
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(job.job_no, cand.candidate_no, score);
-      if (res.ok) { setSaved(true); setMsg(res.existed ? "既に提案ボードにあります" : "提案ボードに記録しました"); }
+      if (res.ok) { setSaved(true); setProposalId(res.id ?? null); setMsg(res.existed ? "既に提案ボードにあります（再クリックで取消）" : "提案ボードに記録しました（再クリックで取消）"); }
       else setMsg(res.error || "記録に失敗しました");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "記録に失敗しました");
@@ -121,10 +142,18 @@ export function ProposalComposer({
         style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", background: "var(--color-surface)" }}
       />
 
+      {/* ① 元メール（案件メール）へのアクセス：内容確認・原文・返信 */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingBottom: 4, borderBottom: "1px dashed var(--color-border)" }}>
+        <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>元メール</span>
+        <MailBodyModal body={job?.detail ?? job?.description ?? null} title={job?.title} sub={job?.client_name} mailUrl={origMailUrl} />
+        <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで元の案件メールを開く（マッチング精度の確認用）">↗ 元メールを開く</button>
+        <button type="button" className="btn ghost btn-xs" onClick={replyToOriginal} title="元メールの差出人にRe:で返信を作成">↩ 元メールに返信</button>
+      </div>
+
       {/* 操作 */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn-mail block" onClick={openGmail}>Gmailで開く</button>
-        <button type="button" className="btn brand" onClick={saveToBoard} disabled={saving}>{saving ? "記録中…" : saved ? "✓ 記録済み" : "提案ボードに記録"}</button>
+        <button type="button" className={saved ? "btn" : "btn brand"} onClick={toggleBoard} disabled={saving}>{saving ? "処理中…" : saved ? "✓ 記録済み（取消）" : "提案ボードに記録"}</button>
         <button type="button" className="btn" onClick={generate} disabled={loading}>{loading ? "生成中…" : "✨ AIで自動生成"}</button>
         <button type="button" className="btn ghost" onClick={() => copy(prompt, "AIプロンプト")}>プロンプトをコピー</button>
         <button type="button" className="btn ghost" onClick={() => copy(effectiveBody, "本文")}>本文をコピー</button>

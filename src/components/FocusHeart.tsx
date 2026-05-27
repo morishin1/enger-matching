@@ -24,6 +24,7 @@ export function FocusHeart({
   revalidate,
   size = 16,
   row,
+  onToggle,
 }: {
   table: "jobs" | "candidates";
   idField: "job_no" | "candidate_no";
@@ -32,6 +33,7 @@ export function FocusHeart({
   revalidate?: string;
   size?: number;
   row?: any;
+  onToggle?: (on: boolean) => void; // 親(FocusList)へ通知して件数・行を即時更新
 }) {
   const [on, setOn] = useState(initial);
   const [pending, start] = useTransition();
@@ -41,9 +43,10 @@ export function FocusHeart({
 
   const commit = (v: boolean) => {
     setOn(v);
+    onToggle?.(v);
     start(async () => {
       const res = await toggleFocus(table, idField, idValue, v, revalidate);
-      if (!res.ok) setOn(!v);
+      if (!res.ok) { setOn(!v); onToggle?.(!v); }
       router.refresh();
     });
   };

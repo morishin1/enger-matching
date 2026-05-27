@@ -90,11 +90,7 @@ export function jobProposalMail(opts: {
   const { jobTitle, candidate } = opts;
   // 件名は元メールの件名（≒案件名）をそのまま Re: で保持する
   const subject = reSubject(jobTitle);
-  // 元メールへの参照：URLがあればそれ、無ければ Gmail 検索リンク（電話連絡先・原文確認用）
-  const mailRef = opts.originalMailUrl
-    ? opts.originalMailUrl
-    : gmailSearchUrl([opts.clientName, jobTitle].filter(Boolean).join(" "));
-  const orig = (opts.originalBody ?? "").trim();
+  // 注意：クライアント向けメールには「元の案件メール」のURL・引用は含めない（情報保護のため）。
   const body = [
     `${opts.contactName ?? opts.clientName ?? "ご担当者"} 様`,
     ``,
@@ -112,14 +108,11 @@ export function jobProposalMail(opts: {
     `希望単価：${candidate.rate ?? "応相談"}`,
     `スキル：${(candidate.skills ?? []).join(" / ") || "—"}`,
     opts.matchedSkills?.length ? `→ 案件要件との合致スキル：${opts.matchedSkills.join(" / ")}` : "",
-    candidate.skillSheetUrl ? `スキルシート：${candidate.skillSheetUrl}` : "",
+    candidate.skillSheetUrl ? `▼ スキルシート：${candidate.skillSheetUrl}` : "",
     `────────────────────`,
     ``,
-    `▼ 元の案件メール：${mailRef}`,
-    orig ? `` : "",
-    orig ? `── 以下、いただいた案件内容 ──` : "",
-    ...(orig ? quote(orig.split(/\r?\n/)).split("\n") : []),
-    orig ? `────────────────────` : "",
+    `ご経歴の詳細やスキルシートにつきまして、ご要望に応じてお送りいたします。`,
+    `ご面談のご相談など、お気軽にご返信ください。`,
     ``,
     `何卒よろしくお願いいたします。`,
   ].filter((l) => l !== "").join("\n");
