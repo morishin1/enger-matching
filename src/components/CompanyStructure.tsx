@@ -33,13 +33,13 @@ export function CompanyStructure({ matrix }: { matrix: CompanyMatrix }) {
         <a className="kpi" href="/jobs" style={{ textDecoration: "none", color: "inherit" }}><div><div className="val tnum">{n(matrix.totalJobs)}<span className="unit">件</span></div><div className="label">総案件 / 総人材 ›</div><div className="note">人材 {n(matrix.totalCands)} 名</div></div></a>
       </div>
 
-      {/* 企業別 案件数・人材数 */}
-      <div className="card flush">
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+      {/* 企業別 案件数・人材数（アコーディオン：既定は閉じる） */}
+      <details className="card flush" style={{ overflow: "hidden" }}>
+        <summary style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, cursor: "pointer", listStyle: "none" }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🏢 企業別 取引ボリューム（案件 × 人材）</h3>
-          <span className="muted" style={{ fontSize: 11 }}>案件＋人材が多い順 上位{matrix.rows.length}社</span>
-        </div>
-        <div style={{ overflowX: "auto" }}>
+          <span className="muted" style={{ fontSize: 11 }}>案件＋人材が多い順 上位{matrix.rows.length}社 · クリックで開閉</span>
+        </summary>
+        <div style={{ overflowX: "auto", borderTop: "1px solid var(--color-border)" }}>
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13, minWidth: 460 }}>
             <thead>
               <tr style={{ color: "var(--color-ink-4)", fontSize: 11 }}>
@@ -64,7 +64,7 @@ export function CompanyStructure({ matrix }: { matrix: CompanyMatrix }) {
           </table>
         </div>
         <div style={{ padding: "8px 16px", fontSize: 10.5, color: "var(--color-ink-4)" }}>※ エンド/SI＝直案件を出す企業（案件を開拓）／パートナーSES＝人材を送ってくる企業（人材を開拓）。案件が少なければエンド/SI、人材が少なければパートナーを開拓。</div>
-      </div>
+      </details>
     </>
   );
 }
