@@ -34,6 +34,24 @@ export async function getActuals(name: string | null): Promise<Actuals> {
   } catch { return empty; }
 }
 
+export type ReportIssue = { author: string; date: string; problem: string; cause: string | null; next_action: string | null; mood: string | null };
+
+/** 直近の日報から「課題（problem）あり / 不調」を抽出してアラート用に返す。 */
+export async function getReportIssues(days = 2): Promise<ReportIssue[]> {
+  if (!dbConfigured) return [];
+  try {
+    const sb = engerClient();
+    const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    const { data, error } = await sb.from("daily_reports")
+      .select("author, report_date, problem, cause, next_action, mood")
+      .gte("report_date", since).order("report_date", { ascending: false }).limit(100);
+    if (error || !data) return [];
+    return (data as any[])
+      .filter((r) => (r.problem && String(r.problem).trim()) || /不調|しんどい|悪|😟|😞|😣|⚠/.test(String(r.mood ?? "")))
+      .map((r) => ({ author: r.author, date: r.report_date, problem: String(r.problem ?? "").trim(), cause: r.cause ?? null, next_action: r.next_action ?? null, mood: r.mood ?? null }));
+  } catch { return []; }
+}
+
 /** 日報一覧（新しい順）。 */
 export async function listReports(opts?: { author?: string; limit?: number }): Promise<DailyReport[]> {
   if (!dbConfigured) return [];
