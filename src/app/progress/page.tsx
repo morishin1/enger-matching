@@ -78,8 +78,8 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">Engagements · 稼働・請求/勤怠</div>
-          <h1>稼働・請求/勤怠</h1>
+          <div className="meta">Engagements · 稼働管理</div>
+          <h1>稼働管理</h1>
           <div className="sub">稼働中の契約・粗利・精算に加えて、<b>当月の勤怠チェックと請求書発行</b>を同じ画面で処理。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。{agentScoped ? "自分が担当する稼働のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
         </div>
       </div>
