@@ -105,6 +105,7 @@ const JOB_COLS: Col[] = [
 
 const PEOPLE_COLS: Col[] = [
   { key: "id", label: "人材ID", width: 84, render: (p) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</span> },
+  { key: "created", label: "登録日", width: 96, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (p) => freshnessLabel(p.created_at), filterFixed: FRESH_OPTIONS, render: (p) => <Fresh d={p.created_at} /> },
   {
     key: "name", label: "氏名", always: true,
@@ -119,11 +120,10 @@ const PEOPLE_COLS: Col[] = [
     ),
   },
   { key: "client", label: "クライアント名", search: (p) => p.source_company ?? "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.source_company ?? "—"}</span> },
-  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
   { key: "remote", label: "リモート", width: 110, filterLabel: "リモート", filter: (p) => p.remote_pref || "", render: (p) => <span className="pill open">{p.remote_pref ?? "—"}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
-  { key: "created", label: "登録日", width: 100, num: true, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
+  { key: "affiliation", label: "所属区分", width: 130, defaultHidden: true, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 
@@ -323,7 +323,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span></Link>
+                        <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
                     </td>
@@ -377,7 +377,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               ))}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span></Link>
+              <Link href={matchHref(detail)} className="btn" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 19, lineHeight: 1 }}>auto_awesome</span></Link>
               {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
               {kind === "jobs" && <MailBodyModal body={detail.detail} title={detail.title} sub={[detail.client_name, detail.role_label].filter(Boolean).join(" / ")} mailUrl={detail.source_mail_url} />}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
