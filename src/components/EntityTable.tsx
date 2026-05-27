@@ -87,6 +87,7 @@ export type EntityKind = "jobs" | "people";
 
 const JOB_COLS: Col[] = [
   { key: "id", label: "案件ID", width: 84, render: (j) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</span> },
+  { key: "created", label: "掲載日", width: 96, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (j) => freshnessLabel(j.created_at), filterFixed: FRESH_OPTIONS, render: (j) => <Fresh d={j.created_at} /> },
   {
     key: "title", label: "案件名", always: true,
@@ -94,11 +95,10 @@ const JOB_COLS: Col[] = [
     render: (j) => <div className="pri" style={{ lineHeight: 1.4 }}>{j.title}</div>,
   },
   { key: "client", label: "クライアント名", search: (j) => j.client_name ?? "", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
-  { key: "flow", label: "商流制限", width: 110, filterLabel: "商流", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag" style={{ fontSize: 10.5 }}>{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterLabel: "リモート", filter: (j) => remoteLabel(j.remote_type), render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span> },
-  { key: "created", label: "作成日", width: 100, num: true, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
+  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterLabel: "商流", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (j) => salaryBand(j.salary_max ?? j.salary_min ?? null) },
 ];
@@ -133,12 +133,12 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
   const cols = useMemo(() => {
     if (kind !== "jobs") return PEOPLE_COLS;
     const ownerCol: Col = {
-      key: "outside_owner", label: "エンド担当", width: 124,
+      key: "outside_owner", label: "エンド担当", width: 124, defaultHidden: true,
       filterLabel: "エンド担当", filter: (j) => j.outside_owner || "未設定",
       render: (j) => <OutsideOwnerSelect jobNo={j.job_no} value={j.outside_owner ?? null} options={outsideOptions ?? []} />,
     };
-    // 「クライアント名」の直後に挿入
-    const idx = JOB_COLS.findIndex((c) => c.key === "client");
+    // 「単価」の直後に挿入（先頭の並びを崩さない）
+    const idx = JOB_COLS.findIndex((c) => c.key === "salary");
     const out = [...JOB_COLS];
     out.splice(idx + 1, 0, ownerCol);
     return out;
@@ -188,8 +188,8 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     });
   }, [rows, q, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ページング（描画負荷を抑える：既定20件/ページ・件数選択可）
-  const [pageSize, setPageSize] = useState(20);
+  // ページング（描画負荷を抑える：既定50件/ページ・件数選択可）
+  const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(0);
   const [detail, setDetail] = useState<any | null>(null);
   useEffect(() => { setPage(0); }, [q, filters, pageSize]);
@@ -286,7 +286,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
       )}
 
       <div className="tbl-scroll" style={{ overflowX: "auto" }}>
-        <table className="tbl">
+        <table className="tbl tbl-compact">
           <thead>
             <tr>
               <th style={{ width: 32 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="全選択" /></th>
@@ -323,8 +323,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
-                        {kind === "jobs" && <MailBodyModal body={r.detail} title={r.title} sub={[r.client_name, r.role_label].filter(Boolean).join(" / ")} mailUrl={r.source_mail_url} />}
+                        <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span></Link>
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
                     </td>
@@ -370,7 +369,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
-              {[...visibleCols, ...cols.filter((c) => c.filterOnly)].map((c) => (
+              {cols.map((c) => (
                 <div key={c.key} style={{ background: "var(--color-surface)", padding: "9px 11px" }}>
                   <div style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 600 }}>{c.label}</div>
                   <div style={{ fontSize: 13, marginTop: 2 }}>{c.render ? c.render(detail) : "—"}</div>
@@ -378,7 +377,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               ))}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span></Link>
               {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
               {kind === "jobs" && <MailBodyModal body={detail.detail} title={detail.title} sub={[detail.client_name, detail.role_label].filter(Boolean).join(" / ")} mailUrl={detail.source_mail_url} />}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
