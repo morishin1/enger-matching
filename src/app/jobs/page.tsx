@@ -26,7 +26,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at";
+      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at";
       // 追加列(email-columns / sales-roles 未実行)でも落ちないよう段階フォールバック
       let listRes: any = await sb.from("jobs")
         .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })

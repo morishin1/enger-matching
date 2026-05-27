@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
+import { MailBodyModal } from "./MailBodyModal";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { AffiliationSelect } from "./AffiliationSelect";
@@ -323,6 +324,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+                        {kind === "jobs" && <MailBodyModal body={r.detail} title={r.title} sub={[r.client_name, r.role_label].filter(Boolean).join(" / ")} mailUrl={r.source_mail_url} />}
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
                     </td>
@@ -378,6 +380,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
             <div style={{ display: "flex", gap: 8 }}>
               <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
               {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
+              {kind === "jobs" && <MailBodyModal body={detail.detail} title={detail.title} sub={[detail.client_name, detail.role_label].filter(Boolean).join(" / ")} mailUrl={detail.source_mail_url} />}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
             </div>
           </div>
