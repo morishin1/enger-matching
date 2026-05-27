@@ -59,7 +59,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const personNo = sp.person ? Number(sp.person) : null;
 
   let dbError: string | null = null;
-  let focusJobCount = 0, focusPeopleCount = 0;
 
   // 人材→案件モード用
   let person: any = null;
@@ -77,12 +76,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const [fj, fp] = await Promise.all([
-        sb.from("jobs").select("job_no", { count: "exact", head: true }).eq("is_focus", true),
-        sb.from("candidates").select("candidate_no", { count: "exact", head: true }).eq("is_focus", true),
-      ]);
-      focusJobCount = fj.count ?? 0; focusPeopleCount = fp.count ?? 0;
-
       const CAND_BASE = "candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus";
       const JOB_BASE = "job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus";
 
@@ -253,7 +246,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (tab === "focus") {
     const Tabs = (
       <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: `★ ${focusJobs.length}案件 × ${focusCands.length}人材` }].map((t) => {
+        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: "★ ♡・プロパー・新着" }].map((t) => {
           const active = t.id === (tab as string);
           return (
             <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
@@ -326,7 +319,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: `★ ${focusJobCount}案件 × ${focusPeopleCount}人材` }].map((t) => {
+        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: "★ ♡・プロパー・新着" }].map((t) => {
           const active = t.id === (tab as string);
           return (
             <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>

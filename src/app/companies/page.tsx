@@ -71,14 +71,14 @@ export default async function CompaniesPage() {
           <div className="top"><div className="ico-box"><Icons.company /></div><div className="chip flat">{tierA}社 / A</div></div>
           <div><div className="val tnum">{total.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">取引先 全数</div><div className="note">{newCount} 新規 · {dormant} 休眠</div></div>
         </div>
-        <div className="kpi">
+        <a className="kpi" href="/jobs" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="top"><div className="ico-box"><Icons.jobs /></div><div className="chip">募集中</div></div>
-          <div><div className="val tnum">{activeTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">進行中案件</div><div className="note">{total} 社合計</div></div>
-        </div>
-        <div className="kpi accent">
+          <div><div className="val tnum">{activeTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">進行中案件 ›</div><div className="note">{total} 社合計</div></div>
+        </a>
+        <a className="kpi accent" href="/matching?tab=focus" style={{ textDecoration: "none", color: "inherit" }}>
           <div className="top"><div className="ico-box"><Icons.star /></div><div className="chip">♥</div></div>
-          <div><div className="val tnum">{focusTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">注力案件</div><div className="note">企業横断</div></div>
-        </div>
+          <div><div className="val tnum">{focusTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">注力案件 ›</div><div className="note">企業横断</div></div>
+        </a>
         <div className="kpi warn">
           <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip">休眠</div></div>
           <div><div className="val tnum">{dormant.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">休眠（90日超）</div><div className="note">再アプローチ候補</div></div>

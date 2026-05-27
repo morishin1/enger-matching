@@ -12,7 +12,8 @@ const EXPORT_HEADERS = [
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage() {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const { q: initialQuery } = await searchParams;
   let people: any[] = [];
   let total = 0;
   let dbError: string | null = null;
@@ -78,7 +79,7 @@ export default async function PeoplePage() {
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
-      <EntityTable kind="people" rows={people} total={total} />
+      <EntityTable kind="people" rows={people} total={total} initialQuery={initialQuery} />
     </div>
   );
 }

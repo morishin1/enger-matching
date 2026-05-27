@@ -12,23 +12,25 @@ export function CompanyStructure({ matrix }: { matrix: CompanyMatrix }) {
   const td = { padding: "7px 10px", textAlign: "right" as const };
   return (
     <>
-      {/* 開拓判断バナー */}
+      {/* 開拓判断バナー（やるべき事＋導線） */}
       <div className="card" style={{ borderColor: matrix.reco.tone, background: `${matrix.reco.tone}10` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 18 }}>{matrix.reco.tone === "#1aa260" ? "✅" : "📣"}</span>
-          <b style={{ fontSize: 13.5, color: matrix.reco.tone }}>開拓判断：{matrix.reco.text}</b>
+          <b style={{ fontSize: 13.5, color: matrix.reco.tone }}>やること：{matrix.reco.text}</b>
+          {matrix.reco.tone === "#d23f57" && <a href="/jobs" style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#d23f57", textDecoration: "none" }}>→ 案件を増やす（案件一覧/取込）</a>}
+          {matrix.reco.tone === "#d98a2b" && <a href="/people" style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>→ 人材を増やす（人材一覧/取込）</a>}
         </div>
         <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-          エンド/SI（jobs.client_name＝直案件）＝<b>{n(matrix.endCount)}社</b>・案件{n(matrix.totalJobs)}件 ／ パートナーSES（candidates.company＝送ってくる人材の所属）＝<b>{n(matrix.partnerCount)}社</b>・人材{n(matrix.totalCands)}名 ／ 両取引 <b>{n(matrix.bothCount)}社</b>
+          エンド/SI（直案件＝jobs.client_name）＝<b>{n(matrix.endCount)}社</b>・案件{n(matrix.totalJobs)}件 ／ パートナーSES（人材の所属＝candidates.company）＝<b>{n(matrix.partnerCount)}社</b>・人材{n(matrix.totalCands)}名 ／ 両取引 <b>{n(matrix.bothCount)}社</b>
         </div>
       </div>
 
-      {/* KPI */}
+      {/* KPI（クリックで根拠ページへ） */}
       <div className="kpi-grid">
-        <div className="kpi brand"><div><div className="val tnum">{n(matrix.endCount)}<span className="unit">社</span></div><div className="label">エンド/SI（案件元）</div><div className="note">直案件・SI ・ 計{n(matrix.totalJobs)}件</div></div></div>
-        <div className="kpi warn"><div><div className="val tnum">{n(matrix.partnerCount)}<span className="unit">社</span></div><div className="label">パートナーSES（人材元）</div><div className="note">人材供給 ・ 計{n(matrix.totalCands)}名</div></div></div>
+        <a className="kpi brand" href="/jobs" style={{ textDecoration: "none", color: "inherit" }}><div><div className="val tnum">{n(matrix.endCount)}<span className="unit">社</span></div><div className="label">エンド/SI（案件元）›</div><div className="note">直案件・SI ・ 計{n(matrix.totalJobs)}件</div></div></a>
+        <a className="kpi warn" href="/people" style={{ textDecoration: "none", color: "inherit" }}><div><div className="val tnum">{n(matrix.partnerCount)}<span className="unit">社</span></div><div className="label">パートナーSES（人材元）›</div><div className="note">人材供給 ・ 計{n(matrix.totalCands)}名</div></div></a>
         <div className="kpi accent"><div><div className="val tnum">{n(matrix.bothCount)}<span className="unit">社</span></div><div className="label">両取引（案件＋人材）</div><div className="note">最重要パートナー</div></div></div>
-        <div className="kpi"><div><div className="val tnum">{n(matrix.totalJobs)}<span className="unit">件</span></div><div className="label">総案件 / 総人材</div><div className="note">人材 {n(matrix.totalCands)} 名</div></div></div>
+        <a className="kpi" href="/jobs" style={{ textDecoration: "none", color: "inherit" }}><div><div className="val tnum">{n(matrix.totalJobs)}<span className="unit">件</span></div><div className="label">総案件 / 総人材 ›</div><div className="note">人材 {n(matrix.totalCands)} 名</div></div></a>
       </div>
 
       {/* 企業別 案件数・人材数 */}
@@ -51,10 +53,10 @@ export function CompanyStructure({ matrix }: { matrix: CompanyMatrix }) {
                 const t = TYPE_TONE[r.type];
                 return (
                   <tr key={r.name} style={{ borderTop: "1px solid var(--color-border)" }}>
-                    <td style={{ padding: "7px 10px", fontWeight: 600 }}>{r.name}</td>
+                    <td style={{ padding: "7px 10px", fontWeight: 600 }}><a href={`/jobs?client=${encodeURIComponent(r.name)}`} style={{ color: "var(--color-brand-700,#0b5cab)", textDecoration: "none" }}>{r.name} ›</a></td>
                     <td style={{ ...td, textAlign: "center" }}><span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: t.bg, color: t.fg }}>{r.type}</span></td>
-                    <td style={{ ...td, fontWeight: r.jobs > 0 ? 700 : 400, color: r.jobs > 0 ? "#0b5cab" : "var(--color-ink-4)" }} className="tnum">{r.jobs || "—"}</td>
-                    <td style={{ ...td, fontWeight: r.cands > 0 ? 700 : 400, color: r.cands > 0 ? "#b45309" : "var(--color-ink-4)" }} className="tnum">{r.cands || "—"}</td>
+                    <td style={{ ...td, fontWeight: r.jobs > 0 ? 700 : 400 }} className="tnum">{r.jobs > 0 ? <a href={`/jobs?client=${encodeURIComponent(r.name)}`} style={{ color: "#0b5cab", textDecoration: "none" }}>{r.jobs}</a> : <span style={{ color: "var(--color-ink-4)" }}>—</span>}</td>
+                    <td style={{ ...td, fontWeight: r.cands > 0 ? 700 : 400 }} className="tnum">{r.cands > 0 ? <a href={`/people?q=${encodeURIComponent(r.name)}`} style={{ color: "#b45309", textDecoration: "none" }}>{r.cands}</a> : <span style={{ color: "var(--color-ink-4)" }}>—</span>}</td>
                   </tr>
                 );
               })}
