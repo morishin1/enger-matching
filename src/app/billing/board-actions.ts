@@ -3,10 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { boardConfigured, fetchBillings, probeBoard, billingProjectId, billingPeriod, billingSent, type BoardProbe } from "@/lib/board";
-
-// ★要確認：board 請求一覧のエンドポイント。boardConnectionTest() で候補を当たって確定する。
-const BILLINGS_PATH = "/invoices";
+import { boardConfigured, fetchInvoices, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, type BoardProbe } from "@/lib/board";
 
 type Access = Awaited<ReturnType<typeof currentAccess>>;
 function canManage(access: Access): boolean {
@@ -33,38 +30,40 @@ export async function setBoardProjectId(engagementId: string, value: string): Pr
  *   突合: engagements.board_project_id ←→ 請求レコードの案件ID
  *   反映: 請求済/送付済 → invoice_status='送付完了' / 未請求 → '未'（判定不能はスキップ）
  */
-export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; error?: string; matched?: number; updated?: number; period?: string }> {
+export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; error?: string; matched?: number; updated?: number; period?: string; scanned?: number; capHit?: boolean; mapped?: number }> {
   if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
   if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
   if (!/^\d{4}-\d{2}$/.test(period)) return { ok: false, error: "対象月が不正です" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
 
-  // board 案件ID が設定済みの稼働 → 案件ID別の稼働IDリスト
+  // board 案件ID/案件番号 が設定済みの稼働 → ひもづけ値別の稼働IDリスト
   const eng = await admin.from("engagements").select("id, board_project_id").not("board_project_id", "is", null);
   if (eng.error) return { ok: false, error: `稼働取得エラー：${eng.error.message}（先に supabase/board-link.sql を実行してください）` };
-  const byProject = new Map<string, string[]>();
+  const byKey = new Map<string, string[]>();
   for (const e of eng.data ?? []) {
-    const pid = String((e as { board_project_id?: unknown }).board_project_id ?? "").trim();
-    if (!pid) continue;
-    const arr = byProject.get(pid) ?? [];
+    const key = String((e as { board_project_id?: unknown }).board_project_id ?? "").trim();
+    if (!key) continue;
+    const arr = byKey.get(key) ?? [];
     arr.push((e as { id: string }).id);
-    byProject.set(pid, arr);
+    byKey.set(key, arr);
   }
-  if (byProject.size === 0) return { ok: true, matched: 0, updated: 0, period };
+  if (byKey.size === 0) return { ok: true, matched: 0, updated: 0, period, mapped: 0, scanned: 0, capHit: false };
 
-  const bills = await fetchBillings(BILLINGS_PATH);
-  if (!bills.ok) return { ok: false, error: `board 取得エラー：${bills.error}` };
+  const inv = await fetchInvoices({ period });
+  if (!inv.ok) return { ok: false, error: `board 取得エラー：${inv.error}` };
 
   let matched = 0, updated = 0;
-  for (const b of bills.data) {
-    const pid = billingProjectId(b);
-    if (!pid || !byProject.has(pid)) continue;
+  for (const b of inv.rows) {
     if (billingPeriod(b) !== period) continue;
+    // 案件ID または 案件番号 のどちらでも突合（ユーザーが入力した値に合わせる）
+    const pid = billingProjectId(b), pno = billingProjectNo(b);
+    const engIds = (pid && byKey.get(pid)) || (pno && byKey.get(pno));
+    if (!engIds) continue;
     const sent = billingSent(b);
     if (sent == null) continue; // 不明ステータスは更新しない（安全側）
     matched++;
-    for (const engId of byProject.get(pid)!) {
+    for (const engId of engIds) {
       const { error } = await admin.from("billing_tasks").upsert(
         { engagement_id: engId, period, invoice_status: sent ? "送付完了" : "未", updated_at: new Date().toISOString() },
         { onConflict: "engagement_id,period" },
@@ -74,11 +73,11 @@ export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; 
   }
 
   await admin.from("app_settings").upsert(
-    { key: "board_sync", value: { last_synced_at: new Date().toISOString(), period, matched, updated }, updated_at: new Date().toISOString() },
+    { key: "board_sync", value: { last_synced_at: new Date().toISOString(), period, matched, updated, scanned: inv.scanned, capHit: inv.capHit }, updated_at: new Date().toISOString() },
     { onConflict: "key" },
   );
   revalidatePath("/progress"); revalidatePath("/billing");
-  return { ok: true, matched, updated, period };
+  return { ok: true, matched, updated, period, mapped: byKey.size, scanned: inv.scanned, capHit: inv.capHit };
 }
 
 /** 接続テスト：候補エンドポイントを当たって実レスポンスの形を返す（管理者・バックオフィスのみ）。 */

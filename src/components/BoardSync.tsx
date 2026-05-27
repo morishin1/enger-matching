@@ -17,8 +17,10 @@ export function BoardSync({ period, lastSyncedAt }: { period: string; lastSynced
     setDebug(null);
     setMsg({ ok: true, text: `board と同期中…（${period}）` });
     const r = await syncBoardInvoices(period);
-    if (!r.ok) setMsg({ ok: false, text: r.error ?? "同期に失敗しました" });
-    else setMsg({ ok: true, text: `✓ ${period} を同期：${r.matched ?? 0}件一致 / ${r.updated ?? 0}件更新` });
+    if (!r.ok) { setMsg({ ok: false, text: r.error ?? "同期に失敗しました" }); router.refresh(); return; }
+    if ((r.mapped ?? 0) === 0) { setMsg({ ok: false, text: "board案件IDが未設定です。各稼働の請求欄に案件ID（または案件番号）を入力してください。" }); router.refresh(); return; }
+    const warn = r.capHit ? "（取得上限に到達。古い請求が多い場合は取りこぼしの可能性あり）" : "";
+    setMsg({ ok: true, text: `✓ ${period} を同期：${r.matched ?? 0}件一致 / ${r.updated ?? 0}件更新（ひもづけ${r.mapped ?? 0}件・走査${r.scanned ?? 0}件）${warn}` });
     router.refresh();
   });
 

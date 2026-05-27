@@ -93,7 +93,7 @@ function BoardIdField({ e, onChanged }: { e: Eng; onChanged: () => void }) {
     start(async () => { await setBoardProjectId(e.id, v); onChanged(); });
   };
   return (
-    <input value={v} disabled={pending} placeholder="board案件ID" title="board の案件IDを設定すると、同期で送付状況を自動更新します" style={{ ...inp, width: 110, fontSize: 10.5, padding: "3px 6px" }} onChange={(ev) => setV(ev.target.value)} onBlur={save} />
+    <input value={v} disabled={pending} placeholder="board案件ID/番号" title="board の案件ID（URLの数字）または案件番号を設定すると、同期で送付状況を自動更新します" style={{ ...inp, width: 110, fontSize: 10.5, padding: "3px 6px" }} onChange={(ev) => setV(ev.target.value)} onBlur={save} />
   );
 }
 

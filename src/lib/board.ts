@@ -67,23 +67,48 @@ function asArray(body: unknown): Record<string, unknown>[] {
   return [];
 }
 
-/** 請求一覧をページングで全件取得（3req/sec 制限に配慮）。 */
-export async function fetchBillings(path: string): Promise<BoardResult<Record<string, unknown>[]>> {
+export type InvoiceFetch =
+  | { ok: true; rows: Record<string, unknown>[]; scanned: number; capHit: boolean; descending: boolean }
+  | { ok: false; error: string; status: number };
+
+/**
+ * board /invoices をページングで取得（3req/sec 制限に配慮）。
+ *   - 新しい順(invoice_date desc)を要求し、降順が効いていれば対象月を過ぎた時点で打ち切る。
+ *   - 降順が効かない場合はページ上限(CAP)まで取得（古い順なら対象月は後方のため上限に注意）。
+ */
+export async function fetchInvoices(opts?: { period?: string }): Promise<InvoiceFetch> {
+  const PER = 100, CAP = 50;
+  const periodStart = opts?.period && /^\d{4}-\d{2}$/.test(opts.period) ? `${opts.period}-01` : null;
   const all: Record<string, unknown>[] = [];
-  const PER = 100;
-  for (let page = 1; page <= 50; page++) {
-    const r = await boardGet(path, { page, per_page: PER });
-    if (!r.ok) return page === 1 ? r : { ok: true, data: all, status: 200 };
+  let scanned = 0, capHit = false, descending = false, detected = false, effectivePer = 0;
+
+  for (let page = 1; page <= CAP; page++) {
+    const r = await boardGet("/invoices", { page, per_page: PER, sort: "invoice_date", direction: "desc" });
+    if (!r.ok) return page === 1 ? r : { ok: true, rows: all, scanned, capHit, descending };
     const rows = asArray(r.data);
+    if (page === 1) effectivePer = rows.length;
+    scanned += rows.length;
     all.push(...rows);
-    if (rows.length < PER) break;
+
+    if (!detected && rows.length >= 2) {
+      const first = String(rows[0]?.invoice_date ?? ""), last = String(rows[rows.length - 1]?.invoice_date ?? "");
+      descending = first >= last; detected = true;
+    }
+    if (rows.length === 0) break;
+    if (page > 1 && effectivePer > 0 && rows.length < effectivePer) break; // 最終ページ
+    if (page === CAP) { capHit = true; break; }
+    // 降順が効いていれば、ページ最大(最新)日が対象月より前になった時点で以降は不要
+    if (descending && periodStart) {
+      const maxOnPage = rows.reduce((m, x) => { const d = String(x?.invoice_date ?? ""); return d > m ? d : m; }, "");
+      if (maxOnPage && maxOnPage < periodStart) break;
+    }
     await sleep(350);
   }
-  return { ok: true, data: all, status: 200 };
+  return { ok: true, rows: all, scanned, capHit, descending };
 }
 
 // ---- 接続テスト（プレビューで実レスポンスの形を確認するためのデバッグ用） --------------
-const CANDIDATE_PATHS = ["/invoices", "/billings", "/projects"];
+const CANDIDATE_PATHS = ["/invoices", "/projects"];
 export type BoardProbe = {
   base: string;
   results: { path: string; status: number; ok: boolean; count: number | null; sampleKeys: string[]; sample: unknown }[];
@@ -104,36 +129,37 @@ export async function probeBoard(): Promise<BoardProbe> {
   return { base: BASE, results };
 }
 
-// ---- 請求レコード → 突合キーの抽出（★フィールド名は実レスポンスに合わせて要確認） --------
-const PROJECT_KEYS = ["project_id", "projectId", "deal_id", "project_no"];
-const DATE_KEYS = ["billing_date", "issue_date", "issued_on", "booking_date", "booked_date", "closing_date", "billed_on", "date", "created_at"];
-const STATUS_KEYS = ["billing_status", "invoice_status", "status", "payment_status", "state"];
+// ---- 請求レコード(/invoices) → 突合キーの抽出（board 実レスポンス準拠） -----------------
+//   案件突合: project_id（内部ID）/ project_no（案件番号）の両方を候補にする。
+//   請求月  : invoice_date（YYYY-MM-DD）
+//   送付判定: invoice_status_name（"未請求"/"請求済" 等）+ invoice_status(1=未請求) + paid_date
 
+/** board の案件ID（内部ID）。 */
 export function billingProjectId(b: Record<string, unknown>): string | null {
-  for (const k of PROJECT_KEYS) if (b?.[k] != null) return String(b[k]);
-  const proj = b?.project as Record<string, unknown> | undefined;
-  if (proj?.id != null) return String(proj.id);
-  const deal = b?.deal as Record<string, unknown> | undefined;
-  if (deal?.id != null) return String(deal.id);
-  return null;
+  return b?.project_id != null ? String(b.project_id) : null;
 }
 
-/** 'YYYY-MM' を返す。日付フィールドが見つからなければ null。 */
+/** board の案件番号（UI表示の番号）。 */
+export function billingProjectNo(b: Record<string, unknown>): string | null {
+  return b?.project_no != null ? String(b.project_no) : null;
+}
+
+/** 'YYYY-MM' を返す。invoice_date が無ければ null。 */
 export function billingPeriod(b: Record<string, unknown>): string | null {
-  for (const k of DATE_KEYS) {
-    const v = b?.[k];
-    if (typeof v === "string" && /^\d{4}-\d{2}/.test(v)) return v.slice(0, 7);
-  }
+  const v = b?.invoice_date;
+  if (typeof v === "string" && /^\d{4}-\d{2}/.test(v)) return v.slice(0, 7);
   return null;
 }
 
-/** 送付/請求済 = true、未請求 = false、判定不能 = null（更新しない）。 */
+/** 請求済/入金済 = true（送付完了扱い）、未請求 = false、判定不能 = null（更新しない）。 */
 export function billingSent(b: Record<string, unknown>): boolean | null {
-  let raw: unknown = null;
-  for (const k of STATUS_KEYS) if (b?.[k] != null) { raw = b[k]; break; }
-  if (raw == null) return null;
-  const s = String(raw);
-  if (/送付|請求済|発行|入金|paid|sent|issued|billed|completed?/i.test(s)) return true;
-  if (/未請求|未送付|未発行|^未|draft|unbilled|unissued|pending/i.test(s)) return false;
+  if (b?.paid_date) return true; // 入金済なら送付済
+  const name = b?.invoice_status_name != null ? String(b.invoice_status_name) : null;
+  if (name) {
+    if (/未請求|未送付|未発行|下書き|draft/.test(name)) return false;
+    if (/請求済|送付|入金|発行済/.test(name)) return true;
+  }
+  const code = b?.invoice_status; // board: 1=未請求 / 2以上=請求以降
+  if (typeof code === "number") return code >= 2 ? true : code === 1 ? false : null;
   return null;
 }
