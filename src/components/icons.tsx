@@ -60,4 +60,5 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   engineers: makeIcon("badge"),
   loc: makeIcon("location_on"),
   clock: makeIcon("schedule"),
+  doc: makeIcon("description"),
 };
