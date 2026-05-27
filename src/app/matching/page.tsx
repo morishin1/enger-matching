@@ -69,9 +69,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let job: any = null;
   let ranked: any[] = [];
 
-  // 注力(ウォッチリスト)モード用 — ハートを付けた案件・人材の一覧（未マッチング）
-  let focusJobs: any[] = [];
+  // 注力(ウォッチリスト)モード用
+  let focusJobs: any[] = [];   // ♥お気に入り（手動・is_focus）
   let focusCands: any[] = [];
+  let recoJobs: any[] = [];    // 自動おすすめ（プロパー/新着で決まりやすい・is_focus以外）
+  let recoCands: any[] = [];
 
   if (dbConfigured) {
     try {
@@ -95,7 +97,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
         }
       } else if (tab === "focus") {
-        // ---- 注力マッチング = ♡お気に入り ＋ プロパー(PP) ＋ 最近登録&決まりやすい を自動表示 ----
+        // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
         const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
         const JOB_F = `${JOB_BASE}, status, created_at`;
         const CAND_F = `${CAND_BASE}, created_at`;
@@ -107,8 +109,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           safe(sb.from("candidates").select(CAND_F).or("affiliation.eq.PP,affiliation.ilike.%プロパー%").limit(300), Promise.resolve({ data: [] })),
           safe(sb.from("candidates").select(CAND_F).gte("created_at", since30).limit(400), Promise.resolve({ data: [] })),
         ]);
-        focusJobs = curateFocus("jobs", [...hjJobs, ...recJobs]);
-        focusCands = curateFocus("cands", [...hfCands, ...ppCands, ...recCands]);
+        // ♥お気に入り（手動）：ハートが点灯し、外すと件数が減る
+        focusJobs = (hjJobs as any[]).slice(0, 100);
+        focusCands = (hfCands as any[]).slice(0, 100);
+        // 自動おすすめ：プロパー・新着で決まりやすい。is_focus は注力側に出すので除外
+        recoJobs = curateFocus("jobs", recJobs).filter((j) => !j.is_focus).slice(0, 40);
+        recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
         const buildList = (cols: string) =>
@@ -262,32 +268,49 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <div style={{ maxWidth: 760 }}>
             <div className="meta">Matching · 注力（優先対応）</div>
             <h1>注力マッチング</h1>
-            <div className="sub">注力 = <span style={{ color: "#e0567f" }}>♥</span>お気に入り ＋ プロパー(PP) ＋ 最近(30日内)登録で決まりやすい 案件・人材。優先的にマッチングを進める対象です。</div>
+            <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
         {Tabs}
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
+        {/* 注力（♥お気に入り・手動） */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-          {/* 注力案件 */}
           <div className="card flush">
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>注力案件</div><span className="tag brand">{focusJobs.length}件</span>
+              <div style={{ fontSize: 14, fontWeight: 700 }}><span style={{ color: "#e0567f" }}>♥</span> 注力案件</div><span className="tag brand">{focusJobs.length}件</span>
             </div>
             {focusJobs.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}><span style={{ color: "#e0567f" }}>♥</span> お気に入り・新着の決まりやすい案件がここに表示されます</div>
+              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>案件一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
             ) : <FocusList kind="jobs" items={focusJobs} />}
           </div>
-          {/* 注力人材 */}
           <div className="card flush">
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>注力人材</div><span className="tag brand">{focusCands.length}名</span>
+              <div style={{ fontSize: 14, fontWeight: 700 }}><span style={{ color: "#e0567f" }}>♥</span> 注力人材</div><span className="tag brand">{focusCands.length}名</span>
             </div>
             {focusCands.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}><span style={{ color: "#e0567f" }}>♥</span> お気に入り・プロパー・新着の決まりやすい人材がここに表示されます</div>
+              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>人材一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
             ) : <FocusList kind="people" items={focusCands} />}
           </div>
         </div>
+
+        {/* 自動おすすめ（プロパー・新着で決まりやすい・is_focus以外） */}
+        {(recoJobs.length > 0 || recoCands.length > 0) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start", marginTop: 16 }}>
+            <div className="card flush">
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>💡 自動おすすめ案件</div><span className="tag">{recoJobs.length}件</span>
+              </div>
+              {recoJobs.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>新着の決まりやすい案件はありません</div> : <FocusList kind="jobs" items={recoJobs} />}
+            </div>
+            <div className="card flush">
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>💡 自動おすすめ人材</div><span className="tag">{recoCands.length}名</span>
+              </div>
+              {recoCands.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>プロパー・新着の決まりやすい人材はありません</div> : <FocusList kind="people" items={recoCands} />}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

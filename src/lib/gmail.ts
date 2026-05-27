@@ -2,6 +2,11 @@
 //   相手は「返信メール」に反応してアクションを取りやすいので、
 //   件名は Re: 始まり、本文は引用ブロック付きの返信体裁で生成する。
 
+// メールが入っているアカウント（受信専用）。これで開くことでアカウント違いの「見れない」を防ぐ。
+//   Vercel等で NEXT_PUBLIC_SOURCE_MAILBOX を設定すれば上書き可能。
+const SOURCE_MAILBOX = process.env.NEXT_PUBLIC_SOURCE_MAILBOX || "its@gw.8grp.co.jp";
+const authParam = () => (SOURCE_MAILBOX ? `authuser=${encodeURIComponent(SOURCE_MAILBOX)}` : "");
+
 export function gmailComposeUrl(opts: { to?: string | null; subject: string; body: string; cc?: string | null }) {
   const p = new URLSearchParams();
   p.set("view", "cm");
@@ -10,14 +15,16 @@ export function gmailComposeUrl(opts: { to?: string | null; subject: string; bod
   if (opts.cc) p.set("cc", opts.cc);
   p.set("su", opts.subject);
   p.set("body", opts.body);
+  if (SOURCE_MAILBOX) p.set("authuser", SOURCE_MAILBOX);
   return `https://mail.google.com/mail/?${p.toString()}`;
 }
 
 export const reSubject = (s: string) => (/^re:/i.test(s.trim()) ? s.trim() : `Re: ${s.trim()}`);
 
-/** Gmail を検索クエリで開く（元メールに飛ぶ用途）。クライアント名/氏名などで該当メールを表示。 */
+/** Gmail を検索クエリで開く（元メールに飛ぶ用途）。受信アカウント(authuser)で開く。 */
 export function gmailSearchUrl(query: string) {
-  return `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query)}`;
+  const a = authParam();
+  return `https://mail.google.com/mail/${a ? "?" + a : "u/0/"}#search/${encodeURIComponent(query)}`;
 }
 
 const salary = (lo?: number | null, hi?: number | null) =>
