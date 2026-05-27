@@ -14,7 +14,7 @@ const NAV = [
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
   { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
-  { href: "/progress", id: "progress", label: "稼働・請求/勤怠", icon: "progress", count: "progress" },
+  { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
   { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },

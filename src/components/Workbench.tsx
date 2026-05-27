@@ -84,21 +84,16 @@ function AttCell({ e, period, onChanged }: { e: Eng; period: string; onChanged: 
 function InvCell({ e, period, onChanged }: { e: Eng; period: string; onChanged: () => void }) {
   const b = e.bill ?? {};
   const [amount, setAmount] = useState<number | "">(b.invoice_amount ?? "");
-  const { pending, msg, saveBill, upload } = useBilling(e.id, period, onChanged);
-  const ref = useRef<HTMLInputElement>(null);
-  const invOk = b.invoice_status === "発行済";
+  const { pending, saveBill } = useBilling(e.id, period, onChanged);
+  // 請求書本体は board で作成・送付。ENGER は「送付状況」だけ管理（二重管理を解消）。
+  const sent = b.invoice_status === "送付完了" || b.invoice_status === "発行済";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 150 }}>
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        <input type="number" value={amount} disabled={pending} placeholder="請求額(万)" title="請求額（万円単位）" style={{ ...inp, width: 78 }} onChange={(ev) => setAmount(ev.target.value === "" ? "" : Number(ev.target.value))} onBlur={() => saveBill({ invoice_amount: amount === "" ? null : Number(amount) })} />
-        <button type="button" className="btn ghost btn-xs" disabled={pending} title="発行済/未" onClick={() => saveBill({ invoice_status: invOk ? "未" : "発行済" })} style={{ color: invOk ? "#1aa260" : "var(--color-ink-4)" }}>{invOk ? "✓発行" : "未"}</button>
+        <input type="number" value={amount} disabled={pending} placeholder="請求額(万)" title="請求額（万円・任意）" style={{ ...inp, width: 78 }} onChange={(ev) => setAmount(ev.target.value === "" ? "" : Number(ev.target.value))} onBlur={() => saveBill({ invoice_amount: amount === "" ? null : Number(amount) })} />
+        <button type="button" className="btn ghost btn-xs" disabled={pending} title="boardで請求書を送付したらここを「送付完了」に" onClick={() => saveBill({ invoice_status: sent ? "未" : "送付完了" })} style={{ color: sent ? "#1aa260" : "var(--color-ink-4)", fontWeight: 600 }}>{sent ? "✓送付完了" : "未送付"}</button>
       </div>
-      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        <input ref={ref} type="file" accept={ACCEPT} hidden onChange={(ev) => { if (ev.target.files?.[0]) upload("invoice", ev.target.files[0]); ev.target.value = ""; }} />
-        <button type="button" className="btn btn-xs" disabled={pending} onClick={() => ref.current?.click()} style={{ fontSize: 11 }}>📎請求書</button>
-        {b.invoice_file && <a href={b.invoice_file} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>📄</a>}
-      </div>
-      {msg && <div style={{ fontSize: 10, color: msg.ok ? "#067647" : "#b42318" }}>{msg.text}</div>}
+      <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>請求書は board で作成・送付</div>
     </div>
   );
 }
@@ -151,8 +146,8 @@ function Row({ e, role, period, onChanged, done }: { e: Eng; role: Role; period:
   );
 }
 
-/** 当月の処理が完了か：請求書=発行済 かつ 注文書=回収済。 */
-const isDone = (e: Eng) => (e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
+/** 当月の処理が完了か：請求書=送付完了 かつ 注文書=回収済。 */
+const isDone = (e: Eng) => (e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
 
 export function Workbench({ rows, role = "admin", period, canManage, agentScoped }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean }) {
   const router = useRouter();

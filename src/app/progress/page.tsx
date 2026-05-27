@@ -67,7 +67,8 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
   // 当月タスク（稼働中・予定が対象）
   const taskRows = rows.filter((e) => e.status === "稼働中" || e.status === "予定");
   const attPending = taskRows.filter((e) => (e.bill?.attendance_status ?? "未") !== "確認済").length;
-  const invPending = taskRows.filter((e) => (e.bill?.invoice_status ?? "未") !== "発行済").length;
+  const invSent = (s?: string | null) => s === "送付完了" || s === "発行済";
+  const invPending = taskRows.filter((e) => !invSent(e.bill?.invoice_status)).length;
 
   // F-4: 原価をサーバ側でマスク（bill はそのまま）
   const masked = rows.map((e) => ({ ...maskEngagement(e, role), bill: e.bill ?? null }));
@@ -78,9 +79,9 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">Engagements · 稼働・請求/勤怠</div>
-          <h1>稼働・請求/勤怠</h1>
-          <div className="sub">稼働中の契約・粗利・精算に加えて、<b>当月の勤怠チェックと請求書発行</b>を同じ画面で処理。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。{agentScoped ? "自分が担当する稼働のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
+          <div className="meta">Engagements · 稼働管理</div>
+          <h1>稼働管理</h1>
+          <div className="sub">稼働中の契約・粗利・精算に加えて、<b>当月の勤怠チェックと請求書の送付状況</b>を同じ画面で処理。<b>請求書は board で作成・送付</b>し、ENGER では送付完了をチェックするだけ（二重管理なし）。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。{agentScoped ? "自分が担当する稼働のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
         </div>
       </div>
 
@@ -108,7 +109,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
             </div>
             <div className="kpi warn">
               <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">請求</div></div>
-              <div><div className="val tnum">{invPending}<span className="unit">件</span></div><div className="label">請求書 未発行</div><div className="note">{period}</div></div>
+              <div><div className="val tnum">{invPending}<span className="unit">件</span></div><div className="label">請求書 未送付</div><div className="note">{period}</div></div>
             </div>
           </div>
 
