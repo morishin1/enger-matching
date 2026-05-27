@@ -1,5 +1,6 @@
 import { Icons } from "@/components/icons";
 import { ProposalBoard } from "@/components/ProposalBoard";
+import { ProposalHistory } from "@/components/ProposalHistory";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
@@ -14,6 +15,7 @@ export default async function ProposalsPage() {
 
   const staff = await getStaff();
   let lostRows: any[] = [];
+  let history: any[] = [];
   let feedbackList: { verdict: Verdict; reason: string | null; c_init: string; job_title: string; company: string; updated_at: string }[] = [];
   if (dbConfigured) {
     try {
@@ -21,9 +23,9 @@ export default async function ProposalsPage() {
       const base = "id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await sb.from("proposals")
-        .select(`${base}, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
+        .select(`${base}, updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
-      // partner 列が無い環境でも落ちないようフォールバック
+      // partner / updated_at 列が無い環境でも落ちないようフォールバック
       if (res.error) res = await sb.from("proposals")
         .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
@@ -52,6 +54,11 @@ export default async function ProposalsPage() {
         proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
         lost = lostRows.length;
+        // 過去の提案（履歴）：見送り/失注/稼働化済を新しい順に
+        history = all
+          .filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage))
+          .sort((a: any, b: any) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))
+          .slice(0, 200);
         // 企業フィードバックを紐付け（ミスマッチ低減の材料）
         const fbMap = await getFeedbackMap(all.map((p: any) => p.id));
         feedbackList = all
@@ -145,6 +152,8 @@ export default async function ProposalsPage() {
               <div style={{ marginTop: 10, fontSize: 10.5, color: "var(--color-ink-4)" }}>※ ユーザー企業ポータルの「おすすめ人材」で企業が返した評価です。ミスマッチ理由を次の提案に反映しましょう。</div>
             </div>
           )}
+
+          {history.length > 0 && <ProposalHistory items={history} />}
 
           {topReasons.length > 0 && (
             <div className="card">

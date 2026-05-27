@@ -203,6 +203,31 @@ export async function updateProposalStage(id: string, stage: string) {
   return { ok: true };
 }
 
+/** 提案を削除（記録ミスの取り消し）。紐づく稼働があれば一緒に削除。 */
+export async function deleteProposal(id: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!id) return { ok: false, error: "id がありません" };
+  try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* engagements未整備でも続行 */ }
+  const { error } = await admin.from("proposals").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
+  return { ok: true };
+}
+
+/** 見送り/失注/稼働化した提案をボードに戻す（ステージを未対応へ）。 */
+export async function restoreProposal(id: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!id) return { ok: false, error: "id がありません" };
+  // 稼働化済みなら稼働も取り消し
+  try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* 続行 */ }
+  const { error } = await admin.from("proposals").update({ stage: "未対応", lost_reason: null, lost_phase: null, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
+  return { ok: true };
+}
+
 /** 成約した提案を稼働(engagements)へ変換。提案は「成約」に更新。 */
 export async function convertToEngagement(proposalId: string) {
   let admin: ReturnType<typeof engerAdmin>;

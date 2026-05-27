@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
+
+const dvDate = (d: any) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : `${t.getMonth() + 1}/${t.getDate()}`; };
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -25,7 +27,7 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members }: any) {
   const [open, setOpen] = useState(false);
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
@@ -41,7 +43,10 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: 
   return (
     <div className="card" style={{ padding: 12, opacity: busy ? 0.5 : 1, borderLeft: `3px solid ${tone}` }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>{p.job_title ?? "—"}</div>
-      <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</div>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
+        {(p.updated_at || p.created_at) && <span style={{ flexShrink: 0 }}>🕒{dvDate(p.updated_at || p.created_at)}</span>}
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -64,6 +69,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, busy, members }: 
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
         {p.stage === "面談合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
         <button type="button" className="btn ghost btn-xs" onClick={() => setOpen((v) => !v)} style={{ marginLeft: "auto" }}>{open ? "閉じる" : "編集"}</button>
+        <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy} title="この提案を削除（記録ミスの取り消し）" onClick={() => { if (confirm(`「${p.candidate_name ?? "この人材"} × ${p.job_title ?? "案件"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) onDelete(p.id); }}>🗑</button>
       </div>
 
       {open && (
@@ -123,6 +129,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const onEngage = (id: string) => run(id, () => convertToEngagement(id));
   const onSave = (id: string, fields: any) => run(id, () => updateProposalFields(id, fields));
   const onLose = (id: string, lost_phase: string, lost_reason: string) => run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason }));
+  const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
   const byStage = (s: string) => proposals.filter((p) => (p.stage ?? "未対応") === s);
 
@@ -142,7 +149,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
             {items.length === 0 && <div style={{ fontSize: 11, color: "var(--color-ink-4)", textAlign: "center", padding: "16px 0" }}>—</div>}
             {items.map((p) => (
               <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members}
-                onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} />
+                onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} onDelete={onDelete} />
             ))}
           </div>
         );
