@@ -14,6 +14,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
   let rows: any[] = [];
   let dbError: string | null = null;
   let needSetup = false;
+  let boardLastSynced: string | null = null;
 
   const access = await currentAccess();
   const role = access?.role ?? "admin";
@@ -24,7 +25,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
     try {
       const sb = engerClient();
       const base = "id, proposal_id, job_title, company, candidate_name, monthly_rate, start_date, end_date, status, created_at";
-      const rich = `${base}, cost, affiliation, settle_min, settle_max, work_hours, contract_status, po_status, renewal_due, renewal_status`;
+      const rich = `${base}, cost, affiliation, settle_min, settle_max, work_hours, contract_status, po_status, renewal_due, renewal_status, board_project_id`;
       let res: any = await sb.from("engagements").select(rich).order("created_at", { ascending: false }).limit(300);
       if (res.error) res = await sb.from("engagements").select(base).order("created_at", { ascending: false }).limit(300);
       if (res.error) needSetup = true;
@@ -48,6 +49,12 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
           rows = rows.map((e) => ({ ...e, bill: byEng.get(e.id) ?? null }));
         }
       }
+
+      // board 同期の最終実行時刻（app_settings）
+      try {
+        const s = await sb.from("app_settings").select("value").eq("key", "board_sync").maybeSingle();
+        boardLastSynced = (s.data as any)?.value?.last_synced_at ?? null;
+      } catch { /* 未設定は無視 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -113,7 +120,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
 
-          <Workbench rows={masked} role={role} period={period} canManage={canManage} agentScoped={agentScoped} />
+          <Workbench rows={masked} role={role} period={period} canManage={canManage} agentScoped={agentScoped} boardLastSynced={boardLastSynced} />
         </>
       )}
     </div>
