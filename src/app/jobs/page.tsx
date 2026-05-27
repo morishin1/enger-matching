@@ -49,33 +49,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       }
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
-
-      // 「決まりやすい順」：企業の決定率(分析データ) + 注力 + 鮮度 + スキル有 + 単価帯 で並べる（AI不使用）
-      try {
-        const pr = await sb.from("proposals").select("company, stage").limit(3000);
-        const stat: Record<string, { won: number; total: number }> = {};
-        for (const p of (pr.data ?? []) as any[]) {
-          const c = (p.company || "").trim(); if (!c) continue;
-          stat[c] ??= { won: 0, total: 0 }; stat[c].total++;
-          if (["稼働", "稼働決定", "面談合格"].includes(p.stage)) stat[c].won++;
-        }
-        const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
-        const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
-        const bandScore = (j: any) => { const v = j.salary_max ?? j.salary_min ?? 0; return v >= 90 ? 8 : v >= 70 ? 10 : v > 0 ? 5 : 0; };
-        const scoreOf = (j: any) => {
-          const s = stat[(j.client_name || "").trim()];
-          const closeRate = s && s.total ? s.won / s.total : 0;
-          const reasons: string[] = [];
-          if (closeRate >= 0.25 && s && s.total >= 2) reasons.push(`この企業の成約率 ${Math.round(closeRate * 100)}%`);
-          if (j.is_focus) reasons.push("注力案件");
-          if (days(j.created_at) <= 3) reasons.push("新着");
-          if (j.skills?.length) reasons.push("スキル要件が明確");
-          const v = j.salary_max ?? j.salary_min ?? 0; if (v >= 70 && v < 90) reasons.push("動きやすい単価帯");
-          const score = Math.round(closeRate * 40 + (j.is_focus ? 20 : 0) + freshScore(j.created_at) + ((j.skills?.length) ? 10 : 0) + bandScore(j));
-          return { score, reasons: reasons.slice(0, 3) };
-        };
-        jobs = jobs.map((j: any) => { const r = scoreOf(j); return { ...j, _score: r.score, _reasons: r.reasons }; }).sort((a: any, b: any) => b._score - a._score);
-      } catch { /* 並べ替え失敗時は元の順 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
