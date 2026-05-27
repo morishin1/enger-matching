@@ -75,11 +75,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let recoJobs: any[] = [];    // 自動おすすめ（プロパー/新着で決まりやすい・is_focus以外）
   let recoCands: any[] = [];
 
+  // 提案済み判定（ペア＝job_id×candidate_id）。画面を移動しても「提案済み」を維持し、他ペアに波及させない。
+  const proposedJobIds = new Set<string>();   // この人材が既に提案済みの案件id（人材→案件モード）
+  const proposedCandIds = new Set<string>();  // この案件で既に提案済みの人材id（案件→人材モード）
+
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const CAND_BASE = "candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus";
-      const JOB_BASE = "job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus";
+      const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus";
 
       if (personNo) {
         // ---- 人材 → 案件（逆マッチング）----
@@ -96,6 +100,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
           rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
+        }
+        // この人材が既に提案済みの案件（提案済み表示用）
+        if (person?.id) {
+          try { const { data } = await sb.from("proposals").select("job_id").eq("candidate_id", person.id); for (const r of (data ?? []) as any[]) if (r.job_id) proposedJobIds.add(r.job_id); } catch { /* proposals未整備でも続行 */ }
         }
       } else if (tab === "focus") {
         // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
@@ -134,6 +142,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
           ranked = rankCandidates(job as Job, cr.data ?? [], 10);
+        }
+        // この案件で既に提案済みの人材（提案済み表示用）
+        if (job?.id) {
+          try { const { data } = await sb.from("proposals").select("candidate_id").eq("job_id", job.id); for (const r of (data ?? []) as any[]) if (r.candidate_id) proposedCandIds.add(r.candidate_id); } catch { /* proposals未整備でも続行 */ }
         }
       }
     } catch (e) {
@@ -239,7 +251,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                     </div>
                     <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                      <ProposalComposer job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} />
+                      <ProposalComposer job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} />
                     </div>
                   </div>
                 );
@@ -434,7 +446,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
                   {/* アクション: 返信メール（テンプレ/コピペ/AI生成） */}
                   <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                    <ProposalComposer job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} />
+                    <ProposalComposer job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} />
                   </div>
                 </div>
               );

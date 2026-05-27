@@ -1,17 +1,19 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import Link from "next/link";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, reSubject, buildProposalPrompt } from "@/lib/gmail";
-import { createProposal, deleteProposal } from "@/lib/actions";
+import { createProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 
 type Job = any;
 type Cand = any;
 
 export function ProposalComposer({
-  job, cand, matchedSkills, missingSkills, score,
+  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false,
 }: {
   job: Job; cand: Cand; matchedSkills: string[]; missingSkills?: string[]; score: number;
+  alreadyProposed?: boolean; // この案件×人材ペアが既に提案ボードにあるか（DB由来）
 }) {
   const [target, setTarget] = useState<"client" | "cand">("client");
   const [body, setBody] = useState("");
@@ -19,8 +21,7 @@ export function ProposalComposer({
   const [msg, setMsg] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [proposalId, setProposalId] = useState<string | null>(null);
+  const [saved, setSaved] = useState(alreadyProposed);
   const [sender, setSender] = useState("");
 
   // 操作中の担当者名（サイドバー/トップ右で選択した名前）を差出人に
@@ -84,26 +85,17 @@ export function ProposalComposer({
     window.open(gmailComposeUrl({ to: job?.contact_email ?? null, subject: reSubject(job?.title ?? ""), body: "" }), "_blank", "noopener");
   };
 
-  // ⑤ 記録のトグル：未記録→記録／記録済み→取消
-  const toggleBoard = async () => {
-    if (saved && proposalId) {
-      setSaving(true); setMsg(null);
-      try {
-        const res = await deleteProposal(proposalId);
-        if (res.ok) { setSaved(false); setProposalId(null); setMsg("記録を取り消しました"); }
-        else setMsg(res.error || "取消に失敗しました");
-      } catch (e) { setMsg(e instanceof Error ? e.message : "取消に失敗しました"); }
-      finally { setSaving(false); }
-      return;
-    }
-    if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案ボードに記録できません（ID不足）"); return; }
+  // 提案する＝提案ボードに記録。提案済みは固定表示（このペアのみ）。取消は「提案管理」での削除のみ。
+  const proposeToBoard = async () => {
+    if (saved) return; // 既に提案済み（取消は提案管理から）
+    if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案できません（ID不足）"); return; }
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(job.job_no, cand.candidate_no, score);
-      if (res.ok) { setSaved(true); setProposalId(res.id ?? null); setMsg(res.existed ? "既に提案ボードにあります（再クリックで取消）" : "提案ボードに記録しました（再クリックで取消）"); }
-      else setMsg(res.error || "記録に失敗しました");
+      if (res.ok) { setSaved(true); setMsg(res.existed ? "既に提案済みです" : "提案しました（提案ボードに追加）"); }
+      else setMsg(res.error || "提案に失敗しました");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "記録に失敗しました");
+      setMsg(e instanceof Error ? e.message : "提案に失敗しました");
     } finally { setSaving(false); }
   };
 
@@ -153,7 +145,14 @@ export function ProposalComposer({
       {/* 操作 */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn-mail block" onClick={openGmail}>Gmailで開く</button>
-        <button type="button" className={saved ? "btn" : "btn brand"} onClick={toggleBoard} disabled={saving}>{saving ? "処理中…" : saved ? "✓ 記録済み（取消）" : "提案ボードに記録"}</button>
+        {saved ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 提案済み</span>
+            <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline" }}>取消は提案管理から</Link>
+          </span>
+        ) : (
+          <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "提案する（ボードに記録）"}</button>
+        )}
         <button type="button" className="btn" onClick={generate} disabled={loading}>{loading ? "生成中…" : "✨ AIで自動生成"}</button>
         <button type="button" className="btn ghost" onClick={() => copy(prompt, "AIプロンプト")}>プロンプトをコピー</button>
         <button type="button" className="btn ghost" onClick={() => copy(effectiveBody, "本文")}>本文をコピー</button>
