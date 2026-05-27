@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { updateEngagementStatus, updateEngagementFields } from "@/lib/actions";
 import { upsertBillingTask, uploadBillingFile } from "@/app/billing/actions";
 import { EngagementTools } from "./EngagementTools";
+import { RateHistoryButton } from "./RateHistory";
 import { AFFILIATIONS, affiliationShort } from "@/lib/affiliation";
 import type { Role } from "@/lib/roles";
 
@@ -108,7 +109,7 @@ function AffSelect({ e, isAdmin, onSave }: { e: Eng; isAdmin: boolean; onSave: (
   );
 }
 
-function Row({ e, role, period, onChanged, done }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean }) {
+function Row({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean }) {
   const [pending, start] = useTransition();
   const isAdmin = role === "admin";
   const masked = e._maskMargin;
@@ -125,7 +126,7 @@ function Row({ e, role, period, onChanged, done }: { e: Eng; role: Role; period:
         <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
       </td>
       <td style={td}><AffSelect e={e} isAdmin={isAdmin} onSave={(v) => save({ affiliation: v })} /></td>
-      <td style={td}><input type="number" defaultValue={e.monthly_rate ?? ""} placeholder="万" title="月額（万円）" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.monthly_rate ?? "")) save({ monthly_rate: ev.target.value === "" ? null : Number(ev.target.value) }); }} /></td>
+      <td style={td}><div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}><input key={`rate-${e.monthly_rate ?? ""}`} type="number" defaultValue={e.monthly_rate ?? ""} placeholder="万" title="月額（万円）" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.monthly_rate ?? "")) save({ monthly_rate: ev.target.value === "" ? null : Number(ev.target.value) }); }} /><RateHistoryButton e={e} canManage={canManage} /></div></td>
       <td style={td}>{masked ? <Locked /> : <input type="number" defaultValue={e.cost ?? ""} placeholder="万" title="原価（万円）" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.cost ?? "")) save({ cost: ev.target.value === "" ? null : Number(ev.target.value) }); }} />}</td>
       <td style={{ ...td, fontWeight: 700, color: masked ? "var(--color-ink-4)" : gross != null ? (gross >= 0 ? "#067647" : "#b42318") : "var(--color-ink-4)" }}>{masked ? <Locked /> : gross != null ? `${gross}` : "—"}</td>
       <td style={td}>
@@ -205,12 +206,12 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
                 <th style={th}>当月勤怠({period})</th><th style={th}>契約書/注文書</th><th style={th}>請求(万・{period})</th><th style={th}>満了日</th>
               </tr>
             </thead>
-            <tbody>{visible.map((e) => <Row key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} />)}</tbody>
+            <tbody>{visible.map((e) => <Row key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
           </table>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
-          {visible.map((e) => <Card key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} />)}
+          {visible.map((e) => <Card key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}
         </div>
       )}
     </>
@@ -282,7 +283,7 @@ function ScheduleView({ rows }: { rows: Eng[] }) {
   );
 }
 
-function Card({ e, role, period, onChanged, done }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean }) {
+function Card({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean }) {
   const [pending, start] = useTransition();
   const isAdmin = role === "admin";
   const masked = e._maskMargin;
@@ -307,7 +308,7 @@ function Card({ e, role, period, onChanged, done }: { e: Eng; role: Role; period
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>{STATUSES.filter((s) => s !== e.status).map((s) => <button key={s} type="button" className="btn ghost btn-xs" disabled={pending} onClick={() => setStatus(s)}>{s}</button>)}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-        <div><Lbl c="月額(万)" /><input type="number" defaultValue={e.monthly_rate ?? ""} style={inp} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.monthly_rate ?? "")) save({ monthly_rate: ev.target.value === "" ? null : Number(ev.target.value) }); }} /></div>
+        <div><Lbl c="月額(万)" /><input key={`rate-${e.monthly_rate ?? ""}`} type="number" defaultValue={e.monthly_rate ?? ""} style={inp} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.monthly_rate ?? "")) save({ monthly_rate: ev.target.value === "" ? null : Number(ev.target.value) }); }} /><div style={{ marginTop: 4 }}><RateHistoryButton e={e} canManage={canManage} /></div></div>
         <div><Lbl c="原価(万)" />{masked ? <div style={{ padding: "5px 0" }}><Locked /></div> : <input type="number" defaultValue={e.cost ?? ""} placeholder="未入力" style={inp} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.cost ?? "")) save({ cost: ev.target.value === "" ? null : Number(ev.target.value) }); }} />}</div>
         <div><Lbl c="粗利(万)" /><div style={{ padding: "5px 0", fontWeight: 700, fontSize: 13, color: masked ? "var(--color-ink-4)" : gross != null ? (gross >= 0 ? "#067647" : "#b42318") : "var(--color-ink-4)" }}>{masked ? <Locked /> : gross != null ? `${gross}万` : "—"}</div></div>
       </div>

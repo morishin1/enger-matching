@@ -88,7 +88,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {needSetup && (
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>
-          <b>稼働テーブルが未作成です。</b> SQL Editor で <span className="mono">supabase/schema-matching.sql</span>・<span className="mono">supabase/engagement-ops.sql</span>・<span className="mono">supabase/billing.sql</span> を実行してください。
+          <b>稼働テーブルが未作成です。</b> SQL Editor で <span className="mono">supabase/schema-matching.sql</span>・<span className="mono">supabase/engagement-ops.sql</span>・<span className="mono">supabase/billing.sql</span>・<span className="mono">supabase/engagement-rate-changes.sql</span> を実行してください。
         </div>
       )}
 

@@ -387,6 +387,47 @@ export async function importEngagements(records: EngagementInput[]) {
   return { ok: true, inserted: res.inserted };
 }
 
+// ----- 単価アップ履歴（稼働契約の月額単価の変更ログ）-----
+
+export type RateChange = { id: string; effective_date: string; old_rate: number | null; new_rate: number; note: string | null; created_at: string };
+
+/** ある稼働の単価変更履歴を取得（適用日の新しい順）。 */
+export async function getRateChanges(engagementId: string): Promise<{ ok: boolean; rows?: RateChange[]; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { data, error } = await admin.from("engagement_rate_changes")
+    .select("id, effective_date, old_rate, new_rate, note, created_at")
+    .eq("engagement_id", engagementId)
+    .order("effective_date", { ascending: false }).order("created_at", { ascending: false });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rows: (data ?? []) as RateChange[] };
+}
+
+/** 単価アップ(変更)を記録：履歴に1件追加し、engagements.monthly_rate を新単価へ更新。 */
+export async function recordRateChange(engagementId: string, input: { new_rate: number | string; effective_date?: string | null; note?: string | null }) {
+  if (!(await canManageEngagements())) return { ok: false, error: "権限がありません（管理者・バックオフィスのみ）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  const newRate = _num(input.new_rate);
+  if (newRate == null) return { ok: false, error: "新しい月額(万)を入力してください" };
+  const eff = _date(input.effective_date) ?? new Date().toISOString().slice(0, 10);
+
+  const { data: e } = await admin.from("engagements").select("monthly_rate").eq("id", engagementId).maybeSingle();
+  if (!e) return { ok: false, error: "稼働が見つかりません" };
+  const oldRate = (e as any).monthly_rate != null ? Number((e as any).monthly_rate) : null;
+
+  const { error: insErr } = await admin.from("engagement_rate_changes")
+    .insert({ engagement_id: engagementId, effective_date: eff, old_rate: oldRate, new_rate: newRate, note: _str(input.note) });
+  if (insErr) return { ok: false, error: insErr.message };
+
+  const { error: updErr } = await admin.from("engagements").update({ monthly_rate: newRate }).eq("id", engagementId);
+  if (updErr) return { ok: false, error: updErr.message };
+
+  revalidatePath("/progress"); revalidatePath("/");
+  return { ok: true };
+}
+
 // ===================== 企業マスタ =====================
 
 export type CompanyInput = {
