@@ -428,6 +428,63 @@ export async function recordRateChange(engagementId: string, input: { new_rate: 
   return { ok: true };
 }
 
+// ----- 書類送付の期限管理（document_tasks）-----
+
+export type DocumentTaskInput = {
+  party?: string | null; counterparty?: string | null; subject?: string | null;
+  doc_type?: string | null; due_date?: string | null; status?: string | null; note?: string | null;
+};
+
+function cleanDocumentTask(input: DocumentTaskInput): Record<string, any> {
+  return {
+    party: _str(input.party) ?? "上位",
+    counterparty: _str(input.counterparty),
+    subject: _str(input.subject),
+    doc_type: _str(input.doc_type) ?? "契約書",
+    due_date: _date(input.due_date),
+    status: _str(input.status) ?? "未送付",
+    note: _str(input.note),
+  };
+}
+
+/** 書類送付タスクを1件追加（管理者・バックオフィスのみ）。 */
+export async function createDocumentTask(input: DocumentTaskInput) {
+  if (!(await canManageEngagements())) return { ok: false, error: "権限がありません（管理者・バックオフィスのみ）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("document_tasks").insert(cleanDocumentTask(input));
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/documents");
+  return { ok: true };
+}
+
+/** 書類送付タスクの項目を更新（管理者・バックオフィスのみ）。 */
+export async function updateDocumentTask(id: string, fields: DocumentTaskInput) {
+  if (!(await canManageEngagements())) return { ok: false, error: "権限がありません（管理者・バックオフィスのみ）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const allowed = ["party", "counterparty", "subject", "doc_type", "due_date", "status", "note"] as const;
+  const patch: Record<string, any> = {};
+  for (const k of allowed) if (k in fields) patch[k] = k === "due_date" ? _date((fields as any)[k]) : _str((fields as any)[k]);
+  if (Object.keys(patch).length === 0) return { ok: true };
+  patch.updated_at = new Date().toISOString();
+  const { error } = await admin.from("document_tasks").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/documents");
+  return { ok: true };
+}
+
+/** 書類送付タスクを削除（管理者・バックオフィスのみ）。 */
+export async function deleteDocumentTask(id: string) {
+  if (!(await canManageEngagements())) return { ok: false, error: "権限がありません（管理者・バックオフィスのみ）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("document_tasks").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/documents");
+  return { ok: true };
+}
+
 // ===================== 企業マスタ =====================
 
 export type CompanyInput = {

@@ -15,6 +15,7 @@ const NAV = [
   { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
+  { href: "/documents", id: "documents", label: "書類送付", icon: "doc" },
   { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
@@ -50,7 +51,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
   const allowed = new Set<string>(["/", "/progress"]); // ダッシュボード・稼働/請求/勤怠は全エージェント可
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
-  if (functions.includes("バックオフィス")) { allowed.add("/progress"); }
+  if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }
 
   const nav = isClient ? CLIENT_NAV
     : role === "agent" ? NAV.filter((n) => allowed.has(n.href))
