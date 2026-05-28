@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
-import { MailBodyModal } from "./MailBodyModal";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { AffiliationSelect } from "./AffiliationSelect";
@@ -379,7 +378,6 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
             <div style={{ display: "flex", gap: 8 }}>
               <Link href={matchHref(detail)} className="btn" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 19, lineHeight: 1 }}>auto_awesome</span></Link>
               {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
-              {kind === "jobs" && <MailBodyModal body={detail.detail} title={detail.title} sub={[detail.client_name, detail.role_label].filter(Boolean).join(" / ")} mailUrl={detail.source_mail_url} />}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
             </div>
           </div>
