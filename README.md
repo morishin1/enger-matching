@@ -77,6 +77,28 @@ Vercel に自動デプロイ（`main` 更新で本番、PR ごとにプレビュ
 - `node_modules/next/dist/docs/` に Next.js 16 のローカルドキュメントあり。挙動が分からないときは training data に頼らず先にここを参照
 - Material Icons をデフォルトに使う（詳細は `CLAUDE.md` の UI 規約）
 
+## Claude Code 拡張（Superpowers）
+
+このプロジェクトの開発では Claude Code の **Superpowers** プラグインを使用します（`/autopilot`、`/bugfix`、`/dashboard`、`/docs`、`/investigate`、`/deep-research` などのスキルを提供）。
+
+### インストール（各開発者が1回だけ実施）
+ローカルの Claude Code で以下を実行：
+```
+/plugin install superpowers@claude-plugins-official
+```
+インストール後、Claude Code を再起動してください。次セッション開始時にスキルシステムが自動でロードされます。
+
+- 公式マーケットプレイス：[anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official)
+- Superpowers 本体／ドキュメント：[obra/superpowers](https://github.com/obra/superpowers) ／ [obra/superpowers-marketplace](https://github.com/obra/superpowers-marketplace)
+
+### 主なスキルと使い所
+- `/autopilot` — 自己完結型タスクをエンドツーエンドで実装→レビュー→PR 作成まで
+- `/bugfix` — 再現テスト→根本原因→最小修正→回帰テスト→PR
+- `/investigate` — 障害・不可解な挙動の根本原因を仮説競合方式で特定
+- `/docs` — 仕様書・ドキュメント生成
+- `/code-review` / `/simplify` — 差分のレビュー・自動修正
+- `/verify` — 変更が実際に動くか起動して確認
+
 ## 関連ドキュメント
 - Supabase SQL: `supabase/`
 - 開発エージェント規約: `AGENTS.md` / `CLAUDE.md`
