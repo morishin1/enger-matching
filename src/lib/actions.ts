@@ -882,3 +882,89 @@ export async function upsertCandidateManual(rec: CandidateInput) {
   revalidatePath("/people"); bustCounts();
   return { ok: true as const, action: "inserted", candidate_no: r.data?.candidate_no };
 }
+
+/** 提案の手動1件追加。LINE/書面で来た案件など、既存に無くてもインライン作成して提案を登録できる。 */
+export async function createProposalManual(input: {
+  job: { job_no?: number | null; title?: string | null; client_name?: string | null };
+  candidate: { candidate_no?: number | null; name?: string | null; company?: string | null; rate?: string | null };
+  stage?: string;
+  proposer?: string;
+  partner?: string;
+  closer?: string;
+  client_contact?: string;
+  meeting_date?: string;
+  note?: string;
+}) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  // 案件解決：NO 指定があれば既存参照、無ければ手動 upsert
+  let jobRow: any = null;
+  if (input.job.job_no) {
+    let jr = await admin.from("jobs").select("id, job_no, title, client_name, outside_owner").eq("job_no", input.job.job_no).maybeSingle();
+    if (jr.error) jr = await admin.from("jobs").select("id, job_no, title, client_name").eq("job_no", input.job.job_no).maybeSingle();
+    if (!jr.data) return { ok: false as const, error: `案件NO ${input.job.job_no} が見つかりません` };
+    jobRow = jr.data;
+  } else if (input.job.title?.trim()) {
+    const up = await upsertJobManual({ title: input.job.title.trim(), client_name: input.job.client_name?.trim() || null });
+    if (!up.ok) return { ok: false as const, error: up.error };
+    let jr = await admin.from("jobs").select("id, job_no, title, client_name, outside_owner").eq("job_no", up.job_no!).maybeSingle();
+    if (jr.error) jr = await admin.from("jobs").select("id, job_no, title, client_name").eq("job_no", up.job_no!).maybeSingle();
+    jobRow = jr.data;
+  } else {
+    return { ok: false as const, error: "案件NO または 案件名 を入力してください" };
+  }
+
+  // 人材解決：NO 指定があれば既存参照、無ければ手動 upsert
+  let candRow: any = null;
+  if (input.candidate.candidate_no) {
+    const cr = await admin.from("candidates").select("id, candidate_no, name, initials, rate").eq("candidate_no", input.candidate.candidate_no).maybeSingle();
+    if (!cr.data) return { ok: false as const, error: `人材NO ${input.candidate.candidate_no} が見つかりません` };
+    candRow = cr.data;
+  } else if (input.candidate.name?.trim()) {
+    const up = await upsertCandidateManual({
+      name: input.candidate.name.trim(),
+      company: input.candidate.company?.trim() || null,
+      rate: input.candidate.rate?.trim() || null,
+    });
+    if (!up.ok) return { ok: false as const, error: up.error };
+    const cr = await admin.from("candidates").select("id, candidate_no, name, initials, rate").eq("candidate_no", up.candidate_no!).maybeSingle();
+    candRow = cr.data;
+  } else {
+    return { ok: false as const, error: "人材NO または 氏名 を入力してください" };
+  }
+
+  // 重複チェック
+  const dup = await admin.from("proposals").select("id").eq("job_id", jobRow.id).eq("candidate_id", candRow.id).limit(1);
+  if (dup.data && dup.data.length > 0) {
+    revalidatePath("/proposals"); bustCounts();
+    return { ok: true as const, action: "existed" as const, id: dup.data[0].id, job_no: jobRow.job_no, candidate_no: candRow.candidate_no };
+  }
+
+  const insertRow: Record<string, any> = {
+    job_id: jobRow.id, candidate_id: candRow.id,
+    stage: input.stage?.trim() || "未対応",
+    job_title: jobRow.title, company: jobRow.client_name, candidate_name: candRow.name,
+    c_init: candRow.initials, rate: candRow.rate, ai: false,
+  };
+  if (input.proposer?.trim()) insertRow.proposer = input.proposer.trim();
+  if (input.partner?.trim()) insertRow.partner = input.partner.trim();
+  const defaultCloser = (jobRow.outside_owner ?? "").trim() || null;
+  if (input.closer?.trim()) insertRow.closer = input.closer.trim();
+  else if (defaultCloser) insertRow.closer = defaultCloser;
+  if (input.client_contact?.trim()) insertRow.client_contact = input.client_contact.trim();
+  if (input.meeting_date?.trim()) insertRow.meeting_date = input.meeting_date.trim();
+  if (input.note?.trim()) insertRow.next_action = input.note.trim();
+
+  let r: any = await admin.from("proposals").insert(insertRow).select("id").single();
+  if (r.error && /proposer|partner|closer|client_contact|meeting_date|next_action|column/i.test(r.error.message)) {
+    const stripped: Record<string, any> = { ...insertRow };
+    delete stripped.proposer; delete stripped.partner; delete stripped.closer;
+    delete stripped.client_contact; delete stripped.meeting_date; delete stripped.next_action;
+    r = await admin.from("proposals").insert(stripped).select("id").single();
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+
+  revalidatePath("/proposals"); bustCounts();
+  return { ok: true as const, action: "inserted" as const, id: r.data?.id, job_no: jobRow.job_no, candidate_no: candRow.candidate_no };
+}
