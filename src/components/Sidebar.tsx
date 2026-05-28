@@ -9,10 +9,8 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 
 const NAV = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
+  // マッチング配下にタブで「案件 / 人材 / エンジャー登録」を統合（/matching ページ内のタブで切替）
   { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
-  { href: "/engineers", id: "engineers", label: "エンジャー登録", icon: "engineers", count: "engineers" },
-  { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
-  { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
   { href: "/documents", id: "documents", label: "書類送付", icon: "doc" },

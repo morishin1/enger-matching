@@ -1,7 +1,9 @@
 import { unstable_cache } from "next/cache";
 import { engerClient, publicAdmin, dbConfigured } from "./supabase";
 
-export type SidebarCounts = Partial<Record<"jobs" | "people" | "companies" | "proposals" | "progress" | "matching" | "engineers", number>>;
+export type SidebarCounts = Partial<Record<
+  "jobs" | "people" | "companies" | "proposals" | "progress" | "matching" | "engineers"
+  | "newJobs" | "newPeople" | "newEngineers", number>>;
 
 async function fetchCounts(): Promise<SidebarCounts> {
   if (!dbConfigured) return {};
@@ -25,16 +27,25 @@ async function fetchCounts(): Promise<SidebarCounts> {
     try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).or("github_id.not.is.null,display_name.not.is.null"); return error ? undefined : (count ?? undefined); }
     catch { return undefined; }
   };
+  // 直近7日の新着数（マッチング配下タブのバッジ）
+  const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const newEngineerCount = async (): Promise<number | undefined> => {
+    try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", since7).or("github_id.not.is.null,display_name.not.is.null"); return error ? undefined : (count ?? undefined); }
+    catch { return undefined; }
+  };
 
-  const [jobs, people, companies, proposals, engagements, engineers] = await Promise.all([
+  const [jobs, people, companies, proposals, engagements, engineers, newJobs, newPeople, newEngineers] = await Promise.all([
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true)),
     safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true })),
     companyCount(),
     safeCount(() => sb.from("proposals").select("id", { count: "exact", head: true }).not("stage", "in", '("見送り","失注")')),
     safeCount(() => sb.from("engagements").select("id", { count: "exact", head: true })),
     engineerCount(),
+    safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true).gte("created_at", since7)),
+    safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true }).gte("created_at", since7)),
+    newEngineerCount(),
   ]);
-  return { jobs, people, companies, proposals, progress: engagements, engineers };
+  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers };
 }
 
 // 30秒キャッシュ + タグ。書き込み時に revalidateTag("sidebar-counts") で即時更新。
