@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
 
@@ -42,7 +43,11 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
 
   return (
     <div className="card" style={{ padding: 12, opacity: busy ? 0.5 : 1, borderLeft: `3px solid ${tone}` }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>{p.job_title ?? "—"}</div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
+        {p.job_no != null
+          ? <Link href={`/matching?job=${p.job_no}`} title="この案件のマッチング画面へ" style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link>
+          : (p.job_title ?? "—")}
+      </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
         {(p.updated_at || p.created_at) && <span style={{ flexShrink: 0 }}>🕒{dvDate(p.updated_at || p.created_at)}</span>}

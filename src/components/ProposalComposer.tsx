@@ -99,10 +99,12 @@ export function ProposalComposer({
   // ① 元メール（案件メール）へのアクセス：内容確認は本文モーダル、原文/返信は Gmail を該当アカウントで開く
   const origMailUrl = job?.source_mail_url || gmailSearchUrl([job?.client_name, job?.title].filter(Boolean).join(" "));
   const openOriginal = () => window.open(origMailUrl, "_blank", "noopener");
-  const replyToOriginal = () => {
-    // 元メールの差出人（案件窓口）に「Re:」で返信を作成
-    window.open(gmailComposeUrl({ to: job?.contact_email ?? null, subject: reSubject(job?.title ?? ""), body: "" }), "_blank", "noopener");
-  };
+  // 「元メールに返信」：URL ベースでは Gmail のスレッド返信フォームは直接開けないため、
+  // 元メールを Gmail で開いて、そこの「返信」ボタンを使ってもらう動線に変更（旧実装は新規メールになる問題があった）。
+  const replyToOriginal = () => window.open(origMailUrl, "_blank", "noopener");
+  // 人材の元メール（人材CSVの取込元メール）。注力対象の人材本人の問い合わせメールを開く。
+  const candMailUrl = cand?.source_mail_url || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
+  const openCandidateOriginal = () => { if (candMailUrl) window.open(candMailUrl, "_blank", "noopener"); };
 
   // 提案する＝提案ボードに記録。提案済みは固定表示（このペアのみ）。取消は「提案管理」での削除のみ。
   const proposeToBoard = async () => {
@@ -153,12 +155,15 @@ export function ProposalComposer({
         style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", background: "var(--color-surface)" }}
       />
 
-      {/* ① 元メール（案件メール）へのアクセス：内容確認・原文・返信 */}
+      {/* ① 元メール（案件・人材それぞれの原本）へのアクセス */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingBottom: 4, borderBottom: "1px dashed var(--color-border)" }}>
         <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>元メール</span>
         <MailBodyModal body={job?.detail ?? job?.description ?? null} title={job?.title} sub={job?.client_name} mailUrl={origMailUrl} />
-        <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで元の案件メールを開く（マッチング精度の確認用）">↗ 元メールを開く</button>
-        <button type="button" className="btn ghost btn-xs" onClick={replyToOriginal} title="元メールの差出人にRe:で返信を作成">↩ 元メールに返信</button>
+        <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで案件の元メールを開く">↗ 案件の元メール</button>
+        {candMailUrl && (
+          <button type="button" className="btn ghost btn-xs" onClick={openCandidateOriginal} title="Gmailで人材の元メール（取込元）を開く">↗ 人材の元メール</button>
+        )}
+        <button type="button" className="btn ghost btn-xs" onClick={replyToOriginal} title="案件の元メールを Gmail で開きます。Gmail の「返信」ボタンでスレッド返信できます。">↩ 案件メールに返信</button>
       </div>
 
       {/* 操作 */}
