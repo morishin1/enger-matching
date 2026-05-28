@@ -1,6 +1,7 @@
 import { Icons } from "@/components/icons";
 import { ProposalBoard } from "@/components/ProposalBoard";
 import { ProposalHistory } from "@/components/ProposalHistory";
+import { NewProposalButton } from "@/components/NewProposalButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
@@ -89,6 +90,9 @@ export default async function ProposalsPage() {
           <div className="meta">Proposals · 提案管理</div>
           <h1>提案管理</h1>
           <div className="sub"><b>未対応 → 提案中 → 面談調整 → クロージング中 → 面談合格</b> のカンバン。提案は<b>2人1組（提案者＋パートナー）</b>で進め、クロージング担当は2人のうちどちらかをカードで選べます。面談合格の「稼働化」で<b>稼働管理</b>へ移ります。</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+          <NewProposalButton />
         </div>
       </div>
 
