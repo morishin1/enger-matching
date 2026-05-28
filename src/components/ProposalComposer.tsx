@@ -32,7 +32,14 @@ export function ProposalComposer({
     if (target === "client") {
       const m = jobProposalMail({
         jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name, sender,
-        candidate: { name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate, affiliation: cand.affiliation, exp: cand.exp, skillSheetUrl: cand.skill_sheet_url ?? cand.skillSheetUrl ?? null },
+        candidate: {
+          name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate,
+          affiliation: cand.affiliation, exp: cand.exp,
+          skillSheetUrl: cand.skill_sheet_url ?? cand.skillSheetUrl ?? null,
+          ageBand: cand.age_band ?? null,
+          avail: cand.avail ?? null,
+          location: cand.location ?? null,
+        },
         matchedSkills, score,
         originalBody: job.detail ?? job.description ?? null,
         originalMailUrl: job.source_mail_url ?? null,
@@ -40,8 +47,20 @@ export function ProposalComposer({
       return { to: job.contact_email as string | null, subject: m.subject, body: m.body };
     }
     const m = candidateProposalMail({
-      candidateName: cand.name, contactName: cand.contact_name, sender,
-      job: { title: job.title, client_name: job.client_name, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max },
+      candidateName: cand.name,
+      candidateCompany: cand.source_company ?? cand.company ?? null,
+      contactName: cand.contact_name,
+      ageBand: cand.age_band ?? null,
+      sender,
+      job: {
+        title: job.title, client_name: job.client_name, role_label: job.role_label,
+        skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max,
+        detail: job.detail ?? null,
+        work_location: job.work_location ?? null,
+        flow_note: job.flow_note ?? null,
+        start_date: job.start_date ?? null,
+        remote_type: job.remote_type ?? null,
+      },
       matchedSkills, score,
     });
     return { to: (cand.email ?? cand.contact_email) as string | null, subject: m.subject, body: m.body };

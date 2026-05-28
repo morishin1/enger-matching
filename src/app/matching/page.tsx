@@ -89,8 +89,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus";
-      const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location";
+      const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date";
 
       if (personNo) {
         // ---- 人材 → 案件（逆マッチング）----
