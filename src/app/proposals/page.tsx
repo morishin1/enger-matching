@@ -113,11 +113,7 @@ export default async function ProposalsPage() {
             </div>
             <div className="kpi">
               <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip flat">見送り</div></div>
-              <div><div className="val tnum">{lost}<span className="unit">件</span></div><div className="label">見送り（失注）</div><div className="note">理由を下に集計</div></div>
-            </div>
-            <div className="kpi warn">
-              <div className="top"><div className="ico-box"><Icons.matching /></div><div className="chip">導線</div></div>
-              <div><div className="val" style={{ fontSize: 16 }}>マッチング→提案</div><div className="label">提案の作り方</div><div className="note">マッチング詳細で記録</div></div>
+              <div><div className="val tnum">{lost}<span className="unit">件</span></div><div className="label">見送り（失注）</div><div className="note">{lost > 0 ? <a href="#lost-summary" style={{ color: "inherit", textDecoration: "underline" }}>↓ 失注理由サマリーで確認</a> : "画面下部で確認"}</div></div>
             </div>
           </div>
 
@@ -156,7 +152,7 @@ export default async function ProposalsPage() {
           {history.length > 0 && <ProposalHistory items={history} />}
 
           {topReasons.length > 0 && (
-            <div className="card">
+            <div className="card" id="lost-summary">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>💔 失注理由サマリー</h3>
                 <span className="muted" style={{ fontSize: 11.5 }}>見送り {lost} 件</span>
