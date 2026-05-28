@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ENGER matching
 
-## Getting Started
+エンジニア人材／案件のマッチング・提案・稼働管理を扱う社内アプリ（Next.js 16 / React 19 / Supabase）。
 
-First, run the development server:
+## 開発セットアップ
 
+### 1) クローン & 依存導入
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repo>
+cd enger-matching
+npm ci
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2) 環境変数
+`.env.example` を `.env.local` にコピーして値を埋める：
+```bash
+cp .env.example .env.local
+```
+- `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` は **必須**（Supabase コンソール → Project Settings → API）
+- 実値は **コミットしない**。共有は Vercel 環境変数 or 1Password 等の安全な経路で。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3) DB スキーマ
+`supabase/` 配下の SQL を Supabase の SQL Editor で順次実行（最初は `schema-matching.sql`、その後機能ごとの拡張 SQL）：
+- `schema-matching.sql` … jobs / candidates / proposals の基本
+- `email-columns.sql` … 元メールURL／送信元メール列の追加
+- `proposals-ops.sql` … 提案管理の拡張列
+- 他、必要に応じて
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 4) 起動
+```bash
+npm run dev
+```
+http://localhost:3000
 
-## Learn More
+## スクリプト
+- `npm run dev` — 開発サーバ
+- `npm run build` — 本番ビルド
+- `npm start` — 本番サーバ
+- `npx tsc --noEmit` — 型チェック（CI でも実行）
 
-To learn more about Next.js, take a look at the following resources:
+## 共同開発のルール
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+複数人（Claude Code を含む）で並行開発します。**短命ブランチ + PR + レビュー**を徹底します。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### ブランチ
+- `main` … 常にデプロイ可能。直接 push 禁止。
+- 人間開発者 … `feat/<name>/<topic>`（例：`feat/sato/proposal-form`）
+- Claude Code … `claude/<topic>`（例：`claude/web-dev`）
 
-## Deploy on Vercel
+### 流れ
+1. **最新化**：作業開始前に `git fetch origin && git rebase origin/main` で main を取り込む
+2. **小さく切る**：1 PR は 1 トピックに絞る。長持ちさせない（理想は1〜2日でマージ）
+3. **PR**：GitHub UI または `gh pr create` で main へ PR を作成
+   - タイトルは目的を1文で（例：`提案管理に新規追加ボタンを設置`）
+   - 本文に「概要 / 変更点 / 確認」を書く
+4. **CI**：PR で `typecheck + build` が自動で走る（`.github/workflows/ci.yml`）。red の PR はマージ禁止
+5. **レビュー**：別のメンバーが内容を確認 → 必要なら修正コミット → Approve → マージ
+6. **同期**：merge 後は他の人も `git pull --rebase origin main` で取り込む
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### コンフリクトを避けるコツ
+- 同じファイルを長時間同時編集しない（事前に Slack / Issue で宣言）
+- コンポーネントや機能単位で担当を切る
+- 大きなリファクタはまず Issue で合意してから
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 役割分担の目安
+- **Claude Code**：UI 改修、定型機能追加、リファクタ、ドキュメント
+- **人間開発者**：複雑な仕様判断、外部統合、セキュリティ、データ移行
+- 重複作業を防ぐため、着手前に PR / Issue / Slack で「いまこれやります」を共有
+
+## デプロイ
+Vercel に自動デプロイ（`main` 更新で本番、PR ごとにプレビュー）。
+- 環境変数は Vercel Project Settings → Environment Variables で管理
+- デプロイ状況：Vercel Dashboard → Deployments
+
+## 注意事項
+- **`.env*` はコミット禁止**（`.gitignore` 済）
+- `node_modules/next/dist/docs/` に Next.js 16 のローカルドキュメントあり。挙動が分からないときは training data に頼らず先にここを参照
+- Material Icons をデフォルトに使う（詳細は `CLAUDE.md` の UI 規約）
+
+## 関連ドキュメント
+- Supabase SQL: `supabase/`
+- 開発エージェント規約: `AGENTS.md` / `CLAUDE.md`
