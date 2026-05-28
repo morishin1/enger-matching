@@ -5,6 +5,7 @@ import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
 import { FocusList } from "@/components/FocusList";
 import { MatchingTabs } from "@/components/MatchingTabs";
+import { JumpToMatching } from "@/components/JumpToMatching";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, type Job } from "@/lib/match";
 
@@ -289,6 +290,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
+        <JumpToMatching />
         {Tabs}
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
@@ -348,6 +350,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <button className="btn brand" type="submit"><Icons.matching /><span>マッチ</span></button>
         </form>
       </div>
+
+      <JumpToMatching />
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
