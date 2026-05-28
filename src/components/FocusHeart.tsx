@@ -54,11 +54,12 @@ export function FocusHeart({
   const onClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (on) { commit(false); return; } // 解除は確認なし
-    // ON にする時は注力定義チェック
+    if (table === "jobs") { commit(true); return; } // 案件は確認なしで即登録
+    // 人材: ON にする時は注力定義チェック
     setChecking(true);
     try {
       const criteria = await loadCriteria();
-      const rule = table === "jobs" ? criteria.jobs : criteria.candidates;
+      const rule = criteria.candidates;
       const entity = buildFocusEntity(table, row ?? {});
       const ev = evaluateFocus(rule, entity);
       if (!ev.configured) { commit(true); return; } // 定義が未設定ならそのまま登録
