@@ -755,3 +755,130 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
   bustCounts();
   return { ok: true, inserted };
 }
+
+// ----- 手動1件 upsert（新規登録モーダル用） ----------------------------------
+// 重複時はスキップせず「再公開＋更新」する。空欄項目は既存値を保持。
+
+/** 案件の手動1件 upsert。title×client_name で既存があれば更新、無ければ挿入。 */
+export async function upsertJobManual(rec: JobInput) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!rec.title?.trim()) return { ok: false as const, error: "案件名は必須です" };
+  const now = new Date().toISOString();
+  const salaryLabel = (lo?: number | null, hi?: number | null) =>
+    lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
+  const row: Record<string, any> = {
+    title: rec.title.trim(),
+    client_name: rec.client_name?.trim() || null,
+    role_label: rec.role_label?.trim() || null,
+    skills: normalizeSkills(rec.skills ?? []),
+    salary_min: rec.salary_min ?? null,
+    salary_max: rec.salary_max ?? null,
+    salary_label: salaryLabel(rec.salary_min, rec.salary_max),
+    remote_type: rec.remote_type || "partial_remote",
+    flow_note: rec.flow_note?.trim() || null,
+    work_location: rec.work_location?.trim() || null,
+    start_date: rec.start_date || null,
+    detail: rec.detail?.trim() || null,
+    status: rec.status?.trim() || "募集中",
+    contact_name: rec.contact_name?.trim() || null,
+    contact_email: rec.contact_email?.trim() || null,
+    source_mail_url: rec.source_mail_url?.trim() || null,
+    rank: "-",
+    is_published: true,
+    source_csv: "manual",
+    imported_at: now,
+  };
+
+  // 既存検索（title 完全一致＋client_name 一致 or 両方 null）
+  let q = admin.from("jobs").select("id, job_no, is_published").eq("title", row.title);
+  q = row.client_name ? q.eq("client_name", row.client_name) : q.is("client_name", null);
+  const ex = await q.maybeSingle();
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; return c; };
+
+  if (ex.data?.id) {
+    // 更新：空欄は既存値を保持（null/[] は上書きしない）
+    const update: Record<string, any> = { is_published: true, imported_at: now };
+    for (const [k, v] of Object.entries(row)) {
+      if (k === "is_published" || k === "imported_at") continue;
+      if (v == null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      update[k] = v;
+    }
+    let r: any = await admin.from("jobs").update(update).eq("id", ex.data.id);
+    if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
+      r = await admin.from("jobs").update(stripCols(update)).eq("id", ex.data.id);
+    }
+    if (r.error) return { ok: false as const, error: r.error.message };
+    revalidatePath("/jobs"); bustCounts();
+    return { ok: true as const, action: "updated", job_no: ex.data.job_no, republished: !ex.data.is_published };
+  }
+  // 新規 INSERT
+  row.created_at = now;
+  let r: any = await admin.from("jobs").insert(row).select("job_no").maybeSingle();
+  if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
+    r = await admin.from("jobs").insert(stripCols(row)).select("job_no").maybeSingle();
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath("/jobs"); bustCounts();
+  return { ok: true as const, action: "inserted", job_no: r.data?.job_no };
+}
+
+/** 人材の手動1件 upsert。name×company で既存があれば更新、無ければ挿入。 */
+export async function upsertCandidateManual(rec: CandidateInput) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!rec.name?.trim()) return { ok: false as const, error: "氏名は必須です" };
+  const now = new Date().toISOString();
+  const row: Record<string, any> = {
+    code: rec.code?.trim() || null,
+    name: rec.name.trim(),
+    initials: ((rec.name.trim().split(/\s+/)[0]?.[0] ?? "") + (rec.name.trim().split(/\s+/)[1]?.[0] ?? "")),
+    title: rec.title?.trim() || null,
+    company: rec.company?.trim() || null,
+    affiliation: rec.affiliation?.trim() || null,
+    skills: normalizeSkills(rec.skills ?? []),
+    rate: rec.rate?.trim() || null,
+    rate_num: rec.rate_num ?? null,
+    avail: rec.avail?.trim() || null,
+    location: rec.location?.trim() || null,
+    exp: rec.exp?.trim() || null,
+    status: rec.status?.trim() || "提案可",
+    skill_sheet_url: rec.skill_sheet_url?.trim() || null,
+    email: rec.email?.trim() || null,
+    contact_email: rec.contact_email?.trim() || null,
+    source_mail_url: rec.source_mail_url?.trim() || null,
+    score: 0,
+    source_csv: "manual",
+    imported_at: now,
+  };
+
+  let q = admin.from("candidates").select("id, candidate_no").eq("name", row.name);
+  q = row.company ? q.eq("company", row.company) : q.is("company", null);
+  const ex = await q.maybeSingle();
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; return c; };
+
+  if (ex.data?.id) {
+    const update: Record<string, any> = { imported_at: now };
+    for (const [k, v] of Object.entries(row)) {
+      if (k === "imported_at") continue;
+      if (v == null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      update[k] = v;
+    }
+    let r: any = await admin.from("candidates").update(update).eq("id", ex.data.id);
+    if (r.error && /skill_sheet_url|email|source_mail_url|column/i.test(r.error.message)) {
+      r = await admin.from("candidates").update(stripCols(update)).eq("id", ex.data.id);
+    }
+    if (r.error) return { ok: false as const, error: r.error.message };
+    revalidatePath("/people"); bustCounts();
+    return { ok: true as const, action: "updated", candidate_no: ex.data.candidate_no };
+  }
+  let r: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
+  if (r.error && /skill_sheet_url|email|source_mail_url|column/i.test(r.error.message)) {
+    r = await admin.from("candidates").insert(stripCols(row)).select("candidate_no").maybeSingle();
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath("/people"); bustCounts();
+  return { ok: true as const, action: "inserted", candidate_no: r.data?.candidate_no };
+}
