@@ -1,4 +1,4 @@
-import { CandidateImportButton, ExportButton } from "@/components/CsvTools";
+import { CandidateImportButton, CandidateNewButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -57,6 +57,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
           <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />
+          <CandidateNewButton />
           <CandidateImportButton />
         </div>
       </div>

@@ -84,19 +84,43 @@ type Col = {
 
 export type EntityKind = "jobs" | "people";
 
+// 上位3スキルをタグ表示（マッチ要因が一目で分かるよう、既定の .tag.brand スタイルで表示）
+function SkillTags({ skills }: { skills?: unknown }) {
+  const ss = Array.isArray(skills) ? (skills as string[]) : [];
+  const top = ss.slice(0, 3);
+  const more = ss.length - top.length;
+  if (ss.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      {top.map((s) => <span key={s} className="tag brand">{s}</span>)}
+      {more > 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{more}</span>}
+    </div>
+  );
+}
+
 const JOB_COLS: Col[] = [
   { key: "id", label: "案件ID", width: 84, render: (j) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</span> },
-  { key: "created", label: "掲載日", width: 96, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
+  { key: "created", label: "掲載日", width: 96, defaultHidden: true, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (j) => freshnessLabel(j.created_at), filterFixed: FRESH_OPTIONS, render: (j) => <Fresh d={j.created_at} /> },
   {
     key: "title", label: "案件名", always: true,
     search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
     render: (j) => <div className="pri" style={{ lineHeight: 1.4 }}>{j.title}</div>,
   },
+  { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
   { key: "client", label: "クライアント名", search: (j) => j.client_name ?? "", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
-  { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag" style={{ fontSize: 10.5 }}>{j.role_label}</span> : <span className="muted">—</span>) },
+  { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterLabel: "リモート", filter: (j) => remoteLabel(j.remote_type), render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span> },
+  {
+    // マッチング画面へ直行（この案件を起点に人材を探す）
+    key: "match_action", label: "", width: 116,
+    render: (j) => (
+      <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+        <Icons.matching /><span>マッチング</span>
+      </Link>
+    ),
+  },
   { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterLabel: "商流", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (j) => salaryBand(j.salary_max ?? j.salary_min ?? null) },
@@ -118,22 +142,8 @@ const PEOPLE_COLS: Col[] = [
       </Link>
     ),
   },
-  {
-    // マッチングの主要因。上位3スキル＋残数をタグ表示。
-    key: "skills", label: "スキル",
-    render: (p) => {
-      const ss: string[] = Array.isArray(p.skills) ? p.skills : [];
-      const top = ss.slice(0, 3);
-      const more = ss.length - top.length;
-      if (ss.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
-      return (
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          {top.map((s) => <span key={s} className="tag brand" style={{ fontSize: 10.5, padding: "1px 6px" }}>{s}</span>)}
-          {more > 0 && <span className="muted" style={{ fontSize: 10.5 }}>+{more}</span>}
-        </div>
-      );
-    },
-  },
+  // マッチングの主要因。上位3スキル＋残数をタグ表示（既定の .tag.brand）。
+  { key: "skills", label: "スキル", render: (p) => <SkillTags skills={p.skills} /> },
   { key: "exp", label: "経験", width: 76, render: (p) => <span style={{ fontSize: 12 }}>{p.exp ? (/^\d+$/.test(String(p.exp).trim()) ? `${String(p.exp).trim()}年` : p.exp) : "—"}</span> },
   { key: "avail", label: "稼働開始", width: 112, render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.avail ?? "—"}</span> },
   { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },

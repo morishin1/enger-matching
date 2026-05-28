@@ -12,6 +12,11 @@ const dateOf = (s: string) => { const m = (s || "").match(/(\d{4})\/(\d{1,2})\/(
 // GAS v2 はスキルに「名称:経験年数」を付ける（例: "Ruby on Rails:6"）。末尾の :数字 を落として純粋なスキル名にする。
 const cleanSkill = (x: string) => x.trim().replace(/[:：]\s*\d+\+?\s*$/, "").trim();
 const splitSkills = (s: string) => (s || "").split(/[,、\/／・]+/).map(cleanSkill).filter(Boolean);
+// 単一の Drive ファイルID/URL を Drive 閲覧URLに正規化。カンマ区切りなら先頭を採用。
+const driveUrl = (raw: string) => {
+  const v = ((raw || "").split(/[,、\s]+/).filter(Boolean)[0] ?? "").trim();
+  return /^https?:\/\//i.test(v) ? v : (/^[\w-]{20,}$/.test(v) ? `https://drive.google.com/file/d/${v}/view` : v);
+};
 const remoteOf = (s: string) => /フル/.test(s || "") ? "full_remote" : /出社|常駐|不可/.test(s || "") ? "onsite" : "partial_remote";
 const garbled = (s: string) => /[�]/.test(s) || /[縺繧繝繚竊郢蝣]/.test(s); // 文字化け検知
 
@@ -81,12 +86,6 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
   const candRaw = kind === "candidates" && header.includes("会社名");
   const rateText = (lo: number | null, hi: number | null) =>
     lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "";
-  // 添付ファイルIDが複数（カンマ区切り）の場合は先頭を採用。Drive ファイルIDなら閲覧URLに変換。
-  const driveUrl = (raw: string) => {
-    const v = (raw.split(/[,、\s]+/).filter(Boolean)[0] ?? "").trim();
-    return /^https?:\/\//i.test(v) ? v : (/^[\w-]{20,}$/.test(v) ? `https://drive.google.com/file/d/${v}/view` : v);
-  };
-
   grid.slice(1).forEach((cols, idx) => {
     if (cols.every((c) => !(c || "").trim())) return; // 空行スキップ
     const rec: any = { skills: [] };
@@ -300,3 +299,167 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
 
 export function CandidateImportButton() { return <CsvImport kind="candidates" />; }
 export function JobImportButton() { return <CsvImport kind="jobs" />; }
+
+// ---- 1件手動登録モーダル ----------------------------------------------------
+const fieldStyle: React.CSSProperties = { fontSize: 12.5, padding: "6px 8px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", fontFamily: "var(--font-sans)" };
+const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)" };
+
+function FormField({ label, value, onChange, full, placeholder }: { label: string; value?: string; onChange: (v: string) => void; full?: boolean; placeholder?: string }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: full ? "1 / -1" : undefined }}>
+      <span style={labelStyle}>{label}</span>
+      <input type="text" value={value ?? ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={fieldStyle} />
+    </label>
+  );
+}
+function FormSelect({ label, value, onChange, options }: { label: string; value?: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={labelStyle}>{label}</span>
+      <select value={value ?? ""} onChange={(e) => onChange(e.target.value)} style={fieldStyle}>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </label>
+  );
+}
+function FormTextarea({ label, value, onChange }: { label: string; value?: string; onChange: (v: string) => void }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / -1" }}>
+      <span style={labelStyle}>{label}</span>
+      <textarea value={value ?? ""} rows={4} onChange={(e) => onChange(e.target.value)} style={{ ...fieldStyle, resize: "vertical", padding: "8px" }} />
+    </label>
+  );
+}
+
+function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [f, setF] = useState<Record<string, string>>({});
+  const set = (k: string) => (v: string) => setF((s) => ({ ...s, [k]: v }));
+  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); } };
+
+  const submit = () => {
+    setMsg(null);
+    if (kind === "candidates") {
+      const name = (f.name || "").trim();
+      if (!name) { setMsg({ ok: false, text: "氏名は必須です" }); return; }
+      const rec: any = {
+        name,
+        title: f.title?.trim() || null,
+        company: f.company?.trim() || null,
+        affiliation: f.affiliation?.trim() || null,
+        skills: (f.skills || "").split(/[,、\/／]+/).map(cleanSkill).filter(Boolean),
+        rate: f.rate?.trim() || null,
+        avail: f.avail?.trim() || null,
+        location: f.location?.trim() || null,
+        exp: f.exp?.trim() || null,
+        status: f.status?.trim() || null,
+        skill_sheet_url: f.skill_sheet_url?.trim() ? driveUrl(f.skill_sheet_url.trim()) : null,
+        email: f.email?.trim() || null,
+        contact_email: f.contact_email?.trim() || null,
+        source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
+      };
+      if (rec.rate) rec.rate_num = numOf(rec.rate);
+      start(async () => {
+        const res = await importCandidates([rec] as CandidateInput[], "手動登録");
+        if (res.ok) { setMsg({ ok: true, text: `${res.inserted ?? 0} 件を登録しました` }); router.refresh(); if (res.inserted) setTimeout(close, 800); }
+        else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
+      });
+    } else {
+      const title = (f.title || "").trim();
+      if (!title) { setMsg({ ok: false, text: "案件名は必須です" }); return; }
+      const sMin = numOf(f.salary_min || ""); const sMax = numOf(f.salary_max || "");
+      const rec: any = {
+        title,
+        client_name: f.client_name?.trim() || null,
+        role_label: f.role_label?.trim() || null,
+        skills: splitSkills(f.skills || ""),
+        salary_min: sMin,
+        salary_max: sMax,
+        remote_type: f.remote_type || null,
+        flow_note: f.flow_note?.trim() || null,
+        work_location: f.work_location?.trim() || null,
+        start_date: dateOf(f.start_date || "") || (f.start_date?.trim() || null),
+        detail: f.detail?.trim() || null,
+        status: f.status?.trim() || null,
+        contact_name: f.contact_name?.trim() || null,
+        contact_email: f.contact_email?.trim() || null,
+        source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
+      };
+      start(async () => {
+        const res = await importJobs([rec] as JobInput[], "手動登録");
+        if (res.ok) { setMsg({ ok: true, text: `${res.inserted ?? 0} 件を登録しました${res.inserted === 0 ? "（重複の可能性）" : ""}` }); router.refresh(); if (res.inserted) setTimeout(close, 800); }
+        else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
+      });
+    }
+  };
+
+  return (
+    <>
+      <button className="btn" onClick={() => setOpen(true)}><Icons.plus /><span>新規登録</span></button>
+      {open && (
+        <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{kind === "candidates" ? "人材を新規登録" : "案件を新規登録"}</h3>
+              <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+              {kind === "candidates" ? (
+                <>
+                  <FormField label="氏名 *" value={f.name} onChange={set("name")} />
+                  <FormField label="職種" value={f.title} onChange={set("title")} placeholder="例：バックエンドエンジニア" />
+                  <FormField label="所属会社" value={f.company} onChange={set("company")} />
+                  <FormField label="所属区分" value={f.affiliation} onChange={set("affiliation")} placeholder="一社下社員 / 一社下フリーランス / 二社下以降" />
+                  <FormField label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full placeholder="Java, Spring, AWS" />
+                  <FormField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：80万 / ¥70〜90万" />
+                  <FormField label="経験年数" value={f.exp} onChange={set("exp")} placeholder="例：8 / 8年" />
+                  <FormField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜" />
+                  <FormField label="希望勤務地" value={f.location} onChange={set("location")} />
+                  <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：提案可 / 即アサイン可能" />
+                  <FormField label="スキルシートURL（またはDrive ID）" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
+                  <FormField label="本人メール" value={f.email} onChange={set("email")} />
+                  <FormField label="所属窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
+                  <FormField label="元メールURL／Gmail メッセージ ID" value={f.source_mail} onChange={set("source_mail")} full />
+                </>
+              ) : (
+                <>
+                  <FormField label="案件名 *" value={f.title} onChange={set("title")} full />
+                  <FormField label="クライアント名" value={f.client_name} onChange={set("client_name")} />
+                  <FormField label="募集職種" value={f.role_label} onChange={set("role_label")} />
+                  <FormField label="必要スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full placeholder="React, TypeScript, AWS" />
+                  <FormField label="単価下限（万）" value={f.salary_min} onChange={set("salary_min")} placeholder="60" />
+                  <FormField label="単価上限（万）" value={f.salary_max} onChange={set("salary_max")} placeholder="80" />
+                  <FormSelect label="リモート可否" value={f.remote_type} onChange={set("remote_type")} options={[
+                    { value: "", label: "未指定（一部リモート扱い）" },
+                    { value: "full_remote", label: "フルリモート" },
+                    { value: "partial_remote", label: "一部リモート" },
+                    { value: "onsite", label: "出社必須" },
+                  ]} />
+                  <FormField label="商流" value={f.flow_note} onChange={set("flow_note")} />
+                  <FormField label="勤務地" value={f.work_location} onChange={set("work_location")} />
+                  <FormField label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01" />
+                  <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：募集中" />
+                  <FormField label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} />
+                  <FormField label="窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
+                  <FormField label="元メールURL／Gmail メッセージ ID" value={f.source_mail} onChange={set("source_mail")} full />
+                  <FormTextarea label="案件詳細" value={f.detail} onChange={set("detail")} />
+                </>
+              )}
+            </div>
+            {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn ghost" onClick={close} disabled={pending}>キャンセル</button>
+              <button className="btn brand" onClick={submit} disabled={pending}>{pending ? "登録中…" : "登録"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function CandidateNewButton() { return <NewEntryButton kind="candidates" />; }
+export function JobNewButton() { return <NewEntryButton kind="jobs" />; }

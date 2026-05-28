@@ -1,4 +1,4 @@
-import { ExportButton, JobImportButton } from "@/components/CsvTools";
+import { ExportButton, JobImportButton, JobNewButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
@@ -85,6 +85,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
           <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />
+          <JobNewButton />
           <JobImportButton />
         </div>
       </div>
