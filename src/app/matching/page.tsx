@@ -57,7 +57,12 @@ function Stars({ score }: { score: number }) {
 
 export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
   const sp = await searchParams;
-  const tab = sp.tab === "auto" ? "auto" : "focus";
+  // 既定は注力マッチング。ただし URL で job/person が明示されている場合は
+  // ランキング表示のため auto（自動スコアリング）にフォールバックする。
+  const tab: "auto" | "focus" =
+    sp.tab === "auto" ? "auto"
+    : sp.tab === "focus" ? "focus"
+    : (sp.job || sp.person) ? "auto" : "focus";
   const personNo = sp.person ? Number(sp.person) : null;
 
   let dbError: string | null = null;
