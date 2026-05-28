@@ -160,7 +160,8 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
     // 大量CSV対策：1リクエストが大きすぎるとサーバ側ボディ上限(Vercel ~4.5MB)を超えて
     // 「This page couldn't load」になる。クライアントで分割送信し、件数に依存しないようにする。
-    const CHUNK = 200;
+    //   案件は detail(メール本文)が重いので小さめ。人材は軽い＋取込ごとに全件照合するため大きめにして回数を減らす。
+    const CHUNK = kind === "candidates" ? 800 : 250;
     start(async () => {
       let inserted = 0, skipped = 0;
       try {
