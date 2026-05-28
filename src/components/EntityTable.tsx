@@ -132,15 +132,21 @@ const PEOPLE_COLS: Col[] = [
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (p) => freshnessLabel(p.created_at), filterFixed: FRESH_OPTIONS, render: (p) => <Fresh d={p.created_at} /> },
   {
     key: "name", label: "氏名", always: true,
-    search: (p) => `${p.name ?? ""} ${(p.skills ?? []).join(" ")}`,
-    render: (p) => (
-      <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
-          <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
-        </div>
-      </Link>
-    ),
+    search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${(p.skills ?? []).join(" ")}`,
+    render: (p) => {
+      const aff = p.affiliation ?? p.source_company ?? "";
+      return (
+        <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
+              {aff && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{aff}</div>}
+            </div>
+          </div>
+        </Link>
+      );
+    },
   },
   // マッチングの主要因。上位3スキル＋残数をタグ表示（既定の .tag.brand）。
   { key: "skills", label: "スキル", render: (p) => <SkillTags skills={p.skills} /> },
@@ -165,7 +171,7 @@ const PEOPLE_COLS: Col[] = [
       </Link>
     ),
   },
-  { key: "affiliation", label: "所属区分", width: 130, defaultHidden: true, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
+  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 

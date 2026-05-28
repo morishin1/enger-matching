@@ -21,7 +21,7 @@ export default async function ProposalsPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
+      const base = "id, job_id, candidate_id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await sb.from("proposals")
         .select(`${base}, updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
@@ -35,6 +35,18 @@ export default async function ProposalsPage() {
         needSetup = true;
       } else {
         const all = res.data ?? [];
+        // 案件名 → /matching?job=<job_no> のリンク用に job_id → job_no を解決
+        try {
+          const jobIds = Array.from(new Set(all.map((p: any) => p.job_id).filter(Boolean)));
+          if (jobIds.length) {
+            const jn: any = await sb.from("jobs").select("id, job_no").in("id", jobIds as string[]).limit(2000);
+            if (!jn.error) {
+              const m: Record<string, number> = {};
+              for (const j of (jn.data ?? [])) if (j.id != null && j.job_no != null) m[j.id] = j.job_no;
+              for (const p of all) if (p.job_id && m[p.job_id] != null) p.job_no = m[p.job_id];
+            }
+          }
+        } catch { /* jobs解決失敗時はリンク無し（フォールバック） */ }
         // 企業担当（案件の outside_owner / 企業マスタ owner）を解決し、各提案に company_owner として付与
         try {
           const titles = Array.from(new Set(all.map((p: any) => p.job_title).filter(Boolean)));
