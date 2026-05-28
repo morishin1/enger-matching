@@ -158,10 +158,28 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       return true; // all（取込可能）
     }).map((r) => r.rec);
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
+    // 大量CSV対策：1リクエストが大きすぎるとサーバ側ボディ上限(Vercel ~4.5MB)を超えて
+    // 「This page couldn't load」になる。クライアントで分割送信し、件数に依存しないようにする。
+    const CHUNK = 200;
     start(async () => {
-      const res = kind === "candidates" ? await importCandidates(recs as CandidateInput[], fileName) : await importJobs(recs as JobInput[], fileName);
-      if (res.ok) { const sk = (res as any).skipped; setMsg({ ok: true, text: `${res.inserted} 件を取り込みました${sk ? `（重複 ${sk} 件はスキップ）` : ""}` }); setPreview(null); router.refresh(); }
-      else setMsg({ ok: false, text: res.error || "取込に失敗しました" });
+      let inserted = 0, skipped = 0;
+      try {
+        for (let i = 0; i < recs.length; i += CHUNK) {
+          const slice = recs.slice(i, i + CHUNK);
+          if (recs.length > CHUNK) setMsg({ ok: true, text: `取込中… ${Math.min(i + slice.length, recs.length)}/${recs.length}` });
+          const res = kind === "candidates"
+            ? await importCandidates(slice as CandidateInput[], fileName)
+            : await importJobs(slice as JobInput[], fileName);
+          if (!res.ok) { setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
+          inserted += res.inserted ?? 0;
+          skipped += (res as any).skipped ?? 0;
+        }
+        setMsg({ ok: true, text: `${inserted} 件を取り込みました${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
+        setPreview(null);
+        router.refresh();
+      } catch (e) {
+        setMsg({ ok: false, text: `${e instanceof Error ? e.message : "取込に失敗しました"}（通信エラーまたはサイズ超過の可能性。${inserted}件まで取込済み）` });
+      }
     });
   };
 
