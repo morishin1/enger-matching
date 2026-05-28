@@ -6,6 +6,7 @@ import { ReportIssues } from "@/components/ReportIssues";
 import { CompanyStructure } from "@/components/CompanyStructure";
 import { WorkHome } from "@/components/WorkHome";
 import { TalentRequests } from "@/components/TalentRequests";
+import { RecentActivity } from "@/components/RecentActivity";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
@@ -30,6 +31,9 @@ export default async function DashboardPage() {
   const matrix = isAdmin ? await getCompanyMatrix() : null;
   return (
     <>
+      <div className="page" style={{ paddingBottom: 0 }}>
+        <RecentActivity />
+      </div>
       {talentRequests.length > 0 && (
         <div className="page" style={{ paddingBottom: 0 }}>
           <TalentRequests rows={talentRequests} />
