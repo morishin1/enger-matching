@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
+import { gmailMessageUrl } from "@/lib/gmail";
 import { importCandidates, importJobs, type CandidateInput, type JobInput } from "@/lib/actions";
 import { Icons } from "./icons";
 
@@ -23,7 +24,7 @@ export function ExportButton({ filename, headers, rows, label = "CSV書き出し
   );
 }
 
-const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max"> = {
+const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" | "_mail_id"> = {
   "コード": "code", "id": "code", "ID": "code", "氏名": "name", "名前": "name", "name": "name",
   "職種": "title", "タイトル": "title", "所属": "company", "会社": "company", "会社名": "company", "所属会社": "company",
   "所属区分": "affiliation", "区分": "affiliation", "雇用形態": "affiliation",
@@ -32,12 +33,22 @@ const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max">
   "稼働開始": "avail", "稼働": "avail", "稼働開始可能日": "avail", "勤務地": "location", "場所": "location", "希望勤務地": "location",
   "経験": "exp", "経験年数": "exp", "実務経験年数": "exp", "ステータス": "status", "状態": "status", "現在のステータス": "status",
   "スキルシートURL": "skill_sheet_url", "スキルシート": "skill_sheet_url", "職務経歴書": "skill_sheet_url", "添付ファイルID": "skill_sheet_url", "添付ファイル": "skill_sheet_url",
+  // メール連携：送信元(所属窓口)＝返信先 / 元メールへの直リンク（URL or GASのメッセージID）
+  "送信元": "contact_email", "送信元メール": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
+  "本人メール": "email", "連絡先メール": "email",
+  "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
+  "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
 };
-const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max"> = {
+const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "_mail_id"> = {
   "案件名": "title", "クライアント名": "client_name", "クライアント": "client_name",
   "募集職種": "role_label", "職種": "role_label", "必要スキル": "skills", "スキル": "skills",
   "単価下限": "_salary_min", "単価上限": "_salary_max", "リモート可否": "remote_type", "リモート": "remote_type",
   "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "案件詳細": "detail", "ステータス": "status",
+  // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
+  "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
+  "送信元": "contact_email", "送信元メール": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
+  "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
+  "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
 };
 const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始", "勤務地", "経験", "ステータス", "スキルシートURL"];
 
@@ -87,6 +98,8 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
       else if (key === "remote_type") rec.remote_type = remoteOf(v);
       else if (key === "start_date") rec.start_date = dateOf(v);
       else if (key === "skill_sheet_url") { if (v) rec.skill_sheet_url = driveUrl(v); }
+      else if (key === "source_mail_url") { const u = gmailMessageUrl(v); if (u) rec.source_mail_url = u; }
+      else if (key === "_mail_id") { if (!rec.source_mail_url) { const u = gmailMessageUrl(v); if (u) rec.source_mail_url = u; } }
       else rec[key] = v;
     });
     // 希望単価が下限/上限のみの場合はレンジ表記を組み立てる

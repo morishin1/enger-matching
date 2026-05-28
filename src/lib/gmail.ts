@@ -27,6 +27,22 @@ export function gmailSearchUrl(query: string) {
   return `https://mail.google.com/mail/${a ? "?" + a : "u/0/"}#search/${encodeURIComponent(query)}`;
 }
 
+/**
+ * 元メールへ直接飛ぶ URL を作る。受信アカウント(authuser)で開く。
+ *  - 既にURL（http/https）ならそのまま返す
+ *  - Gmail メッセージ ID（16進; GASの id 列。前後の引用符は許容）なら #all/<id> へ
+ *  - それ以外は null（呼び出し側で検索などにフォールバック）
+ */
+export function gmailMessageUrl(idOrUrl?: string | null): string | null {
+  if (!idOrUrl) return null;
+  const v = String(idOrUrl).trim().replace(/^["']+|["']+$/g, "");
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (!/^[0-9a-f]{8,}$/i.test(v)) return null;
+  const a = authParam();
+  return `https://mail.google.com/mail/${a ? "?" + a : "u/0/"}#all/${encodeURIComponent(v)}`;
+}
+
 const salary = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
 
