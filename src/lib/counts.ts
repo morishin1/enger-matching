@@ -24,13 +24,13 @@ async function fetchCounts(): Promise<SidebarCounts> {
 
   // エンジャー登録数（profiles＝LP/GitHub登録）。public スキーマのため service role で集計。
   const engineerCount = async (): Promise<number | undefined> => {
-    try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).or("github_id.not.is.null,display_name.not.is.null"); return error ? undefined : (count ?? undefined); }
+    try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).or("github_id.not.is.null,display_name.not.is.null,role.eq.student"); return error ? undefined : (count ?? undefined); }
     catch { return undefined; }
   };
   // 直近7日の新着数（マッチング配下タブのバッジ）
   const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const newEngineerCount = async (): Promise<number | undefined> => {
-    try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", since7).or("github_id.not.is.null,display_name.not.is.null"); return error ? undefined : (count ?? undefined); }
+    try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", since7).or("github_id.not.is.null,display_name.not.is.null,role.eq.student"); return error ? undefined : (count ?? undefined); }
     catch { return undefined; }
   };
 
