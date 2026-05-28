@@ -118,7 +118,13 @@ const PEOPLE_COLS: Col[] = [
       </Link>
     ),
   },
-  { key: "client", label: "クライアント名", search: (p) => p.source_company ?? "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.source_company ?? "—"}</span> },
+  {
+    key: "skill_sheet", label: "スキルシート", width: 120,
+    filterLabel: "スキルシート", filter: (p) => (p.skill_sheet_url ? "あり" : "なし"), filterFixed: [{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }],
+    render: (p) => p.skill_sheet_url
+      ? <a href={p.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
+      : <span className="muted" style={{ fontSize: 12 }}>—</span>,
+  },
   { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
   { key: "remote", label: "リモート", width: 110, filterLabel: "リモート", filter: (p) => p.remote_pref || "", render: (p) => <span className="pill open">{p.remote_pref ?? "—"}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
