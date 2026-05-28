@@ -9,7 +9,9 @@ import { Icons } from "./icons";
 
 const numOf = (s: string) => { const n = parseFloat((s || "").replace(/[^\d.]/g, "")); return isNaN(n) ? null : n; };
 const dateOf = (s: string) => { const m = (s || "").match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/); return m ? `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}` : null; };
-const splitSkills = (s: string) => (s || "").split(/[,、\/／・]+/).map((x) => x.trim()).filter(Boolean);
+// GAS v2 はスキルに「名称:経験年数」を付ける（例: "Ruby on Rails:6"）。末尾の :数字 を落として純粋なスキル名にする。
+const cleanSkill = (x: string) => x.trim().replace(/[:：]\s*\d+\+?\s*$/, "").trim();
+const splitSkills = (s: string) => (s || "").split(/[,、\/／・]+/).map(cleanSkill).filter(Boolean);
 const remoteOf = (s: string) => /フル/.test(s || "") ? "full_remote" : /出社|常駐|不可/.test(s || "") ? "onsite" : "partial_remote";
 const garbled = (s: string) => /[�]/.test(s) || /[縺繧繝繚竊郢蝣]/.test(s); // 文字化け検知
 
@@ -34,7 +36,7 @@ const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" 
   "経験": "exp", "経験年数": "exp", "実務経験年数": "exp", "ステータス": "status", "状態": "status", "現在のステータス": "status",
   "スキルシートURL": "skill_sheet_url", "スキルシート": "skill_sheet_url", "職務経歴書": "skill_sheet_url", "添付ファイルID": "skill_sheet_url", "添付ファイル": "skill_sheet_url",
   // メール連携：送信元(所属窓口)＝返信先 / 元メールへの直リンク（URL or GASのメッセージID）
-  "送信元": "contact_email", "送信元メール": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
+  "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
   "本人メール": "email", "連絡先メール": "email",
   "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
   "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
@@ -46,7 +48,7 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "
   "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "案件詳細": "detail", "ステータス": "status",
   // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
   "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
-  "送信元": "contact_email", "送信元メール": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
+  "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
   "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
   "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
 };
@@ -79,7 +81,11 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
   const candRaw = kind === "candidates" && header.includes("会社名");
   const rateText = (lo: number | null, hi: number | null) =>
     lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "";
-  const driveUrl = (v: string) => /^https?:\/\//i.test(v) ? v : (/^[\w-]{20,}$/.test(v) ? `https://drive.google.com/file/d/${v}/view` : v);
+  // 添付ファイルIDが複数（カンマ区切り）の場合は先頭を採用。Drive ファイルIDなら閲覧URLに変換。
+  const driveUrl = (raw: string) => {
+    const v = (raw.split(/[,、\s]+/).filter(Boolean)[0] ?? "").trim();
+    return /^https?:\/\//i.test(v) ? v : (/^[\w-]{20,}$/.test(v) ? `https://drive.google.com/file/d/${v}/view` : v);
+  };
 
   grid.slice(1).forEach((cols, idx) => {
     if (cols.every((c) => !(c || "").trim())) return; // 空行スキップ
@@ -90,7 +96,7 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
       if (v && garbled(v)) rawGarbled = true;
       if (candRaw && h === "所属") key = "affiliation"; // 生GAS: 所属=区分
       if (!key) return;
-      if (key === "skills") rec.skills = kind === "candidates" ? v.split(/[,、\/／]+/).map((s) => s.trim()).filter(Boolean) : splitSkills(v);
+      if (key === "skills") rec.skills = kind === "candidates" ? v.split(/[,、\/／]+/).map(cleanSkill).filter(Boolean) : splitSkills(v);
       else if (key === "_salary_min") rec.salary_min = numOf(v);
       else if (key === "_salary_max") rec.salary_max = numOf(v);
       else if (key === "_rate_min") rec._rate_min = numOf(v);
@@ -134,6 +140,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const [preview, setPreview] = useState<ReturnType<typeof validate> | null>(null);
   const [fileName, setFileName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
 
   const onFile = async (file: File) => {
     setMsg(null);
@@ -152,10 +159,33 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       return true; // all（取込可能）
     }).map((r) => r.rec);
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
+    // 大量CSV対策：1リクエストが大きすぎるとサーバ側ボディ上限(Vercel ~4.5MB)を超えて
+    // 「This page couldn't load」になる。クライアントで分割送信し、件数に依存しないようにする。
+    //   案件は detail(メール本文)が重いので小さめ。人材は軽い＋取込ごとに全件照合するため大きめにして回数を減らす。
+    const CHUNK = kind === "candidates" ? 800 : 250;
     start(async () => {
-      const res = kind === "candidates" ? await importCandidates(recs as CandidateInput[], fileName) : await importJobs(recs as JobInput[], fileName);
-      if (res.ok) { const sk = (res as any).skipped; setMsg({ ok: true, text: `${res.inserted} 件を取り込みました${sk ? `（重複 ${sk} 件はスキップ）` : ""}` }); setPreview(null); router.refresh(); }
-      else setMsg({ ok: false, text: res.error || "取込に失敗しました" });
+      let inserted = 0, skipped = 0;
+      setMsg(null);
+      setProg({ done: 0, total: recs.length });
+      try {
+        for (let i = 0; i < recs.length; i += CHUNK) {
+          const slice = recs.slice(i, i + CHUNK);
+          const res = kind === "candidates"
+            ? await importCandidates(slice as CandidateInput[], fileName)
+            : await importJobs(slice as JobInput[], fileName);
+          if (!res.ok) { setProg(null); setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
+          inserted += res.inserted ?? 0;
+          skipped += (res as any).skipped ?? 0;
+          setProg({ done: Math.min(i + slice.length, recs.length), total: recs.length });
+        }
+        setProg(null);
+        setMsg({ ok: true, text: `${inserted} 件を取り込みました${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
+        setPreview(null);
+        router.refresh();
+      } catch (e) {
+        setProg(null);
+        setMsg({ ok: false, text: `${e instanceof Error ? e.message : "取込に失敗しました"}（通信エラーまたはサイズ超過の可能性。${inserted}件まで取込済み）` });
+      }
     });
   };
 
@@ -185,13 +215,27 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       {msg && <span style={{ fontSize: 12, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</span>}
 
       {preview && (
-        <div onClick={() => setPreview(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+        <div onClick={() => { if (!pending) setPreview(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>CSV取込プレビュー / 検証</h3>
-              <button className="btn ghost btn-xs" onClick={() => setPreview(null)}>閉じる</button>
+              <button className="btn ghost btn-xs" onClick={() => setPreview(null)} disabled={pending}>閉じる</button>
             </div>
             <div className="muted" style={{ fontSize: 12 }}>{fileName} · {preview.rows.length} 行</div>
+
+            {/* 取込中の進捗バー */}
+            {prog && (
+              <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600 }}>
+                  <span>取り込み中… サーバへ送信しています</span>
+                  <span className="mono">{prog.done}/{prog.total}（{Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%）</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%`, background: "var(--color-brand, #0b5cab)", transition: "width .25s ease" }} />
+                </div>
+                <div className="muted" style={{ fontSize: 10.5 }}>※ ブラウザを閉じずにお待ちください（分割送信のため少し時間がかかります）。</div>
+              </div>
+            )}
 
             {/* サマリ */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
