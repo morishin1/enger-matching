@@ -104,7 +104,7 @@ const JOB_COLS: Col[] = [
 
 const PEOPLE_COLS: Col[] = [
   { key: "id", label: "人材ID", width: 84, render: (p) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</span> },
-  { key: "created", label: "登録日", width: 96, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
+  { key: "created", label: "登録日", width: 96, defaultHidden: true, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (p) => freshnessLabel(p.created_at), filterFixed: FRESH_OPTIONS, render: (p) => <Fresh d={p.created_at} /> },
   {
     key: "name", label: "氏名", always: true,
@@ -119,15 +119,42 @@ const PEOPLE_COLS: Col[] = [
     ),
   },
   {
+    // マッチングの主要因。上位3スキル＋残数をタグ表示。
+    key: "skills", label: "スキル",
+    render: (p) => {
+      const ss: string[] = Array.isArray(p.skills) ? p.skills : [];
+      const top = ss.slice(0, 3);
+      const more = ss.length - top.length;
+      if (ss.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+      return (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          {top.map((s) => <span key={s} className="tag brand" style={{ fontSize: 10.5, padding: "1px 6px" }}>{s}</span>)}
+          {more > 0 && <span className="muted" style={{ fontSize: 10.5 }}>+{more}</span>}
+        </div>
+      );
+    },
+  },
+  { key: "exp", label: "経験", width: 76, render: (p) => <span style={{ fontSize: 12 }}>{p.exp ? (/^\d+$/.test(String(p.exp).trim()) ? `${String(p.exp).trim()}年` : p.exp) : "—"}</span> },
+  { key: "avail", label: "稼働開始", width: 112, render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.avail ?? "—"}</span> },
+  { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
+  { key: "remote", label: "リモート", width: 110, filterLabel: "リモート", filter: (p) => p.remote_pref || "", render: (p) => <span className="pill open">{p.remote_pref ?? "—"}</span> },
+  { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
+  {
     key: "skill_sheet", label: "スキルシート", width: 120,
     filterLabel: "スキルシート", filter: (p) => (p.skill_sheet_url ? "あり" : "なし"), filterFixed: [{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }],
     render: (p) => p.skill_sheet_url
       ? <a href={p.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
       : <span className="muted" style={{ fontSize: 12 }}>—</span>,
   },
-  { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
-  { key: "remote", label: "リモート", width: 110, filterLabel: "リモート", filter: (p) => p.remote_pref || "", render: (p) => <span className="pill open">{p.remote_pref ?? "—"}</span> },
-  { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
+  {
+    // マッチング画面へ直行（この人材を起点に案件を探す）
+    key: "match_action", label: "", width: 116,
+    render: (p) => (
+      <Link href={`/matching?person=${p.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+        <Icons.matching /><span>マッチング</span>
+      </Link>
+    ),
+  },
   { key: "affiliation", label: "所属区分", width: 130, defaultHidden: true, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
