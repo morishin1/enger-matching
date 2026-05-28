@@ -25,7 +25,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       // rank / email 列が未追加でも落ちないようフォールバック
       let res: any = await sb
         .from("candidates")
-        .select(`${baseCols}, rank, email, contact_email, source_mail_url`, { count: "exact" })
+        .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" })
         .order("candidate_no", { ascending: false })
         .limit(300);
       if (res.error) {
