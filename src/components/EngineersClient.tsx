@@ -2,10 +2,29 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Engineer, EngineerAction, Scout, Application } from "@/lib/engineers";
+import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage } from "@/app/engineers/actions";
 import { APPLICATION_STAGES } from "@/lib/engineers";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
+
+/** 登録元バッジ（無限道場 / エンジャー）。色で一目で判別できるようにする。 */
+function SourceBadge({ source }: { source: EngineerSource }) {
+  const isDojo = source === "dojo";
+  return (
+    <span
+      title={isDojo ? "無限道場からの登録" : "エンジャー(enger.jp)からの登録"}
+      style={{
+        display: "inline-flex", alignItems: "center", padding: "1px 7px", borderRadius: 99,
+        fontSize: 10, fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap",
+        background: isDojo ? "#fdecef" : "var(--color-brand-50)",
+        color: isDojo ? "#d23f57" : "var(--color-brand-700,#0b5cab)",
+        border: "1px solid " + (isDojo ? "#f7c5cf" : "var(--color-brand-100,#cfe1f7)"),
+      }}
+    >
+      {isDojo ? "無限道場" : "エンジャー"}
+    </span>
+  );
+}
 
 /** #14: 応募エンジニアを案件側へ紹介する人材紹介メールの Gmail 下書きを開く */
 function openIntroMail(e: Engineer, jobTitle: string) {
@@ -85,10 +104,13 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
           <button key={e.id} onClick={() => setDetail(e)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 42, height: 42, borderRadius: 99, flex: "0 0 42px" }} /> : <div className="ava" style={{ width: 42, height: 42, flex: "0 0 42px" }}>{(e.display_name ?? e.github_login ?? "?").slice(0, 2)}</div>}
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.display_name || e.github_login || "—"}</div>
-                <div className="muted" style={{ fontSize: 11 }}>{e.github_login ? `@${e.github_login}` : ""} · {e.primary_language ?? "—"}</div>
+              {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 42, height: 42, borderRadius: 99, flex: "0 0 42px" }} /> : <div className="ava" style={{ width: 42, height: 42, flex: "0 0 42px" }}>{(e.display_name ?? e.github_login ?? e.name ?? "?").slice(0, 2)}</div>}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.display_name || e.github_login || e.name || "—"}</div>
+                  <SourceBadge source={e.source} />
+                </div>
+                <div className="muted" style={{ fontSize: 11 }}>{e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "")} · {e.primary_language ?? "—"}</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -165,10 +187,13 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? "?").slice(0, 2)}</div>}
+            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? detail.name ?? "?").slice(0, 2)}</div>}
             <div>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login}</h3>
-              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : ""} · {detail.primary_language ?? "—"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login || detail.name || "—"}</h3>
+                <SourceBadge source={detail.source} />
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : (detail.name ? `@${detail.name}` : "")} · {detail.primary_language ?? "—"}</div>
               {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>

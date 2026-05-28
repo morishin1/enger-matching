@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { publicAdmin, engerClient, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
+export type EngineerSource = "dojo" | "enger";
 export type Engineer = {
   id: string;
   display_name: string | null;
@@ -23,6 +24,9 @@ export type Engineer = {
   qiita_id: string | null;
   last_login_at: string | null;
   created_at: string;
+  name: string | null;        // 無限道場(role=student)の表示名フォールバック
+  role: string | null;        // 登録元判別キー（"student"=無限道場 / それ以外=エンジャー）
+  source: EngineerSource;     // 派生フィールド（UIバッジ用）
 };
 
 /** LP(enger.jp)で登録したエンジニア一覧（public.profiles・service role閲覧）。 */
@@ -32,12 +36,12 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     const sb = publicAdmin();
     const { data, error } = await sb
       .from("profiles")
-      .select("id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, headline, bio, qiita_id, last_login_at, created_at")
-      // public.profiles は LMS と共有。enger.jp(LP)由来のエンジニアだけを表示する。
-      //   - GitHub連携: github_id / github_login あり
-      //   - メール登録: 登録時の表示名 display_name あり
-      // LMS の受講生/スタッフは display_name/github 系がすべて NULL なので除外される。
-      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null")
+      .select("id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, headline, bio, qiita_id, last_login_at, created_at, name, role")
+      // public.profiles は LMS と共有。
+      //   - エンジャー(enger.jp): GitHub連携 (github_id/github_login) もしくはメール登録 (display_name) あり
+      //   - 無限道場(LMS): role='student'（display_name/github は NULL、name に username が入る）
+      // それ以外（LMS スタッフ等）は除外。
+      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student")
       .order("created_at", { ascending: false })
       .limit(500);
     if (error) return { rows: [], available: false };
@@ -46,6 +50,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       skills: Array.isArray(r.skills) ? r.skills : [],
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
+      source: (r.role === "student" ? "dojo" : "enger") as EngineerSource,
     })) as Engineer[];
     return { rows, available: true };
   } catch { return { rows: [], available: false }; }
