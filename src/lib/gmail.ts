@@ -48,89 +48,159 @@ const salary = (lo?: number | null, hi?: number | null) =>
 
 const quote = (lines: string[]) => lines.filter(Boolean).map((l) => `> ${l}`).join("\n");
 
-/** 差出人の名乗り（担当者名があれば「エンジャー事務局の〇〇」） */
-const senderLabel = (sender?: string | null) => (sender && sender.trim() ? `エンジャー事務局の${sender.trim()}` : "エンジャー事務局");
+const remoteText = (r?: string | null) => {
+  if (!r) return "";
+  if (/full|フル/i.test(r)) return "フルリモート";
+  if (/onsite|出社|常駐/i.test(r)) return "出社必須";
+  return "一部リモート";
+};
 
-/** 人材へ「案件のご紹介」を返信する本文（人材所属/本人宛て） */
+/** 共通の社署名（旧enger 実機メールに合わせる） */
+const SIGNATURE = [
+  `∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞`,
+  `株式会社エイト　`,
+  `ITS事業部`,
+  `野澤：080-4191-4175`,
+  ` Mail：support_eigyo@8grp.co.jp`,
+  `エンジニア・PM・DX人材の即戦力マッチング：https://enger.jp/`,
+  `インキュベーションスペース：https://8sp.jp/`,
+  ` 自社サイト：https://8grp.co.jp/`,
+  `〒150-0001 東京都渋谷区神宮前6-33-14-エイトカフェ2F`,
+  `∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞`,
+].join("\n");
+
+const HR = "────────────────────────────────────";
+
+/**
+ * 人材所属(SES)宛て：案件を紹介する本文（旧enger実機メールに合わせた定型）。
+ *  - 件名：【案件のご紹介】希望条件に合致する案件のお知らせ
+ *  - 冒頭挨拶：エンジャー事務局
+ */
 export function candidateProposalMail(opts: {
   candidateName: string;
-  contactName?: string | null;
+  candidateCompany?: string | null;     // 人材所属(SES)企業名
+  contactName?: string | null;           // SES担当者名
+  ageBand?: string | null;               // 30代後半 等
   sender?: string | null;
-  job: { title: string; client_name?: string | null; role_label?: string | null; skills?: string[] | null; salary_min?: number | null; salary_max?: number | null };
+  job: {
+    title: string;
+    client_name?: string | null;
+    role_label?: string | null;
+    skills?: string[] | null;
+    salary_min?: number | null;
+    salary_max?: number | null;
+    detail?: string | null;              // 案件内容（メール本文相当）
+    work_location?: string | null;       // 勤務地
+    flow_note?: string | null;           // 商流
+    start_date?: string | null;          // 開始時期
+    remote_type?: string | null;         // リモート可否
+  };
   matchedSkills?: string[];
   score?: number;
 }) {
   const { candidateName, job } = opts;
-  const subject = reSubject(`【ご案件のご紹介】${job.title}`);
+  const subject = `【案件のご紹介】希望条件に合致する案件のお知らせ`;
   const body = [
-    `${opts.contactName ?? candidateName} 様`,
+    opts.candidateCompany ?? "",
+    `${opts.contactName ? `${opts.contactName} 様` : `${candidateName} 様`}`,
     ``,
-    `お世話になっております。${senderLabel(opts.sender)} でございます。`,
-    `${candidateName} 様にマッチ度の高い案件（マッチ度 ${opts.score ?? "—"}%）がございましたのでご返信差し上げます。`,
+    `いつも大変お世話になっております。`,
+    `エンジャー事務局でございます。`,
+    `この度は要員様をご紹介いただき、誠にありがとうございます。`,
+    `下記の案件をぜひご紹介させていただきたくご連絡いたしました。`,
+    `ご確認のほど何卒よろしくお願い申し上げます。`,
     ``,
-    `── ご案件 ──────────────`,
-    `案件名：${job.title}`,
-    `クライアント：${job.client_name ?? "（非公開）"}`,
-    job.role_label ? `職種：${job.role_label}` : "",
-    `単価：${salary(job.salary_min, job.salary_max)}`,
-    `必要スキル：${(job.skills ?? []).join(" / ") || "—"}`,
-    opts.matchedSkills?.length ? `→ ${candidateName}様の合致スキル：${opts.matchedSkills.join(" / ")}` : "",
-    `────────────────────`,
+    HR,
+    `◆ご紹介していただいた要員`,
+    `${candidateName}${opts.ageBand ? ` ${opts.ageBand}` : ""}`,
+    HR,
+    `◆ご紹介する案件`,
+    `【案件】${job.title}`,
+    job.detail ? `【内容】\n${job.detail}` : "",
     ``,
-    `ご経歴とマッチしておりましたので、ご状況・ご希望をお聞かせいただけますと幸いです。`,
-    `ご面談やスキルシートのご送付など、進め方はご都合に合わせて調整いたします。`,
+    `【スキル】`,
+    (job.skills ?? []).length ? (job.skills ?? []).join("、") : "—",
+    opts.matchedSkills?.length ? `\n※ ${candidateName}様の合致スキル：${opts.matchedSkills.join("、")}` : "",
     ``,
-    `何卒よろしくお願いいたします。`,
+    job.work_location ? `【場所】${job.work_location}` : "",
+    remoteText(job.remote_type) ? `　　　　※${remoteText(job.remote_type)}` : "",
+    job.start_date ? `【期間】${job.start_date}〜` : "",
+    `【単金】${salary(job.salary_min, job.salary_max)}`,
+    job.flow_note ? `【商流】${job.flow_note}` : "",
+    ``,
+    HR,
+    `■エントリー時のお願い`,
+    `エントリーをご希望の際は、本メール内の`,
+    `「エントリーする」ボタンよりご回答くださいますようお願いいたします。`,
+    `何卒よろしくお願い申し上げます。`,
+    SIGNATURE,
   ].filter((l) => l !== "").join("\n");
   return { subject, body };
 }
 
 /**
- * クライアントへ「人材のご提案」を返信する本文（案件窓口宛て）。
- *  - 件名は元の案件メールの件名をそのまま（Re:）にする（#1）
- *  - 冒頭にサマリ（#7）、スキルシートURL（#3/#8）、元メール参照リンク（#2/#4/#9）を入れる
- *  - 元の案件メール本文（detail等）はそのまま引用して残す（来たメールを保持）
- *  - 不要な定型文「ご面談の可否やスキルシートのご要望など…」は削除（#10）
+ * クライアント案件窓口宛て：人材を提案する本文（旧enger実機メールに合わせた定型）。
+ *  - 件名：Re: {案件名}（元の案件メールへの返信形式）
+ *  - 冒頭挨拶：エンジャー事務局
  */
 export function jobProposalMail(opts: {
   jobTitle: string;
   clientName?: string | null;
   contactName?: string | null;
   sender?: string | null;
-  candidate: { name: string; title?: string | null; skills?: string[] | null; rate?: string | null; affiliation?: string | null; exp?: string | null; skillSheetUrl?: string | null };
+  candidate: {
+    name: string;
+    title?: string | null;
+    skills?: string[] | null;
+    rate?: string | null;
+    affiliation?: string | null;
+    exp?: string | null;
+    skillSheetUrl?: string | null;
+    ageBand?: string | null;
+    avail?: string | null;
+    location?: string | null;     // 希望勤務地(=最寄駅の代替)
+  };
   matchedSkills?: string[];
   score?: number;
-  originalBody?: string | null;   // 元の案件メール本文（detail/description）
-  originalMailUrl?: string | null; // 元メールURL（あれば）
+  originalBody?: string | null;
+  originalMailUrl?: string | null;
 }) {
   const { jobTitle, candidate } = opts;
-  // 件名は元メールの件名（≒案件名）をそのまま Re: で保持する
   const subject = reSubject(jobTitle);
-  // 注意：クライアント向けメールには「元の案件メール」のURL・引用は含めない（情報保護のため）。
   const body = [
-    `${opts.contactName ?? opts.clientName ?? "ご担当者"} 様`,
+    opts.clientName ?? "",
+    `${opts.contactName ? `${opts.contactName} 様` : `ご担当者 様`}`,
     ``,
-    `お世話になっております。${senderLabel(opts.sender)} でございます。`,
-    `ご案内の「${jobTitle}」につきまして、マッチ度の高い人材をご提案申し上げます。`,
+    `いつも大変お世話になっております。`,
+    `エンジャー事務局でございます。`,
+    `ぜひご紹介したい要員がおりますので、ご提案いたします。`,
+    `※要員にエントリー可否並行確認中です。`,
+    HR,
+    `◆ご紹介していただいた案件`,
+    `【案件名】：　${jobTitle}`,
+    HR,
+    `◆ご紹介する要員`,
+    `【 名　前 】${candidate.name}${candidate.ageBand ? `　(${candidate.ageBand})` : ""}`,
+    candidate.location ? `【最 寄 駅】${candidate.location}` : "",
+    candidate.avail ? `【稼 動 日】${candidate.avail}` : "",
+    candidate.affiliation ? `【所　 属】${candidate.affiliation}` : "",
+    `【単　 価】${candidate.rate ?? "応相談"}`,
+    `【ス キ ル】`,
+    (candidate.skills ?? []).length ? (candidate.skills ?? []).join("、") : "—",
+    opts.matchedSkills?.length ? `\n※ 案件要件との合致スキル：${opts.matchedSkills.join("、")}` : "",
     ``,
-    `■ サマリ`,
-    `${candidate.name}／${candidate.title ?? "—"}／マッチ ${opts.score ?? "—"}%／希望単価 ${candidate.rate ?? "応相談"}`,
+    candidate.exp ? `【 実　績 】\n${candidate.exp}` : "",
+    candidate.skillSheetUrl ? `\nスキルシート：\n${candidate.skillSheetUrl}` : "",
     ``,
-    `── ご提案人材 ────────────`,
-    `氏名：${candidate.name}`,
-    candidate.title ? `職種：${candidate.title}` : "",
-    candidate.affiliation ? `所属：${candidate.affiliation}` : "",
-    candidate.exp ? `経験年数：${/^\d+$/.test(String(candidate.exp).trim()) ? `${String(candidate.exp).trim()}年` : candidate.exp}` : "",
-    `希望単価：${candidate.rate ?? "応相談"}`,
-    `スキル：${(candidate.skills ?? []).join(" / ") || "—"}`,
-    opts.matchedSkills?.length ? `→ 案件要件との合致スキル：${opts.matchedSkills.join(" / ")}` : "",
-    candidate.skillSheetUrl ? `▼ スキルシート：${candidate.skillSheetUrl}` : "",
-    `────────────────────`,
-    ``,
-    `ご経歴の詳細やスキルシートにつきまして、ご要望に応じてお送りいたします。`,
-    `ご面談のご相談など、お気軽にご返信ください。`,
-    ``,
-    `何卒よろしくお願いいたします。`,
+    HR,
+    `■オファー時のお願い`,
+    `オファーをご希望の際は、本メール内の`,
+    `「オファーする」ボタンよりご回答くださいますようお願いいたします。`,
+    `なお、ご不明点やご相談事項がございましたら、まずはオファーいただいた上で、`,
+    `後ほどお電話にて詳細をご相談させていただければと存じます。`,
+    `その他ご質問等ございましたら、お気軽にご連絡ください。`,
+    `何卒よろしくお願い申し上げます。`,
+    SIGNATURE,
   ].filter((l) => l !== "").join("\n");
   return { subject, body };
 }
@@ -174,7 +244,7 @@ export function buildProposalPrompt(opts: {
 
   return [
     dir,
-    `差出人の名乗りは「${senderLabel(opts.sender)} でございます。」とすること。`,
+    `差出人の名乗りは「エンジャー事務局${opts.sender?.trim() ? ` ${opts.sender.trim()}` : ""}でございます。」とすること。`,
     "条件: 日本語の丁寧なビジネスメール / 返信体裁(冒頭は宛名、結びは「何卒よろしくお願いいたします。」) / 200〜350字程度 / 誇張せず事実ベース / 相手が返信したくなる一文を入れる。",
     "出力は本文のみ（件名や説明は不要）。",
     "",
