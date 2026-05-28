@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
 import { gmailMessageUrl } from "@/lib/gmail";
-import { importCandidates, importJobs, type CandidateInput, type JobInput } from "@/lib/actions";
+import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, type CandidateInput, type JobInput } from "@/lib/actions";
 import { Icons } from "./icons";
 
 const numOf = (s: string) => { const n = parseFloat((s || "").replace(/[^\d.]/g, "")); return isNaN(n) ? null : n; };
@@ -363,9 +363,13 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
       };
       if (rec.rate) rec.rate_num = numOf(rec.rate);
       start(async () => {
-        const res = await importCandidates([rec] as CandidateInput[], "手動登録");
-        if (res.ok) { setMsg({ ok: true, text: `${res.inserted ?? 0} 件を登録しました` }); router.refresh(); if (res.inserted) setTimeout(close, 800); }
-        else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
+        const res = await upsertCandidateManual(rec as CandidateInput);
+        if (res.ok) {
+          const lbl = res.action === "updated"
+            ? `既存の人材を更新しました（P-${String(res.candidate_no ?? 0).padStart(5, "0")}）`
+            : `登録しました（P-${String(res.candidate_no ?? 0).padStart(5, "0")}）`;
+          setMsg({ ok: true, text: lbl }); router.refresh(); setTimeout(close, 900);
+        } else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
       });
     } else {
       const title = (f.title || "").trim();
@@ -389,9 +393,14 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
       };
       start(async () => {
-        const res = await importJobs([rec] as JobInput[], "手動登録");
-        if (res.ok) { setMsg({ ok: true, text: `${res.inserted ?? 0} 件を登録しました${res.inserted === 0 ? "（重複の可能性）" : ""}` }); router.refresh(); if (res.inserted) setTimeout(close, 800); }
-        else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
+        const res = await upsertJobManual(rec as JobInput);
+        if (res.ok) {
+          const id = `No.${String(res.job_no ?? 0).padStart(5, "0")}`;
+          const lbl = res.action === "updated"
+            ? `既存の案件を更新しました${"republished" in res && res.republished ? "（非公開→公開に切替）" : ""}（${id}）`
+            : `登録しました（${id}）`;
+          setMsg({ ok: true, text: lbl }); router.refresh(); setTimeout(close, 900);
+        } else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
       });
     }
   };
