@@ -14,17 +14,25 @@ export type MatchingTabKey = typeof TABS[number]["key"];
 
 export async function MatchingTabs({ active }: { active: MatchingTabKey }) {
   const c = await getSidebarCounts();
-  const badgeOf: Record<MatchingTabKey, number | undefined> = {
+  const totalOf: Record<MatchingTabKey, number | undefined> = {
+    matching: undefined, // マッチング自体は集計対象が無いので非表示
+    jobs: c.jobs,
+    people: c.people,
+    engineers: c.engineers,
+  };
+  const newOf: Record<MatchingTabKey, number | undefined> = {
     matching: undefined,
     jobs: c.newJobs,
     people: c.newPeople,
     engineers: c.newEngineers,
   };
+  const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
   return (
     <div role="tablist" style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 16, overflowX: "auto" }}>
       {TABS.map((t) => {
         const isActive = t.key === active;
-        const b = badgeOf[t.key];
+        const total = fmt(totalOf[t.key]);
+        const n = newOf[t.key];
         return (
           <Link
             key={t.key}
@@ -45,8 +53,11 @@ export async function MatchingTabs({ active }: { active: MatchingTabKey }) {
             }}
           >
             <span>{t.label}</span>
-            {b != null && b > 0 && (
-              <span className="badge hot" style={{ fontSize: 10.5, padding: "1px 7px" }}>+{b}</span>
+            {total != null && (
+              <span className="badge" style={{ fontSize: 10.5, padding: "1px 7px" }}>{total}</span>
+            )}
+            {n != null && n > 0 && (
+              <span className="badge hot" style={{ fontSize: 10.5, padding: "1px 7px" }} title="直近7日の新着">+{n}</span>
             )}
           </Link>
         );
