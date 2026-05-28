@@ -218,9 +218,10 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
   };
 
   // 行のメール(元メールへ飛ぶ) + マッチングリンク
+  //   source_mail_url があれば該当メールへ直リンク。無ければ Gmail 検索（会社名＋案件名/氏名＋所属で絞り込み）。
   const mailFor = (r: any) => kind === "jobs"
-    ? { url: r.source_mail_url, search: r.client_name || r.title, to: r.contact_email }
-    : { url: r.source_mail_url, search: r.name || r.source_company, to: r.email ?? r.contact_email };
+    ? { url: r.source_mail_url, search: [r.client_name, r.title].filter(Boolean).join(" ") || r.title, to: r.contact_email }
+    : { url: r.source_mail_url, search: [r.name, r.source_company].filter(Boolean).join(" ") || r.name, to: r.email ?? r.contact_email };
   const matchHref = (r: any) => kind === "jobs" ? `/matching?job=${r.job_no}` : `/matching?person=${r.candidate_no}`;
   const titleOf = (r: any) => kind === "jobs" ? (r.title ?? `案件#${r.job_no}`) : (r.name ?? `人材#${r.candidate_no}`);
   const rankBadge = (n: number) => n === 1 ? "🥇" : n === 2 ? "🥈" : n === 3 ? "🥉" : `${n}`;

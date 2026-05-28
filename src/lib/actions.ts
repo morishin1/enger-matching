@@ -23,6 +23,9 @@ export type CandidateInput = {
   exp?: string | null;
   status?: string | null;
   skill_sheet_url?: string | null;
+  email?: string | null;          // 人材本人の連絡先（あれば）
+  contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
+  source_mail_url?: string | null; // 元メール(Gmail)へのURL
 };
 
 function initialsOf(name: string): string {
@@ -56,6 +59,9 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       exp: r.exp?.trim() || null,
       status: r.status?.trim() || "提案可",
       skill_sheet_url: r.skill_sheet_url?.trim() || null,
+      email: r.email?.trim() || null,
+      contact_email: r.contact_email?.trim() || null,
+      source_mail_url: r.source_mail_url?.trim() || null,
       score: 0,
       source_csv: sourceLabel,
       imported_at: now,
@@ -90,9 +96,9 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   for (let i = 0; i < fresh.length; i += BATCH) {
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
-    // skill_sheet_url 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.skill_sheet_url; return o; });
+    // skill_sheet_url / email 系 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /skill_sheet_url|email|source_mail_url|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.skill_sheet_url; delete o.email; delete o.contact_email; delete o.source_mail_url; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -688,6 +694,9 @@ export type JobInput = {
   start_date?: string | null;
   detail?: string | null;
   status?: string | null;
+  contact_name?: string | null;   // 案件窓口の担当者名
+  contact_email?: string | null;  // 案件窓口＝元メールの送信元（返信先）
+  source_mail_url?: string | null; // 元メール(Gmail)へのURL
 };
 
 /** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
@@ -714,6 +723,9 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
       start_date: r.start_date || null,
       detail: r.detail?.trim() || null,
       status: r.status?.trim() || "募集中",
+      contact_name: r.contact_name?.trim() || null,
+      contact_email: r.contact_email?.trim() || null,
+      source_mail_url: r.source_mail_url?.trim() || null,
       rank: "-",
       is_published: true,
       source_csv: sourceLabel,
@@ -727,9 +739,14 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
   const BATCH = 500;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
-    const { error, count } = await admin
+    let { error, count } = await admin
       .from("jobs")
       .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
+    // contact_email / source_mail_url 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /contact_email|contact_name|source_mail_url|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; return o; });
+      ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" }));
+    }
     if (error) return { ok: false, inserted, error: error.message };
     inserted += count ?? batch.length;
   }
