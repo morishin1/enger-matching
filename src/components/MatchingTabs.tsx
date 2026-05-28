@@ -57,7 +57,7 @@ export async function MatchingTabs({ active }: { active: MatchingTabKey }) {
               <span className="badge" style={{ fontSize: 10.5, padding: "1px 7px" }}>{total}</span>
             )}
             {n != null && n > 0 && (
-              <span className="badge hot" style={{ fontSize: 10.5, padding: "1px 7px" }} title="直近7日の新着">+{n}</span>
+              <span className="badge hot" style={{ fontSize: 9.5, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${n} 件`}>NEW</span>
             )}
           </Link>
         );
