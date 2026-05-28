@@ -140,6 +140,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const [preview, setPreview] = useState<ReturnType<typeof validate> | null>(null);
   const [fileName, setFileName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
 
   const onFile = async (file: File) => {
     setMsg(null);
@@ -164,21 +165,25 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     const CHUNK = kind === "candidates" ? 800 : 250;
     start(async () => {
       let inserted = 0, skipped = 0;
+      setMsg(null);
+      setProg({ done: 0, total: recs.length });
       try {
         for (let i = 0; i < recs.length; i += CHUNK) {
           const slice = recs.slice(i, i + CHUNK);
-          if (recs.length > CHUNK) setMsg({ ok: true, text: `取込中… ${Math.min(i + slice.length, recs.length)}/${recs.length}` });
           const res = kind === "candidates"
             ? await importCandidates(slice as CandidateInput[], fileName)
             : await importJobs(slice as JobInput[], fileName);
-          if (!res.ok) { setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
+          if (!res.ok) { setProg(null); setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
           inserted += res.inserted ?? 0;
           skipped += (res as any).skipped ?? 0;
+          setProg({ done: Math.min(i + slice.length, recs.length), total: recs.length });
         }
+        setProg(null);
         setMsg({ ok: true, text: `${inserted} 件を取り込みました${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
         setPreview(null);
         router.refresh();
       } catch (e) {
+        setProg(null);
         setMsg({ ok: false, text: `${e instanceof Error ? e.message : "取込に失敗しました"}（通信エラーまたはサイズ超過の可能性。${inserted}件まで取込済み）` });
       }
     });
@@ -210,13 +215,27 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       {msg && <span style={{ fontSize: 12, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</span>}
 
       {preview && (
-        <div onClick={() => setPreview(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+        <div onClick={() => { if (!pending) setPreview(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>CSV取込プレビュー / 検証</h3>
-              <button className="btn ghost btn-xs" onClick={() => setPreview(null)}>閉じる</button>
+              <button className="btn ghost btn-xs" onClick={() => setPreview(null)} disabled={pending}>閉じる</button>
             </div>
             <div className="muted" style={{ fontSize: 12 }}>{fileName} · {preview.rows.length} 行</div>
+
+            {/* 取込中の進捗バー */}
+            {prog && (
+              <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600 }}>
+                  <span>取り込み中… サーバへ送信しています</span>
+                  <span className="mono">{prog.done}/{prog.total}（{Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%）</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%`, background: "var(--color-brand, #0b5cab)", transition: "width .25s ease" }} />
+                </div>
+                <div className="muted" style={{ fontSize: 10.5 }}>※ ブラウザを閉じずにお待ちください（分割送信のため少し時間がかかります）。</div>
+              </div>
+            )}
 
             {/* サマリ */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

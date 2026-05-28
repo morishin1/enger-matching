@@ -24,7 +24,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
     try {
       const sb = engerClient();
       const base = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
-      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank`).eq("candidate_no", no).maybeSingle();
+      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
     } catch (e) {
@@ -65,6 +65,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
           <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
           <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
           <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>
