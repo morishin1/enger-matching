@@ -4,10 +4,10 @@ import Link from "next/link";
 import { getSidebarCounts } from "@/lib/counts";
 
 const TABS = [
-  { key: "matching", href: "/matching", label: "マッチング" },
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
-  { key: "engineers", href: "/engineers", label: "エンジャー登録" },
+  { key: "engineers", href: "/engineers", label: "サイト登録" },
+  { key: "matching", href: "/matching", label: "マッチング" },
 ] as const;
 
 export type MatchingTabKey = typeof TABS[number]["key"];

@@ -56,7 +56,7 @@ function Stars({ score }: { score: number }) {
 
 export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
   const sp = await searchParams;
-  const tab = sp.tab === "focus" ? "focus" : "auto";
+  const tab = sp.tab === "auto" ? "auto" : "focus";
   const personNo = sp.person ? Number(sp.person) : null;
 
   let dbError: string | null = null;
