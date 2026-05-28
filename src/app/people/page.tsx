@@ -1,6 +1,7 @@
 import { CandidateImportButton, CandidateNewButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
+import { MatchingTabs } from "@/components/MatchingTabs";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 
@@ -49,6 +50,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="page">
+      <MatchingTabs active="people" />
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
           <div className="meta">People · 人材マスタ（実データ）</div>
