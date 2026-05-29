@@ -108,3 +108,46 @@ export async function sendReportFeedback(author: string, period: "week" | "month
   revalidatePath("/reports"); revalidatePath("/notifications");
   return { ok: true, comment: res.text };
 }
+
+/** 管理者：日報1件に対する個別メッセージのAI下書きを生成（保存はしない、本文のみ返却）。 */
+export async function draftReportMessage(reportId: string): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const access = await currentAccess();
+  if (access && access.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const { data: r } = await admin.from("daily_reports").select("*").eq("id", reportId).maybeSingle();
+  if (!r) return { ok: false, error: "日報が見つかりません" };
+  const system = "あなたはメンバーを温かく支えるマネージャーです。日報1件に対する個別メッセージを短く書きます。①頑張りや工夫を1つ具体的に承認、②次の一歩のヒント／問いかけを1つ。日本語、3〜5行、敬意を持って、説教くさくしない。";
+  const prompt = [
+    `担当者: ${(r as any).author}`,
+    `日付: ${(r as any).report_date}`,
+    `やったこと: ${((r as any).did ?? []).join("、")}`,
+    `自己チェック: ${JSON.stringify((r as any).self_check ?? {})}`,
+    `うまくいった: ${(r as any).good ?? "（なし）"}`,
+    `詰まった/課題: ${(r as any).problem ?? "（なし）"}（なぜ: ${(r as any).cause ?? "—"}）`,
+    `明日の一手: ${(r as any).next_action ?? "（なし）"}`,
+    `手応え: ${(r as any).mood ?? ""}`,
+  ].join("\n");
+  const res = await callLLM({ system, prompt, maxTokens: 220, temperature: 0.6 });
+  if (!res.ok) return { ok: false, error: res.error };
+  await logUsage("report_message_draft", res.model, res.usage);
+  return { ok: true, text: res.text };
+}
+
+/** 管理者：日報1件に対する個別メッセージを送信（notifications にレコード追加）。 */
+export async function sendReportMessage(reportId: string, message: string): Promise<Result> {
+  const access = await currentAccess();
+  if (access && access.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
+  if (!message?.trim()) return { ok: false, error: "メッセージが空です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const { data: r } = await admin.from("daily_reports").select("author, report_date").eq("id", reportId).maybeSingle();
+  if (!r) return { ok: false, error: "日報が見つかりません" };
+  const sender = access?.name?.trim() || "管理者";
+  const body = `${message.trim()}\n\n— ${sender}`;
+  const title = `日報メッセージ（${(r as any).report_date}）`;
+  const { error } = await admin.from("notifications").insert({ recipient: (r as any).author, title, body, kind: "feedback" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/reports"); revalidatePath("/notifications");
+  return { ok: true };
+}

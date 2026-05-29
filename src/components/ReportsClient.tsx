@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { saveReport, coachReport, sendReportFeedback } from "@/app/reports/actions";
+import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
 
 function ManagerReview({ reports }: { reports: DailyReport[] }) {
@@ -162,12 +162,30 @@ function ReportForm({ author, today, actuals }: { author: string; today: string;
   );
 }
 
-function ReportCard({ r }: { r: DailyReport }) {
+function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [msgText, setMsgText] = useState("");
+  const [msgBusy, setMsgBusy] = useState<"draft" | "send" | null>(null);
+  const [msgInfo, setMsgInfo] = useState<{ ok: boolean; text: string } | null>(null);
   const m = r.metrics ?? {};
   const sc = r.self_check ?? {};
   const coach = () => start(async () => { await coachReport(r.id); router.refresh(); });
+  const draftMessage = async () => {
+    setMsgBusy("draft"); setMsgInfo(null);
+    const res = await draftReportMessage(r.id);
+    setMsgBusy(null);
+    if (res.ok && res.text) { setMsgText(res.text); setMsgInfo({ ok: true, text: "AI下書きを生成しました（編集してから送信できます）" }); }
+    else setMsgInfo({ ok: false, text: res.error || "生成に失敗しました" });
+  };
+  const sendMessage = async () => {
+    if (!msgText.trim()) { setMsgInfo({ ok: false, text: "メッセージが空です" }); return; }
+    setMsgBusy("send"); setMsgInfo(null);
+    const res = await sendReportMessage(r.id, msgText);
+    setMsgBusy(null);
+    if (res.ok) { setMsgInfo({ ok: true, text: `✓ ${r.author}さんへメッセージを送信しました` }); setMsgText(""); }
+    else setMsgInfo({ ok: false, text: res.error || "送信に失敗しました" });
+  };
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -193,6 +211,24 @@ function ReportCard({ r }: { r: DailyReport }) {
         <div style={{ fontSize: 12, color: "var(--color-ink-2)", background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", borderRadius: 8, padding: "8px 10px", whiteSpace: "pre-wrap" }}>🤖 {r.ai_comment}</div>
       ) : (
         <button className="btn ghost btn-xs" disabled={pending} onClick={coach} style={{ alignSelf: "flex-start" }}>{pending ? "生成中…" : "🤖 AIから一言（任意）"}</button>
+      )}
+
+      {isAdmin && (
+        <div style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)" }}>💬 管理者から{r.author}さんへ個別メッセージ</div>
+          <textarea
+            value={msgText}
+            onChange={(e) => setMsgText(e.target.value)}
+            placeholder="メッセージを直接入力、または「✨ AI下書き」で生成→編集して送信"
+            rows={3}
+            style={{ fontSize: 12.5, padding: 8, border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", resize: "vertical", fontFamily: "var(--font-sans)" }}
+          />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn ghost btn-xs" disabled={!!msgBusy} onClick={draftMessage}>{msgBusy === "draft" ? "生成中…" : "✨ AIで下書き"}</button>
+            <button type="button" className="btn brand btn-xs" disabled={!!msgBusy || !msgText.trim()} onClick={sendMessage}>{msgBusy === "send" ? "送信中…" : "送信"}</button>
+            {msgInfo && <span style={{ fontSize: 11, color: msgInfo.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msgInfo.text}</span>}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -281,7 +317,7 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30 }}>まだ日報がありません。</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-          {filtered.map((r) => <ReportCard key={r.id} r={r} />)}
+          {filtered.map((r) => <ReportCard key={r.id} r={r} isAdmin={isAdmin} />)}
         </div>
       )}
     </>
