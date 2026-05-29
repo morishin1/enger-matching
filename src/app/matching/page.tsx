@@ -113,7 +113,21 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
-          rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
+          // 旧データで contact_email が無い案件は同じ client_name の他案件から流用（同社の窓口メールは共通）
+          const jobList = (jr.data ?? []) as any[];
+          const jobNeed = jobList.filter((j) => !j.contact_email && j.client_name);
+          if (jobNeed.length > 0) {
+            const clients = Array.from(new Set(jobNeed.map((j) => j.client_name))) as string[];
+            try {
+              const jf: any = await sb.from("jobs").select("client_name, contact_email").in("client_name", clients).not("contact_email", "is", null).limit(2000);
+              if (!jf.error && Array.isArray(jf.data)) {
+                const m: Record<string, string> = {};
+                for (const r of jf.data) if (r.client_name && r.contact_email && !m[r.client_name]) m[r.client_name] = r.contact_email;
+                for (const j of jobNeed) if (m[j.client_name]) j.contact_email = m[j.client_name];
+              }
+            } catch { /* noop */ }
+          }
+          rankedJobs = rankJobs(person as any, jobList as Job[], 10);
         }
         // この人材が既に提案済みの案件（提案済み表示用）
         if (person?.id) {
@@ -164,6 +178,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           }
         }
         if (!job) job = jobList[0] ?? null;
+        // 旧データで contact_email が無い案件は同じ client_name の他案件から流用
+        if (job && !job.contact_email && job.client_name) {
+          try {
+            const jf: any = await sb.from("jobs").select("contact_email").eq("client_name", job.client_name).not("contact_email", "is", null).limit(1).maybeSingle();
+            if (jf.data?.contact_email) job.contact_email = jf.data.contact_email;
+          } catch { /* noop */ }
+        }
 
         if (job?.skills?.length) {
           const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
