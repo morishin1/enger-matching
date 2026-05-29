@@ -333,7 +333,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                     </div>
                     <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                      <ProposalComposer job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} />
+                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} />
                     </div>
                   </div>
                 );
@@ -449,7 +449,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {job && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
-          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked}
+          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds}
             jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type }} />
 
           {/* 右: 詳細パネル */}
@@ -533,7 +533,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
                   {/* アクション: 返信メール（テンプレ/コピペ/AI生成） */}
                   <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                    <ProposalComposer job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} />
+                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} />
                   </div>
                 </div>
               );

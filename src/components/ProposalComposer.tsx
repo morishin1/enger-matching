@@ -157,13 +157,11 @@ export function ProposalComposer({
 
       {/* ① 元メール（案件・人材それぞれの原本）へのアクセス */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingBottom: 4, borderBottom: "1px dashed var(--color-border)" }}>
-        <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>元メール</span>
         <MailBodyModal body={job?.detail ?? job?.description ?? null} title={job?.title} sub={job?.client_name} mailUrl={origMailUrl} />
         <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで案件の元メールを開く">↗ 案件の元メール</button>
         {candMailUrl && (
           <button type="button" className="btn ghost btn-xs" onClick={openCandidateOriginal} title="Gmailで人材の元メール（取込元）を開く">↗ 人材の元メール</button>
         )}
-        <button type="button" className="btn ghost btn-xs" onClick={replyToOriginal} title="案件の元メールを Gmail で開きます。Gmail の「返信」ボタンでスレッド返信できます。">↩ 案件メールに返信</button>
       </div>
 
       {/* 操作 */}
@@ -171,7 +169,7 @@ export function ProposalComposer({
         <button type="button" className="btn-mail block" onClick={openGmail}>Gmailで開く</button>
         {saved ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 提案済み</span>
+            <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 記録済み</span>
             <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline" }}>取消は提案管理から</Link>
           </span>
         ) : (
