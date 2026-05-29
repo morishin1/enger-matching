@@ -1029,3 +1029,74 @@ export async function createProposalManual(input: {
   revalidatePath("/proposals"); bustCounts();
   return { ok: true as const, action: "inserted" as const, id: r.data?.id, job_no: jobRow.job_no, candidate_no: candRow.candidate_no };
 }
+
+// ----- 個別ページからの編集 (candidate_no / job_no で特定して更新) -------------
+
+/** 人材を candidate_no で指定して更新。空欄/未指定の項目は既存値を保持。 */
+export async function updateCandidateById(candidateNo: number, fields: Partial<CandidateInput>) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!candidateNo) return { ok: false as const, error: "candidate_no が未指定です" };
+  const now = new Date().toISOString();
+  const trim = (v?: string | null) => v == null ? undefined : (String(v).trim() || null);
+  const row: Record<string, any> = { updated_at: now };
+  if (fields.name !== undefined) row.name = trim(fields.name) ?? null;
+  if (fields.title !== undefined) row.title = trim(fields.title);
+  if (fields.company !== undefined) row.company = trim(fields.company);
+  if (fields.affiliation !== undefined) row.affiliation = trim(fields.affiliation);
+  if (fields.skills !== undefined) row.skills = normalizeSkills(fields.skills ?? []);
+  if (fields.rate !== undefined) { const r = trim(fields.rate); row.rate = r; if (r) { const n = Number((r.match(/\d+/g) ?? []).map(Number).filter((x) => x > 0)[0]); if (Number.isFinite(n)) row.rate_num = n; } }
+  if (fields.avail !== undefined) row.avail = trim(fields.avail);
+  if (fields.location !== undefined) row.location = trim(fields.location);
+  if (fields.exp !== undefined) row.exp = trim(fields.exp);
+  if (fields.status !== undefined) row.status = trim(fields.status);
+  if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
+  if ((fields as any).email !== undefined) row.email = trim((fields as any).email);
+  if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
+  if ((fields as any).source_mail_url !== undefined) row.source_mail_url = trim((fields as any).source_mail_url);
+  if ((fields as any).source_company !== undefined) row.source_company = trim((fields as any).source_company);
+  // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
+  if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; return c; };
+  let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|column/i.test(r.error.message)) {
+    r = await admin.from("candidates").update(stripped(row)).eq("candidate_no", candidateNo);
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(`/people/${candidateNo}`); revalidatePath("/people"); bustCounts();
+  return { ok: true as const };
+}
+
+/** 案件を job_no で指定して更新。空欄/未指定の項目は既存値を保持。 */
+export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!jobNo) return { ok: false as const, error: "job_no が未指定です" };
+  const now = new Date().toISOString();
+  const trim = (v?: string | null) => v == null ? undefined : (String(v).trim() || null);
+  const row: Record<string, any> = { updated_at: now };
+  if (fields.title !== undefined) row.title = trim(fields.title) ?? null;
+  if (fields.client_name !== undefined) row.client_name = trim(fields.client_name);
+  if (fields.role_label !== undefined) row.role_label = trim(fields.role_label);
+  if (fields.skills !== undefined) row.skills = normalizeSkills(fields.skills ?? []);
+  if (fields.salary_min !== undefined) row.salary_min = fields.salary_min;
+  if (fields.salary_max !== undefined) row.salary_max = fields.salary_max;
+  if (fields.remote_type !== undefined) row.remote_type = fields.remote_type;
+  if (fields.flow_note !== undefined) row.flow_note = trim(fields.flow_note);
+  if (fields.work_location !== undefined) row.work_location = trim(fields.work_location);
+  if (fields.start_date !== undefined) row.start_date = fields.start_date || null;
+  if (fields.detail !== undefined) row.detail = trim(fields.detail);
+  if (fields.status !== undefined) row.status = trim(fields.status);
+  if ((fields as any).contact_name !== undefined) row.contact_name = trim((fields as any).contact_name);
+  if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
+  if ((fields as any).source_mail_url !== undefined) row.source_mail_url = trim((fields as any).source_mail_url);
+  if ((fields as any).is_published !== undefined) row.is_published = (fields as any).is_published;
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; return c; };
+  let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
+  if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
+    r = await admin.from("jobs").update(stripped(row)).eq("job_no", jobNo);
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(`/jobs/${jobNo}`); revalidatePath("/jobs"); bustCounts();
+  return { ok: true as const };
+}

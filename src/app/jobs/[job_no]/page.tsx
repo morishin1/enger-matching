@@ -1,0 +1,89 @@
+import Link from "next/link";
+import { Icons } from "@/components/icons";
+import { MailButton } from "@/components/MailButton";
+import { EditJobButton } from "@/components/EditEntryButton";
+import { DeleteEntityButton } from "@/components/DeleteEntityButton";
+import { engerClient, dbConfigured } from "@/lib/supabase";
+import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
+
+export const dynamic = "force-dynamic";
+
+const remoteLabel = (r?: string | null) =>
+  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社必須" : (r || "—");
+const salaryLabel = (lo?: number | null, hi?: number | null) =>
+  lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
+
+const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
+  value ? (
+    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "10px 0", borderBottom: "1px dashed var(--color-border)" }}>
+      <div className="muted" style={{ fontSize: 11.5, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{value}</div>
+    </div>
+  ) : null;
+
+export default async function JobDetailPage({ params }: { params: Promise<{ job_no: string }> }) {
+  const { job_no } = await params;
+  const no = Number(job_no);
+  let j: any = null;
+  let dbError: string | null = null;
+
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      // 拡張カラムが無い環境でも落ちないようフォールバック
+      const cols = "job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
+      let r: any = await sb.from("jobs").select(`${cols}, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
+      if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
+      if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
+      j = r.data;
+    } catch (e) {
+      dbError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  if (!j) {
+    return (
+      <div className="page">
+        <div className="card">{dbError ? <span style={{ color: "var(--color-danger)" }}>DB: {dbError}</span> : "案件が見つかりませんでした。"} <Link href="/jobs">← 案件一覧へ</Link></div>
+      </div>
+    );
+  }
+
+  const origMailUrl = gmailMessageUrl(j.source_mail_url) || j.source_mail_url || gmailSearchUrl([j.client_name, j.title].filter(Boolean).join(" "));
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <div className="meta">Job · 案件詳細</div>
+          <h1>{j.title} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></h1>
+          <div className="sub">{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" · ") || "—"}</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+          <Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          {origMailUrl && <a href={origMailUrl} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>↗ 元メール</a>}
+          <MailButton to={j.contact_email} subject={`Re: ${j.title}`} body={""} label="窓口にメール" block />
+          <EditJobButton job={j} />
+          <DeleteEntityButton kind="jobs" idValue={j.job_no} label={j.title ?? undefined} />
+          <Link href="/jobs" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
+        </div>
+      </div>
+
+      <div className="card">
+        <Row label="案件名" value={j.title} />
+        <Row label="クライアント" value={j.client_name ?? "—"} />
+        <Row label="募集職種" value={j.role_label} />
+        <Row label="必要スキル" value={(j.skills ?? []).join(" / ") || "—"} />
+        <Row label="単価" value={salaryLabel(j.salary_min, j.salary_max)} />
+        <Row label="リモート可否" value={remoteLabel(j.remote_type)} />
+        <Row label="商流" value={j.flow_note} />
+        <Row label="勤務地" value={j.work_location} />
+        <Row label="開始希望" value={j.start_date} />
+        <Row label="ステータス" value={j.status} />
+        <Row label="窓口担当者" value={j.contact_name} />
+        <Row label="窓口メール" value={j.contact_email} />
+        <Row label="案件詳細" value={j.detail} />
+      </div>
+    </div>
+  );
+}
