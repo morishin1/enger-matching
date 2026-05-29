@@ -1,16 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
 import { type Role, hasSalesFunction } from "@/lib/roles";
 
-const NAV = [
+type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
+type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
+
+const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
-  // マッチング配下にタブで「案件 / 人材 / エンジャー登録」を統合（/matching ページ内のタブで切替）
-  { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
+  {
+    href: "/matching", id: "matching", label: "マッチング", icon: "matching",
+    children: [
+      { href: "/jobs", id: "jobs", label: "案件", count: "jobs", newCount: "newJobs" },
+      { href: "/people", id: "people", label: "人材", count: "people", newCount: "newPeople" },
+      { href: "/engineers", id: "engineers", label: "サイト登録", count: "engineers", newCount: "newEngineers" },
+    ],
+  },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
   { href: "/documents", id: "documents", label: "書類送付", icon: "doc" },
@@ -18,24 +27,24 @@ const NAV = [
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics" },
-] as const;
+];
 
-const TOOLS = [
+const TOOLS: NavItem[] = [
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
   { href: "/inbox", id: "inbox", label: "受信箱", icon: "inbox" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
-] as const;
+];
 
 // ユーザー企業(client)向けの専用メニュー
-const CLIENT_NAV = [
+const CLIENT_NAV: NavItem[] = [
   { href: "/", id: "home", label: "ホーム", icon: "dashboard" },
   { href: "/portal/jobs", id: "portal-jobs", label: "自社案件", icon: "jobs" },
   { href: "/portal/candidates", id: "portal-candidates", label: "おすすめ人材", icon: "people" },
   { href: "/portal/selection", id: "portal-selection", label: "選考管理", icon: "proposals" },
   { href: "/portal/company", id: "portal-company", label: "企業プロフィール", icon: "company" },
-] as const;
+];
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
@@ -88,13 +97,31 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
       <div className="nav">
         {nav.map((n) => {
           const Ico = Icons[n.icon];
-          const badge = "count" in n ? fmt(counts?.[n.count as keyof SidebarCounts]) : null;
+          const badge = n.count ? fmt(counts?.[n.count]) : null;
+          const parentActive = isActive(n.href) || (n.children?.some((c) => pathname.startsWith(c.href)) ?? false);
           return (
-            <Link key={n.id} href={n.href} className={"nav-item " + (isActive(n.href) ? "active" : "")}>
-              <span className="ico">{Ico && <Ico />}</span>
-              <span>{n.label}</span>
-              {badge != null && <span className={"badge " + (("hot" in n && n.hot) ? "hot" : "")}>{badge}</span>}
-            </Link>
+            <Fragment key={n.id}>
+              <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}>
+                <span className="ico">{Ico && <Ico />}</span>
+                <span>{n.label}</span>
+                {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+              </Link>
+              {n.children?.map((c) => {
+                const total = c.count ? fmt(counts?.[c.count]) : null;
+                const newN = c.newCount ? counts?.[c.newCount] : undefined;
+                const subActive = pathname.startsWith(c.href);
+                return (
+                  <Link key={c.id} href={c.href} className={"nav-item nav-sub " + (subActive ? "active" : "")}
+                    style={{ paddingLeft: 38, fontSize: 12.5 }}>
+                    <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
+                    {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
+                    {newN != null && newN > 0 && (
+                      <span className="badge hot" style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${newN} 件`}>NEW</span>
+                    )}
+                  </Link>
+                );
+              })}
+            </Fragment>
           );
         })}
       </div>
