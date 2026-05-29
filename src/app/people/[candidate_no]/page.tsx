@@ -23,7 +23,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
+      const base = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
       let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
@@ -61,7 +61,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <div>
           <div className="meta">Skill Sheet · スキルシート</div>
           <h1>{c.name} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></h1>
-          <div className="sub">{[c.title, c.source_company && c.affiliation ? `${c.source_company}（${c.affiliation}）` : (c.source_company || c.affiliation)].filter(Boolean).join(" · ") || "—"}</div>
+          <div className="sub">{(() => { const co = c.source_company || c.company; const com = co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation); return [c.title, com].filter(Boolean).join(" · ") || "—"; })()}</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
           <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>

@@ -24,14 +24,14 @@ export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnU
   if (prevKey !== itemsKey) { setPrevKey(itemsKey); setList(items); }
   const matchHref = (r: any) => isJob ? `/matching?job=${r.job_no}` : `/matching?person=${r.candidate_no}`;
   const title = (r: any) => isJob ? r.title : r.name;
-  const candAff = (r: any) => r.source_company && r.affiliation ? `${r.source_company}（${r.affiliation}）` : (r.source_company || r.affiliation || "");
+  const candAff = (r: any) => { const c = r.source_company || r.company || ""; return c && r.affiliation ? `${c}（${r.affiliation}）` : (c || r.affiliation || ""); };
   const sub = (r: any) => isJob
     ? `${r.client_name ?? "—"} · ${remoteLabel(r.remote_type)} · ${salaryLabel(r.salary_min, r.salary_max)}`
     : `${r.title ?? "—"} · ${candAff(r)} · ${r.rate ?? salaryLabel(r.salary_min, r.salary_max)}`;
 
   const fields = (r: any): [string, any][] => isJob
     ? [["案件名", r.title], ["クライアント", r.client_name ?? "—"], ["職種", r.role_label ?? "—"], ["リモート", remoteLabel(r.remote_type)], ["単価", salaryLabel(r.salary_min, r.salary_max)], ["商流", r.flow_note ?? "—"], ["スキル", (r.skills ?? []).join(" / ") || "—"], ["詳細", r.detail ?? "—"]]
-    : [["氏名", r.name], ["職種", r.title ?? "—"], ["所属会社", r.source_company ?? "—"], ["区分", r.affiliation ?? "—"], ["年齢層", r.age_band ?? "—"], ["単価", r.rate ?? salaryLabel(r.salary_min, r.salary_max)], ["リモート", r.remote_pref ?? "—"], ["経験", r.exp ?? "—"], ["ステータス", r.status ?? "—"], ["スキル", (r.skills ?? []).join(" / ") || "—"]];
+    : [["氏名", r.name], ["職種", r.title ?? "—"], ["所属会社", r.source_company ?? r.company ?? "—"], ["区分", r.affiliation ?? "—"], ["年齢層", r.age_band ?? "—"], ["単価", r.rate ?? salaryLabel(r.salary_min, r.salary_max)], ["リモート", r.remote_pref ?? "—"], ["経験", r.exp ?? "—"], ["ステータス", r.status ?? "—"], ["スキル", (r.skills ?? []).join(" / ") || "—"]];
 
   const rows = (
     <>

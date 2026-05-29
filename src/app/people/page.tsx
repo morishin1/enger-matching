@@ -22,7 +22,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
+      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
       // rank / email 列が未追加でも落ちないようフォールバック
       let res: any = await sb
         .from("candidates")

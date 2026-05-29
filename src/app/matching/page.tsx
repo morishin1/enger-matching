@@ -89,7 +89,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location";
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date";
 
       if (personNo) {
@@ -147,8 +147,23 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         if (jlRes.error) jlRes = await buildList(JOB_BASE);
         jobList = jlRes.data ?? [];
 
-        const jobNo = sp.job ? Number(sp.job) : jobList[0]?.job_no;
-        job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;
+        const reqJobNo = sp.job ? Number(sp.job) : null;
+        if (reqJobNo) {
+          // 指定された job_no が jobList(最新80件)に無いとき jobList[0] にフォールバックして
+          // 異なる案件の結果が表示される不具合があったため、必ず個別取得する。
+          job = jobList.find((j) => j.job_no === reqJobNo) ?? null;
+          if (!job) {
+            let jr: any = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name, source_mail_url`).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.error) jr = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name`).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.error) jr = await sb.from("jobs").select(JOB_BASE).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.data) {
+              job = jr.data;
+              // ドロップダウン用に jobList の先頭に挿入（重複しないように）
+              if (!jobList.find((j) => j.job_no === job.job_no)) jobList = [job, ...jobList];
+            }
+          }
+        }
+        if (!job) job = jobList[0] ?? null;
 
         if (job?.skills?.length) {
           const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
@@ -157,6 +172,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           if (cr.error) cr = await buildC(CAND_BASE);
           // 旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
           const candList = (cr.data ?? []) as any[];
+          // 指定された candidate_no が skills-overlap で取得できていない場合は個別に取得して追加
+          const reqCandNo = sp.cand ? Number(sp.cand) : null;
+          if (reqCandNo && !candList.find((c) => c.candidate_no === reqCandNo)) {
+            let xr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", reqCandNo).maybeSingle();
+            if (xr.error) xr = await sb.from("candidates").select(CAND_BASE).eq("candidate_no", reqCandNo).maybeSingle();
+            if (xr.data) candList.push(xr.data);
+          }
           const need = candList.filter((c) => !c.contact_email && !c.email && c.source_company);
           if (need.length > 0) {
             const companies = Array.from(new Set(need.map((c) => c.source_company))) as string[];
@@ -170,6 +192,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             } catch { /* noop */ }
           }
           ranked = rankCandidates(job as Job, candList, 10);
+          // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
+          const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
+          if (reqCandNo2 && !ranked.find((r: any) => r.candidate.candidate_no === reqCandNo2)) {
+            const tgt = candList.find((c) => c.candidate_no === reqCandNo2);
+            if (tgt) {
+              const single = rankCandidates(job as Job, [tgt], 1);
+              if (single.length) ranked = [single[0], ...ranked];
+            }
+          }
         }
         // この案件で既に提案済みの人材（提案済み表示用）
         if (job?.id) {
@@ -242,7 +273,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
                   <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                     {person.title && <span className="tag">{person.title}</span>}
-                    {person.source_company && <span className="tag">{person.source_company}</span>}
+                    {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
                     {person.affiliation && <span className="tag">{person.affiliation}</span>}
                     <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
                     <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
@@ -441,7 +472,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company, c.age_band, c.affiliation, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, c.title].filter(Boolean).join(" / ")}</div>
                         <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
                           {c.exp != null && String(c.exp).trim() !== "" && <span>経験年数 <b style={{ color: "var(--color-ink)" }}>{/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp}</b></span>}
