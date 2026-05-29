@@ -52,7 +52,14 @@ export function ProposalComposer({
     }
     const m = candidateProposalMail({
       candidateName: cand.name,
-      candidateCompany: cand.source_company ?? cand.company ?? null,
+      candidateCompany: (() => {
+        // 「一社下社員」「フリーランス」等の区分(affiliation)が source_company/company に紛れ込んでいる旧データを除外
+        const isAff = (v?: string | null) => !!v && /(社員|フリーランス|個人事業|パートナー|下社員|社内|プロパー|PP|社下|協力会社)/.test(String(v));
+        const sc = cand.source_company; const co = cand.company;
+        if (sc && !isAff(sc)) return sc;
+        if (co && !isAff(co)) return co;
+        return null;
+      })(),
       contactName: cand.contact_name,
       ageBand: cand.age_band ?? null,
       sender,
