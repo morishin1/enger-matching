@@ -85,6 +85,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   // 提案済み判定（ペア＝job_id×candidate_id）。画面を移動しても「提案済み」を維持し、他ペアに波及させない。
   const proposedJobIds = new Set<string>();   // この人材が既に提案済みの案件id（人材→案件モード）
   const proposedCandIds = new Set<string>();  // この案件で既に提案済みの人材id（案件→人材モード）
+  const proposalIdByJob = new Map<string, string>();   // job_id → proposal_id
+  const proposalIdByCand = new Map<string, string>();  // candidate_id → proposal_id
 
   if (dbConfigured) {
     try {
@@ -131,7 +133,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
         // この人材が既に提案済みの案件（提案済み表示用）
         if (person?.id) {
-          try { const { data } = await sb.from("proposals").select("job_id").eq("candidate_id", person.id); for (const r of (data ?? []) as any[]) if (r.job_id) proposedJobIds.add(r.job_id); } catch { /* proposals未整備でも続行 */ }
+          try { const { data } = await sb.from("proposals").select("id, job_id").eq("candidate_id", person.id); for (const r of (data ?? []) as any[]) { if (r.job_id) { proposedJobIds.add(r.job_id); proposalIdByJob.set(r.job_id, r.id); } } } catch { /* proposals未整備でも続行 */ }
         }
       } else if (tab === "focus") {
         // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
@@ -225,7 +227,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
         // この案件で既に提案済みの人材（提案済み表示用）
         if (job?.id) {
-          try { const { data } = await sb.from("proposals").select("candidate_id").eq("job_id", job.id); for (const r of (data ?? []) as any[]) if (r.candidate_id) proposedCandIds.add(r.candidate_id); } catch { /* proposals未整備でも続行 */ }
+          try { const { data } = await sb.from("proposals").select("id, candidate_id").eq("job_id", job.id); for (const r of (data ?? []) as any[]) { if (r.candidate_id) { proposedCandIds.add(r.candidate_id); proposalIdByCand.set(r.candidate_id, r.id); } } } catch { /* proposals未整備でも続行 */ }
         }
       }
     } catch (e) {
@@ -333,7 +335,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                     </div>
                     <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} />
+                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null} />
                     </div>
                   </div>
                 );
@@ -533,7 +535,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
                   {/* アクション: 返信メール（テンプレ/コピペ/AI生成） */}
                   <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} />
+                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null} />
                   </div>
                 </div>
               );

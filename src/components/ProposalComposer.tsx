@@ -3,17 +3,18 @@
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, reSubject, buildProposalPrompt } from "@/lib/gmail";
-import { createProposal } from "@/lib/actions";
+import { createProposal, undoProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 
 type Job = any;
 type Cand = any;
 
 export function ProposalComposer({
-  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false,
+  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null,
 }: {
   job: Job; cand: Cand; matchedSkills: string[]; missingSkills?: string[]; score: number;
-  alreadyProposed?: boolean; // この案件×人材ペアが既に提案ボードにあるか（DB由来）
+  alreadyProposed?: boolean;
+  proposalId?: string | null;
 }) {
   const [target, setTarget] = useState<"client" | "cand">("client");
   const [body, setBody] = useState("");
@@ -22,6 +23,9 @@ export function ProposalComposer({
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(alreadyProposed);
+  const [savedId, setSavedId] = useState<string | null>(proposalId);
+  const [undoing, setUndoing] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [sender, setSender] = useState("");
 
   // 操作中の担当者名（サイドバー/トップ右で選択した名前）を差出人に
@@ -106,18 +110,34 @@ export function ProposalComposer({
   const candMailUrl = cand?.source_mail_url || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
   const openCandidateOriginal = () => { if (candMailUrl) window.open(candMailUrl, "_blank", "noopener"); };
 
-  // 提案する＝提案ボードに記録。提案済みは固定表示（このペアのみ）。取消は「提案管理」での削除のみ。
   const proposeToBoard = async () => {
-    if (saved) return; // 既に提案済み（取消は提案管理から）
+    if (saved) return;
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案できません（ID不足）"); return; }
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(job.job_no, cand.candidate_no, score);
-      if (res.ok) { setSaved(true); setMsg(res.existed ? "既に提案済みです" : "提案しました（提案ボードに追加）"); }
+      if (res.ok) { setSaved(true); setSavedId(res.id ?? null); setMsg(res.existed ? "既に提案済みです" : "提案しました（提案ボードに追加）"); }
       else setMsg(res.error || "提案に失敗しました");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "提案に失敗しました");
     } finally { setSaving(false); }
+  };
+
+  const handleUndo = () => {
+    if (!savedId) { setMsg("取り消せません（IDが不明です。提案管理から削除してください）"); return; }
+    setConfirmOpen(true);
+  };
+
+  const doUndo = async () => {
+    setConfirmOpen(false);
+    setUndoing(true); setMsg(null);
+    try {
+      const res = await undoProposal(savedId!);
+      if (res.ok) { setSaved(false); setSavedId(null); setMsg("提案を取り消しました"); }
+      else setMsg(res.error || "取り消しに失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "取り消しに失敗しました");
+    } finally { setUndoing(false); }
   };
 
   return (
@@ -169,8 +189,16 @@ export function ProposalComposer({
         <button type="button" className="btn-mail block" onClick={openGmail}>Gmailで開く</button>
         {saved ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 記録済み</span>
-            <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline" }}>取消は提案管理から</Link>
+            {savedId ? (
+              <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
+                style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
+                title="クリックして取り消し（記録直後のみ）">
+                {undoing ? "取消中…" : "✓ 記録済み（取り消す）"}
+              </button>
+            ) : (
+              <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 記録済み</span>
+            )}
+            <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline" }}>提案管理</Link>
           </span>
         ) : (
           <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "提案する（ボードに記録）"}</button>
@@ -184,6 +212,22 @@ export function ProposalComposer({
         無料：「プロンプトをコピー」→ ChatGPT/Claude/Gemini の無料Webに貼り付け→出力を本文に貼る。
         激安：「AIで自動生成」（APIキー設定時のみ・1通0.01〜0.05円目安）。
       </div>
+
+      {confirmOpen && (
+        <div onClick={() => setConfirmOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 14, padding: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>提案を取り消しますか？</div>
+            <div style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7 }}>
+              記録直後（ステージ未変更・次のアクション未入力・60秒以内）の場合のみ取り消せます。<br />
+              条件を満たさない場合はエラーが表示されます。
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={() => setConfirmOpen(false)}>キャンセル</button>
+              <button type="button" className="btn" onClick={doUndo} style={{ background: "var(--color-danger)", borderColor: "var(--color-danger)", color: "#fff" }}>取り消す</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
