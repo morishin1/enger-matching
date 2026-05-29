@@ -61,7 +61,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <div>
           <div className="meta">Skill Sheet · スキルシート</div>
           <h1>{c.name} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></h1>
-          <div className="sub">{[c.title, c.affiliation ?? c.source_company].filter(Boolean).join(" · ") || "—"}</div>
+          <div className="sub">{[c.title, c.source_company && c.affiliation ? `${c.source_company}（${c.affiliation}）` : (c.source_company || c.affiliation)].filter(Boolean).join(" · ") || "—"}</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
           <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
