@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "./Sidebar";
 import { OperatorBadge } from "./OperatorBadge";
+import { MatchingTabs } from "./MatchingTabs";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
 import type { Role } from "@/lib/roles";
@@ -91,6 +92,8 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
               </span>
             ))}
           </div>
+          {/* マッチング配下のタブをヘッダーに統合（無駄な縦余白を削減） */}
+          <MatchingTabs counts={counts} />
           <form className="search" onSubmit={submit}>
             <span style={{ display: "grid", placeItems: "center" }}><Icons.search /></span>
             <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社を検索…（Enterで検索）" />

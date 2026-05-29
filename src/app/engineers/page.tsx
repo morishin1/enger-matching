@@ -1,6 +1,5 @@
 import { EngineersClient } from "@/components/EngineersClient";
 import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
-import { MatchingTabs } from "@/components/MatchingTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +8,6 @@ export default async function EngineersPage() {
 
   return (
     <div className="page">
-      <MatchingTabs active="engineers" />
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
           <div className="meta">ENGER · エンジャー登録（LP連携）</div>
