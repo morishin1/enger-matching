@@ -2,7 +2,6 @@ import { ExportButton, JobImportButton, JobNewButton } from "@/components/CsvToo
 import { EntityTable } from "@/components/EntityTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
-import { MatchingTabs } from "@/components/MatchingTabs";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
@@ -78,7 +77,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="page">
-      <MatchingTabs active="jobs" />
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Jobs · 案件マスタ（実データ）</div>

@@ -1,7 +1,11 @@
-// マッチング配下のタブ（マッチング／案件／人材／エンジャー登録）。
-// 各タブのバッジは直近7日の新着件数（getSidebarCounts.newJobs/newPeople/newEngineers）。
+"use client";
+
+// マッチング配下のタブ（マッチング / 案件 / 人材 / サイト登録）。
+// ヘッダー(topbar)内のパンくず右側に並べて表示する想定。
+// pathname で active 判定し、該当画面以外では何も描画しない（早期 null）。
 import Link from "next/link";
-import { getSidebarCounts } from "@/lib/counts";
+import { usePathname } from "next/navigation";
+import type { SidebarCounts } from "@/lib/counts";
 
 const TABS = [
   { key: "matching", href: "/matching", label: "マッチング" },
@@ -10,25 +14,37 @@ const TABS = [
   { key: "engineers", href: "/engineers", label: "サイト登録" },
 ] as const;
 
-export type MatchingTabKey = typeof TABS[number]["key"];
+type TabKey = typeof TABS[number]["key"];
 
-export async function MatchingTabs({ active }: { active: MatchingTabKey }) {
-  const c = await getSidebarCounts();
-  const totalOf: Record<MatchingTabKey, number | undefined> = {
-    matching: undefined, // マッチング自体は集計対象が無いので非表示
-    jobs: c.jobs,
-    people: c.people,
-    engineers: c.engineers,
-  };
-  const newOf: Record<MatchingTabKey, number | undefined> = {
+function activeFromPath(path: string): TabKey | null {
+  if (path.startsWith("/matching")) return "matching";
+  if (path.startsWith("/jobs")) return "jobs";
+  if (path.startsWith("/people")) return "people";
+  if (path.startsWith("/engineers")) return "engineers";
+  return null;
+}
+
+export function MatchingTabs({ counts }: { counts?: SidebarCounts }) {
+  const path = usePathname() ?? "";
+  const active = activeFromPath(path);
+  if (!active) return null;
+
+  const totalOf: Record<TabKey, number | undefined> = {
     matching: undefined,
-    jobs: c.newJobs,
-    people: c.newPeople,
-    engineers: c.newEngineers,
+    jobs: counts?.jobs,
+    people: counts?.people,
+    engineers: counts?.engineers,
+  };
+  const newOf: Record<TabKey, number | undefined> = {
+    matching: undefined,
+    jobs: counts?.newJobs,
+    people: counts?.newPeople,
+    engineers: counts?.newEngineers,
   };
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
+
   return (
-    <div role="tablist" style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 16, overflowX: "auto" }}>
+    <div role="tablist" style={{ display: "flex", gap: 0, alignItems: "center", overflowX: "auto", minWidth: 0 }}>
       {TABS.map((t) => {
         const isActive = t.key === active;
         const total = fmt(totalOf[t.key]);
@@ -40,24 +56,22 @@ export async function MatchingTabs({ active }: { active: MatchingTabKey }) {
             role="tab"
             aria-selected={isActive}
             style={{
-              padding: "10px 18px",
+              padding: "8px 14px",
               borderBottom: isActive ? "2px solid var(--color-brand-600)" : "2px solid transparent",
               color: isActive ? "var(--color-brand-700)" : "var(--color-ink-3)",
               fontWeight: isActive ? 700 : 500,
-              fontSize: 13.5,
+              fontSize: 13,
               textDecoration: "none",
               display: "inline-flex",
               alignItems: "center",
-              gap: 8,
+              gap: 6,
               whiteSpace: "nowrap",
             }}
           >
             <span>{t.label}</span>
-            {total != null && (
-              <span className="badge" style={{ fontSize: 10.5, padding: "1px 7px" }}>{total}</span>
-            )}
+            {total != null && <span className="badge" style={{ fontSize: 10, padding: "1px 6px" }}>{total}</span>}
             {n != null && n > 0 && (
-              <span className="badge hot" style={{ fontSize: 9.5, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${n} 件`}>NEW</span>
+              <span className="badge hot" style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${n} 件`}>NEW</span>
             )}
           </Link>
         );

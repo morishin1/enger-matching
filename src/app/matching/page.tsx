@@ -4,7 +4,6 @@ import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
 import { FocusList } from "@/components/FocusList";
-import { MatchingTabs } from "@/components/MatchingTabs";
 import { JumpToMatching } from "@/components/JumpToMatching";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, type Job } from "@/lib/match";
@@ -245,7 +244,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
     return (
       <div className="page">
-        <MatchingTabs active="matching" />
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
             <div className="meta">Matching · 人材 → 案件（AI分析）</div>
@@ -363,7 +361,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     );
     return (
       <div className="page">
-        <MatchingTabs active="matching" />
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
             <div className="meta">Matching · 注力（優先対応）</div>
@@ -416,7 +413,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="page">
-      <MatchingTabs active="matching" />
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Matching · 案件 × 人材（自動スコアリング）</div>
