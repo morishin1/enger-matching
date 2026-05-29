@@ -11,7 +11,7 @@ const TABS = [
   { key: "matching", href: "/matching", label: "マッチング" },
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
-  { key: "engineers", href: "/engineers", label: "サイト登録" },
+  { key: "engineers", href: "/engineers", label: "サイト経由登録" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];

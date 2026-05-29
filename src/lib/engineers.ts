@@ -2,7 +2,36 @@ import { unstable_cache } from "next/cache";
 import { publicAdmin, engerClient, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
-export type EngineerSource = "dojo" | "enger";
+
+/**
+ * 登録元の判別ルール（将来のLP追加に備え、ラベル文字列で持つ）。
+ * 順に評価して最初に一致したものを採用。
+ *   - signup_source 列が将来追加された場合はそれを最優先で使う
+ *   - 現状は role / github_login / display_name から推定
+ * 新しい LP やフォーム/Google 登録などを追加する場合は、profiles 側で
+ * 何らかの識別子を保存し、ここに分岐を増やすだけで対応可能。
+ */
+export type EngineerSource = {
+  key: string;        // 内部キー "dojo" "enger_github" 等
+  label: string;      // 表示名 "無限道場LP" 等
+  method?: string;    // 登録方式 "GitHub" "メール" 等（タグで表示）
+  color: "warn" | "brand" | "accent" | "danger" | "neutral";
+};
+
+export function classifySource(p: any): EngineerSource {
+  // 将来 profiles に signup_source 列が追加されたらここを優先
+  const ss = p?.signup_source ? String(p.signup_source).toLowerCase() : "";
+  if (ss === "mugen_dojo" || ss === "dojo") return { key: "dojo", label: "無限道場LP", color: "warn" };
+  if (ss === "enger" || ss === "enger_lp") return { key: "enger", label: "エンジャーLP", color: "brand" };
+  if (ss === "google") return { key: "google", label: "Google登録", color: "accent", method: "Google" };
+  if (ss === "form") return { key: "form", label: "フォーム登録", color: "neutral", method: "フォーム" };
+  // 既存データのヒューリスティック
+  if (p?.role === "student") return { key: "dojo", label: "無限道場LP", color: "warn" };
+  if (p?.github_login) return { key: "enger_github", label: "エンジャーLP", method: "GitHub", color: "brand" };
+  if (p?.display_name) return { key: "enger_mail", label: "エンジャーLP", method: "メール", color: "brand" };
+  return { key: "other", label: "その他", color: "neutral" };
+}
+
 export type Engineer = {
   id: string;
   display_name: string | null;
@@ -25,7 +54,7 @@ export type Engineer = {
   last_login_at: string | null;
   created_at: string;
   name: string | null;        // 無限道場(role=student)の表示名フォールバック
-  role: string | null;        // 登録元判別キー（"student"=無限道場 / それ以外=エンジャー）
+  role: string | null;
   source: EngineerSource;     // 派生フィールド（UIバッジ用）
 };
 
@@ -50,7 +79,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       skills: Array.isArray(r.skills) ? r.skills : [],
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
-      source: (r.role === "student" ? "dojo" : "enger") as EngineerSource,
+      source: classifySource(r),
     })) as Engineer[];
     return { rows, available: true };
   } catch { return { rows: [], available: false }; }

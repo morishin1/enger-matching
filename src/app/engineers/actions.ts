@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { engerAdmin } from "@/lib/supabase";
+import { engerAdmin, publicAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
+import { normalizeSkills } from "@/lib/skills";
+import { classifySource } from "@/lib/engineers";
 
 type Result = { ok: boolean; error?: string };
 
@@ -103,4 +105,57 @@ export async function deleteEngineerAction(id: string): Promise<Result> {
   if (error) return { ok: false, error: error.message };
   revalidatePath("/engineers");
   return { ok: true };
+}
+
+/**
+ * サイト経由登録のエンジニア(public.profiles)を、enger.candidates に「候補者」として
+ * 取り込み、マッチング画面でそのまま使えるようにする。
+ *   - 同名(name)で既に取り込み済みなら既存の candidate_no を返す
+ *   - source_csv に登録元(エンジャーLP/無限道場LP/...)を記録して辿れるようにする
+ */
+export async function convertEngineerToCandidate(engineerId: string): Promise<{ ok: boolean; candidate_no?: number; error?: string }> {
+  try {
+    const pub = publicAdmin();
+    const er: any = await pub.from("profiles").select("id, display_name, github_login, name, role, primary_language, skills, estimated_pay_low, estimated_pay_mid, estimated_pay_high, headline, bio, skill_sheet_url, portfolio_url, email").eq("id", engineerId).maybeSingle();
+    if (er.error || !er.data) return { ok: false, error: "エンジニアが見つかりません" };
+    const e = er.data;
+    const name = (e.display_name || e.github_login || e.name || "").trim();
+    if (!name) return { ok: false, error: "氏名が取得できません（display_name/github_login/name すべて空）" };
+    const src = classifySource(e);
+
+    let admin: ReturnType<typeof engerAdmin>;
+    try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+    const existing: any = await admin.from("candidates").select("candidate_no").eq("name", name).limit(1).maybeSingle();
+    if (existing.data?.candidate_no) return { ok: true, candidate_no: existing.data.candidate_no };
+
+    const skills = (Array.isArray(e.skills) ? e.skills.map((s: any) => s?.name).filter(Boolean) : []) as string[];
+    const allSkills = e.primary_language ? [e.primary_language, ...skills] : skills;
+    const rate = e.estimated_pay_mid ? `¥${e.estimated_pay_mid}万`
+      : (e.estimated_pay_low && e.estimated_pay_high ? `¥${e.estimated_pay_low}〜${e.estimated_pay_high}万` : null);
+    const initials = (name.split(/\s+/)[0]?.[0] ?? "") + (name.split(/\s+/)[1]?.[0] ?? "");
+
+    const row: Record<string, any> = {
+      name,
+      initials,
+      title: e.headline || e.primary_language || null,
+      skills: normalizeSkills(allSkills),
+      rate,
+      exp: e.bio?.toString().slice(0, 500) || null,
+      status: "提案可",
+      email: e.email || null,
+      skill_sheet_url: e.skill_sheet_url || null,
+      source_csv: `engineer:${src.key}`,
+      imported_at: new Date().toISOString(),
+    };
+    const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.skill_sheet_url; return c; };
+    let ins: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
+    if (ins.error && /skill_sheet_url|email|column/i.test(ins.error.message)) {
+      ins = await admin.from("candidates").insert(stripped(row)).select("candidate_no").maybeSingle();
+    }
+    if (ins.error) return { ok: false, error: ins.error.message };
+    revalidatePath("/people");
+    return { ok: true, candidate_no: ins.data?.candidate_no };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

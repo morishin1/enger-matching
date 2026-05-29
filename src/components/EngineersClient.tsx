@@ -3,25 +3,31 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate } from "@/app/engineers/actions";
 import { APPLICATION_STAGES } from "@/lib/engineers";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 
-/** 登録元バッジ（無限道場 / エンジャー）。色で一目で判別できるようにする。 */
+/** 登録元バッジ。EngineerSource (key/label/method/color) を表示。将来のLP/方式追加に備え汎用化。 */
+const PALETTE: Record<EngineerSource["color"], { bg: string; fg: string; bd: string }> = {
+  warn:    { bg: "#fff6e0", fg: "#9a7b12", bd: "#fde9b0" },
+  brand:   { bg: "var(--color-brand-50)", fg: "var(--color-brand-700,#0b5cab)", bd: "var(--color-brand-100,#cfe1f7)" },
+  accent:  { bg: "#e7f7ee", fg: "#067647", bd: "#bfe3cc" },
+  danger:  { bg: "#fdecef", fg: "#d23f57", bd: "#f7c5cf" },
+  neutral: { bg: "var(--color-surface-inset)", fg: "var(--color-ink-3)", bd: "var(--color-border)" },
+};
 function SourceBadge({ source }: { source: EngineerSource }) {
-  const isDojo = source === "dojo";
+  const p = PALETTE[source.color] ?? PALETTE.neutral;
   return (
     <span
-      title={isDojo ? "無限道場からの登録" : "エンジャー(enger.jp)からの登録"}
+      title={`登録元: ${source.label}${source.method ? ` / ${source.method}` : ""}`}
       style={{
         display: "inline-flex", alignItems: "center", padding: "1px 7px", borderRadius: 99,
-        fontSize: 10, fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap",
-        background: isDojo ? "#fdecef" : "var(--color-brand-50)",
-        color: isDojo ? "#d23f57" : "var(--color-brand-700,#0b5cab)",
-        border: "1px solid " + (isDojo ? "#f7c5cf" : "var(--color-brand-100,#cfe1f7)"),
+        fontSize: 10, fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap", gap: 4,
+        background: p.bg, color: p.fg, border: `1px solid ${p.bd}`,
       }}
     >
-      {isDojo ? "無限道場" : "エンジャー"}
+      <span>{source.label}</span>
+      {source.method && <span style={{ opacity: .8, fontWeight: 600 }}>· {source.method}</span>}
     </span>
   );
 }
@@ -75,8 +81,19 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
 };
 
 export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]> }) {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const [detail, setDetail] = useState<Engineer | null>(null);
+  const [matchingBusy, setMatchingBusy] = useState<string | null>(null);
+  const [matchingMsg, setMatchingMsg] = useState<string | null>(null);
+  const goMatching = (e: Engineer) => {
+    setMatchingBusy(e.id); setMatchingMsg(null);
+    convertEngineerToCandidate(e.id).then((res) => {
+      setMatchingBusy(null);
+      if (res.ok && res.candidate_no) router.push(`/matching?person=${res.candidate_no}`);
+      else setMatchingMsg(res.error || "マッチングへ進めませんでした");
+    });
+  };
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -93,15 +110,23 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div className="tbl-search" style={{ width: 260, flex: "0 0 260px" }}><input placeholder="氏名・スキル・言語で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <span className="muted" style={{ fontSize: 11.5 }}>{filtered.length} 名</span>
+        {matchingMsg && <span style={{ fontSize: 11.5, color: "var(--color-danger)" }}>{matchingMsg}</span>}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+      {/* 人材一覧と同じ行型レイアウト（1～2カラム）でスキャンしやすく、各行にマッチング動線 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 12 }}>
         {filtered.map((e) => {
           const log = actions[e.id] ?? [];
           const sc = scouts[e.id] ?? [];
           const ap = applications[e.id] ?? [];
           return (
-          <button key={e.id} onClick={() => setDetail(e)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div key={e.id}
+            role="button" tabIndex={0}
+            onClick={() => setDetail(e)}
+            onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setDetail(e); } }}
+            className="card"
+            style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}
+          >
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 42, height: 42, borderRadius: 99, flex: "0 0 42px" }} /> : <div className="ava" style={{ width: 42, height: 42, flex: "0 0 42px" }}>{(e.display_name ?? e.github_login ?? e.name ?? "?").slice(0, 2)}</div>}
@@ -132,7 +157,19 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 )}
               </span>
             </div>
-          </button>
+            {/* マッチング動線: convertEngineerToCandidate で候補者化 → /matching?person=N へ */}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn brand btn-xs"
+                disabled={matchingBusy === e.id}
+                onClick={(ev) => { ev.stopPropagation(); goMatching(e); }}
+                title="このエンジニアを候補者として取り込み、マッチング画面で案件探し"
+              >
+                {matchingBusy === e.id ? "準備中…" : "✦ マッチング"}
+              </button>
+            </div>
+          </div>
         );})}
       </div>
 
