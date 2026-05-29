@@ -141,6 +141,30 @@ export async function bulkSetFocus(
   return { ok: true, updated: idValues.length };
 }
 
+/** 案件を一括削除（job_no の配列で指定）。 */
+export async function bulkDeleteJobs(jobNos: number[]) {
+  if (!jobNos.length) return { ok: true, deleted: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("jobs").delete().in("job_no", jobNos);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/jobs");
+  bustCounts();
+  return { ok: true, deleted: jobNos.length };
+}
+
+/** 人材を一括削除（candidate_no の配列で指定）。 */
+export async function bulkDeleteCandidates(candidateNos: number[]) {
+  if (!candidateNos.length) return { ok: true, deleted: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("candidates").delete().in("candidate_no", candidateNos);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/people");
+  bustCounts();
+  return { ok: true, deleted: candidateNos.length };
+}
+
 // ===================== 提案 / 稼働 =====================
 
 /** 提案の任意フィールドを更新 (架電進捗/担当/失注理由 等)。 */
