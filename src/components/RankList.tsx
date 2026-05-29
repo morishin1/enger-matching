@@ -10,8 +10,8 @@ function Stars({ score }: { score: number }) {
 
 type Ranked = { candidate: any; score: number };
 
-export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, jobForAI }: {
-  jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; jobForAI: any;
+export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, jobForAI }: {
+  jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; jobForAI: any;
 }) {
   const [ai, setAi] = useState<Map<number, { score: number; reason: string }> | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,7 +64,12 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, jobForAI }: {
             <Link key={c.candidate_no} href={linkFor(c.candidate_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
               <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{jobAbbr} ↔ {c.name}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
+                  {jobAbbr} ↔ {c.name}
+                  {proposedCandIds?.has(c.id) && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
+                  )}
+                </div>
                 <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{aiv ? `🤖 ${aiv.reason}` : `${c.title ?? "—"} · ${(() => { const co = c.source_company || c.company || ""; return co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation || ""); })()}`}</div>
               </div>
               <div style={{ textAlign: "right" }}>
