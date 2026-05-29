@@ -8,7 +8,7 @@ import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { AffiliationSelect } from "./AffiliationSelect";
-import { bulkSetFocus } from "@/lib/actions";
+import { bulkSetFocus, bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -202,6 +202,9 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(cols.filter((c) => c.defaultHidden).map((c) => c.key)));
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [colMenu, setColMenu] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const colMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -268,6 +271,23 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     });
   };
 
+  const doDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    const res = kind === "jobs" ? await bulkDeleteJobs(ids) : await bulkDeleteCandidates(ids);
+    setDeleting(false);
+    setDeleteConfirm(false);
+    if (res.ok) {
+      setDeleteMsg({ ok: true, text: `${ids.length} 件を削除しました` });
+      setSelected(new Set());
+      router.refresh();
+    } else {
+      setDeleteMsg({ ok: false, text: res.error ?? "削除に失敗しました" });
+    }
+    setTimeout(() => setDeleteMsg(null), 4000);
+  };
+
   // 行のメール(元メールへ飛ぶ) + マッチングリンク
   //   source_mail_url があれば該当メールへ直リンク。無ければ Gmail 検索（会社名＋案件名/氏名＋所属で絞り込み）。
   const mailFor = (r: any) => kind === "jobs"
@@ -331,6 +351,10 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               <span style={{ fontWeight: 700 }}>♥</span><span>注力に一括登録</span>
             </button>
             <button type="button" className="btn ghost" onClick={() => doBulk(false)} disabled={pending}>注力を解除</button>
+            <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
+              style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
+              削除
+            </button>
             <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
           </div>
         </div>
@@ -431,6 +455,30 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               <Link href={matchHref(detail)} className="btn" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 19, lineHeight: 1 }}>auto_awesome</span></Link>
               {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteMsg && (
+        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: deleteMsg.ok ? "#1aa260" : "var(--color-danger)", color: "#fff", padding: "10px 20px", borderRadius: 99, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 16px rgba(0,0,0,.18)", whiteSpace: "nowrap" }}>
+          {deleteMsg.text}
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div onClick={() => setDeleteConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 14, padding: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{kind === "jobs" ? "案件" : "人材"}を削除しますか？</div>
+            <div style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7 }}>
+              <b style={{ color: "var(--color-danger)" }}>{selected.size} 件</b>を削除します。この操作は元に戻せません。
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(false)} disabled={deleting}>キャンセル</button>
+              <button type="button" className="btn" onClick={doDelete} disabled={deleting}
+                style={{ background: "var(--color-danger)", borderColor: "var(--color-danger)", color: "#fff" }}>
+                {deleting ? "削除中…" : "削除する"}
+              </button>
             </div>
           </div>
         </div>
