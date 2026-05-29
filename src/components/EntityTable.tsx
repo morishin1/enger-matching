@@ -105,7 +105,11 @@ const JOB_COLS: Col[] = [
   {
     key: "title", label: "案件名", always: true,
     search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
-    render: (j) => <div className="pri" style={{ lineHeight: 1.4 }}>{j.title}</div>,
+    render: (j) => (
+      <Link href={`/jobs/${j.job_no}`} style={{ textDecoration: "none" }}>
+        <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)" }}>{j.title}</div>
+      </Link>
+    ),
   },
   { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
   { key: "client", label: "クライアント名", search: (j) => j.client_name ?? "", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { MailButton } from "@/components/MailButton";
+import { EditCandidateButton } from "@/components/EditEntryButton";
+import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject } from "@/lib/gmail";
 
@@ -63,10 +65,12 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
           <h1>{c.name} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></h1>
           <div className="sub">{(() => { const co = c.source_company || c.company; const com = co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation); return [c.title, com].filter(Boolean).join(" · ") || "—"; })()}</div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
           {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
           <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
+          <EditCandidateButton candidate={c} />
+          <DeleteEntityButton kind="candidates" idValue={c.candidate_no} label={c.name ?? undefined} />
           <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>
       </div>
