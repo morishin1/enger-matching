@@ -54,6 +54,34 @@ function Stars({ score }: { score: number }) {
   );
 }
 
+/**
+ * 企業マスタ (enger.companies) の contact_name / contact_email を、対象アイテムへ後付けする。
+ *   items: 案件 or 候補者の配列
+ *   companyKey: 突合キー（案件は "client_name"、候補者は "source_company"）
+ * 既に contact_name / contact_email が入っているアイテムは上書きしない。
+ */
+async function attachCompanyContact(sb: any, items: any[], companyKey: "client_name" | "source_company") {
+  if (!items || items.length === 0) return;
+  const names = Array.from(new Set(items.map((it) => it?.[companyKey]).filter(Boolean))) as string[];
+  if (names.length === 0) return;
+  try {
+    const r: any = await sb.from("companies").select("name, contact_name, contact_email").in("name", names).limit(2000);
+    if (r.error || !Array.isArray(r.data)) return;
+    const cnMap: Record<string, string> = {};
+    const ceMap: Record<string, string> = {};
+    for (const c of r.data) {
+      if (c.name && c.contact_name && !cnMap[c.name]) cnMap[c.name] = c.contact_name;
+      if (c.name && c.contact_email && !ceMap[c.name]) ceMap[c.name] = c.contact_email;
+    }
+    for (const it of items) {
+      const k = it?.[companyKey];
+      if (!k) continue;
+      if (!it.contact_name && cnMap[k]) it.contact_name = cnMap[k];
+      if (!it.contact_email && ceMap[k]) it.contact_email = ceMap[k];
+    }
+  } catch { /* noop */ }
+}
+
 export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
   const sp = await searchParams;
   // 既定は注力マッチング。ただし URL で job/person が明示されている場合は
@@ -97,7 +125,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         // ---- 人材 → 案件（逆マッチング）----
         const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", personNo).maybeSingle();
         person = pr.error ? (await sb.from("candidates").select(CAND_BASE).eq("candidate_no", personNo).maybeSingle()).data : pr.data;
-        // 旧データで contact_email が無い場合、同じ source_company の他候補から contact_email を流用（メールは同じ窓口から来ているため）
+        // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+        if (person) await attachCompanyContact(sb, [person], "source_company");
+        // 第2優先：旧データで contact_email が無い場合、同じ source_company の他候補から流用
         if (person && !person.contact_email && !person.email && person.source_company) {
           try {
             const fr = await sb.from("candidates").select("contact_email").eq("source_company", person.source_company).not("contact_email", "is", null).limit(1).maybeSingle();
@@ -114,8 +144,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
-          // 旧データで contact_email が無い案件は同じ client_name の他案件から流用（同社の窓口メールは共通）
+          // 第1優先：企業マスタから contact_name / contact_email を引いて付与
           const jobList = (jr.data ?? []) as any[];
+          await attachCompanyContact(sb, jobList, "client_name");
+          // 第2優先：旧データで contact_email が無い案件は同じ client_name の他案件から流用（同社の窓口メールは共通）
           const jobNeed = jobList.filter((j) => !j.contact_email && j.client_name);
           if (jobNeed.length > 0) {
             const clients = Array.from(new Set(jobNeed.map((j) => j.client_name))) as string[];
@@ -179,7 +211,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           }
         }
         if (!job) job = jobList[0] ?? null;
-        // 旧データで contact_email が無い案件は同じ client_name の他案件から流用
+        // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+        if (job) await attachCompanyContact(sb, [job], "client_name");
+        // 第2優先：旧データで contact_email が無い案件は同じ client_name の他案件から流用
         if (job && !job.contact_email && job.client_name) {
           try {
             const jf: any = await sb.from("jobs").select("contact_email").eq("client_name", job.client_name).not("contact_email", "is", null).limit(1).maybeSingle();
@@ -201,6 +235,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             if (xr.error) xr = await sb.from("candidates").select(CAND_BASE).eq("candidate_no", reqCandNo).maybeSingle();
             if (xr.data) candList.push(xr.data);
           }
+          // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+          await attachCompanyContact(sb, candList, "source_company");
+          // 第2優先：旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
           const need = candList.filter((c) => !c.contact_email && !c.email && c.source_company);
           if (need.length > 0) {
             const companies = Array.from(new Set(need.map((c) => c.source_company))) as string[];
