@@ -132,10 +132,11 @@ const PEOPLE_COLS: Col[] = [
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (p) => freshnessLabel(p.created_at), filterFixed: FRESH_OPTIONS, render: (p) => <Fresh d={p.created_at} /> },
   {
     key: "name", label: "氏名", always: true,
-    search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${(p.skills ?? []).join(" ")}`,
+    search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${p.company ?? ""} ${(p.skills ?? []).join(" ")}`,
     render: (p) => {
-      // 会社名(source_company) と 区分(affiliation) を両方表示。両方あれば「会社名（区分）」で併記。
-      const sub = p.source_company && p.affiliation ? `${p.source_company}（${p.affiliation}）` : (p.source_company || p.affiliation || "");
+      // 会社名(source_company または company)と区分(affiliation)を両方表示。両方あれば「会社名（区分）」。
+      const company = p.source_company || p.company || "";
+      const sub = company && p.affiliation ? `${company}（${p.affiliation}）` : (company || p.affiliation || "");
       return (
         <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

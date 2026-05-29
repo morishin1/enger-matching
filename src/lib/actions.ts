@@ -50,6 +50,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       initials: initialsOf(r.name),
       title: r.title?.trim() || null,
       company: r.company?.trim() || null,
+      // source_company も同時保存（読み出し側は source_company を主、company をフォールバック）
+      source_company: r.company?.trim() || null,
       affiliation: r.affiliation?.trim() || null,
       skills: normalizeSkills(r.skills ?? []),
       rate: r.rate?.trim() || null,
@@ -97,8 +99,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
     // skill_sheet_url / email 系 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.skill_sheet_url; delete o.email; delete o.contact_email; delete o.source_mail_url; return o; });
+    if (error && /skill_sheet_url|email|source_mail_url|source_company|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.skill_sheet_url; delete o.email; delete o.contact_email; delete o.source_mail_url; delete o.source_company; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
