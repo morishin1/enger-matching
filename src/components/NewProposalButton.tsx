@@ -77,6 +77,42 @@ export function NewProposalButton() {
     });
   };
 
+  // 貼付テキストからAIで自動抽出してフォームに流し込む（手入力との併用可。空欄のフィールドだけ埋める）
+  const [pasteText, setPasteText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const extract = async () => {
+    if (!pasteText.trim()) { setMsg({ ok: false, text: "文章を貼り付けてください" }); return; }
+    setAiBusy(true); setMsg(null);
+    try {
+      const res = await fetch("/api/extract-proposal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: pasteText }) });
+      const data = await res.json();
+      if (!data.ok) { setMsg({ ok: false, text: data.error || "解析に失敗しました" }); return; }
+      // フィールド対応: API のキー → フォーム state キー
+      const map: Record<string, string> = {
+        job_title: "job_title", client_name: "client_name",
+        stage: "stage", meeting_date: "meeting_date",
+        cand_name: "cand_name", cand_company: "cand_company", cand_rate: "cand_rate",
+        proposer: "proposer", partner: "partner", closer: "closer",
+        client_contact: "client_contact", note: "note",
+      };
+      setF((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(data.data ?? {})) {
+          const tk = map[k];
+          if (!tk || v == null) continue;
+          const sv = String(v).trim();
+          if (!sv) continue;
+          // 既に手入力がある項目は上書きしない
+          if (!(prev[tk]?.trim())) next[tk] = sv;
+        }
+        return next;
+      });
+      setMsg({ ok: true, text: "AIで解析しました（内容を確認・編集してから登録してください）" });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "解析に失敗しました" });
+    } finally { setAiBusy(false); }
+  };
+
   return (
     <>
       <button className="btn brand" onClick={() => setOpen(true)}><Icons.plus /><span>新規追加</span></button>
@@ -88,7 +124,25 @@ export function NewProposalButton() {
               <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
             </div>
             <div className="muted" style={{ fontSize: 11.5 }}>
-              既存の案件・人材は「NO」を入力。新規（LINE/書面など）は下のフィールドに入力すると自動でマスタに追加されます。
+              既存の案件・人材は「NO」を入力。新規（LINE/書面など）は下のフィールドに入力すると自動でマスタに追加されます。<br />
+              LINE/書面/メール本文を貼って <b>「✨ AIで自動抽出」</b> を押すと、各フィールドに自動入力（空欄の項目だけ埋まる）。
+            </div>
+
+            {/* ✨ 貼付→AI抽出（手入力の前に1回押すと下のフォームが自動で埋まる） */}
+            <div style={{ border: "1px dashed var(--color-border-strong)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6, background: "var(--color-surface-soft)" }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)" }}>📋 文章を貼り付けて自動入力（LINE / 書面 / メール本文 等）</label>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="ここにテキストを貼り付け…&#10;例: 「○○案件のご紹介。クライアント=△△社、単価=80万、人材：山田太郎（弊社社員）希望70万…」"
+                rows={4}
+                style={{ fontSize: 12.5, padding: 8, border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", resize: "vertical", fontFamily: "var(--font-sans)" }}
+              />
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <button type="button" className="btn brand btn-xs" disabled={aiBusy || !pasteText.trim()} onClick={extract}>{aiBusy ? "解析中…" : "✨ AIで自動抽出"}</button>
+                {pasteText && <button type="button" className="btn ghost btn-xs" onClick={() => setPasteText("")}>クリア</button>}
+                <span className="muted" style={{ fontSize: 10.5 }}>※ 既に入力済みのフィールドは上書きしません</span>
+              </div>
             </div>
 
             {/* 案件 */}

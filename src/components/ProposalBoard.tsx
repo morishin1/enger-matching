@@ -6,6 +6,21 @@ import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
 
 const dvDate = (d: any) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : `${t.getMonth() + 1}/${t.getDate()}`; };
+const dvDateTime = (d: any) => {
+  if (!d) return "";
+  const t = new Date(d);
+  if (isNaN(t.getTime())) return "";
+  return `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+};
+
+// 提案者名を見分けやすくする安定色（同じ名前は同じ色）。
+const PROPOSER_PALETTE = ["#0b5cab", "#7c3aed", "#1aa260", "#d97706", "#dc2626", "#0891b2", "#db2777", "#65a30d", "#475569", "#ea580c", "#4338ca", "#0d9488"];
+function hashColor(name?: string | null): string {
+  if (!name) return "#9aa7b4";
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return PROPOSER_PALETTE[h % PROPOSER_PALETTE.length];
+}
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -54,7 +69,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
-        {(p.updated_at || p.created_at) && <span style={{ flexShrink: 0 }}>🕒{dvDate(p.updated_at || p.created_at)}</span>}
+        {(p.updated_at || p.created_at) && <span style={{ flexShrink: 0 }} title={`登録: ${dvDateTime(p.created_at)}　更新: ${dvDateTime(p.updated_at)}`}>🕒 {dvDateTime(p.updated_at || p.created_at)}</span>}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
@@ -67,10 +82,16 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
         {(p.meeting_date || p.meeting_status) && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: "#fff1e6", color: "#b45309" }}>📅 {[p.meeting_date, p.meeting_status].filter(Boolean).join(" ")}</span>}
         {p.company_owner && <span className="tag" style={{ fontSize: 10, background: "#eef5fd", color: "#0b5cab" }}>企業担当 {p.company_owner}</span>}
-        {p.proposer && <span className="tag" style={{ fontSize: 10 }}>提案 {p.proposer}</span>}
-        {p.partner && <span className="tag" style={{ fontSize: 10 }}>組 {p.partner}</span>}
+        {p.proposer && (() => { const col = hashColor(p.proposer); return (
+          <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>提案 {p.proposer}</span>
+        ); })()}
+        {p.partner && (() => { const col = hashColor(p.partner); return (
+          <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55` }}>組 {p.partner}</span>
+        ); })()}
         {p.proposer && !p.partner && <span className="tag" style={{ fontSize: 10, color: "#b45309", background: "#fff1e6" }}>パートナー未定</span>}
-        {(p.closer ?? p.company_owner) && (p.closer ?? p.company_owner) !== "未割当" && <span className="tag" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647" }}>CL {p.closer ?? p.company_owner}</span>}
+        {(p.closer ?? p.company_owner) && (p.closer ?? p.company_owner) !== "未割当" && (() => { const closer = p.closer ?? p.company_owner; const col = hashColor(closer); return (
+          <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>CL {closer}</span>
+        ); })()}
       </div>
 
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
