@@ -232,6 +232,41 @@ export async function deleteProposal(id: string) {
   return { ok: true };
 }
 
+/**
+ * 提案の取り消し（記録直後のみ）。
+ * 以下の条件を全て満たす場合のみ削除を許可：
+ *   - stage が初期値（未対応）のまま
+ *   - next_action が未入力
+ *   - 作成から60秒以内（updated_at ≈ created_at）
+ *   - 紐づく稼働(engagements)が無い
+ */
+export async function undoProposal(id: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!id) return { ok: false, error: "id がありません" };
+
+  const { data: p, error: fe } = await admin
+    .from("proposals")
+    .select("id, stage, next_action, created_at, updated_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (fe || !p) return { ok: false, error: "提案が見つかりません" };
+
+  if (p.stage !== "未対応") return { ok: false, error: `ステージが「${p.stage}」に進んでいるため取り消せません` };
+  if (p.next_action) return { ok: false, error: "次のアクションが記入済みのため取り消せません" };
+
+  const diffSec = (new Date(p.updated_at).getTime() - new Date(p.created_at).getTime()) / 1000;
+  if (diffSec > 60) return { ok: false, error: "作成から時間が経過しているため取り消せません（提案管理から削除してください）" };
+
+  const { data: eng } = await admin.from("engagements").select("id").eq("proposal_id", id).limit(1);
+  if (eng && eng.length > 0) return { ok: false, error: "稼働が紐づいているため取り消せません" };
+
+  const { error } = await admin.from("proposals").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals"); bustCounts(); revalidatePath("/matching");
+  return { ok: true };
+}
+
 /** 見送り/失注/稼働化した提案をボードに戻す（ステージを未対応へ）。 */
 export async function restoreProposal(id: string) {
   let admin: ReturnType<typeof engerAdmin>;
