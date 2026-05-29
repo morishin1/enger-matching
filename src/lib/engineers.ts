@@ -18,18 +18,46 @@ export type EngineerSource = {
   color: "warn" | "brand" | "accent" | "danger" | "neutral";
 };
 
+// LP/方式の表示名マップ（新しいLP/方式を追加する際はここに 1 行足すだけ）
+const LP_LABEL: Record<string, { label: string; color: EngineerSource["color"] }> = {
+  enger:      { label: "エンジャーLP", color: "brand" },
+  enger_lp:   { label: "エンジャーLP", color: "brand" },
+  dojo:       { label: "無限道場LP", color: "warn" },
+  mugen_dojo: { label: "無限道場LP", color: "warn" },
+};
+const METHOD_LABEL: Record<string, string> = {
+  github: "GitHub",
+  google: "Google",
+  form:   "フォーム",
+  email:  "メール",
+};
+
 export function classifySource(p: any): EngineerSource {
-  // 将来 profiles に signup_source 列が追加されたらここを優先
-  const ss = p?.signup_source ? String(p.signup_source).toLowerCase() : "";
-  if (ss === "mugen_dojo" || ss === "dojo") return { key: "dojo", label: "無限道場LP", color: "warn" };
-  if (ss === "enger" || ss === "enger_lp") return { key: "enger", label: "エンジャーLP", color: "brand" };
-  if (ss === "google") return { key: "google", label: "Google登録", color: "accent", method: "Google" };
-  if (ss === "form") return { key: "form", label: "フォーム登録", color: "neutral", method: "フォーム" };
-  // 既存データのヒューリスティック
-  if (p?.role === "student") return { key: "dojo", label: "無限道場LP", color: "warn" };
-  if (p?.github_login) return { key: "enger_github", label: "エンジャーLP", method: "GitHub", color: "brand" };
-  if (p?.display_name) return { key: "enger_mail", label: "エンジャーLP", method: "メール", color: "brand" };
-  return { key: "other", label: "その他", color: "neutral" };
+  // 第1優先：profiles.signup_source / signup_method（LP側で明示保存された値）
+  const ss = String(p?.signup_source ?? "").toLowerCase();
+  const sm = String(p?.signup_method ?? "").toLowerCase();
+  let lpKey = "";
+  let methodKey = "";
+  if (LP_LABEL[ss]) lpKey = (ss === "mugen_dojo") ? "dojo" : (ss === "enger_lp" ? "enger" : ss);
+  if (METHOD_LABEL[sm]) methodKey = sm;
+
+  // 第2優先：既存データのヒューリスティック（列が空の場合のフォールバック）
+  if (!lpKey) {
+    if (p?.role === "student") lpKey = "dojo";
+    else if (p?.github_login || p?.github_id || p?.display_name || p?.email) lpKey = "enger";
+  }
+  if (!methodKey) {
+    if (p?.github_login || p?.github_id) methodKey = "github";
+    else if (p?.display_name || p?.email) methodKey = "email";
+  }
+
+  const lp = LP_LABEL[lpKey];
+  return {
+    key: lpKey || "other",
+    label: lp?.label ?? "その他",
+    method: METHOD_LABEL[methodKey] || undefined,
+    color: lp?.color ?? "neutral",
+  };
 }
 
 export type Engineer = {
@@ -63,16 +91,21 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
   if (!dbConfigured) return { rows: [], available: false };
   try {
     const sb = publicAdmin();
-    const { data, error } = await sb
-      .from("profiles")
-      .select("id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, headline, bio, qiita_id, last_login_at, created_at, name, role")
-      // public.profiles は LMS と共有。
-      //   - エンジャー(enger.jp): GitHub連携 (github_id/github_login) もしくはメール登録 (display_name) あり
-      //   - 無限道場(LMS): role='student'（display_name/github は NULL、name に username が入る）
-      // それ以外（LMS スタッフ等）は除外。
+    // signup_source / signup_method 列は将来 LP 側で追加される想定。
+    // 列が無い環境でも落ちないように、まず rich select →エラー時にフォールバック。
+    const base = "id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, headline, bio, qiita_id, last_login_at, created_at, name, role";
+    let rich: any = await sb.from("profiles").select(`${base}, signup_source, signup_method`)
       .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student")
-      .order("created_at", { ascending: false })
-      .limit(500);
+      .order("created_at", { ascending: false }).limit(500);
+    let data = rich.data; let error = rich.error;
+    if (error) {
+      const r2: any = await sb
+      .from("profiles")
+      .select(base)
+      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student")
+      .order("created_at", { ascending: false }).limit(500);
+      data = r2.data; error = r2.error;
+    }
     if (error) return { rows: [], available: false };
     const rows = (data ?? []).map((r: any) => ({
       ...r,
