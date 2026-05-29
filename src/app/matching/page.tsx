@@ -96,6 +96,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         // ---- 人材 → 案件（逆マッチング）----
         const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", personNo).maybeSingle();
         person = pr.error ? (await sb.from("candidates").select(CAND_BASE).eq("candidate_no", personNo).maybeSingle()).data : pr.data;
+        // 旧データで contact_email が無い場合、同じ source_company の他候補から contact_email を流用（メールは同じ窓口から来ているため）
+        if (person && !person.contact_email && !person.email && person.source_company) {
+          try {
+            const fr = await sb.from("candidates").select("contact_email").eq("source_company", person.source_company).not("contact_email", "is", null).limit(1).maybeSingle();
+            if (fr.data?.contact_email) person.contact_email = fr.data.contact_email;
+          } catch { /* noop */ }
+        }
 
         if (person?.skills?.length) {
           const buildJ = (cols: string) => {
@@ -148,7 +155,21 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           let cr: any = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
-          ranked = rankCandidates(job as Job, cr.data ?? [], 10);
+          // 旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
+          const candList = (cr.data ?? []) as any[];
+          const need = candList.filter((c) => !c.contact_email && !c.email && c.source_company);
+          if (need.length > 0) {
+            const companies = Array.from(new Set(need.map((c) => c.source_company))) as string[];
+            try {
+              const fr: any = await sb.from("candidates").select("source_company, contact_email").in("source_company", companies).not("contact_email", "is", null).limit(2000);
+              if (!fr.error && Array.isArray(fr.data)) {
+                const m: Record<string, string> = {};
+                for (const r of fr.data) if (r.source_company && r.contact_email && !m[r.source_company]) m[r.source_company] = r.contact_email;
+                for (const c of need) if (m[c.source_company]) c.contact_email = m[c.source_company];
+              }
+            } catch { /* noop */ }
+          }
+          ranked = rankCandidates(job as Job, candList, 10);
         }
         // この案件で既に提案済みの人材（提案済み表示用）
         if (job?.id) {
