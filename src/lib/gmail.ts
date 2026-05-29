@@ -107,9 +107,13 @@ export function candidateProposalMail(opts: {
   const detailTrunc = job.detail && job.detail.length > detailMax
     ? `${job.detail.slice(0, detailMax)}…\n（※ 続きは案件の元メールをご確認ください）`
     : job.detail;
+  // 旧enger実機: 「{会社名}\n{担当者名}様」。担当者名が無いときは「ご担当者 様」、会社名も無いときは候補者名にフォールバック。
+  const greeting = opts.contactName
+    ? `${opts.contactName} 様`
+    : (opts.candidateCompany ? `ご担当者 様` : `${candidateName} 様`);
   const body = [
     opts.candidateCompany ?? "",
-    `${opts.contactName ? `${opts.contactName} 様` : `${candidateName} 様`}`,
+    greeting,
     ``,
     `いつも大変お世話になっております。`,
     `エンジャー事務局でございます。`,
