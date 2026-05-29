@@ -65,7 +65,7 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, jobForAI }: {
               <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{jobAbbr} ↔ {c.name}</div>
-                <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{aiv ? `🤖 ${aiv.reason}` : `${c.title ?? "—"} · ${c.affiliation ?? c.source_company ?? ""}`}</div>
+                <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{aiv ? `🤖 ${aiv.reason}` : `${c.title ?? "—"} · ${c.source_company && c.affiliation ? `${c.source_company}（${c.affiliation}）` : (c.source_company || c.affiliation || "")}`}</div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 9, color: aiv ? "var(--color-brand-700)" : "var(--color-ink-4)" }}>{aiv ? "AI相性" : "相性"}</div>

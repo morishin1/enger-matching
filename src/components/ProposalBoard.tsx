@@ -45,7 +45,11 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
     <div className="card" style={{ padding: 12, opacity: busy ? 0.5 : 1, borderLeft: `3px solid ${tone}` }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
         {p.job_no != null
-          ? <Link href={`/matching?job=${p.job_no}`} title="この案件のマッチング画面へ" style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link>
+          ? <Link
+              href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`}
+              title="この案件×人材のマッチング結果画面へ"
+              style={{ color: "var(--color-brand-700)", textDecoration: "none" }}
+            >{p.job_title ?? "—"}</Link>
           : (p.job_title ?? "—")}
       </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>

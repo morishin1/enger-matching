@@ -134,14 +134,15 @@ const PEOPLE_COLS: Col[] = [
     key: "name", label: "氏名", always: true,
     search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${(p.skills ?? []).join(" ")}`,
     render: (p) => {
-      const aff = p.affiliation ?? p.source_company ?? "";
+      // 会社名(source_company) と 区分(affiliation) を両方表示。両方あれば「会社名（区分）」で併記。
+      const sub = p.source_company && p.affiliation ? `${p.source_company}（${p.affiliation}）` : (p.source_company || p.affiliation || "");
       return (
         <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
             <div style={{ minWidth: 0 }}>
               <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
-              {aff && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{aff}</div>}
+              {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
             </div>
           </div>
         </Link>
