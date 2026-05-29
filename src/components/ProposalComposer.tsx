@@ -153,15 +153,19 @@ export function ProposalComposer({
         このペアで提案（相手は返信メールにアクションしやすいので返信形式で送付）
       </div>
 
-      {/* 宛先タブ */}
-      <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
+      {/* 宛先タブ（評価マークと同じオレンジ系で切替を目立たせる） */}
+      <div style={{ display: "flex", gap: 4, padding: 3, background: "#fffbeb", border: "1px solid #fde9b0", borderRadius: 99, alignSelf: "flex-start" }}>
         {[{ id: "client", label: "クライアントへ人材提案" }, { id: "cand", label: "人材へ案件紹介" }].map((t) => {
           const active = target === t.id;
           return (
             <button key={t.id} type="button" onClick={() => switchTarget(t.id as "client" | "cand")}
-              style={{ padding: "6px 14px", borderRadius: 99, border: 0, cursor: "pointer", fontSize: 12, fontWeight: 600,
-                background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)",
-                boxShadow: active ? "0 1px 2px rgba(15,23,42,.08)" : "none" }}>
+              style={{
+                padding: "7px 18px", borderRadius: 99, border: 0, cursor: "pointer", fontSize: 12.5, fontWeight: 700,
+                background: active ? "#f0a92b" : "transparent",
+                color: active ? "#fff" : "#b45309",
+                boxShadow: active ? "0 1px 3px rgba(240,169,43,.45)" : "none",
+                transition: "background .15s ease, color .15s ease",
+              }}>
               {t.label}
             </button>
           );
@@ -210,15 +214,9 @@ export function ProposalComposer({
         ) : (
           <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "提案する（ボードに記録）"}</button>
         )}
-        <button type="button" className="btn" onClick={generate} disabled={loading}>{loading ? "生成中…" : "✨ AIで自動生成"}</button>
-        <button type="button" className="btn ghost" onClick={() => copy(prompt, "AIプロンプト")}>プロンプトをコピー</button>
         <button type="button" className="btn ghost" onClick={() => copy(effectiveBody, "本文")}>本文をコピー</button>
       </div>
       {msg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{msg}</div>}
-      <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", lineHeight: 1.6 }}>
-        無料：「プロンプトをコピー」→ ChatGPT/Claude/Gemini の無料Webに貼り付け→出力を本文に貼る。
-        激安：「AIで自動生成」（APIキー設定時のみ・1通0.01〜0.05円目安）。
-      </div>
 
       {confirmOpen && (
         <div onClick={() => setConfirmOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
