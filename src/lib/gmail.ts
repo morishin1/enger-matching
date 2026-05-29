@@ -100,6 +100,13 @@ export function candidateProposalMail(opts: {
 }) {
   const { candidateName, job } = opts;
   const subject = `【案件のご紹介】希望条件に合致する案件のお知らせ`;
+  // Gmail の compose URL は実用上 ~2000 文字の上限がある。job.detail（元メール本文）が長いと
+  // URL が長すぎて Gmail が 400 Bad Request を返すため、本文では先頭 600 字に抑え、
+  // 続きは「元メールを開く」ボタンから参照する運用にする。
+  const detailMax = 600;
+  const detailTrunc = job.detail && job.detail.length > detailMax
+    ? `${job.detail.slice(0, detailMax)}…\n（※ 続きは案件の元メールをご確認ください）`
+    : job.detail;
   const body = [
     opts.candidateCompany ?? "",
     `${opts.contactName ? `${opts.contactName} 様` : `${candidateName} 様`}`,
@@ -116,7 +123,7 @@ export function candidateProposalMail(opts: {
     HR,
     `◆ご紹介する案件`,
     `【案件】${job.title}`,
-    job.detail ? `【内容】\n${job.detail}` : "",
+    detailTrunc ? `【内容】\n${detailTrunc}` : "",
     ``,
     `【スキル】`,
     (job.skills ?? []).length ? (job.skills ?? []).join("、") : "—",
