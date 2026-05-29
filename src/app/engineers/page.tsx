@@ -10,10 +10,11 @@ export default async function EngineersPage() {
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">ENGER · エンジャー登録（LP連携）</div>
-          <h1>エンジャー登録</h1>
+          <div className="meta">ENGER · サイト経由登録（複数LP対応）</div>
+          <h1>サイト経由登録</h1>
           <div className="sub">
-            <b>enger.jp</b>（GitHub連携）で本人が登録したエンジニアです。中央 Supabase <b className="mono">public.profiles</b> を共有しており、LP側で登録されると自動でここに表示されます。スキル・想定単価は GitHub 解析に基づく参考値です。
+            各LP（<b>enger.jp</b> / <b>無限道場</b> など）と中央 Supabase <b className="mono">public.profiles</b> を共有し、LP側で登録されると自動でここに表示されます。
+            登録元バッジで <b>どのLPから／GitHub・メール・Google・フォーム</b> など登録方式の判別が可能。各行の「✦ マッチング」で候補者として取り込み、マッチング画面で案件を探せます。
           </div>
         </div>
       </div>

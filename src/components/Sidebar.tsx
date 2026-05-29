@@ -17,7 +17,7 @@ const NAV: NavItem[] = [
     children: [
       { href: "/jobs", id: "jobs", label: "案件", count: "jobs", newCount: "newJobs" },
       { href: "/people", id: "people", label: "人材", count: "people", newCount: "newPeople" },
-      { href: "/engineers", id: "engineers", label: "サイト登録", count: "engineers", newCount: "newEngineers" },
+      { href: "/engineers", id: "engineers", label: "サイト経由登録", count: "engineers", newCount: "newEngineers" },
     ],
   },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
