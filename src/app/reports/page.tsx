@@ -12,7 +12,8 @@ export default async function ReportsPage() {
   const today = new Date().toISOString().slice(0, 10);
   const [actuals, reports, staff] = await Promise.all([
     getActuals(author),
-    listReports({ limit: isAdmin ? 400 : 60 }),
+    // 個人は自分の日報のみ／管理者は全員分
+    listReports(isAdmin ? { limit: 400 } : { author, limit: 120 }),
     getStaff(),
   ]);
   const members = staff.rows.map((r) => r.name).filter(Boolean);
