@@ -175,6 +175,41 @@ export async function setAccountRole(id: string, role: "admin" | "agent" | "clie
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 担当エージェントを割り当て。誰がフォローするかを明確化。 */
+export async function setAccountOwnerAgent(id: string, email: string | null, name: string | null): Promise<Result> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    let r: any = await sb.from("app_users").update({ owner_agent_email: email, owner_agent_name: name }).eq("id", id);
+    if (r.error && /owner_agent|column/i.test(r.error.message)) {
+      return { ok: false, error: "担当エージェント列が未追加です（supabase/account-agent-owner.sql を実行してください）" };
+    }
+    if (r.error) return { ok: false, error: r.error.message };
+    await audit(id, null, "owner_agent", email ? `assigned=${email}` : "cleared", actor);
+    bustMembers();
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** メモ（承認・面談の根拠／やり取り履歴）を保存。 */
+export async function setAccountNote(id: string, note: string): Promise<Result> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_users").update({ note: note?.trim() || null }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    await audit(id, null, "note", note ? "updated" : "cleared", actor);
+    bustMembers();
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 職能（複数）を管理者が設定。 */
 export async function setAccountFunctions(id: string, functions: string[]): Promise<Result> {
   const guard = await requireAdmin();

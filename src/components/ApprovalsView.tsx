@@ -5,7 +5,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Account, Role } from "@/lib/accounts";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountMeetingDone } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote } from "@/app/settings/account-actions";
 
 type TabKey = "client" | "partner" | "freelance" | "candidate" | "agent" | "admin";
 const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
@@ -24,8 +24,9 @@ const STATUS_BADGE: Record<string, { l: string; c: string; bg: string }> = {
 };
 
 const fmtDate = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; };
+const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
-export function ApprovalsView({ accounts }: { accounts: Account[] }) {
+export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; agents?: { email: string | null; name: string | null }[] }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("client");
   const [pending, start] = useTransition();
@@ -87,7 +88,7 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
           <div className="tbl-scroll" style={{ overflowX: "auto" }}>
             <table className="tbl tbl-compact" style={{ minWidth: 720 }}>
               <thead>
-                <tr><th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日</th><th style={{ width: 220 }}>承認・面談履歴</th><th style={{ width: 260 }}>操作</th></tr>
+                <tr><th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日時</th><th style={{ width: 140 }}>担当エージェント</th><th style={{ width: 200 }}>メモ（根拠/連絡）</th><th style={{ width: 220 }}>承認・面談履歴</th><th style={{ width: 260 }}>操作</th></tr>
               </thead>
               <tbody>
                 {rows.map((a) => {
@@ -101,7 +102,32 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
                         {a.company_name && <div className="muted" style={{ fontSize: 11 }}>{a.company_name}</div>}
                       </td>
                       <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{a.email}</td>
-                      <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{fmtDate(a.created_at)}</td>
+                      <td style={{ fontSize: 11.5, color: "var(--color-ink-3)" }} title={a.created_at}>{fmtDateTime(a.created_at)}</td>
+                      <td>
+                        <select disabled={busy} defaultValue={(a as any).owner_agent_email ?? ""}
+                          onChange={(e) => {
+                            const em = e.target.value || null;
+                            const ag = agents.find((x) => x.email === em);
+                            run(a.id, () => setAccountOwnerAgent(a.id, em, ag?.name ?? null), em ? `担当を ${ag?.name || em} に設定` : "担当をクリア");
+                          }}
+                          style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", maxWidth: 130 }}>
+                          <option value="">— 未割当 —</option>
+                          {agents.map((ag) => (
+                            <option key={ag.email ?? ag.name ?? ""} value={ag.email ?? ""}>{ag.name ?? ag.email}</option>
+                          ))}
+                        </select>
+                        {(a as any).owner_agent_name && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{(a as any).owner_agent_name}</div>}
+                      </td>
+                      <td>
+                        <input type="text" defaultValue={(a as any).note ?? ""} disabled={busy}
+                          placeholder="連絡・面談メモ"
+                          onBlur={(e) => {
+                            const v = e.target.value.trim();
+                            const cur = ((a as any).note ?? "") as string;
+                            if (v !== cur) run(a.id, () => setAccountNote(a.id, v), "メモを保存しました");
+                          }}
+                          style={{ fontFamily: "inherit", fontSize: 11, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", width: "100%" }} />
+                      </td>
                       <td style={{ fontSize: 11, color: "var(--color-ink-3)", lineHeight: 1.6 }}>
                         {a.approved_at ? (
                           <div>承認 {fmtDate(a.approved_at)}<br /><span className="muted">by {a.approved_by_name || a.approved_by_email || "—"}</span></div>

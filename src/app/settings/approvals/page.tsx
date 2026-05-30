@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ApprovalsView } from "@/components/ApprovalsView";
 import { currentAccess, listAccounts } from "@/lib/accounts";
+import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,10 @@ export default async function ApprovalsPage() {
   if (access && access.role !== "admin" && access.role !== "agent") redirect("/");
 
   const accounts = await listAccounts();
+  const staff = await getStaff();
+  const agentOptions = staff.rows
+    .filter((s: any) => s.active !== false && (s.email || s.name))
+    .map((s: any) => ({ email: s.email ?? null, name: s.name ?? null }));
   const pending = accounts.filter((a) => a.status === "pending").length;
 
   return (
@@ -22,7 +27,7 @@ export default async function ApprovalsPage() {
         </div>
       </div>
 
-      <ApprovalsView accounts={accounts} />
+      <ApprovalsView accounts={accounts} agents={agentOptions} />
     </div>
   );
 }
