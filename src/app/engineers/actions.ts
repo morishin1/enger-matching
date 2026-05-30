@@ -82,7 +82,8 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   return { ok: true };
 }
 
-/** 応募の選考ステージを更新（営業/管理者）。応募→面談合格→稼働を追跡。 */
+/** 応募の選考ステージを更新（営業/管理者）。応募→面談合格→稼働を追跡。
+ *  ステージ変更時に notifications にお知らせを投函（操作した営業が誰か、どの応募がどう動いたか）。 */
 export async function updateApplicationStage(id: string, stage: string): Promise<Result> {
   const access = await currentAccess();
   if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません" };
@@ -90,9 +91,29 @@ export async function updateApplicationStage(id: string, stage: string): Promise
   if (!allowed.includes(stage)) return { ok: false, error: "不正なステージです" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  // 変更前ステージ + 関連情報を取得（通知本文用）
+  const prev: any = await admin.from("applications").select("stage, engineer_name, job_title, job_no").eq("id", id).maybeSingle();
+  const before = prev?.data?.stage ?? "応募";
   const { error } = await admin.from("applications").update({ stage, stage_updated_at: new Date().toISOString() }).eq("id", id);
   if (error) return { ok: false, error: error.message };
+  // お知らせ投函（担当営業 = 操作した本人。'all' でチーム全員にも見えるように同報）
+  try {
+    const eng = prev?.data?.engineer_name ?? "—";
+    const job = prev?.data?.job_title ?? prev?.data?.job_no ?? "—";
+    const op = access?.name?.trim() || access?.email || "管理者";
+    const title = `📋 応募ステージ更新：${eng}`;
+    const body = [
+      `案件：${job}`,
+      `変更：${before} → ${stage}`,
+      `操作：${op}`,
+    ].join("\n");
+    await admin.from("notifications").insert([
+      { recipient: op, title, body, kind: "info" },
+      { recipient: "all", title, body, kind: "info" },
+    ]);
+  } catch { /* 通知失敗してもステージ更新は成功とする */ }
   revalidatePath("/engineers");
+  revalidatePath("/notifications");
   return { ok: true };
 }
 

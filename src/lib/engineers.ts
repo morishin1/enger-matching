@@ -197,7 +197,8 @@ export type Application = {
   job_no: string | null;
   job_title: string | null;
   message: string | null;
-  status: string;
+  /** @deprecated LP互換のためテーブル列としては残置。dx 側の進捗判定には常に stage を用いる */
+  status?: string;
   stage: string;
   created_at: string;
 };
