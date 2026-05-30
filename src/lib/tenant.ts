@@ -4,6 +4,7 @@
 // すべてサーバ側で適用すること（クライアントに生データを渡さない）。
 import { currentAccess } from "./accounts";
 import type { Role } from "./roles";
+import { redactPii } from "./pii";
 
 export type ViewerScope = {
   role: Role;
@@ -38,9 +39,18 @@ const norm = (s?: string | null) => String(s ?? "").trim().toLowerCase();
 export const isOwnedByPartner = (row: any, company: string | null) =>
   !!company && norm(row?.owner_company) === norm(company);
 
-/** 案件をパートナー向けに匿名化（自社所有はそのまま、他社共有はクライアント名・連絡先を伏せる）。 */
+/** 案件をパートナー向けに匿名化。
+ *   - 他社所有 ：クライアント名・連絡先・本文・商流・勤務地等の固有情報を全て除去
+ *   - 自社所有 ：そのまま（自分で登録した内容）。ただし自由記述本文には PII マスクを保険適用
+ */
 export function maskJobForPartner(job: any, company: string | null): any {
-  if (isOwnedByPartner(job, company)) return job;
+  if (isOwnedByPartner(job, company)) {
+    // 自社所有でも、本文に電話/メール/社名等が紛れていることがあるので保険でマスク
+    return {
+      ...job,
+      detail: redactPii(job?.detail ?? null),
+    };
+  }
   return {
     ...job,
     client_name: null,            // クライアント名は漏洩源
@@ -48,13 +58,30 @@ export function maskJobForPartner(job: any, company: string | null): any {
     contact_name: null,
     source_mail_url: null,
     outside_owner: null,
+    // 自由記述系（本文・商流・勤務地・職種テキスト）も他社固有情報を含み得るため伏せる
+    detail: null,
+    description: null,
+    flow_note: null,
+    work_location: null,
+    role_label: null,
     _anon: true,                  // UI 表示用の匿名フラグ
   };
 }
 
-/** 人材をパートナー向けに匿名化（イニシャル＋スキル＋単価のみ。氏名・連絡先・所属会社を伏せる）。 */
+/** 人材をパートナー向けに匿名化。
+ *   - 他社所有 ：氏名・連絡先・所属会社・自由記述（経歴/備考/headline）を全て除去
+ *   - 自社所有 ：そのまま。本文には PII マスクを保険適用
+ */
 export function maskCandidateForPartner(c: any, company: string | null): any {
-  if (isOwnedByPartner(c, company)) return c;
+  if (isOwnedByPartner(c, company)) {
+    return {
+      ...c,
+      exp: redactPii(c?.exp ?? null),
+      note: redactPii(c?.note ?? null),
+      headline: redactPii(c?.headline ?? null),
+      bio: redactPii(c?.bio ?? null),
+    };
+  }
   const initials = c?.initials || (c?.name ? String(c.name).slice(0, 1) : "—");
   return {
     ...c,
@@ -66,6 +93,12 @@ export function maskCandidateForPartner(c: any, company: string | null): any {
     contact_email: null,
     source_mail_url: null,
     operator: null,
+    // 自由記述系（経歴・備考・自己紹介）は固有情報を含み得るため伏せる
+    exp: null,
+    note: null,
+    headline: null,
+    bio: null,
+    skill_sheet_url: null,        // 他社人材のスキルシートURLも伏せる（連絡先や氏名が記載される）
     _anon: true,
   };
 }

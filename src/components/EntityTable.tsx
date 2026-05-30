@@ -523,9 +523,10 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, p
               <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
               </Link>
-              {kind === "jobs"
+              {/* テナント隔離ロールには個別詳細ページへの動線を出さない（漏洩防止） */}
+              {!partner && (kind === "jobs"
                 ? <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>
-                : <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>}
+                : <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>)}
               {kind === "people" && detail.skill_sheet_url && !detail._anon && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}

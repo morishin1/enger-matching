@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { MailButton } from "@/components/MailButton";
 import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject } from "@/lib/gmail";
+import { getViewerScope } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,10 @@ const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
   ) : null;
 
 export default async function SkillSheetPage({ params }: { params: Promise<{ candidate_no: string }> }) {
+  // 個別詳細ページは社内(admin/agent)のみ。テナント隔離ロールは一覧ドロワーの匿名表示のみ。
+  const scope = await getViewerScope();
+  if (scope.isTenant) redirect("/people");
+
   const { candidate_no } = await params;
   const no = Number(candidate_no);
   let c: any = null;
