@@ -98,8 +98,8 @@ export default function SignupPage() {
               <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#4b5563", lineHeight: 1.7, cursor: "pointer" }}>
                 <input type="checkbox" name="agree" required style={{ marginTop: 2, width: 16, height: 16, accentColor: "#0095D9", flex: "0 0 16px" }} />
                 <span>
-                  <a href="https://enger.jp/terms" target="_blank" rel="noreferrer" style={{ color: "#0095D9", fontWeight: 600 }}>利用規約</a>・
-                  <a href="https://enger.jp/privacy" target="_blank" rel="noreferrer" style={{ color: "#0095D9", fontWeight: 600 }}>プライバシーポリシー</a>に同意します。
+                  <a href="/terms" target="_blank" rel="noreferrer" style={{ color: "#0095D9", fontWeight: 600 }}>利用規約</a>・
+                  <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: "#0095D9", fontWeight: 600 }}>プライバシーポリシー</a>に同意します。
                 </span>
               </label>
 

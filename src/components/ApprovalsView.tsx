@@ -113,8 +113,8 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
                           {a.status === "disabled" && (
                             <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => run(a.id, () => setAccountStatus(a.id, "active"), "再有効化しました")}>再有効化</button>
                           )}
-                          {/* 面談済みフラグ：partner/freelance/candidate の詳細解放を制御 */}
-                          {a.status === "active" && (a.role === "partner" || a.role === "freelance" || a.role === "candidate") && (
+                          {/* 面談済みフラグ：外部ロール（企業/パートナー/副業/人材）の詳細解放を制御 */}
+                          {a.status === "active" && (a.role === "client" || a.role === "partner" || a.role === "freelance" || a.role === "candidate") && (
                             (a as any).meeting_done
                               ? <button type="button" className="btn ghost btn-xs" disabled={busy} title="面談済みを取り消し（詳細を再制限）" onClick={() => run(a.id, () => setAccountMeetingDone(a.id, false), "面談済みを取り消しました")}>✓ 面談済み</button>
                               : <button type="button" className="btn btn-xs" disabled={busy} style={{ background: "#067647", borderColor: "#067647", color: "#fff" }} onClick={() => run(a.id, () => setAccountMeetingDone(a.id, true), "面談済みにしました（詳細解放）")}>面談済みにする</button>

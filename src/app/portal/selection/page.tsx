@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
+import { MeetingGateBanner } from "@/components/MeetingGateBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,15 @@ const fmt = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/
 export default async function PortalSelectionPage() {
   const access = await currentAccess();
   if (access && access.role !== "client") redirect("/");
+
+  if (access && !access.meetingDone) {
+    return (
+      <div className="page">
+        <div className="page-head"><div><div className="meta">選考管理</div><h1>選考管理</h1></div></div>
+        <MeetingGateBanner title="選考管理の閲覧は担当との面談後に解放されます" description="応募者・選考ステージは、面談で利用方針を確認した後にご覧いただけます。" />
+      </div>
+    );
+  }
 
   const companyName = access?.companyName ?? null;
   let rows: any[] = [];

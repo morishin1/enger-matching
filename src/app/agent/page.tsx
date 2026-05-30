@@ -136,8 +136,8 @@ export default function AgentLP() {
       <footer style={{ ...sectionPad, padding: "28px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, color: "#98a2b3", fontSize: 12 }}>
         <span>© ENGER</span>
         <span style={{ display: "flex", gap: 16 }}>
-          <a href="https://enger.jp/terms" target="_blank" rel="noreferrer" style={{ color: "#667085" }}>利用規約</a>
-          <a href="https://enger.jp/privacy" target="_blank" rel="noreferrer" style={{ color: "#667085" }}>プライバシー</a>
+          <a href="/terms" target="_blank" rel="noreferrer" style={{ color: "#667085" }}>利用規約</a>
+          <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: "#667085" }}>プライバシー</a>
           <Link href="/login" style={{ color: "#667085" }}>ログイン</Link>
         </span>
       </footer>
