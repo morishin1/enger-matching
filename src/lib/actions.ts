@@ -22,6 +22,13 @@ export type CandidateInput = {
   location?: string | null;
   exp?: string | null;
   status?: string | null;
+  remote_pref?: string | null;     // リモート希望（マッチングのリモート評価に使用）
+  age_band?: string | null;        // 年齢層
+  nationality?: string | null;     // 国籍
+  skill_level?: string | null;     // スキルレベル
+  japanese_level?: string | null;  // 日本語レベル
+  comm?: string | null;            // コミュニケーション力
+  note?: string | null;            // 備考
   skill_sheet_url?: string | null;
   email?: string | null;          // 人材本人の連絡先（あれば）
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
@@ -60,6 +67,13 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       location: r.location?.trim() || null,
       exp: r.exp?.trim() || null,
       status: r.status?.trim() || "提案可",
+      remote_pref: r.remote_pref?.trim() || null,
+      age_band: r.age_band?.trim() || null,
+      nationality: r.nationality?.trim() || null,
+      skill_level: r.skill_level?.trim() || null,
+      japanese_level: r.japanese_level?.trim() || null,
+      comm: r.comm?.trim() || null,
+      note: r.note?.trim() || null,
       skill_sheet_url: r.skill_sheet_url?.trim() || null,
       email: r.email?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
@@ -98,9 +112,9 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   for (let i = 0; i < fresh.length; i += BATCH) {
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
-    // skill_sheet_url / email 系 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|source_company|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.skill_sheet_url; delete o.email; delete o.contact_email; delete o.source_mail_url; delete o.source_company; return o; });
+    // 追加列（skill_sheet_url/email/remote_pref/age_band 等）が未整備でも落ちないよう、その列を外して再試行
+    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note"]) delete o[k]; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };

@@ -34,14 +34,21 @@ export function ExportButton({ filename, headers, rows, label = "CSV書き出し
   );
 }
 
-const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" | "_mail_id"> = {
+const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" | "_mail_id" | "_skill_based"> = {
   "コード": "code", "id": "code", "ID": "code", "氏名": "name", "名前": "name", "name": "name",
   "職種": "title", "タイトル": "title", "所属": "company", "会社": "company", "会社名": "company", "所属会社": "company",
   "所属区分": "affiliation", "区分": "affiliation", "雇用形態": "affiliation",
   "スキル": "skills", "必要スキル": "skills", "保有スキル": "skills", "技術スキル": "skills",
   "単価": "rate", "希望単価": "rate", "希望単価下限": "_rate_min", "希望単価上限": "_rate_max", "単価下限": "_rate_min", "単価上限": "_rate_max",
+  "スキル見合い": "_skill_based",
   "稼働開始": "avail", "稼働": "avail", "稼働開始可能日": "avail", "勤務地": "location", "場所": "location", "希望勤務地": "location",
   "経験": "exp", "経験年数": "exp", "実務経験年数": "exp", "ステータス": "status", "状態": "status", "現在のステータス": "status",
+  // マッチングのリモート評価に必須
+  "リモート希望": "remote_pref", "リモート": "remote_pref", "リモート可否": "remote_pref",
+  // 詳細プロフィール（詳細ページで表示）
+  "年齢層": "age_band", "希望年齢層": "age_band", "国籍": "nationality",
+  "スキルレベル": "skill_level", "日本語レベル": "japanese_level", "日本語": "japanese_level",
+  "コミュニケーション力": "comm", "コミュ力": "comm", "備考": "note", "メモ": "note",
   "スキルシートURL": "skill_sheet_url", "スキルシート": "skill_sheet_url", "職務経歴書": "skill_sheet_url", "添付ファイルID": "skill_sheet_url", "添付ファイル": "skill_sheet_url",
   // メール連携：送信元(所属窓口)＝返信先 / 元メールへの直リンク（URL or GASのメッセージID）
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
@@ -112,6 +119,8 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
     });
     // 希望単価が下限/上限のみの場合はレンジ表記を組み立てる
     if (kind === "candidates" && !rec.rate && (rec._rate_min != null || rec._rate_max != null)) rec.rate = rateText(rec._rate_min ?? null, rec._rate_max ?? null);
+    // 「スキル見合い」フラグがTRUEで単価が無い → 希望単価=「スキル見合い」（交渉前提・マッチングでは曖昧扱いで上位寄り）
+    if (kind === "candidates" && !rec.rate && rec._skill_based && /^(true|1|○|◯|はい|yes|y|有|可|スキル見合い)$/i.test(String(rec._skill_based).trim())) rec.rate = "スキル見合い";
     if (kind === "candidates" && rec.rate) rec.rate_num = numOf(rec.rate);
 
     const errors: string[] = []; const warnings: string[] = [];
