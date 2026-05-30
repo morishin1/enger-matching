@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
-import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, reSubject, buildProposalPrompt } from "@/lib/gmail";
+import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, gmailMessageUrl, buildProposalPrompt } from "@/lib/gmail";
 import { createProposal, undoProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 
@@ -103,19 +103,32 @@ export function ProposalComposer({
     } finally { setLoading(false); }
   };
 
-  const openGmail = () => {
-    window.open(gmailComposeUrl({ to: tpl.to, subject: tpl.subject, body: effectiveBody }), "_blank", "noopener");
+  // 新規メール作成（元スレッドが無い／使わない場合）。新規なので件名の "Re:" は外す。
+  const composeSubject = tpl.subject.replace(/^re:\s*/i, "");
+  const openNewMail = () => {
+    window.open(gmailComposeUrl({ to: tpl.to, subject: composeSubject, body: effectiveBody }), "_blank", "noopener");
   };
 
-  // ① 元メール（案件メール）へのアクセス：内容確認は本文モーダル、原文/返信は Gmail を該当アカウントで開く
+  // 元メール（原本）：読む用は検索フォールバックあり。返信用は「実際のスレッド」が必要なので
+  // gmailMessageUrl（保存済みメッセージID/URL）が取れる時だけ有効にする。
   const origMailUrl = job?.source_mail_url || gmailSearchUrl([job?.client_name, job?.title].filter(Boolean).join(" "));
-  const openOriginal = () => window.open(origMailUrl, "_blank", "noopener");
-  // 「元メールに返信」：URL ベースでは Gmail のスレッド返信フォームは直接開けないため、
-  // 元メールを Gmail で開いて、そこの「返信」ボタンを使ってもらう動線に変更（旧実装は新規メールになる問題があった）。
-  const replyToOriginal = () => window.open(origMailUrl, "_blank", "noopener");
-  // 人材の元メール（人材CSVの取込元メール）。注力対象の人材本人の問い合わせメールを開く。
   const candMailUrl = cand?.source_mail_url || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
+  const openOriginal = () => window.open(origMailUrl, "_blank", "noopener");
   const openCandidateOriginal = () => { if (candMailUrl) window.open(candMailUrl, "_blank", "noopener"); };
+
+  // 返信対象スレッド：提案先(target)に応じて切り替える。
+  //   - クライアントへ提案 → 案件の元メール（クライアントからの問い合わせ）に返信
+  //   - 人材へ案件紹介     → 人材の元メール（取込元）に返信
+  const replyThreadUrl = target === "client" ? gmailMessageUrl(job?.source_mail_url) : gmailMessageUrl(cand?.source_mail_url);
+  const replyTargetLabel = target === "client" ? "案件の元メール" : "人材の元メール";
+  // URL では Gmail の返信フォームに本文を流し込めないため、本文をクリップボードへコピーしてから
+  // 元スレッドを開き、Gmailの「返信」に貼り付けてもらう（＝本当の返信スレッドになる）。
+  const replyOnThread = async () => {
+    if (!replyThreadUrl) return;
+    try { await navigator.clipboard.writeText(effectiveBody); setMsg(`本文をコピーしました。開いた${replyTargetLabel}の「返信」に貼り付けてください。`); }
+    catch { setMsg(`本文のコピーに失敗しました。${replyTargetLabel}を開きます（本文は手動でコピーしてください）。`); }
+    window.open(replyThreadUrl, "_blank", "noopener");
+  };
 
   const proposeToBoard = async () => {
     if (saved) return;
@@ -150,7 +163,7 @@ export function ProposalComposer({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>
-        このペアで提案（相手は返信メールにアクションしやすいので返信形式で送付）
+        このペアで提案。<b>元メールに返信</b>すれば相手のスレッドに繋がり、件名も自動で「Re:」になります（本文は自動コピー）。元スレッドが無い場合は<b>新規メール</b>で作成します。
       </div>
 
       {/* 宛先タブ（評価マークと同じオレンジ系で切替を目立たせる） */}
@@ -174,7 +187,7 @@ export function ProposalComposer({
 
       {/* 件名 */}
       <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
-        件名：<b style={{ color: "var(--color-ink)" }}>{tpl.subject}</b>
+        件名：<b style={{ color: "var(--color-ink)" }}>{replyThreadUrl ? `（返信）元の件名に「Re:」が付きます` : composeSubject}</b>
         {tpl.to ? <span className="muted" style={{ marginLeft: 8 }}>宛先 {tpl.to}</span> : <span className="muted" style={{ marginLeft: 8 }}>宛先は手入力</span>}
       </div>
 
@@ -186,8 +199,9 @@ export function ProposalComposer({
         style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", background: "var(--color-surface)" }}
       />
 
-      {/* ① 元メール（案件・人材それぞれの原本）へのアクセス */}
+      {/* ① 元メールを開く（読む用）：案件・人材それぞれの原本 */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingBottom: 4, borderBottom: "1px dashed var(--color-border)" }}>
+        <span style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 700 }}>元メールを開く：</span>
         <MailBodyModal body={job?.detail ?? job?.description ?? null} title={job?.title} sub={job?.client_name} mailUrl={origMailUrl} />
         <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで案件の元メールを開く">↗ 案件の元メール</button>
         {candMailUrl && (
@@ -195,9 +209,18 @@ export function ProposalComposer({
         )}
       </div>
 
-      {/* 操作 */}
+      {/* ② 送信操作：返信(推奨) / 新規 / ボード記録 / コピー */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button type="button" className="btn-mail block" onClick={openGmail}>Gmailで開く</button>
+        {replyThreadUrl ? (
+          <button type="button" className="btn-mail block" onClick={replyOnThread} title={`本文をコピーして${replyTargetLabel}を開きます。Gmailの「返信」に貼り付けてください`}>
+            ↩ {replyTargetLabel}に返信（本文コピー）
+          </button>
+        ) : (
+          <span className="muted" style={{ fontSize: 10.5 }}>※ {replyTargetLabel}が未保存のため返信スレッドを開けません（新規メールで送付）</span>
+        )}
+        <button type="button" className={replyThreadUrl ? "btn ghost" : "btn-mail block"} onClick={openNewMail} title="Gmailで新規メールを作成（本文を流し込み）">
+          ✉ 新規メールで作成
+        </button>
         {saved ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             {savedId ? (
