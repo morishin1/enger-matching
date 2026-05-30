@@ -17,8 +17,9 @@ const JOB_EXPORT_HEADERS = [
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
-  const { client } = await searchParams;
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string }> }) {
+  const { client, show } = await searchParams;
+  const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
   let jobs: any[] = [];
   let total = 0;
   let dbError: string | null = null;
@@ -26,24 +27,23 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at";
+      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published";
+      // 非公開も表示する場合は is_published フィルタを外す
+      const withPub = (qb: any) => showAll ? qb : qb.eq("is_published", true);
       // 追加列(email-columns / sales-roles 未実行)でも落ちないよう段階フォールバック
-      let listRes: any = await sb.from("jobs")
-        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })
-        .eq("is_published", true)
+      let listRes: any = await withPub(sb.from("jobs")
+        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" }))
         .order("job_no", { ascending: false })
         .limit(300);
       if (listRes.error) {
-        listRes = await sb.from("jobs")
-          .select(`${baseCols}, outside_owner`, { count: "exact" })
-          .eq("is_published", true)
+        listRes = await withPub(sb.from("jobs")
+          .select(`${baseCols}, outside_owner`, { count: "exact" }))
           .order("job_no", { ascending: false })
           .limit(300);
       }
       if (listRes.error) {
-        listRes = await sb.from("jobs")
-          .select(baseCols, { count: "exact" })
-          .eq("is_published", true)
+        listRes = await withPub(sb.from("jobs")
+          .select(baseCols, { count: "exact" }))
           .order("job_no", { ascending: false })
           .limit(300);
       }
@@ -84,11 +84,21 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <EntityGrowthLine unit="件" delta={growth} />
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
+          <a href={showAll ? "/jobs" : "/jobs?show=all"} className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }}
+            title={showAll ? "公開中の案件のみ表示" : "非公開（過去インポートで一覧に出ていない案件）も含めて表示"}>
+            {showAll ? "公開中のみ表示" : "非公開も表示"}
+          </a>
           <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />
           <JobNewButton />
           <JobImportButton />
         </div>
       </div>
+
+      {showAll && (
+        <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 12.5 }}>
+          <b>非公開を含めて表示中。</b> 公開フラグ（is_published）が立っていない案件も表示しています。手動登録で同名案件が「重複」になる場合、ここに隠れた既存案件が原因です。該当案件を開いて編集・再公開できます。
+        </div>
+      )}
 
       {dbError && (
         <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>

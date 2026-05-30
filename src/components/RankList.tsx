@@ -70,7 +70,17 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
                   )}
                 </div>
-                <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{aiv ? `🤖 ${aiv.reason}` : `${c.title ?? "—"} · ${(() => { const co = c.source_company || c.company || ""; return co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation || ""); })()}`}</div>
+                {(() => {
+                  const co = c.source_company || c.company || "";
+                  const coAff = co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation || "");
+                  return (
+                    <>
+                      {/* 会社名は AI 相性表示中でも常に出す（人材を会社で識別できるように） */}
+                      <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "—"}{coAff ? ` · ${coAff}` : ""}</div>
+                      {aiv && <div style={{ fontSize: 10.5, color: "var(--color-brand-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🤖 {aiv.reason}</div>}
+                    </>
+                  );
+                })()}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 9, color: aiv ? "var(--color-brand-700)" : "var(--color-ink-4)" }}>{aiv ? "AI相性" : "相性"}</div>

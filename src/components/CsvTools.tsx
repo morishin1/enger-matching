@@ -396,10 +396,13 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         const res = await upsertJobManual(rec as JobInput);
         if (res.ok) {
           const id = `No.${String(res.job_no ?? 0).padStart(5, "0")}`;
+          const republished = "republished" in res && res.republished;
           const lbl = res.action === "updated"
-            ? `既存の案件を更新しました${"republished" in res && res.republished ? "（非公開→公開に切替）" : ""}（${id}）`
+            ? (republished
+                ? `一覧に出ていなかった既存案件（${id}）を更新し、再公開しました。`
+                : `既存の案件を更新しました（${id}）`)
             : `登録しました（${id}）`;
-          setMsg({ ok: true, text: lbl }); router.refresh(); setTimeout(close, 900);
+          setMsg({ ok: true, text: lbl }); router.refresh(); setTimeout(close, republished ? 1600 : 900);
         } else setMsg({ ok: false, text: res.error || "登録に失敗しました" });
       });
     }
