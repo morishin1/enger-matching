@@ -3,16 +3,37 @@ import { estCostUsd, type Usage } from "./llm";
 
 export const YEN_PER_USD = 150; // 表示用の概算レート
 
-/** AI呼び出しの使用量を記録（service role、失敗は無視）。 */
-export async function logUsage(feature: string, model: string, usage: Usage) {
+/** AI呼び出しの使用量を記録（service role、失敗は無視）。account は利用者(メール)。 */
+export async function logUsage(feature: string, model: string, usage: Usage, account?: string | null) {
   try {
     const admin = engerAdmin();
-    await admin.from("ai_usage").insert({
+    const row: Record<string, any> = {
       feature, model,
       input_tokens: usage.input, output_tokens: usage.output,
       cost_usd: estCostUsd(model, usage),
-    });
+    };
+    if (account) row.account = account;
+    let r: any = await admin.from("ai_usage").insert(row);
+    // account 列が未追加（SQL未実行）でも落ちないようフォールバック
+    if (r.error && /account|column/i.test(r.error.message)) {
+      delete row.account;
+      await admin.from("ai_usage").insert(row);
+    }
   } catch { /* テーブル未作成等は無視 */ }
+}
+
+/** 当日(ローカル0時以降)に、そのアカウントが該当機能を実行した回数。制限判定用。 */
+export async function countTodayUsage(feature: string, account: string): Promise<number> {
+  try {
+    const admin = engerAdmin();
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const res: any = await admin.from("ai_usage")
+      .select("id", { count: "exact", head: true })
+      .eq("feature", feature).eq("account", account)
+      .gte("created_at", start.toISOString());
+    if (res.error) return 0; // 列/テーブル未整備時は制限せず通す（フェイルオープン）
+    return res.count ?? 0;
+  } catch { return 0; }
 }
 
 export type UsageStats = {

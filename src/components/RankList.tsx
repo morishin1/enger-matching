@@ -43,7 +43,9 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
       const m = new Map<number, { score: number; reason: string }>();
       for (const r of data.results) m.set(r.candidate_no, { score: r.score, reason: r.reason });
       setAi(m); setView("ai");
-      setMsg(data.cached ? "AI順に切替（キャッシュ・課金なし）" : "AIで再ランキングしました（上位10件をAI評価）");
+      setMsg(data.cached
+        ? "AI順に切替（キャッシュ・回数消費なし）"
+        : `AIで再ランキングしました（上位10件）${typeof data.remaining === "number" ? ` ／ 本日の残り ${data.remaining}/${data.limit ?? 10} 回` : ""}`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "再ランキングに失敗しました");
     } finally { setLoading(false); }
