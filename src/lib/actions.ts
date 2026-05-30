@@ -840,6 +840,61 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
   return { ok: true, inserted };
 }
 
+// ----- 手動登録前の類似候補プレビュー --------------------------------------
+// 完全一致マージの前に「似た既存」を提示し、二重登録/取り違えを防ぐ。
+// 非公開（過去インポートで一覧に出ない）案件・人材も対象に含める。
+
+/** ilike のワイルドカード文字をエスケープ。 */
+const escLike = (s: string) => s.replace(/[%_\\]/g, (m) => "\\" + m);
+
+export type SimilarJob = { job_no: number; title: string; client_name: string | null; is_published: boolean; role_label: string | null; salary_min: number | null; salary_max: number | null; exact: boolean };
+
+/** 案件名/クライアント名から似た既存案件を探す（非公開も含む）。 */
+export async function findSimilarJobs(input: { title?: string | null; client_name?: string | null }): Promise<{ ok: boolean; items: SimilarJob[]; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, items: [], error: "サーバ設定エラー" }; }
+  const title = (input.title ?? "").trim();
+  const client = (input.client_name ?? "").trim();
+  if (title.length < 2 && client.length < 2) return { ok: true, items: [] };
+  const cols = "job_no, title, client_name, is_published, role_label, salary_min, salary_max";
+  const map = new Map<number, any>();
+  const run = async (qb: any) => { const r: any = await qb; if (!r.error) for (const x of (r.data ?? [])) if (x.job_no != null) map.set(x.job_no, x); };
+  // タイトル部分一致／クライアント部分一致を別々に引いて統合（ilike特殊文字はエスケープ）
+  if (title.length >= 2) await run(admin.from("jobs").select(cols).ilike("title", `%${escLike(title)}%`).order("job_no", { ascending: false }).limit(20));
+  if (client.length >= 2) await run(admin.from("jobs").select(cols).ilike("client_name", `%${escLike(client)}%`).order("job_no", { ascending: false }).limit(20));
+  const nt = normKey(title), nc = normKey(client);
+  const items: SimilarJob[] = Array.from(map.values()).map((x) => {
+    const exact = !!title && normKey(x.title) === nt && (client ? normKey(x.client_name) === nc : !x.client_name);
+    return { job_no: x.job_no, title: x.title, client_name: x.client_name ?? null, is_published: x.is_published !== false, role_label: x.role_label ?? null, salary_min: x.salary_min ?? null, salary_max: x.salary_max ?? null, exact };
+  });
+  // 完全一致を上、次に正規化部分一致の近いもの。最大8件。
+  items.sort((a, b) => (Number(b.exact) - Number(a.exact)) || (a.job_no < b.job_no ? 1 : -1));
+  return { ok: true, items: items.slice(0, 8) };
+}
+
+export type SimilarCandidate = { candidate_no: number; name: string; company: string | null; affiliation: string | null; title: string | null; rate: string | null; exact: boolean };
+
+/** 氏名/会社から似た既存人材を探す。 */
+export async function findSimilarCandidates(input: { name?: string | null; company?: string | null }): Promise<{ ok: boolean; items: SimilarCandidate[]; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, items: [], error: "サーバ設定エラー" }; }
+  const name = (input.name ?? "").trim();
+  const company = (input.company ?? "").trim();
+  if (name.length < 1) return { ok: true, items: [] };
+  const cols = "candidate_no, name, company, source_company, affiliation, title, rate";
+  const map = new Map<number, any>();
+  const run = async (qb: any) => { const r: any = await qb; if (!r.error) for (const x of (r.data ?? [])) if (x.candidate_no != null) map.set(x.candidate_no, x); };
+  await run(admin.from("candidates").select(cols).ilike("name", `%${escLike(name)}%`).order("candidate_no", { ascending: false }).limit(20));
+  const nn = normKey(name), nco = normKey(company);
+  const items: SimilarCandidate[] = Array.from(map.values()).map((x) => {
+    const co = x.company || x.source_company || null;
+    const exact = normKey(x.name) === nn && (company ? normKey(co) === nco : true);
+    return { candidate_no: x.candidate_no, name: x.name, company: co, affiliation: x.affiliation ?? null, title: x.title ?? null, rate: x.rate ?? null, exact };
+  });
+  items.sort((a, b) => (Number(b.exact) - Number(a.exact)) || (a.candidate_no < b.candidate_no ? 1 : -1));
+  return { ok: true, items: items.slice(0, 8) };
+}
+
 // ----- 手動1件 upsert（新規登録モーダル用） ----------------------------------
 // 重複時はスキップせず「再公開＋更新」する。空欄項目は既存値を保持。
 
