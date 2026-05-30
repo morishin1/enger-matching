@@ -66,7 +66,24 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
             ))}
           </div>
         ) : (
-          <button type="button" className="btn ghost btn-xs" disabled={loading || ranked.length === 0} onClick={rerank} title="上位10件をAIが文脈評価して並べ替え（押した時だけ課金）">{loading ? "AI評価中…" : "✨ AIで再ランキング"}</button>
+          // 目立つグラデーションボタン（ボタンが小さくて見えづらかったので強調）
+          <button type="button" disabled={loading || ranked.length === 0} onClick={rerank}
+            title="上位10件をAIが文脈評価して並べ替え（1日10回まで・キャッシュ済みは無料）"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "8px 16px", borderRadius: 99, border: 0, cursor: loading || ranked.length === 0 ? "not-allowed" : "pointer",
+              fontSize: 12.5, fontWeight: 800, fontFamily: "inherit", color: "#fff", whiteSpace: "nowrap",
+              background: "linear-gradient(135deg, #7c3aed 0%, #0095D9 100%)",
+              boxShadow: "0 2px 8px rgba(124,58,237,.35)",
+              opacity: loading || ranked.length === 0 ? 0.55 : 1,
+              transition: "transform .12s ease, box-shadow .12s ease",
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 14px rgba(124,58,237,.45)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 2px 8px rgba(124,58,237,.35)"; }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
+            <span>{loading ? "AI評価中…" : "AIで再ランキング"}</span>
+          </button>
         )}
       </div>
       {msg && <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--color-ink-3)", borderBottom: "1px solid var(--color-border)" }}>{msg}</div>}
