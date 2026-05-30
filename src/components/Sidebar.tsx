@@ -80,7 +80,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
     : role === "agent" ? NAV.filter((n) => allowed.has(n.href))
     : NAV; // admin は全部
   const tools = (isClient || isTenant) ? []
-    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings" && n.href !== "/settings/approvals") // 設定・承認は admin のみ
+    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定は admin のみ、承認はエージェントも可
     : TOOLS; // admin は設定・承認含む全部
 
   return (
