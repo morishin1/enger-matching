@@ -221,12 +221,17 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     } catch { /* companies 未整備 */ }
   }
 
-  const { data, error } = await admin.from("proposals").insert({
+  const insertBase = {
     job_id: job.id, candidate_id: cand.id, stage: "返信待ち",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser, // 企業担当をデフォルトのクロージング担当に
-  }).select("id").single();
+  } as Record<string, any>;
+  let ins: any = await admin.from("proposals").insert({ ...insertBase, stage_updated_at: new Date().toISOString() }).select("id").single();
+  if (ins.error && /stage_updated_at|column/i.test(ins.error.message)) {
+    ins = await admin.from("proposals").insert(insertBase).select("id").single();
+  }
+  const data = ins.data; const error = ins.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
   bustCounts();
@@ -234,10 +239,17 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
 }
 
 /** 提案ステージの変更 (カンバン移動)。 */
+/** 提案ステージを更新。stage_updated_at も同時に更新して滞留日数を正確に。
+ *  stage_updated_at 列が未追加の環境では自動で外して再試行。 */
 export async function updateProposalStage(id: string, stage: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const { error } = await admin.from("proposals").update({ stage, updated_at: new Date().toISOString() }).eq("id", id);
+  const now = new Date().toISOString();
+  let r: any = await admin.from("proposals").update({ stage, updated_at: now, stage_updated_at: now }).eq("id", id);
+  if (r.error && /stage_updated_at|column/i.test(r.error.message)) {
+    r = await admin.from("proposals").update({ stage, updated_at: now }).eq("id", id);
+  }
+  const error = r.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
   bustCounts();
@@ -298,7 +310,12 @@ export async function restoreProposal(id: string) {
   if (!id) return { ok: false, error: "id がありません" };
   // 稼働化済みなら稼働も取り消し
   try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* 続行 */ }
-  const { error } = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, updated_at: new Date().toISOString() }).eq("id", id);
+  const now = new Date().toISOString();
+  let rr: any = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, updated_at: now, stage_updated_at: now }).eq("id", id);
+  if (rr.error && /stage_updated_at|column/i.test(rr.error.message)) {
+    rr = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
+  }
+  const error = rr.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
   return { ok: true };
@@ -326,7 +343,13 @@ export async function convertToEngagement(proposalId: string) {
     if (error && /affiliation/.test(error.message)) { delete row.affiliation; ({ error } = await admin.from("engagements").insert(row)); }
     if (error) return { ok: false, error: error.message };
   }
-  await admin.from("proposals").update({ stage: "稼働", updated_at: new Date().toISOString() }).eq("id", proposalId);
+  {
+    const now = new Date().toISOString();
+    let r2: any = await admin.from("proposals").update({ stage: "稼働", updated_at: now, stage_updated_at: now }).eq("id", proposalId);
+    if (r2.error && /stage_updated_at|column/i.test(r2.error.message)) {
+      await admin.from("proposals").update({ stage: "稼働", updated_at: now }).eq("id", proposalId);
+    }
+  }
   revalidatePath("/proposals");
   bustCounts();
   revalidatePath("/progress");
@@ -1016,8 +1039,13 @@ export async function createProposalManual(input: {
   if (input.client_contact?.trim()) insertRow.client_contact = input.client_contact.trim();
   if (input.meeting_date?.trim()) insertRow.meeting_date = input.meeting_date.trim();
   if (input.note?.trim()) insertRow.next_action = input.note.trim();
+  insertRow.stage_updated_at = new Date().toISOString();
 
   let r: any = await admin.from("proposals").insert(insertRow).select("id").single();
+  if (r.error && /stage_updated_at|column/i.test(r.error.message)) {
+    const { stage_updated_at: _drop, ...rest } = insertRow;
+    r = await admin.from("proposals").insert(rest).select("id").single();
+  }
   if (r.error && /proposer|partner|closer|client_contact|meeting_date|next_action|column/i.test(r.error.message)) {
     const stripped: Record<string, any> = { ...insertRow };
     delete stripped.proposer; delete stripped.partner; delete stripped.closer;

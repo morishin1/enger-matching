@@ -12,6 +12,26 @@ const dvDateTime = (d: any) => {
   if (isNaN(t.getTime())) return "";
   return `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
 };
+const daysSince = (d: any) => {
+  if (!d) return null;
+  const t = new Date(d).getTime();
+  if (isNaN(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+};
+// 各ステージの目標滞留日数(SLA)。これを超えると警告/危険トーンで強調する。
+const STAGE_SLA_DAYS: Record<string, number> = {
+  返信待ち: 3,
+  提案中: 5,
+  面談調整: 3,
+  クロージング中: 5,
+  面談合格: 7,
+};
+function ageTone(days: number | null, sla: number) {
+  if (days == null) return { fg: "var(--color-ink-4)", bg: "transparent", bd: "var(--color-border)", level: "ok" as const };
+  if (days <= sla)       return { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc", level: "ok" as const };
+  if (days <= sla * 2)   return { fg: "#b45309", bg: "#fff6e0", bd: "#fde9b0", level: "warn" as const };
+  return                   { fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf", level: "danger" as const };
+}
 
 // 提案者名を見分けやすくする安定色（同じ名前は同じ色）。
 const PROPOSER_PALETTE = ["#0b5cab", "#7c3aed", "#1aa260", "#d97706", "#dc2626", "#0891b2", "#db2777", "#65a30d", "#475569", "#ea580c", "#4338ca", "#0d9488"];
@@ -55,6 +75,11 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
   const tone = STAGE_TONE[p.stage] ?? "#6b7280";
+  // 滞留時間（ステージ内 / 提案開始からの全期間）と目標日数(SLA)
+  const stageDays = daysSince(p.stage_updated_at ?? p.updated_at ?? p.created_at);
+  const totalDays = daysSince(p.created_at);
+  const sla = STAGE_SLA_DAYS[p.stage] ?? 5;
+  const at = ageTone(stageDays, sla);
 
   return (
     <div
@@ -66,6 +91,8 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         padding: 12,
         opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
         borderLeft: `3px solid ${tone}`,
+        // 滞留が警告/危険な場合は右端にもアクセント
+        boxShadow: at.level === "danger" ? `inset -3px 0 0 ${at.fg}` : at.level === "warn" ? `inset -3px 0 0 ${at.fg}` : "none",
         cursor: busy ? "default" : "grab",
         userSelect: "none",
         transition: "opacity .12s ease",
@@ -82,7 +109,22 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
-        {(p.updated_at || p.created_at) && <span style={{ flexShrink: 0 }} title={`登録: ${dvDateTime(p.created_at)}　更新: ${dvDateTime(p.updated_at)}`}>🕒 {dvDateTime(p.updated_at || p.created_at)}</span>}
+        {(p.updated_at || p.created_at) && (
+          <span style={{ flexShrink: 0, display: "inline-flex", gap: 6, alignItems: "center" }}>
+            {totalDays != null && (
+              <span title={`提案開始からの経過日数 / 開始: ${dvDateTime(p.created_at)}`}
+                style={{ fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-3)", fontWeight: 700 }}>
+                ⏱ {totalDays}d
+              </span>
+            )}
+            {stageDays != null && (
+              <span title={`現在ステージ「${p.stage}」の滞留日数 / 目標: ${sla}日以内${at.level !== "ok" ? "（目標超過）" : ""}`}
+                style={{ fontSize: 10, padding: "1px 6px", borderRadius: 99, background: at.bg, color: at.fg, border: `1px solid ${at.bd}`, fontWeight: 700 }}>
+                🕐 {stageDays}d{at.level === "warn" ? " ⚠" : at.level === "danger" ? " 🚨" : ""}
+              </span>
+            )}
+          </span>
+        )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
@@ -177,9 +219,59 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
   const byStage = (s: string) => proposals.filter((p) => (p.stage ?? "返信待ち") === s);
+  // ステージ目標日数を超過 / 大幅超過の件数を集計
+  const stalled = proposals.reduce((acc, p) => {
+    const s = p.stage ?? "返信待ち";
+    if (!STAGES.includes(s)) return acc;
+    const d = daysSince(p.stage_updated_at ?? p.updated_at ?? p.created_at);
+    if (d == null) return acc;
+    const sla = STAGE_SLA_DAYS[s] ?? 5;
+    if (d > sla * 2) acc.danger += 1;
+    else if (d > sla) acc.warn += 1;
+    return acc;
+  }, { warn: 0, danger: 0 });
+  const oldestStageDays = Math.max(0, ...proposals.map((p) => daysSince(p.stage_updated_at ?? p.updated_at ?? p.created_at) ?? 0));
+  const avgClosingDays = (() => {
+    const closed = proposals.filter((p) => p.stage === "面談合格");
+    if (closed.length === 0) return null;
+    const sum = closed.reduce((s, p) => s + (daysSince(p.created_at) ?? 0), 0);
+    return Math.round(sum / closed.length);
+  })();
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(230px, 1fr))`, gap: 12, overflowX: "auto", paddingBottom: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* 滞留アラート＋平均クロージング日数（時間が一目で分かるバナー） */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {(stalled.warn + stalled.danger) > 0 ? (
+          <div style={{ display: "inline-flex", gap: 14, alignItems: "center", padding: "8px 14px", borderRadius: 10, background: stalled.danger > 0 ? "#fdecef" : "#fff6e0", border: `1px solid ${stalled.danger > 0 ? "#f7c5cf" : "#fde9b0"}`, fontSize: 12.5, color: stalled.danger > 0 ? "#b42318" : "#9a7b12", fontWeight: 700 }}>
+            <span>{stalled.danger > 0 ? "🚨" : "⚠"} ステージ目標日数を超過</span>
+            {stalled.danger > 0 && <span>大幅超過 <b style={{ fontSize: 14 }}>{stalled.danger}</b>件</span>}
+            {stalled.warn > 0 && <span style={{ color: "#9a7b12" }}>目標超過 <b style={{ fontSize: 14 }}>{stalled.warn}</b>件</span>}
+            <span style={{ fontWeight: 500, fontSize: 11.5, opacity: .85 }}>最長滞留 {oldestStageDays}日</span>
+          </div>
+        ) : (
+          <div style={{ display: "inline-flex", gap: 10, alignItems: "center", padding: "8px 14px", borderRadius: 10, background: "#e7f7ee", border: "1px solid #bfe3cc", fontSize: 12.5, color: "#067647", fontWeight: 700 }}>
+            <span>✓ 全カード目標日数内</span>
+            {oldestStageDays > 0 && <span style={{ fontWeight: 500, fontSize: 11.5, opacity: .85 }}>最長滞留 {oldestStageDays}日</span>}
+          </div>
+        )}
+        {avgClosingDays != null && (
+          <div title="面談合格に到達した提案の、提案開始からの平均日数" style={{ display: "inline-flex", gap: 8, alignItems: "center", padding: "8px 14px", borderRadius: 10, background: "var(--color-surface)", border: "1px solid var(--color-border)", fontSize: 12.5, color: "var(--color-ink-2)" }}>
+            <span style={{ fontWeight: 700 }}>📈 平均クロージング</span>
+            <span><b style={{ fontSize: 14 }}>{avgClosingDays}</b> 日</span>
+          </div>
+        )}
+        <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 10.5, color: "var(--color-ink-4)" }}>
+          <span>SLA 目安：</span>
+          {Object.entries(STAGE_SLA_DAYS).map(([s, d]) => (
+            <span key={s} style={{ display: "inline-flex", gap: 3, alignItems: "center" }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: STAGE_TONE[s] ?? "#6b7280" }} />{s} {d}d
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(230px, 1fr))`, gap: 12, overflowX: "auto", paddingBottom: 8 }}>
       {STAGES.map((stage) => {
         const items = byStage(stage);
         const tone = STAGE_TONE[stage] ?? "#6b7280";
@@ -224,6 +316,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
