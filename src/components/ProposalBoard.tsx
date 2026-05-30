@@ -25,7 +25,7 @@ import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHA
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
-  未対応: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
+  返信待ち: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
 };
 const CALLER_TONE: Record<string, string> = {
   返信あり: "#1aa260", 電話済み: "#0095D9", "電話(不在)": "#d98a2b", LINE確認中: "#7c5cff", メール確認中: "#7c5cff", 未架電: "#9aa7b4",
@@ -176,7 +176,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const onLose = (id: string, lost_phase: string, lost_reason: string) => run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason }));
   const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
-  const byStage = (s: string) => proposals.filter((p) => (p.stage ?? "未対応") === s);
+  const byStage = (s: string) => proposals.filter((p) => (p.stage ?? "返信待ち") === s);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(230px, 1fr))`, gap: 12, overflowX: "auto", paddingBottom: 8 }}>
