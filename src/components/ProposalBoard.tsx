@@ -43,7 +43,7 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, onDragStart, onDragEnd, isDragging }: any) {
   const [open, setOpen] = useState(false);
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
@@ -57,7 +57,20 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const tone = STAGE_TONE[p.stage] ?? "#6b7280";
 
   return (
-    <div className="card" style={{ padding: 12, opacity: busy ? 0.5 : 1, borderLeft: `3px solid ${tone}` }}>
+    <div
+      className="card"
+      draggable={!busy}
+      onDragStart={(e) => { if (busy) { e.preventDefault(); return; } e.dataTransfer.setData("text/proposal-id", p.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(p.id); }}
+      onDragEnd={() => onDragEnd?.()}
+      style={{
+        padding: 12,
+        opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
+        borderLeft: `3px solid ${tone}`,
+        cursor: busy ? "default" : "grab",
+        userSelect: "none",
+        transition: "opacity .12s ease",
+      }}
+    >
       <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
         {p.job_no != null
           ? <Link
@@ -153,6 +166,8 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [overStage, setOverStage] = useState<string | null>(null);
 
   const run = (id: string, fn: () => Promise<any>) => { setBusyId(id); start(async () => { await fn(); router.refresh(); setBusyId(null); }); };
   const onMove = (id: string, stage: string) => run(id, () => updateProposalStage(id, stage));
@@ -168,17 +183,42 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
       {STAGES.map((stage) => {
         const items = byStage(stage);
         const tone = STAGE_TONE[stage] ?? "#6b7280";
+        const isOver = overStage === stage && draggingId != null;
+        const draggedStage = draggingId ? proposals.find((x) => x.id === draggingId)?.stage : null;
+        const isTargetCandidate = draggingId != null && draggedStage !== stage;
         return (
-          <div key={stage} style={{ background: "var(--color-surface-soft)", borderRadius: 12, padding: 10, minWidth: 230, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div key={stage}
+            onDragEnter={(e) => { if (draggingId) { e.preventDefault(); setOverStage(stage); } }}
+            onDragOver={(e) => { if (draggingId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overStage !== stage) setOverStage(stage); } }}
+            onDragLeave={(e) => {
+              // 子要素間移動でちらつかないよう、要素外に出たときだけクリア
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverStage((s) => (s === stage ? null : s));
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const id = e.dataTransfer.getData("text/proposal-id") || draggingId;
+              setOverStage(null); setDraggingId(null);
+              if (id && draggedStage !== stage) onMove(id, stage);
+            }}
+            style={{
+              background: isOver ? "#fffbeb" : "var(--color-surface-soft)",
+              border: isOver ? `2px dashed ${tone}` : isTargetCandidate ? "2px dashed var(--color-border)" : "2px solid transparent",
+              borderRadius: 12, padding: 10, minWidth: 230, display: "flex", flexDirection: "column", gap: 8,
+              transition: "background .12s ease, border-color .12s ease",
+            }}
+          >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 4px" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700 }}>
                 <span style={{ width: 8, height: 8, borderRadius: 99, background: tone }} />{stage}
               </span>
               <span className="muted" style={{ fontSize: 11 }}>{items.length}</span>
             </div>
-            {items.length === 0 && <div style={{ fontSize: 11, color: "var(--color-ink-4)", textAlign: "center", padding: "16px 0" }}>—</div>}
+            {items.length === 0 && <div style={{ fontSize: 11, color: isOver ? tone : "var(--color-ink-4)", textAlign: "center", padding: "16px 0", fontWeight: isOver ? 700 : 400 }}>{isOver ? "ここにドロップ" : "—"}</div>}
             {items.map((p) => (
               <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members}
+                isDragging={draggingId === p.id}
+                onDragStart={(id: string) => setDraggingId(id)}
+                onDragEnd={() => { setDraggingId(null); setOverStage(null); }}
                 onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} onDelete={onDelete} />
             ))}
           </div>
