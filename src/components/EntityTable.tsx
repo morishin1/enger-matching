@@ -107,7 +107,10 @@ const JOB_COLS: Col[] = [
     search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
     render: (j) => (
       <Link href={`/jobs/${j.job_no}`} style={{ textDecoration: "none" }}>
-        <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)" }}>{j.title}</div>
+        <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
+          <span>{j.title}</span>
+          {j.is_published === false && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
+        </div>
       </Link>
     ),
   },
@@ -138,9 +141,8 @@ const PEOPLE_COLS: Col[] = [
     key: "name", label: "氏名", always: true,
     search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${p.company ?? ""} ${(p.skills ?? []).join(" ")}`,
     render: (p) => {
-      // 会社名(source_company または company)と区分(affiliation)を両方表示。両方あれば「会社名（区分）」。
-      const company = p.source_company || p.company || "";
-      const sub = company && p.affiliation ? `${company}（${p.affiliation}）` : (company || p.affiliation || "");
+      // サブ行は区分(affiliation)のみ。会社名は独立の「会社」列で表示（見つけやすさ重視）。
+      const sub = p.affiliation || "";
       return (
         <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -152,6 +154,17 @@ const PEOPLE_COLS: Col[] = [
           </div>
         </Link>
       );
+    },
+  },
+  // 会社名（所属）。該当人材を会社で見つけやすくするため独立カラムで表示。
+  {
+    key: "company", label: "会社", width: 168,
+    search: (p) => `${p.source_company ?? ""} ${p.company ?? ""}`,
+    render: (p) => {
+      const co = p.source_company || p.company;
+      return co
+        ? <span style={{ fontSize: 12, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }} title={co}>{co}</span>
+        : <span className="muted" style={{ fontSize: 12 }}>—</span>;
     },
   },
   // マッチングの主要因。上位3スキル＋残数をタグ表示（既定の .tag.brand）。

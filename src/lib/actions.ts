@@ -874,34 +874,50 @@ export async function upsertJobManual(rec: JobInput) {
     imported_at: now,
   };
 
-  // 既存検索（title 完全一致＋client_name 一致 or 両方 null）
-  let q = admin.from("jobs").select("id, job_no, is_published").eq("title", row.title);
-  q = row.client_name ? q.eq("client_name", row.client_name) : q.is("client_name", null);
-  const ex = await q.maybeSingle();
   const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; return c; };
-
-  if (ex.data?.id) {
-    // 更新：空欄は既存値を保持（null/[] は上書きしない）
+  // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
+  const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
     const update: Record<string, any> = { is_published: true, imported_at: now };
     for (const [k, v] of Object.entries(row)) {
-      if (k === "is_published" || k === "imported_at") continue;
+      if (k === "is_published" || k === "imported_at" || k === "created_at") continue;
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       update[k] = v;
     }
-    let r: any = await admin.from("jobs").update(update).eq("id", ex.data.id);
+    let r: any = await admin.from("jobs").update(update).eq("id", id);
     if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
-      r = await admin.from("jobs").update(stripCols(update)).eq("id", ex.data.id);
+      r = await admin.from("jobs").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
     revalidatePath("/jobs"); bustCounts();
-    return { ok: true as const, action: "updated", job_no: ex.data.job_no, republished: !ex.data.is_published };
-  }
+    return { ok: true as const, action: "updated" as const, job_no: jobNo, republished: !wasPublished };
+  };
+
+  // 既存検索（title 完全一致＋client_name 一致 or 両方 null）
+  // 注意: 過去のインポートで同一 title×client_name が「非公開」や「複数行」で残っている
+  // ことがある。.maybeSingle() は複数行でエラーになり、フォールバックの INSERT が一意制約
+  // (jobs_title_client_uq) に当たって「重複で登録不可」になる事故が起きるため、
+  // 並べて先頭(最若番)の既存案件を採用して更新・再公開する。
+  let q = admin.from("jobs").select("id, job_no, is_published").eq("title", row.title);
+  q = row.client_name ? q.eq("client_name", row.client_name) : q.is("client_name", null);
+  const exList: any = await q.order("job_no", { ascending: true }).limit(1);
+  const exRow = exList.data?.[0] ?? null;
+  if (exRow?.id) return updateExisting(exRow.id, exRow.job_no, !!exRow.is_published);
+
   // 新規 INSERT
   row.created_at = now;
   let r: any = await admin.from("jobs").insert(row).select("job_no").maybeSingle();
   if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
     r = await admin.from("jobs").insert(stripCols(row)).select("job_no").maybeSingle();
+  }
+  // 一意制約に当たった場合（直前の検索では拾えなかった既存行がある）は、
+  // 「重複」エラーにせず既存案件を更新・再公開へフォールバックする。
+  if (r.error && /duplicate key|unique|jobs_title_client/i.test(r.error.message)) {
+    let q2 = admin.from("jobs").select("id, job_no, is_published").eq("title", row.title);
+    q2 = row.client_name ? q2.eq("client_name", row.client_name) : q2.is("client_name", null);
+    const again: any = await q2.order("job_no", { ascending: true }).limit(1);
+    const hit = again.data?.[0];
+    if (hit?.id) return updateExisting(hit.id, hit.job_no, !!hit.is_published);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
   revalidatePath("/jobs"); bustCounts();
@@ -937,12 +953,8 @@ export async function upsertCandidateManual(rec: CandidateInput) {
     imported_at: now,
   };
 
-  let q = admin.from("candidates").select("id, candidate_no").eq("name", row.name);
-  q = row.company ? q.eq("company", row.company) : q.is("company", null);
-  const ex = await q.maybeSingle();
   const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; return c; };
-
-  if (ex.data?.id) {
+  const updateExisting = async (id: string, candidateNo: number) => {
     const update: Record<string, any> = { imported_at: now };
     for (const [k, v] of Object.entries(row)) {
       if (k === "imported_at") continue;
@@ -950,17 +962,33 @@ export async function upsertCandidateManual(rec: CandidateInput) {
       if (Array.isArray(v) && v.length === 0) continue;
       update[k] = v;
     }
-    let r: any = await admin.from("candidates").update(update).eq("id", ex.data.id);
+    let r: any = await admin.from("candidates").update(update).eq("id", id);
     if (r.error && /skill_sheet_url|email|source_mail_url|column/i.test(r.error.message)) {
-      r = await admin.from("candidates").update(stripCols(update)).eq("id", ex.data.id);
+      r = await admin.from("candidates").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
     revalidatePath("/people"); bustCounts();
-    return { ok: true as const, action: "updated", candidate_no: ex.data.candidate_no };
-  }
+    return { ok: true as const, action: "updated" as const, candidate_no: candidateNo };
+  };
+
+  // 既存検索（name×company）。複数行・重複でも落ちないよう最若番を採用。
+  let q = admin.from("candidates").select("id, candidate_no").eq("name", row.name);
+  q = row.company ? q.eq("company", row.company) : q.is("company", null);
+  const exList: any = await q.order("candidate_no", { ascending: true }).limit(1);
+  const exRow = exList.data?.[0] ?? null;
+  if (exRow?.id) return updateExisting(exRow.id, exRow.candidate_no);
+
   let r: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
   if (r.error && /skill_sheet_url|email|source_mail_url|column/i.test(r.error.message)) {
     r = await admin.from("candidates").insert(stripCols(row)).select("candidate_no").maybeSingle();
+  }
+  // 一意制約に当たった場合は既存人材の更新へフォールバック（重複エラーにしない）
+  if (r.error && /duplicate key|unique|candidates_/i.test(r.error.message)) {
+    let q2 = admin.from("candidates").select("id, candidate_no").eq("name", row.name);
+    q2 = row.company ? q2.eq("company", row.company) : q2.is("company", null);
+    const again: any = await q2.order("candidate_no", { ascending: true }).limit(1);
+    const hit = again.data?.[0];
+    if (hit?.id) return updateExisting(hit.id, hit.candidate_no);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
   revalidatePath("/people"); bustCounts();
