@@ -52,8 +52,8 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
   const pathname = usePathname();
   const router = useRouter();
 
-  // ログイン/新規登録画面はシェル(サイドバー/トップバー)なしで表示
-  if (pathname === "/login" || pathname === "/signup") return <>{children}</>;
+  // ログイン/新規登録/公開LP はシェル(サイドバー/トップバー)なしで表示
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/agent") return <>{children}</>;
 
   const key = pathname === "/" ? "/" : (pathname.startsWith("/portal/") ? pathname : "/" + pathname.split("/")[1]);
   const crumbs = CRUMBS[key] ?? ["ENGER"];
