@@ -86,7 +86,7 @@ async function attachCompanyContact(sb: any, items: any[], companyKey: "client_n
 
 /** パートナー企業向け：自社(owner_company)＋共有(shared)のみ取得して匿名化。
  *  既存マッチング画面のクエリは内部メールアドレス等を多数返すため、パートナーは別ビューで分離。 */
-async function loadTenantData(company: string) {
+async function loadTenantData(company: string, meetingDone: boolean = true) {
   const sb = engerClient();
   const J = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, work_location, start_date, is_published, owner_company, shared";
   const C = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, avail, location, owner_company, shared";
@@ -107,7 +107,7 @@ async function loadTenantData(company: string) {
     return [...map.values()];
   };
   const [jobs, cands] = await Promise.all([fetchJobs(), fetchCands()]);
-  return { jobs: jobs ? maskJobs(jobs, company) : null, cands: cands ? maskCandidates(cands, company) : null };
+  return { jobs: jobs ? maskJobs(jobs, company, meetingDone) : null, cands: cands ? maskCandidates(cands, company, meetingDone) : null };
 }
 
 export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
@@ -121,7 +121,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     if (!dbConfigured) {
       return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>DB未接続のためマッチングを利用できません。</div></div>;
     }
-    const data = await loadTenantData(scope.ownerKey);
+    const data = await loadTenantData(scope.ownerKey, scope.meetingDone);
     if (!data.jobs || !data.cands) {
       return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）。安全のため一覧を表示しません。</div></div>;
     }

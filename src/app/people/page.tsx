@@ -34,7 +34,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           const map = new Map<number, any>();
           for (const r of [...(ownedRes.data ?? []), ...(sharedRes.data ?? [])]) if (r.candidate_no != null) map.set(r.candidate_no, r);
           const rows = [...map.values()].filter((r) => r.owner_company === scope.ownerKey || r.shared === true);
-          people = maskCandidates(rows, scope.ownerKey);
+          people = maskCandidates(rows, scope.ownerKey, scope.meetingDone);
           total = people.length;
         }
       } catch (e) { dbError = e instanceof Error ? e.message : String(e); }
@@ -100,7 +100,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
-      <EntityTable kind="people" rows={people} total={total} initialQuery={initialQuery} partner={scope.isTenant} />
+      <EntityTable kind="people" rows={people} total={total} initialQuery={initialQuery} partner={scope.isTenant} meetingDone={scope.meetingDone}
+        agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
     </div>
   );
 }

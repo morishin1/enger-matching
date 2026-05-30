@@ -68,6 +68,24 @@ export async function approveAccount(formData: FormData): Promise<Result> {
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 面談済みフラグ：詳細閲覧の解放/再制限。 */
+export async function setAccountMeetingDone(id: string, done: boolean): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    let r: any = await sb.from("app_users").update({ meeting_done: done, meeting_done_at: done ? new Date().toISOString() : null }).eq("id", id);
+    if (r.error && /meeting_done|column/i.test(r.error.message)) {
+      // 列が未追加の環境はフォールバック（何もしない）
+      return { ok: false, error: "面談済み列が未追加です（supabase/account-meeting-done.sql を実行してください）" };
+    }
+    if (r.error) return { ok: false, error: r.error.message };
+    bustMembers();
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** ステータス変更（無効化 / 再有効化）。 */
 export async function setAccountStatus(id: string, status: "active" | "disabled"): Promise<Result> {
   const guard = await requireAdmin();

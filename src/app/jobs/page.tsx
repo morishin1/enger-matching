@@ -41,7 +41,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           for (const r of [...(ownedRes.data ?? []), ...(sharedRes.data ?? [])]) if (r.job_no != null) map.set(r.job_no, r);
           // 二重の安全網：app側でも「自社 or 共有」に限定してから匿名化
           const rows = [...map.values()].filter((r) => r.owner_company === scope.ownerKey || r.shared === true);
-          jobs = maskJobs(rows, scope.ownerKey);
+          jobs = maskJobs(rows, scope.ownerKey, scope.meetingDone);
           total = jobs.length;
         }
       } catch (e) { dbError = e instanceof Error ? e.message : String(e); }
@@ -147,7 +147,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       {!scope.isTenant && <PendingClientJobs jobs={pendingClientJobs} />}
 
-      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={needle || undefined} outsideOptions={ownerOptions} partner={scope.isTenant} />
+      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={needle || undefined} outsideOptions={ownerOptions} partner={scope.isTenant} meetingDone={scope.meetingDone}
+        agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
     </div>
   );
 }
