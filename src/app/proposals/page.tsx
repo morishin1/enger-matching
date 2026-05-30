@@ -1,7 +1,7 @@
-import { Icons } from "@/components/icons";
 import { ProposalBoard } from "@/components/ProposalBoard";
 import { ProposalHistory } from "@/components/ProposalHistory";
 import { ProposalsTabs } from "@/components/ProposalsTabs";
+import { LostAnalytics } from "@/components/LostAnalytics";
 import { NewProposalButton } from "@/components/NewProposalButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
@@ -18,6 +18,7 @@ export default async function ProposalsPage() {
   const staff = await getStaff();
   let lostRows: any[] = [];
   let history: any[] = [];
+  let analyticsRows: any[] = [];
   let feedbackList: { verdict: Verdict; reason: string | null; c_init: string; job_title: string; company: string; updated_at: string }[] = [];
   if (dbConfigured) {
     try {
@@ -85,6 +86,8 @@ export default async function ProposalsPage() {
           .filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage))
           .sort((a: any, b: any) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))
           .slice(0, 200);
+        // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
+        analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         // 企業フィードバックを紐付け（ミスマッチ低減の材料）
         const fbMap = await getFeedbackMap(all.map((p: any) => p.id));
         feedbackList = all
@@ -98,15 +101,6 @@ export default async function ProposalsPage() {
   } else {
     dbError = "Supabase の環境変数が未設定です";
   }
-
-  const active = proposals.length;
-  const passed = proposals.filter((p) => p.stage === "面談合格").length;
-
-  // 失注理由サマリー（上位）
-  const reasonCounts = lostRows.reduce((m: Record<string, number>, p) => {
-    const k = p.lost_reason || "（理由未入力）"; m[k] = (m[k] ?? 0) + 1; return m;
-  }, {});
-  const topReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
 
   return (
     <div className="page">
@@ -169,30 +163,7 @@ export default async function ProposalsPage() {
             )
           }
           history={history.length > 0 ? <ProposalHistory items={history} /> : null}
-          lostSummary={
-            topReasons.length > 0 ? (
-              <div className="card" id="lost-summary">
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                  <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>💔 失注理由サマリー</h3>
-                  <span className="muted" style={{ fontSize: 11.5 }}>見送り {lost} 件</span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {topReasons.map(([reason, n]) => {
-                    const w = Math.round((n / lost) * 100);
-                    return (
-                      <div key={reason} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 220px) 1fr 36px", gap: 10, alignItems: "center" }}>
-                        <span style={{ fontSize: 11.5, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reason}</span>
-                        <div style={{ height: 8, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
-                          <div style={{ width: `${w}%`, height: "100%", background: "var(--color-danger)", borderRadius: 99 }} />
-                        </div>
-                        <span className="mono tnum" style={{ fontSize: 11.5, textAlign: "right", color: "var(--color-ink-3)" }}>{n}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null
-          }
+          lostSummary={analyticsRows.length > 0 ? <LostAnalytics history={analyticsRows} /> : null}
         />
       )}
     </div>
