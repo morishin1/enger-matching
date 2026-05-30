@@ -85,22 +85,23 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 
   if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（氏名必須）" };
 
-  // 重複排除（氏名×会社）。バッチ内＋既存DBと突合し、新規のみ取り込む。
-  const dkey = (name?: string | null, company?: string | null) =>
-    normKey(name) + "|" + normKey(company);
+  // 重複排除（氏名×会社×メールID）。会社が空でも元メールが違えば別人として取り込む
+  // （同姓同名で会社空欄の別人を取りこぼさない）。バッチ内＋既存DBと突合し、新規のみ取り込む。
+  const dkey = (name?: string | null, company?: string | null, mail?: string | null) =>
+    normKey(name) + "|" + normKey(company) + "|" + String(mail ?? "").trim();
   const existing = new Set<string>();
   try {
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await admin.from("candidates").select("name, company, source_company").range(from, from + 999);
+      const { data, error } = await admin.from("candidates").select("name, company, source_company, source_mail_url").range(from, from + 999);
       if (error || !data) break;
-      for (const r of data as any[]) existing.add(dkey(r.name, r.company || r.source_company));
+      for (const r of data as any[]) existing.add(dkey(r.name, r.company || r.source_company, r.source_mail_url));
       if (data.length < 1000) break;
     }
   } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
 
   const seen = new Set<string>();
   const fresh = rows.filter((r) => {
-    const k = dkey(r.name, r.company);
+    const k = dkey(r.name, r.company, r.source_mail_url);
     if (existing.has(k) || seen.has(k)) return false;
     seen.add(k); return true;
   });

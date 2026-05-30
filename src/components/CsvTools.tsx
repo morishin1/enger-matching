@@ -124,7 +124,8 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
     if (kind === "candidates" && rec.rate) rec.rate_num = numOf(rec.rate);
 
     const errors: string[] = []; const warnings: string[] = [];
-    const dupKey = kind === "candidates" ? (rec.name ?? "") : `${rec.title ?? ""}|${rec.client_name ?? ""}`;
+    // 重複警告も 氏名×会社×元メール で判定（取込ロジックと一致）。別メール由来の同名は重複としない。
+    const dupKey = kind === "candidates" ? `${rec.name ?? ""}|${rec.company ?? ""}|${rec.source_mail_url ?? ""}` : `${rec.title ?? ""}|${rec.client_name ?? ""}`;
     if (kind === "candidates") {
       if (!rec.name) errors.push("氏名なし");
       if (!rec.skills?.length) warnings.push("スキル空");
