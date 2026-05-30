@@ -31,9 +31,9 @@ export default async function DashboardPage() {
   if (access?.role === "partner") {
     return <PartnerHome companyName={access.companyName} displayName={access.name} />;
   }
-  // 副業エージェント → 副業エージェントホーム
+  // 副業エージェント → 副業エージェントホーム（報酬ダッシュボード）
   if (access?.role === "freelance") {
-    return <FreelanceHome displayName={access.name} />;
+    return <FreelanceHome displayName={access.name} email={access.email} />;
   }
   // 非営業の一般職（バックオフィス/EC/サポート等・営業職能を持たない） → 業務ホーム
   const fns = access?.functions ?? [];
