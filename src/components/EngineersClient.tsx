@@ -98,6 +98,27 @@ const ACTION_COLOR: Record<string, string> = {
   "面談実施": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
 };
 const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+// 登録日時（年月日＋時刻）
+const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+// 連絡先の有無アイコン群
+function ContactIcons({ e }: { e: { email?: string | null; phone?: string | null; contact_line?: string | null } }) {
+  const items: { ic: string; label: string; on: boolean; href?: string }[] = [
+    { ic: "mail", label: e.email || "メールなし", on: !!e.email, href: e.email ? `mailto:${e.email}` : undefined },
+    { ic: "call", label: e.phone || "電話なし", on: !!e.phone, href: e.phone ? `tel:${e.phone}` : undefined },
+    { ic: "chat", label: e.contact_line || "メッセージなし", on: !!e.contact_line },
+  ];
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      {items.map((it, i) => it.on ? (
+        it.href
+          ? <a key={i} href={it.href} title={it.label} onClick={(ev) => ev.stopPropagation()} className="material-symbols-outlined" style={{ fontSize: 17, color: "#0b5cab", textDecoration: "none" }}>{it.ic}</a>
+          : <span key={i} title={it.label} className="material-symbols-outlined" style={{ fontSize: 17, color: "#0b5cab" }}>{it.ic}</span>
+      ) : (
+        <span key={i} title={it.label} className="material-symbols-outlined" style={{ fontSize: 17, color: "var(--color-ink-5)", opacity: .4 }}>{it.ic}</span>
+      ))}
+    </span>
+  );
+}
 
 const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
   sent: { label: "送信済み", color: "#0b5cab" },
@@ -138,7 +159,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
     const needle = q.trim().toLowerCase();
     return engineers.filter((e) => {
       if (needle) {
-        const hay = [e.display_name, e.github_login, e.name, e.primary_language, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
+        const hay = [e.display_name, e.github_login, e.name, e.primary_language, e.email, e.phone, e.contact_line, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
@@ -218,13 +239,15 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 <th style={{ width: 100 }} className="num">GitHub</th>
                 <th style={{ width: 120 }}>スキルシート</th>
                 <th style={{ width: 160 }}>登録元</th>
+                <th style={{ width: 132 }}>登録日時</th>
+                <th style={{ width: 96 }}>連絡先</th>
                 <th style={{ width: 80 }}>履歴</th>
                 <th style={{ width: 200 }}>アクション</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={11} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+                <tr><td colSpan={13} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
               ) : pageRows.map((e) => {
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
@@ -264,6 +287,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                         : <span className="muted" style={{ fontSize: 12 }}>—</span>}
                     </td>
                     <td><SourceBadge source={e.source} /></td>
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
+                    <td><ContactIcons e={e} /></td>
                     <td>
                       <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
                         {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
@@ -389,7 +414,16 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             ))}
           </div>
         </div>
-        {detail.email && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>連絡先：<a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a></div>}
+        {/* 連絡先（メール・電話・メッセージ）と登録日時 */}
+        <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>連絡先・登録情報</div>
+          <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "4px 10px", fontSize: 12.5 }}>
+            <span className="muted">登録日時</span><span className="mono">{fmtDateTime(detail.created_at)}</span>
+            <span className="muted">メール</span><span>{detail.email ? <a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a> : <span className="muted">—</span>}</span>
+            <span className="muted">電話</span><span>{detail.phone ? <a href={`tel:${detail.phone}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.phone}</a> : <span className="muted">—</span>}</span>
+            <span className="muted">メッセージ</span><span>{detail.contact_line ? detail.contact_line : <span className="muted">—</span>}</span>
+          </div>
+        </div>
 
         {(detail.portfolio_url || detail.skill_sheet_url) && (
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
