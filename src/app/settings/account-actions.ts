@@ -58,7 +58,7 @@ export async function approveAccount(formData: FormData): Promise<Result> {
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({
       status: "active",
-      role: ["admin", "agent", "client", "candidate"].includes(role) ? role : "client",
+      role: ["admin", "agent", "client", "candidate", "partner"].includes(role) ? role : "client",
       company_name: company,
       approved_at: new Date().toISOString(),
     }).eq("id", id);
@@ -83,7 +83,7 @@ export async function setAccountStatus(id: string, status: "active" | "disabled"
 }
 
 /** ロール変更。 */
-export async function setAccountRole(id: string, role: "admin" | "agent" | "client" | "candidate"): Promise<Result> {
+export async function setAccountRole(id: string, role: "admin" | "agent" | "client" | "candidate" | "partner"): Promise<Result> {
   const guard = await requireAdmin();
   if (!guard.ok) return guard;
   if (!id) return { ok: false, error: "id がありません" };

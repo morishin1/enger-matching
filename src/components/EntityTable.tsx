@@ -194,7 +194,7 @@ const PEOPLE_COLS: Col[] = [
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 
-export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string; outsideOptions?: string[] }) {
+export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, partner = false }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string; outsideOptions?: string[]; partner?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const cols = useMemo(() => {
@@ -397,10 +397,12 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               <span style={{ fontWeight: 700 }}>♥</span><span>注力に一括登録</span>
             </button>
             <button type="button" className="btn ghost" onClick={() => doBulk(false)} disabled={pending}>注力を解除</button>
-            <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
-              style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
-              削除
-            </button>
+            {!partner && (
+              <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
+                style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
+                削除
+              </button>
+            )}
             <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
           </div>
         </div>
@@ -524,14 +526,19 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               {kind === "jobs"
                 ? <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>
                 : <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>}
-              {kind === "people" && detail.skill_sheet_url && (
+              {kind === "people" && detail.skill_sheet_url && !detail._anon && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} block />
-              {kind === "jobs"
+              {/* パートナーの匿名(他社)行は メール・編集・削除を出さない（漏洩/誤操作防止） */}
+              {!(partner && detail._anon) && (
+                <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} block />
+              )}
+              {!(partner && detail._anon) && (kind === "jobs"
                 ? <EditJobButton job={detail} />
-                : <EditCandidateButton candidate={detail} />}
-              <DeleteEntityButton kind={kind === "jobs" ? "jobs" : "candidates"} idValue={kind === "jobs" ? detail.job_no : detail.candidate_no} label={titleOf(detail)} />
+                : <EditCandidateButton candidate={detail} />)}
+              {!(partner && detail._anon) && (
+                <DeleteEntityButton kind={kind === "jobs" ? "jobs" : "candidates"} idValue={kind === "jobs" ? detail.job_no : detail.candidate_no} label={titleOf(detail)} />
+              )}
             </div>
 
             {/* スキル */}
