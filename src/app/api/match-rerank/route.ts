@@ -1,8 +1,13 @@
 import { callLLM, parseJsonLoose } from "@/lib/llm";
-import { logUsage } from "@/lib/ai-usage";
+import { logUsage, countTodayUsage } from "@/lib/ai-usage";
+import { getSessionEmail } from "@/lib/accounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// AI再ランキングの1日1アカウント上限（環境変数で変更可、既定3回）。
+// キャッシュヒット（同じ案件の再表示）は LLM を呼ばないのでカウント対象外。
+const DAILY_LIMIT = Math.max(1, Number(process.env.AI_RERANK_DAILY_LIMIT || 10));
 
 const json = (d: unknown, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "Content-Type": "application/json" } });
 
@@ -23,10 +28,19 @@ export async function POST(req: Request) {
   const candidates: any[] = Array.isArray(body?.candidates) ? body.candidates.slice(0, 10) : [];
   if (!candidates.length) return json({ ok: false, error: "候補がありません" }, 400);
 
-  // キャッシュヒットなら LLM を呼ばず即返す（コスト 0）
+  // キャッシュヒットなら LLM を呼ばず即返す（コスト0・回数カウントなし）
   const ckey = cacheKeyOf(job, candidates);
   const hit = cache.get(ckey);
   if (hit) return json({ ok: true, results: hit, cached: true });
+
+  // 1日1アカウント上限チェック（LLMを実際に呼ぶ＝課金が発生する手前で判定）
+  let account = "";
+  try { account = (await getSessionEmail()) || ""; } catch { account = ""; }
+  account = account || "unknown";
+  const usedToday = await countTodayUsage("rerank", account);
+  if (usedToday >= DAILY_LIMIT) {
+    return json({ ok: false, limited: true, error: `AI再ランキングは1日${DAILY_LIMIT}回までです。本日の上限に達しました（明日リセット）。ルール順の表示と、評価済み案件の再表示は引き続きご利用いただけます。` }, 429);
+  }
 
   const system = "あなたはSES/エンジニア人材のマッチング専門家です。案件と候補者の適合度を文脈から評価し、必ず指定JSONのみで返します。";
   const jobDesc = [
@@ -57,7 +71,7 @@ export async function POST(req: Request) {
 
   const r = await callLLM({ system, prompt, maxTokens: 900, temperature: 0.2 });
   if (!r.ok) return json({ ok: false, error: r.error }, r.status);
-  await logUsage("rerank", r.model, r.usage);
+  await logUsage("rerank", r.model, r.usage, account);
   const parsed = parseJsonLoose<any[]>(r.text);
   if (!Array.isArray(parsed)) return json({ ok: false, error: "AI応答の解析に失敗しました", raw: r.text.slice(0, 300) }, 502);
 
@@ -68,5 +82,6 @@ export async function POST(req: Request) {
   // 結果をキャッシュ（メモリ肥大を防ぐため簡易上限）
   if (cache.size > 500) cache.clear();
   cache.set(ckey, results);
-  return json({ ok: true, results, cached: false });
+  const remaining = Math.max(0, DAILY_LIMIT - (usedToday + 1));
+  return json({ ok: true, results, cached: false, remaining, limit: DAILY_LIMIT });
 }
