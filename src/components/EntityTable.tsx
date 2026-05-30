@@ -106,12 +106,11 @@ const JOB_COLS: Col[] = [
     key: "title", label: "案件名", always: true,
     search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
     render: (j) => (
-      <Link href={`/jobs/${j.job_no}`} style={{ textDecoration: "none" }}>
-        <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
-          <span>{j.title}</span>
-          {j.is_published === false && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
-        </div>
-      </Link>
+      // 行クリックは常にドロワーで詳細を開く動線に統一。案件ページへの遷移はドロワー内ボタンから。
+      <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
+        <span>{j.title}</span>
+        {j.is_published === false && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
+      </div>
     ),
   },
   { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
@@ -142,17 +141,16 @@ const PEOPLE_COLS: Col[] = [
     search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${p.company ?? ""} ${(p.skills ?? []).join(" ")}`,
     render: (p) => {
       // サブ行は区分(affiliation)のみ。会社名は独立の「会社」列で表示（見つけやすさ重視）。
+      // 行クリックは常にドロワーで詳細を開く動線に統一（人材ページへの遷移はドロワー内ボタンから）。
       const sub = p.affiliation || "";
       return (
-        <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
-            <div style={{ minWidth: 0 }}>
-              <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
-              {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
-            </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
+          <div style={{ minWidth: 0 }}>
+            <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
+            {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
           </div>
-        </Link>
+        </div>
       );
     },
   },
@@ -515,7 +513,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               {kind === "people" && detail.skill_sheet_url && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} />
+              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} block />
             </div>
 
             {/* スキル */}
