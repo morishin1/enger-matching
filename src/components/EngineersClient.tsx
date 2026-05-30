@@ -4,8 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate } from "@/app/engineers/actions";
-import { APPLICATION_STAGES } from "@/lib/engineers";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
+import { StageBar } from "./StageBar";
 
 /** 登録元バッジ。EngineerSource (key/label/method/color) を表示。将来のLP/方式追加に備え汎用化。 */
 const PALETTE: Record<EngineerSource["color"], { bg: string; fg: string; bd: string }> = {
@@ -286,16 +286,14 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {appLog.map((a) => {
                 const stg = a.stage || "応募";
-                const tone = stg === "稼働" ? "#067647" : stg === "面談合格" ? "#0b5cab" : stg === "見送り" ? "#b42318" : "#475467";
                 return (
-                  <div key={a.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 99, background: tone, flex: "0 0 auto" }} />
-                    <span style={{ color: "var(--color-ink-2)", minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
-                    <select value={stg} disabled={pending} onChange={(e) => changeStage(a.id, e.target.value)} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: tone, fontWeight: 700 }}>
-                      {APPLICATION_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <button type="button" onClick={() => openIntroMail(detail, a.job_title || a.job_no || "ご案件")} title="案件側へ人材紹介メールをGmailで作成" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, cursor: "pointer" }}>📧 紹介メール</button>
-                    <span className="muted" style={{ fontSize: 10.5, width: "100%", textAlign: "right" }}>{fmtDate(a.created_at)}</span>
+                  <div key={a.id} style={{ fontSize: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ color: "var(--color-ink-2)", fontWeight: 600, minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
+                      <button type="button" onClick={() => openIntroMail(detail, a.job_title || a.job_no || "ご案件")} title="案件側へ人材紹介メールをGmailで作成" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, cursor: "pointer" }}>📧 紹介メール</button>
+                      <span className="muted" style={{ fontSize: 10.5 }}>{fmtDate(a.created_at)}</span>
+                    </div>
+                    <StageBar current={stg} disabled={pending} onChange={(next) => changeStage(a.id, next)} />
                   </div>
                 );
               })}
