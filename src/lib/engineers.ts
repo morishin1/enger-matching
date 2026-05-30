@@ -96,32 +96,34 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // signup_source / signup_method 列は将来 LP 側で追加される想定。
     // 列が無い環境でも落ちないように、まず rich select →エラー時にフォールバック。
     const base = "id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, headline, bio, qiita_id, last_login_at, created_at, name, role";
-    // 連絡先(電話/メッセージ)列は LP 側にあれば取得（無くても落ちないよう段階フォールバック）
+    // 連絡先(電話/メッセージ)の列名は LP によって異なる。よく使われる別名を順に試し、
+    // 取れた行から後段でマッピング解決する。列が無い環境でも落ちないようフォールバック。
+    //   電話     : phone / phone_number / tel / mobile
+    //   メッセージ: contact_line / line / line_id / messenger / message_app
+    const richVariants = [
+      `${base}, signup_source, signup_method, phone, contact_line`,
+      `${base}, signup_source, signup_method, phone_number, line_id`,
+      `${base}, signup_source, signup_method, tel, messenger`,
+      `${base}, signup_source, signup_method`,
+      base,
+    ];
     const orFilter = "github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student";
-    let rich: any = await sb.from("profiles").select(`${base}, signup_source, signup_method, phone, contact_line`)
-      .or(orFilter).order("created_at", { ascending: false }).limit(500);
-    let data = rich.data; let error = rich.error;
-    if (error) {
-      rich = await sb.from("profiles").select(`${base}, signup_source, signup_method`)
-        .or(orFilter).order("created_at", { ascending: false }).limit(500);
-      data = rich.data; error = rich.error;
+    let data: any[] | null = null;
+    for (const sel of richVariants) {
+      const r: any = await sb.from("profiles").select(sel).or(orFilter).order("created_at", { ascending: false }).limit(500);
+      if (!r.error) { data = r.data ?? []; break; }
     }
-    if (error) {
-      const r2: any = await sb
-      .from("profiles")
-      .select(base)
-      .or(orFilter)
-      .order("created_at", { ascending: false }).limit(500);
-      data = r2.data; error = r2.error;
-    }
-    if (error) return { rows: [], available: false };
+    if (data == null) return { rows: [], available: false };
+    // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
+    const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
+    const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;
     const rows = (data ?? []).map((r: any) => ({
       ...r,
       skills: Array.isArray(r.skills) ? r.skills : [],
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
-      phone: r.phone ?? null,
-      contact_line: r.contact_line ?? null,
+      phone: phoneOf(r),
+      contact_line: lineOf(r),
       source: classifySource(r),
     })) as Engineer[];
     return { rows, available: true };
