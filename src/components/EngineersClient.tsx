@@ -1,11 +1,37 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 import { StageBar } from "./StageBar";
+import { Icons } from "./icons";
+import { MailButton } from "./MailButton";
+
+// ---------- 一覧表示用ヘルパ（人材一覧 EntityTable と同じ rule） ----------
+const FRESH_OPTIONS = [
+  { value: "新着", label: "新着" },
+  { value: "3日以内", label: "3日以内" },
+  { value: "4〜14日前", label: "4〜14日前" },
+  { value: "それ以前", label: "それ以前" },
+];
+function freshnessLabel(d: string | null): string {
+  if (!d) return "それ以前";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "それ以前";
+  const days = Math.floor((Date.now() - dt.getTime()) / 86400000);
+  if (days <= 0) return "新着";
+  if (days <= 3) return "3日以内";
+  if (days <= 14) return "4〜14日前";
+  return "それ以前";
+}
+function Fresh({ d }: { d: string | null }) {
+  const label = freshnessLabel(d);
+  const tone = label === "新着" ? "new" : label === "3日以内" ? "soon" : label === "4〜14日前" ? "mid" : "old";
+  return <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>;
+}
+const shortId = (id: string) => `E-${(id || "").replace(/-/g, "").slice(0, 5).toUpperCase()}`;
 
 /** 登録元バッジ。EngineerSource (key/label/method/color) を表示。将来のLP/方式追加に備え汎用化。 */
 const PALETTE: Record<EngineerSource["color"], { bg: string; fg: string; bd: string }> = {
@@ -83,6 +109,7 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
 export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [filters, setFilters] = useState<{ status: string; lang: string; source: string; sheet: string }>({ status: "", lang: "", source: "", sheet: "" });
   const [detail, setDetail] = useState<Engineer | null>(null);
   const [matchingBusy, setMatchingBusy] = useState<string | null>(null);
   const [matchingMsg, setMatchingMsg] = useState<string | null>(null);
@@ -95,11 +122,48 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
     });
   };
 
+  // フィルタ選択肢（データから動的生成）
+  const langOptions = useMemo(() => Array.from(new Set(engineers.map((e) => e.primary_language).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, "ja")), [engineers]);
+  const sourceOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of engineers) {
+      const key = e.source.key + "|" + (e.source.method || "");
+      const label = `${e.source.label}${e.source.method ? ` · ${e.source.method}` : ""}`;
+      if (!m.has(key)) m.set(key, label);
+    }
+    return Array.from(m.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "ja"));
+  }, [engineers]);
+
   const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    if (!t) return engineers;
-    return engineers.filter((e) => [e.display_name, e.github_login, e.primary_language, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase().includes(t));
-  }, [q, engineers]);
+    const needle = q.trim().toLowerCase();
+    return engineers.filter((e) => {
+      if (needle) {
+        const hay = [e.display_name, e.github_login, e.name, e.primary_language, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
+      if (filters.lang && (e.primary_language || "") !== filters.lang) return false;
+      if (filters.source && (e.source.key + "|" + (e.source.method || "")) !== filters.source) return false;
+      if (filters.sheet === "あり" && !e.skill_sheet_url) return false;
+      if (filters.sheet === "なし" && e.skill_sheet_url) return false;
+      return true;
+    });
+  }, [q, filters, engineers]);
+
+  // ページング
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [q, filters, pageSize]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const buildPages = (cur1: number, count: number) => {
+    const win = [1, 2, cur1 - 1, cur1, cur1 + 1, count - 1, count].filter((n) => n >= 1 && n <= count);
+    const uniq = [...new Set(win)].sort((a, b) => a - b);
+    const out: (number | "…")[] = []; let prev = 0;
+    for (const n of uniq) { if (n - prev > 1) out.push("…"); out.push(n); prev = n; }
+    return out;
+  };
 
   if (engineers.length === 0) {
     return <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40, fontSize: 13 }}>まだ enger.jp 経由で登録したエンジニアがいません。</div>;
@@ -107,70 +171,146 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
 
   return (
     <>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <div className="tbl-search" style={{ width: 260, flex: "0 0 260px" }}><input placeholder="氏名・スキル・言語で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <span className="muted" style={{ fontSize: 11.5 }}>{filtered.length} 名</span>
-        {matchingMsg && <span style={{ fontSize: 11.5, color: "var(--color-danger)" }}>{matchingMsg}</span>}
-      </div>
-
-      {/* 人材一覧と同じ行型レイアウト（1～2カラム）でスキャンしやすく、各行にマッチング動線 */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 12 }}>
-        {filtered.map((e) => {
-          const log = actions[e.id] ?? [];
-          const sc = scouts[e.id] ?? [];
-          const ap = applications[e.id] ?? [];
-          return (
-          <div key={e.id}
-            role="button" tabIndex={0}
-            onClick={() => setDetail(e)}
-            onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setDetail(e); } }}
-            className="card"
-            style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}
-          >
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 42, height: 42, borderRadius: 99, flex: "0 0 42px" }} /> : <div className="ava" style={{ width: 42, height: 42, flex: "0 0 42px" }}>{(e.display_name ?? e.github_login ?? e.name ?? "?").slice(0, 2)}</div>}
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.display_name || e.github_login || e.name || "—"}</div>
-                  <SourceBadge source={e.source} />
-                </div>
-                <div className="muted" style={{ fontSize: 11 }}>{e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "")} · {e.primary_language ?? "—"}</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              {skillNames(e).slice(0, 6).map((s) => <span key={s} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{s}</span>)}
-            </div>
-            <div style={{ display: "flex", gap: 14, fontSize: 11.5, color: "var(--color-ink-3)", borderTop: "1px solid var(--color-border)", paddingTop: 8, alignItems: "center" }}>
-              <span>想定単価 <b style={{ color: "var(--color-ink)" }}>{pay(e)}</b></span>
-              <span>★{e.total_stars}</span>
-              <span>repo {e.total_repos}</span>
-              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 5 }}>
-                {ap.length > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募 {ap.length}</span>
-                )}
-                {sc.length > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカウト {sc.length}</span>
-                )}
-                {log.length > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応 {log.length}</span>
-                )}
-              </span>
-            </div>
-            {/* マッチング動線: convertEngineerToCandidate で候補者化 → /matching?person=N へ */}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="btn brand btn-xs"
-                disabled={matchingBusy === e.id}
-                onClick={(ev) => { ev.stopPropagation(); goMatching(e); }}
-                title="このエンジニアを候補者として取り込み、マッチング画面で案件探し"
-              >
-                {matchingBusy === e.id ? "準備中…" : "✦ マッチング"}
-              </button>
-            </div>
+      <div className="card flush">
+        <div className="tbl-toolbar">
+          <div className="tbl-search">
+            <Icons.search />
+            <input placeholder="氏名・スキル・言語で検索…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-        );})}
+          <label className="tbl-filter"><span>ステータス</span>
+            <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+              <option value="">すべて</option>
+              {FRESH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="tbl-filter"><span>主要言語</span>
+            <select value={filters.lang} onChange={(e) => setFilters((f) => ({ ...f, lang: e.target.value }))}>
+              <option value="">すべて</option>
+              {langOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+          <label className="tbl-filter"><span>登録元</span>
+            <select value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}>
+              <option value="">すべて</option>
+              {sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="tbl-filter"><span>スキルシート</span>
+            <select value={filters.sheet} onChange={(e) => setFilters((f) => ({ ...f, sheet: e.target.value }))}>
+              <option value="">すべて</option>
+              <option value="あり">あり</option>
+              <option value="なし">なし</option>
+            </select>
+          </label>
+          {matchingMsg && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-danger)" }}>{matchingMsg}</span>}
+        </div>
+
+        <div className="tbl-scroll" style={{ overflowX: "auto" }}>
+          <table className="tbl tbl-compact">
+            <thead>
+              <tr>
+                <th style={{ width: 96 }}>人材ID</th>
+                <th style={{ width: 104 }}>ステータス</th>
+                <th>氏名</th>
+                <th>スキル</th>
+                <th style={{ width: 110 }}>主要言語</th>
+                <th style={{ width: 110 }} className="num">単価</th>
+                <th style={{ width: 100 }} className="num">GitHub</th>
+                <th style={{ width: 120 }}>スキルシート</th>
+                <th style={{ width: 160 }}>登録元</th>
+                <th style={{ width: 80 }}>履歴</th>
+                <th style={{ width: 200 }}>アクション</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+              ) : pageRows.map((e) => {
+                const log = actions[e.id] ?? [];
+                const sc = scouts[e.id] ?? [];
+                const ap = applications[e.id] ?? [];
+                const name = e.display_name || e.github_login || e.name || "—";
+                const sub = e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "");
+                return (
+                  <tr key={e.id} className="clickable"
+                    onClick={(ev) => { if ((ev.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setDetail(e); }}
+                    title="クリックで詳細">
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>{shortId(e.id)}</span></td>
+                    <td><Fresh d={e.created_at} /></td>
+                    <td>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: 99, flex: "0 0 32px" }} /> : <div className="ava" style={{ flex: "0 0 32px" }}>{name.slice(0, 2)}</div>}
+                        <div style={{ minWidth: 0 }}>
+                          <div className="pri" style={{ color: "var(--color-brand-700)" }}>{name}</div>
+                          {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {skillNames(e).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          {skillNames(e).slice(0, 3).map((s) => <span key={s} className="tag brand">{s}</span>)}
+                          {skillNames(e).length > 3 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{skillNames(e).length - 3}</span>}
+                        </div>
+                      )}
+                    </td>
+                    <td><span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{e.primary_language ?? "—"}</span></td>
+                    <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
+                    <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
+                    <td>
+                      {e.skill_sheet_url
+                        ? <a href={e.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
+                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                    </td>
+                    <td><SourceBadge source={e.source} /></td>
+                    <td>
+                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                        {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
+                        {sc.length > 0 && <span title="スカウト" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカ{sc.length}</span>}
+                        {log.length > 0 && <span title="対応" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応{log.length}</span>}
+                        {ap.length + sc.length + log.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button
+                          type="button"
+                          className="btn btn-xs"
+                          disabled={matchingBusy === e.id}
+                          onClick={(ev) => { ev.stopPropagation(); goMatching(e); }}
+                          title="このエンジニアを候補者として取り込み、マッチング画面で案件探し"
+                          style={{ background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
+                          <span>{matchingBusy === e.id ? "準備中…" : "マッチング"}</span>
+                        </button>
+                        <MailButton to={e.email} search={[name, e.github_login].filter(Boolean).join(" ")} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="tbl-foot muted" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ whiteSpace: "nowrap" }}>{filtered.length.toLocaleString("ja-JP")} 名</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            <button type="button" className="pg-btn" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} aria-label="前へ">‹</button>
+            {buildPages(safePage + 1, pageCount).map((p, idx) => p === "…"
+              ? <span key={`e${idx}`} style={{ padding: "0 4px", color: "var(--color-ink-4)" }}>…</span>
+              : <button key={p} type="button" className={"pg-btn" + (p === safePage + 1 ? " active" : "")} onClick={() => setPage(p - 1)}>{p}</button>)}
+            <button type="button" className="pg-btn" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} aria-label="次へ">›</button>
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            件数：
+            <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ fontFamily: "inherit", fontSize: 12, padding: "4px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+              {[20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </span>
+        </div>
       </div>
 
       {detail && (
