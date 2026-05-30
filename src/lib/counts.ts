@@ -3,7 +3,7 @@ import { engerClient, publicAdmin, dbConfigured } from "./supabase";
 
 export type SidebarCounts = Partial<Record<
   "jobs" | "people" | "companies" | "proposals" | "progress" | "matching" | "engineers"
-  | "newJobs" | "newPeople" | "newEngineers", number>>;
+  | "newJobs" | "newPeople" | "newEngineers" | "approvalsPending", number>>;
 
 async function fetchCounts(): Promise<SidebarCounts> {
   if (!dbConfigured) return {};
@@ -34,7 +34,7 @@ async function fetchCounts(): Promise<SidebarCounts> {
     catch { return undefined; }
   };
 
-  const [jobs, people, companies, proposals, engagements, engineers, newJobs, newPeople, newEngineers] = await Promise.all([
+  const [jobs, people, companies, proposals, engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending] = await Promise.all([
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true)),
     safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true })),
     companyCount(),
@@ -44,8 +44,10 @@ async function fetchCounts(): Promise<SidebarCounts> {
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true).gte("created_at", since7)),
     safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true }).gte("created_at", since7)),
     newEngineerCount(),
+    // 承認待ち件数（サイドメニューの NEW バッジ用）
+    safeCount(() => sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending")),
   ]);
-  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers };
+  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending };
 }
 
 // 30秒キャッシュ + タグ。書き込み時に revalidateTag("sidebar-counts") で即時更新。
