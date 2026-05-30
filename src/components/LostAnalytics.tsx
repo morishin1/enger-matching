@@ -29,28 +29,82 @@ const LOST_STAGES = new Set(["見送り", "失注"]);
 const WON_STAGES = new Set(["稼働", "稼働決定"]);
 
 const PERIOD_PRESETS = [
-  { key: "30d",  label: "直近30日" },
-  { key: "90d",  label: "直近90日" },
-  { key: "180d", label: "直近6ヶ月" },
-  { key: "365d", label: "直近1年" },
-  { key: "ytd",  label: "今年" },
-  { key: "all",  label: "全期間" },
+  { key: "30d",   label: "直近30日" },
+  { key: "90d",   label: "直近90日" },
+  { key: "180d",  label: "直近6ヶ月" },
+  { key: "365d",  label: "直近1年" },
+  { key: "tm",    label: "今月" },
+  { key: "lm",    label: "先月" },
+  { key: "ytd",   label: "今年" },
+  { key: "ly",    label: "昨年" },
+  { key: "all",   label: "全期間" },
 ] as const;
 type PeriodKey = typeof PERIOD_PRESETS[number]["key"];
 
-function periodRange(period: PeriodKey, fromStr: string, toStr: string): { from: number; to: number; label: string } {
+const SPAN_OPTIONS = [
+  { key: "",   label: "（期間指定）" },
+  { key: "1w", label: "から1週間" },
+  { key: "2w", label: "から2週間" },
+  { key: "1m", label: "から1ヶ月" },
+  { key: "3m", label: "から3ヶ月" },
+  { key: "6m", label: "から6ヶ月" },
+  { key: "1y", label: "から1年" },
+] as const;
+type SpanKey = typeof SPAN_OPTIONS[number]["key"];
+
+function addSpan(t: number, span: SpanKey): number {
+  const d = new Date(t);
+  switch (span) {
+    case "1w": d.setDate(d.getDate() + 7); break;
+    case "2w": d.setDate(d.getDate() + 14); break;
+    case "1m": d.setMonth(d.getMonth() + 1); break;
+    case "3m": d.setMonth(d.getMonth() + 3); break;
+    case "6m": d.setMonth(d.getMonth() + 6); break;
+    case "1y": d.setFullYear(d.getFullYear() + 1); break;
+  }
+  return d.getTime() - 1;
+}
+
+function periodRange(period: PeriodKey, fromStr: string, toStr: string, span: SpanKey, year: string): { from: number; to: number; label: string } {
   const now = Date.now();
+  // 年指定（例: 2020年）
+  if (year) {
+    const y = Number(year);
+    const from = new Date(y, 0, 1).getTime();
+    const to = new Date(y + 1, 0, 1).getTime() - 1;
+    return { from, to, label: `${y}年` };
+  }
+  // カスタム範囲 / 開始日 + スパン
   if (fromStr || toStr) {
     const from = fromStr ? new Date(fromStr).getTime() : 0;
+    if (fromStr && span) {
+      const to = addSpan(from, span);
+      return { from, to, label: `${fromStr} から${SPAN_OPTIONS.find((s) => s.key === span)?.label.replace("から", "") ?? ""}間` };
+    }
     const to = toStr ? new Date(toStr).getTime() + 86400000 - 1 : now;
     return { from, to, label: `${fromStr || "—"} 〜 ${toStr || "今日"}` };
   }
+  const today = new Date();
   switch (period) {
     case "30d":  return { from: now - 30 * 86400000,  to: now, label: "直近30日" };
     case "90d":  return { from: now - 90 * 86400000,  to: now, label: "直近90日" };
     case "180d": return { from: now - 180 * 86400000, to: now, label: "直近6ヶ月" };
     case "365d": return { from: now - 365 * 86400000, to: now, label: "直近1年" };
-    case "ytd":  return { from: new Date(new Date().getFullYear(), 0, 1).getTime(), to: now, label: "今年" };
+    case "tm": {
+      const from = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
+      const to = new Date(today.getFullYear(), today.getMonth() + 1, 1).getTime() - 1;
+      return { from, to, label: "今月" };
+    }
+    case "lm": {
+      const from = new Date(today.getFullYear(), today.getMonth() - 1, 1).getTime();
+      const to = new Date(today.getFullYear(), today.getMonth(), 1).getTime() - 1;
+      return { from, to, label: "先月" };
+    }
+    case "ytd":  return { from: new Date(today.getFullYear(), 0, 1).getTime(), to: now, label: "今年" };
+    case "ly": {
+      const y = today.getFullYear() - 1;
+      return { from: new Date(y, 0, 1).getTime(), to: new Date(y + 1, 0, 1).getTime() - 1, label: "昨年" };
+    }
     case "all":  return { from: 0, to: now, label: "全期間" };
   }
 }
@@ -149,8 +203,10 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
   const [period, setPeriod] = useState<PeriodKey>("90d");
   const [fromStr, setFromStr] = useState("");
   const [toStr, setToStr] = useState("");
+  const [span, setSpan] = useState<SpanKey>("");
+  const [year, setYear] = useState("");
 
-  const { from, to, label } = periodRange(period, fromStr, toStr);
+  const { from, to, label } = periodRange(period, fromStr, toStr, span, year);
 
   const filtered = useMemo(() => history.filter((p) => {
     const t = new Date(p.updated_at || p.created_at || 0).getTime();
@@ -159,33 +215,70 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
 
   const data = useMemo(() => analyze(filtered), [filtered]);
 
+  // 履歴から登場する年を抽出（降順）
+  const availableYears = useMemo(() => {
+    const ys = new Set<number>();
+    for (const p of history) {
+      const t = p.updated_at || p.created_at;
+      if (t) ys.add(new Date(t).getFullYear());
+    }
+    const arr = Array.from(ys).sort((a, b) => b - a);
+    // 現在年が無くても選べるようにフォールバック
+    const cy = new Date().getFullYear();
+    if (!arr.includes(cy)) arr.unshift(cy);
+    return arr;
+  }, [history]);
+
+  const clearAll = () => { setFromStr(""); setToStr(""); setSpan(""); setYear(""); };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* 期間フィルタ */}
-      <div className="card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: "10px 14px" }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>📅 集計期間</span>
-        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
-          {PERIOD_PRESETS.map((p) => {
-            const active = period === p.key && !fromStr && !toStr;
-            return (
-              <button key={p.key} type="button"
-                onClick={() => { setPeriod(p.key); setFromStr(""); setToStr(""); }}
-                style={{ padding: "5px 12px", borderRadius: 99, border: 0, fontSize: 11.5, fontWeight: 600, cursor: "pointer", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: active ? "0 1px 2px rgba(15,23,42,.08)" : "none", fontFamily: "inherit" }}>
-                {p.label}
-              </button>
-            );
-          })}
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>📅 集計期間</span>
+          <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, flexWrap: "wrap" }}>
+            {PERIOD_PRESETS.map((p) => {
+              const active = period === p.key && !fromStr && !toStr && !year;
+              return (
+                <button key={p.key} type="button"
+                  onClick={() => { setPeriod(p.key); setFromStr(""); setToStr(""); setSpan(""); setYear(""); }}
+                  style={{ padding: "5px 12px", borderRadius: 99, border: 0, fontSize: 11.5, fontWeight: 600, cursor: "pointer", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: active ? "0 1px 2px rgba(15,23,42,.08)" : "none", fontFamily: "inherit" }}>
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+          <span className="muted" style={{ marginLeft: "auto", fontSize: 11 }}>表示期間：{label}</span>
         </div>
-        <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>or</span>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-ink-3)" }}>
-          <input type="date" value={fromStr} onChange={(e) => setFromStr(e.target.value)} style={{ fontSize: 11.5, padding: "3px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 6 }} />
-          〜
-          <input type="date" value={toStr} onChange={(e) => setToStr(e.target.value)} style={{ fontSize: 11.5, padding: "3px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 6 }} />
-        </label>
-        {(fromStr || toStr) && (
-          <button type="button" className="btn ghost btn-xs" onClick={() => { setFromStr(""); setToStr(""); }}>クリア</button>
-        )}
-        <span className="muted" style={{ marginLeft: "auto", fontSize: 11 }}>表示期間：{label}</span>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>年指定</span>
+            <select value={year} onChange={(e) => { setYear(e.target.value); setFromStr(""); setToStr(""); setSpan(""); }}
+              style={{ fontSize: 11.5, padding: "3px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 6, fontFamily: "inherit" }}>
+              <option value="">—</option>
+              {availableYears.map((y) => <option key={y} value={String(y)}>{y}年</option>)}
+            </select>
+          </label>
+          <span style={{ color: "var(--color-ink-5)" }}>|</span>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>カスタム</span>
+            <input type="date" value={fromStr} onChange={(e) => { setFromStr(e.target.value); setYear(""); }} style={{ fontSize: 11.5, padding: "3px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 6 }} />
+            <span>〜</span>
+            <input type="date" value={toStr} onChange={(e) => { setToStr(e.target.value); setYear(""); setSpan(""); }} disabled={!!span}
+              style={{ fontSize: 11.5, padding: "3px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 6, opacity: span ? 0.45 : 1 }} />
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>または開始日</span>
+            <select value={span} onChange={(e) => { setSpan(e.target.value as SpanKey); if (e.target.value) setToStr(""); }} disabled={!fromStr}
+              style={{ fontSize: 11.5, padding: "3px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 6, fontFamily: "inherit", opacity: fromStr ? 1 : 0.45 }}>
+              {SPAN_OPTIONS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+          </label>
+          {(fromStr || toStr || year || span) && (
+            <button type="button" className="btn ghost btn-xs" onClick={clearAll}>クリア</button>
+          )}
+        </div>
       </div>
 
       {/* KPI */}
