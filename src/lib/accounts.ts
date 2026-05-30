@@ -118,6 +118,19 @@ export async function currentAccess(): Promise<{ role: Role; status: AccountStat
   } catch { return null; }
 }
 
+/** あるアカウントに紐づく送信メール履歴＋打合せ予定/実績を取得（承認画面用）。 */
+export async function listAccountActivity(accountId: string): Promise<{ emails: any[]; meetings: any[] }> {
+  if (!accountId || !dbConfigured) return { emails: [], meetings: [] };
+  try {
+    const sb = engerAdmin();
+    const [em, mt] = await Promise.all([
+      sb.from("account_emails").select("id, template, subject, body, actor_email, actor_name, status, created_at").eq("account_id", accountId).order("created_at", { ascending: false }).limit(50),
+      sb.from("meetings").select("id, title, meeting_date, our_owner, new_or_existing, account_email, fb_sentiment, ai_summary, created_at").eq("account_id", accountId).order("meeting_date", { ascending: false }).limit(20),
+    ]);
+    return { emails: em.error ? [] : (em.data ?? []), meetings: mt.error ? [] : (mt.data ?? []) };
+  } catch { return { emails: [], meetings: [] }; }
+}
+
 /** 承認待ち一覧（管理者用）。 */
 export async function listAccounts(): Promise<Account[]> {
   if (!dbConfigured) return [];
