@@ -6,13 +6,27 @@ export const dynamic = "force-dynamic";
 
 const json = (d: unknown, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "Content-Type": "application/json" } });
 
+// 同じ案件×候補リストで何度も課金しないためのインメモリキャッシュ（提案メール生成と同方式）。
+// データ（スキル・単価）が変わればキーも変わるので、古い評価が残ることはない。
+const cache = new Map<string, { candidate_no: number; score: number; reason: string }[]>();
+const cacheKeyOf = (job: any, cands: any[]) => {
+  const j = [job?.title, (job?.skills ?? []).join(","), job?.salary_min, job?.salary_max, job?.remote_type, job?.role_label].join("|");
+  const c = cands.map((c) => `${c.candidate_no}:${c.rate ?? ""}:${(c.skills ?? []).join("/")}`).join(";");
+  return `${j}#${c}`;
+};
+
 /** ルールベース上位の候補を、LLMで文脈評価して再ランキング（適合度＋理由）。 */
 export async function POST(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return json({ ok: false, error: "リクエストが不正です" }, 400); }
   const job = body?.job ?? {};
-  const candidates: any[] = Array.isArray(body?.candidates) ? body.candidates.slice(0, 12) : [];
+  const candidates: any[] = Array.isArray(body?.candidates) ? body.candidates.slice(0, 10) : [];
   if (!candidates.length) return json({ ok: false, error: "候補がありません" }, 400);
+
+  // キャッシュヒットなら LLM を呼ばず即返す（コスト 0）
+  const ckey = cacheKeyOf(job, candidates);
+  const hit = cache.get(ckey);
+  if (hit) return json({ ok: true, results: hit, cached: true });
 
   const system = "あなたはSES/エンジニア人材のマッチング専門家です。案件と候補者の適合度を文脈から評価し、必ず指定JSONのみで返します。";
   const jobDesc = [
@@ -50,5 +64,8 @@ export async function POST(req: Request) {
   const results = parsed
     .map((p) => ({ candidate_no: Number(p.candidate_no), score: Math.max(0, Math.min(100, Math.round(Number(p.score) || 0))), reason: String(p.reason ?? "") }))
     .filter((p) => valid.has(p.candidate_no));
-  return json({ ok: true, results });
+  // 結果をキャッシュ（メモリ肥大を防ぐため簡易上限）
+  if (cache.size > 500) cache.clear();
+  cache.set(ckey, results);
+  return json({ ok: true, results, cached: false });
 }
