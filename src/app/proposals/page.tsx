@@ -1,6 +1,7 @@
 import { Icons } from "@/components/icons";
 import { ProposalBoard } from "@/components/ProposalBoard";
 import { ProposalHistory } from "@/components/ProposalHistory";
+import { ProposalsTabs } from "@/components/ProposalsTabs";
 import { NewProposalButton } from "@/components/NewProposalButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
@@ -129,64 +130,70 @@ export default async function ProposalsPage() {
       )}
 
       {!needSetup && (
-        <>
-          {proposals.length === 0 ? (
-            <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
-              まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。
-            </div>
-          ) : (
-            <ProposalBoard proposals={proposals} members={staff.members} />
-          )}
-
-          {feedbackList.length > 0 && (
-            <div className="card">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>🗣 企業からの評価（ミスマッチ低減）</h3>
-                <span className="muted" style={{ fontSize: 11.5 }}>{feedbackList.length} 件</span>
+        <ProposalsTabs
+          boardCount={proposals.length}
+          historyCount={history.length}
+          lostCount={lost}
+          board={
+            proposals.length === 0 ? (
+              <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+                まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {feedbackList.slice(0, 12).map((f, i) => {
-                  const tone = f.verdict === "want" ? { bg: "#e7f7ee", fg: "#067647" } : f.verdict === "mismatch" ? { bg: "#fdecef", fg: "#b42318" } : { bg: "#fff5e6", fg: "#b45309" };
-                  return (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-                      <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: tone.bg, color: tone.fg }}>{VERDICT_LABEL[f.verdict]}</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{f.company}<span className="muted" style={{ fontWeight: 400 }}> ・ {f.c_init} ・ {f.job_title}</span></div>
-                        {f.reason && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>「{f.reason}」</div>}
-                      </div>
+            ) : (
+              <>
+                <ProposalBoard proposals={proposals} members={staff.members} />
+                {feedbackList.length > 0 && (
+                  <div className="card" style={{ marginTop: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>🗣 企業からの評価（ミスマッチ低減）</h3>
+                      <span className="muted" style={{ fontSize: 11.5 }}>{feedbackList.length} 件</span>
                     </div>
-                  );
-                })}
-              </div>
-              <div style={{ marginTop: 10, fontSize: 10.5, color: "var(--color-ink-4)" }}>※ ユーザー企業ポータルの「おすすめ人材」で企業が返した評価です。ミスマッチ理由を次の提案に反映しましょう。</div>
-            </div>
-          )}
-
-          {history.length > 0 && <ProposalHistory items={history} />}
-
-          {topReasons.length > 0 && (
-            <div className="card" id="lost-summary">
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>💔 失注理由サマリー</h3>
-                <span className="muted" style={{ fontSize: 11.5 }}>見送り {lost} 件</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {topReasons.map(([reason, n]) => {
-                  const w = Math.round((n / lost) * 100);
-                  return (
-                    <div key={reason} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 220px) 1fr 36px", gap: 10, alignItems: "center" }}>
-                      <span style={{ fontSize: 11.5, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reason}</span>
-                      <div style={{ height: 8, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
-                        <div style={{ width: `${w}%`, height: "100%", background: "var(--color-danger)", borderRadius: 99 }} />
-                      </div>
-                      <span className="mono tnum" style={{ fontSize: 11.5, textAlign: "right", color: "var(--color-ink-3)" }}>{n}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {feedbackList.slice(0, 12).map((f, i) => {
+                        const tone = f.verdict === "want" ? { bg: "#e7f7ee", fg: "#067647" } : f.verdict === "mismatch" ? { bg: "#fdecef", fg: "#b42318" } : { bg: "#fff5e6", fg: "#b45309" };
+                        return (
+                          <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
+                            <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: tone.bg, color: tone.fg }}>{VERDICT_LABEL[f.verdict]}</span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{f.company}<span className="muted" style={{ fontWeight: 400 }}> ・ {f.c_init} ・ {f.job_title}</span></div>
+                              {f.reason && <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>「{f.reason}」</div>}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                    <div style={{ marginTop: 10, fontSize: 10.5, color: "var(--color-ink-4)" }}>※ ユーザー企業ポータルの「おすすめ人材」で企業が返した評価です。ミスマッチ理由を次の提案に反映しましょう。</div>
+                  </div>
+                )}
+              </>
+            )
+          }
+          history={history.length > 0 ? <ProposalHistory items={history} /> : null}
+          lostSummary={
+            topReasons.length > 0 ? (
+              <div className="card" id="lost-summary">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>💔 失注理由サマリー</h3>
+                  <span className="muted" style={{ fontSize: 11.5 }}>見送り {lost} 件</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {topReasons.map(([reason, n]) => {
+                    const w = Math.round((n / lost) * 100);
+                    return (
+                      <div key={reason} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 220px) 1fr 36px", gap: 10, alignItems: "center" }}>
+                        <span style={{ fontSize: 11.5, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reason}</span>
+                        <div style={{ height: 8, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+                          <div style={{ width: `${w}%`, height: "100%", background: "var(--color-danger)", borderRadius: 99 }} />
+                        </div>
+                        <span className="mono tnum" style={{ fontSize: 11.5, textAlign: "right", color: "var(--color-ink-3)" }}>{n}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-        </>
+            ) : null
+          }
+        />
       )}
     </div>
   );

@@ -80,6 +80,13 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const totalDays = daysSince(p.created_at);
   const sla = STAGE_SLA_DAYS[p.stage] ?? 5;
   const at = ageTone(stageDays, sla);
+  // 提案日時と目標日時（現ステージ滞留時間の SLA から逆算）
+  const proposedAt = p.created_at ? new Date(p.created_at) : null;
+  const stageStartAt = p.stage_updated_at ? new Date(p.stage_updated_at) : (p.updated_at ? new Date(p.updated_at) : proposedAt);
+  const targetAt = stageStartAt ? new Date(stageStartAt.getTime() + sla * 86400000) : null;
+  const overdueDays = targetAt ? Math.max(0, Math.floor((Date.now() - targetAt.getTime()) / 86400000)) : 0;
+  const fmtMD = (d: Date | null) => d ? `${d.getMonth() + 1}/${d.getDate()}` : "—";
+  const fmtMDt = (d: Date | null) => d ? `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "—";
 
   return (
     <div
@@ -109,20 +116,17 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       </div>
       <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
-        {(p.updated_at || p.created_at) && (
-          <span style={{ flexShrink: 0, display: "inline-flex", gap: 6, alignItems: "center" }}>
-            {totalDays != null && (
-              <span title={`提案開始からの経過日数 / 開始: ${dvDateTime(p.created_at)}`}
-                style={{ fontSize: 10, padding: "1px 6px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-3)", fontWeight: 700 }}>
-                ⏱ {totalDays}d
-              </span>
-            )}
-            {stageDays != null && (
-              <span title={`現在ステージ「${p.stage}」の滞留日数 / 目標: ${sla}日以内${at.level !== "ok" ? "（目標超過）" : ""}`}
-                style={{ fontSize: 10, padding: "1px 6px", borderRadius: 99, background: at.bg, color: at.fg, border: `1px solid ${at.bd}`, fontWeight: 700 }}>
-                🕐 {stageDays}d{at.level === "warn" ? " ⚠" : at.level === "danger" ? " 🚨" : ""}
-              </span>
-            )}
+        {(proposedAt || targetAt) && (
+          <span style={{ flexShrink: 0, display: "inline-flex", gap: 4, alignItems: "center", fontSize: 10.5 }}>
+            <span title={`提案開始：${fmtMDt(proposedAt)}（経過 ${totalDays ?? 0}日）`}
+              style={{ color: "var(--color-ink-3)", fontWeight: 600 }}>
+              提案 {fmtMD(proposedAt)}
+            </span>
+            <span style={{ color: "var(--color-ink-5)" }}>→</span>
+            <span title={`目標：${fmtMDt(targetAt)}（現ステージ「${p.stage}」滞留 ${stageDays ?? 0}日 / SLA ${sla}日）${at.level === "warn" ? "\n⚠ 目標超過" : at.level === "danger" ? "\n🚨 大幅超過" : ""}`}
+              style={{ padding: "1px 6px", borderRadius: 99, background: at.bg, color: at.fg, border: `1px solid ${at.bd}`, fontWeight: 700 }}>
+              目標 {fmtMD(targetAt)}{at.level === "warn" ? " ⚠" : at.level === "danger" ? ` 🚨 +${overdueDays}d` : ""}
+            </span>
           </span>
         )}
       </div>
@@ -299,11 +303,16 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
               transition: "background .12s ease, border-color .12s ease",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 4px" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: tone }} />{stage}
-              </span>
-              <span className="muted" style={{ fontSize: 11 }}>{items.length}</span>
+            {/* カラムヘッダ：ステージ名と件数を大きく表示 */}
+            <div style={{ padding: "6px 6px 10px", display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--color-border)" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, color: tone }}>
+                <span style={{ width: 10, height: 10, borderRadius: 99, background: tone }} />
+                {stage}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                <span style={{ fontSize: 26, fontWeight: 800, lineHeight: 1, color: items.length > 0 ? "var(--color-ink)" : "var(--color-ink-4)", fontFamily: "var(--font-display)" }}>{items.length}</span>
+                <span style={{ fontSize: 12, color: "var(--color-ink-3)", fontWeight: 600 }}>件</span>
+              </div>
             </div>
             {items.length === 0 && <div style={{ fontSize: 11, color: isOver ? tone : "var(--color-ink-4)", textAlign: "center", padding: "16px 0", fontWeight: isOver ? 700 : 400 }}>{isOver ? "ここにドロップ" : "—"}</div>}
             {items.map((p) => (
