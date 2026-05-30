@@ -6,7 +6,7 @@ import { IssueBoard, type Issue } from "./IssueBoard";
 import { Collapsible } from "./Collapsible";
 import { leadKpi, isContacted } from "@/lib/quality";
 
-const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
+const ACTIVE_STAGES = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
 const MET_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const DAY = 86400000;
 
@@ -120,7 +120,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const todaysMeetings = proposals.filter((p) => p.meeting_date === today);
   const meetingsAdjusting = proposals.filter((p) => p.stage === "面談調整");
   const renewSoon = liveEngs.filter((e) => { const d = daysUntil(e.end_date); return d != null && d <= 31 && d >= 0; });
-  const callPending = proposals.filter((p) => p.stage === "未対応" || p.caller_status === "未架電");
+  const callPending = proposals.filter((p) => p.stage === "返信待ち" || p.caller_status === "未架電");
   const closingStalled = proposals.filter((p) => p.stage === "クロージング中" && daysAgo(p.created_at) >= 7);
   const actionTotal = (hasMeetingDate ? todaysMeetings.length : meetingsAdjusting.length) + renewSoon.length + callPending.length + closingStalled.length;
 
@@ -173,7 +173,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const insideActions: Action[] = [
     { icon: "⭐", title: "注力案件を提案する", count: focusUntouched.length, detail: "注力なのに未提案。マッチングして提案", href: "/matching", items: focusUntouched.map(jLabel) },
     { icon: "🆕", title: "新着をマッチング", count: newJobs.filter((j: any) => !activeTitles.has(j.title)).length, detail: "7日以内の新着・未提案", href: "/matching", items: newJobs.filter((j: any) => !activeTitles.has(j.title)).map(jLabel) },
-    { icon: "📞", title: "提案の初動", count: callPending.filter(mineProposer).length, detail: "自分の提案で未対応/未架電", href: "/proposals", items: callPending.filter(mineProposer).map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
+    { icon: "📞", title: "提案の初動", count: callPending.filter(mineProposer).length, detail: "自分の提案で返信待ち/未架電", href: "/proposals", items: callPending.filter(mineProposer).map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
     { icon: "⏱", title: "停滞フォロー", count: insideStalled.length, detail: "提案中だが7日接触なし", href: "/proposals", items: insideStalled.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) },
   ];
 
@@ -215,7 +215,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
 
   const agentIssues: Issue[] = [];
   if (fProposed >= 8 && metRate < 35) agentIssues.push({ id: "meet", sev: "high", title: "提案は出ているが面談に進んでいない", metric: `提案${fProposed}→面談${fMet}（${metRate}%）`, advice: "提案の質・初動フォローを見直し。提案中で接触できていない先を優先架電。", href: "/proposals", items: proposals.filter((p) => p.stage === "提案中" && !isContacted(p)).map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) });
-  if (callPending.length >= 3) agentIssues.push({ id: "call", sev: "mid", title: "初動（架電・対応）が滞っている", metric: `未対応/未架電 ${callPending.length}件`, advice: "当日中の初動が歩留まりを左右します。上から順に連絡。", href: "/proposals", items: callPending.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) });
+  if (callPending.length >= 3) agentIssues.push({ id: "call", sev: "mid", title: "初動（架電・返信）が滞っている", metric: `返信待ち/未架電 ${callPending.length}件`, advice: "当日中の初動が歩留まりを左右します。上から順に連絡。", href: "/proposals", items: callPending.map((p: any) => `${p.company ?? "—"}：${p.job_title ?? "—"}`) });
   if (staleJobs.length >= 5) agentIssues.push({ id: "stale", sev: "mid", title: "鮮度切れ案件が積み上がっている", metric: `14日以上・未提案 ${staleJobs.length}件`, advice: "古い案件はマッチングし直すか、クローズ判断を。", href: "/jobs", items: staleJobs.map(jLabel) });
   if (renewSoon.length >= 1) agentIssues.push({ id: "renew", sev: "high", title: "契約満了が近い稼働がある（売上防衛）", metric: `30日以内に満了 ${renewSoon.length}名`, advice: "更新交渉を前倒し。終了予定なら後任の手配を。", href: "/progress", items: renewSoon.map((e: any) => `${e.candidate_name || "—"}（${e.company ?? "—"} / 満了まで${daysUntil(e.end_date)}日）`) });
   if (agentIssues.length === 0) agentIssues.push({ id: "ok", sev: "good", title: "大きなボトルネックはありません", metric: `面談化 ${metRate}% / 進行中 ${activeProps.length}件`, advice: "在庫から次の仕込み（注力案件の提案・新規開拓）を進めましょう。" });

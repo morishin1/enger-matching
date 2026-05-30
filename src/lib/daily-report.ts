@@ -8,7 +8,7 @@ export type DailyReport = {
   metrics: any; ai_comment: string | null;
 };
 
-const ACTIVE = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
+const ACTIVE = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const weekAgoStr = () => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 

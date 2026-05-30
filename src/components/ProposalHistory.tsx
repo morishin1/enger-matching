@@ -19,7 +19,7 @@ export function ProposalHistory({ items }: { items: any[] }) {
   const [q, setQ] = useState("");
 
   const restore = (id: string, label: string) => {
-    if (!confirm(`「${label}」をボードに戻しますか？（ステージ=未対応に戻ります。稼働化済みの場合は稼働も取り消されます）`)) return;
+    if (!confirm(`「${label}」をボードに戻しますか？（ステージ=返信待ちに戻ります。稼働化済みの場合は稼働も取り消されます）`)) return;
     start(async () => { await restoreProposal(id); router.refresh(); });
   };
 

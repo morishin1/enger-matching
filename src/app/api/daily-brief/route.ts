@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     "【締切のあるアクション】",
     `本日の面談/面談調整中: ${metrics.meetings ?? 0}`,
     `要更新確認(30日以内満了): ${metrics.renewSoon ?? 0}`,
-    `初動待ち(未対応/未架電): ${metrics.callPending ?? 0}`,
+    `初動待ち(返信待ち/未架電): ${metrics.callPending ?? 0}`,
     `クロージング滞留(7日+): ${metrics.closingStalled ?? 0}`,
     "",
     "【需要(案件)】",

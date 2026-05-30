@@ -3,7 +3,7 @@ import { leadKpi } from "@/lib/quality";
 
 export const dynamic = "force-dynamic";
 
-const ACTIVE_STAGES = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
+const ACTIVE_STAGES = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
 const MET_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const LOST_STAGES = ["見送り", "失注"];
 

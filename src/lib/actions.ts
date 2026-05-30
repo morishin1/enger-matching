@@ -222,7 +222,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
 
   const { data, error } = await admin.from("proposals").insert({
-    job_id: job.id, candidate_id: cand.id, stage: "未対応",
+    job_id: job.id, candidate_id: cand.id, stage: "返信待ち",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser, // 企業担当をデフォルトのクロージング担当に
@@ -259,7 +259,7 @@ export async function deleteProposal(id: string) {
 /**
  * 提案の取り消し（記録直後のみ）。
  * 以下の条件を全て満たす場合のみ削除を許可：
- *   - stage が初期値（未対応）のまま
+ *   - stage が初期値（返信待ち）のまま
  *   - next_action が未入力
  *   - 作成から60秒以内（updated_at ≈ created_at）
  *   - 紐づく稼働(engagements)が無い
@@ -276,7 +276,7 @@ export async function undoProposal(id: string) {
     .maybeSingle();
   if (fe || !p) return { ok: false, error: "提案が見つかりません" };
 
-  if (p.stage !== "未対応") return { ok: false, error: `ステージが「${p.stage}」に進んでいるため取り消せません` };
+  if (p.stage !== "返信待ち") return { ok: false, error: `ステージが「${p.stage}」に進んでいるため取り消せません` };
   if (p.next_action) return { ok: false, error: "次のアクションが記入済みのため取り消せません" };
 
   const diffSec = (new Date(p.updated_at).getTime() - new Date(p.created_at).getTime()) / 1000;
@@ -291,14 +291,14 @@ export async function undoProposal(id: string) {
   return { ok: true };
 }
 
-/** 見送り/失注/稼働化した提案をボードに戻す（ステージを未対応へ）。 */
+/** 見送り/失注/稼働化した提案をボードに戻す（ステージを「返信待ち」へ）。 */
 export async function restoreProposal(id: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!id) return { ok: false, error: "id がありません" };
   // 稼働化済みなら稼働も取り消し
   try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* 続行 */ }
-  const { error } = await admin.from("proposals").update({ stage: "未対応", lost_reason: null, lost_phase: null, updated_at: new Date().toISOString() }).eq("id", id);
+  const { error } = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, updated_at: new Date().toISOString() }).eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
   return { ok: true };
@@ -1004,7 +1004,7 @@ export async function createProposalManual(input: {
 
   const insertRow: Record<string, any> = {
     job_id: jobRow.id, candidate_id: candRow.id,
-    stage: input.stage?.trim() || "未対応",
+    stage: input.stage?.trim() || "返信待ち",
     job_title: jobRow.title, company: jobRow.client_name, candidate_name: candRow.name,
     c_init: candRow.initials, rate: candRow.rate, ai: false,
   };
