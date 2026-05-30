@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ApprovalsPage() {
   const access = await currentAccess();
-  // 管理者のみ（認証未設定のローカルは access=admin 相当で通る）
-  if (access && access.role !== "admin") redirect("/");
+  // 管理者・エージェントが利用可能（agent は admin ロール付与・admin の操作は不可）
+  if (access && access.role !== "admin" && access.role !== "agent") redirect("/");
 
   const accounts = await listAccounts();
   const pending = accounts.filter((a) => a.status === "pending").length;

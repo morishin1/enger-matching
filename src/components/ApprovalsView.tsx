@@ -87,7 +87,7 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
           <div className="tbl-scroll" style={{ overflowX: "auto" }}>
             <table className="tbl tbl-compact" style={{ minWidth: 720 }}>
               <thead>
-                <tr><th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日</th><th style={{ width: 240 }}>操作</th></tr>
+                <tr><th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日</th><th style={{ width: 220 }}>承認・面談履歴</th><th style={{ width: 260 }}>操作</th></tr>
               </thead>
               <tbody>
                 {rows.map((a) => {
@@ -102,6 +102,14 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
                       </td>
                       <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{a.email}</td>
                       <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{fmtDate(a.created_at)}</td>
+                      <td style={{ fontSize: 11, color: "var(--color-ink-3)", lineHeight: 1.6 }}>
+                        {a.approved_at ? (
+                          <div>承認 {fmtDate(a.approved_at)}<br /><span className="muted">by {a.approved_by_name || a.approved_by_email || "—"}</span></div>
+                        ) : <span className="muted">未承認</span>}
+                        {(a as any).meeting_done && (a as any).meeting_done_at && (
+                          <div style={{ marginTop: 4, color: "#067647" }}>面談済 {fmtDate((a as any).meeting_done_at)}<br /><span className="muted">by {(a as any).meeting_done_by_name || (a as any).meeting_done_by_email || "—"}</span></div>
+                        )}
+                      </td>
                       <td>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                           {a.status === "pending" && (

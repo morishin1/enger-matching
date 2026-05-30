@@ -34,35 +34,80 @@ async function findAuthUserIdByEmail(email: string): Promise<string | null> {
   return null;
 }
 
-/** 操作者が admin であることを確認。 */
-async function requireAdmin(): Promise<Result> {
-  if (!authConfigured) return { ok: true }; // ローカル(認証未設定)は許可
+type Actor = { email: string; name: string | null; role: string };
+const localActor: Actor = { email: "local-admin", name: null, role: "admin" };
+
+/** 現在の操作者情報を取得（ロール判定と監査用）。 */
+async function getActor(): Promise<Actor | null> {
+  if (!authConfigured) return localActor;
   try {
     const sb = await authServerClient();
     const { data: { user } } = await sb.auth.getUser();
-    const access = user?.email ? await resolveAccess(user.email) : null;
-    if (access?.role === "admin" && access.status === "active") return { ok: true };
-    return { ok: false, error: "管理者権限が必要です" };
-  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+    if (!user?.email) return null;
+    const access = await resolveAccess(user.email);
+    if (!access || access.status !== "active") return null;
+    return { email: user.email, name: access.name, role: access.role };
+  } catch { return null; }
+}
+
+/** 操作者が admin であることを確認。 */
+async function requireAdmin(): Promise<Result & { actor?: Actor }> {
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "認証が必要です" };
+  if (actor.role !== "admin") return { ok: false, error: "管理者権限が必要です" };
+  return { ok: true, actor };
+}
+
+/** 操作者が admin または agent であることを確認（承認・面談済み・無効化・区分変更などの軽い管理操作向け）。 */
+async function requireAdminOrAgent(): Promise<Result & { actor?: Actor }> {
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "認証が必要です" };
+  if (actor.role !== "admin" && actor.role !== "agent") return { ok: false, error: "管理者またはエージェントの権限が必要です" };
+  return { ok: true, actor };
+}
+
+/** 監査ログを残す（失敗は無視）。 */
+async function audit(targetId: string, targetEmail: string | null, action: string, detail: string | null, actor: Actor) {
+  try {
+    const sb = engerAdmin();
+    await sb.from("account_audits").insert({
+      target_id: targetId, target_email: targetEmail,
+      action, detail,
+      actor_email: actor.email, actor_name: actor.name, actor_role: actor.role,
+    });
+  } catch { /* 監査テーブル未作成等は無視 */ }
 }
 
 /** 承認: status=active + role/company を確定。 */
 export async function approveAccount(formData: FormData): Promise<Result> {
-  const guard = await requireAdmin();
+  // 承認はエージェントも実行可（admin が admin ロール付与する操作とは分離）
+  const guard = await requireAdminOrAgent();
   if (!guard.ok) return guard;
+  const actor = guard.actor!;
   const id = String(formData.get("id") ?? "");
   const role = String(formData.get("role") ?? "client");
   const company = String(formData.get("company_name") ?? "").trim() || null;
   if (!id) return { ok: false, error: "id がありません" };
+  // エージェントは admin ロール付与不可（権限昇格防止）
+  if (role === "admin" && actor.role !== "admin") return { ok: false, error: "管理者ロールの付与は管理者のみ実行できます" };
   try {
     const sb = engerAdmin();
-    const { error } = await sb.from("app_users").update({
+    const upd: Record<string, any> = {
       status: "active",
       role: ["admin", "agent", "client", "candidate", "partner", "freelance"].includes(role) ? role : "client",
       company_name: company,
       approved_at: new Date().toISOString(),
-    }).eq("id", id);
+      approved_by_email: actor.email,
+      approved_by_name: actor.name,
+    };
+    let { error } = await sb.from("app_users").update(upd).eq("id", id);
+    // approved_by_* 列が無い環境でも落ちないようフォールバック
+    if (error && /approved_by|column/i.test(error.message)) {
+      delete upd.approved_by_email; delete upd.approved_by_name;
+      ({ error } = await sb.from("app_users").update(upd).eq("id", id));
+    }
     if (error) return { ok: false, error: error.message };
+    await audit(id, null, "approve", `role=${upd.role}${company ? ` company=${company}` : ""}`, actor);
     bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
@@ -70,17 +115,28 @@ export async function approveAccount(formData: FormData): Promise<Result> {
 
 /** 面談済みフラグ：詳細閲覧の解放/再制限。 */
 export async function setAccountMeetingDone(id: string, done: boolean): Promise<Result> {
-  const guard = await requireAdmin();
+  const guard = await requireAdminOrAgent();
   if (!guard.ok) return guard;
+  const actor = guard.actor!;
   if (!id) return { ok: false, error: "id がありません" };
   try {
     const sb = engerAdmin();
-    let r: any = await sb.from("app_users").update({ meeting_done: done, meeting_done_at: done ? new Date().toISOString() : null }).eq("id", id);
+    const upd: Record<string, any> = {
+      meeting_done: done,
+      meeting_done_at: done ? new Date().toISOString() : null,
+      meeting_done_by_email: done ? actor.email : null,
+      meeting_done_by_name: done ? actor.name : null,
+    };
+    let r: any = await sb.from("app_users").update(upd).eq("id", id);
+    if (r.error && /meeting_done_by|column/i.test(r.error.message)) {
+      delete upd.meeting_done_by_email; delete upd.meeting_done_by_name;
+      r = await sb.from("app_users").update(upd).eq("id", id);
+    }
     if (r.error && /meeting_done|column/i.test(r.error.message)) {
-      // 列が未追加の環境はフォールバック（何もしない）
       return { ok: false, error: "面談済み列が未追加です（supabase/account-meeting-done.sql を実行してください）" };
     }
     if (r.error) return { ok: false, error: r.error.message };
+    await audit(id, null, done ? "meeting_done_on" : "meeting_done_off", null, actor);
     bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
@@ -88,27 +144,32 @@ export async function setAccountMeetingDone(id: string, done: boolean): Promise<
 
 /** ステータス変更（無効化 / 再有効化）。 */
 export async function setAccountStatus(id: string, status: "active" | "disabled"): Promise<Result> {
-  const guard = await requireAdmin();
+  const guard = await requireAdminOrAgent();
   if (!guard.ok) return guard;
+  const actor = guard.actor!;
   if (!id) return { ok: false, error: "id がありません" };
   try {
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({ status }).eq("id", id);
     if (error) return { ok: false, error: error.message };
+    await audit(id, null, status === "active" ? "status_active" : "status_disabled", null, actor);
     bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
-/** ロール変更。 */
+/** ロール変更。エージェントも操作可能だが、admin への昇格は admin のみ。 */
 export async function setAccountRole(id: string, role: "admin" | "agent" | "client" | "candidate" | "partner" | "freelance"): Promise<Result> {
-  const guard = await requireAdmin();
+  const guard = await requireAdminOrAgent();
   if (!guard.ok) return guard;
+  const actor = guard.actor!;
   if (!id) return { ok: false, error: "id がありません" };
+  if (role === "admin" && actor.role !== "admin") return { ok: false, error: "管理者ロールの付与は管理者のみ実行できます" };
   try {
     const sb = engerAdmin();
     const { error } = await sb.from("app_users").update({ role }).eq("id", id);
     if (error) return { ok: false, error: error.message };
+    await audit(id, null, "role_change", `role=${role}`, actor);
     bustMembers();
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }

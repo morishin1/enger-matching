@@ -28,8 +28,12 @@ export type Account = {
   note: string | null;
   created_at: string;
   approved_at: string | null;
+  approved_by_email?: string | null;
+  approved_by_name?: string | null;
   meeting_done?: boolean | null;
   meeting_done_at?: string | null;
+  meeting_done_by_email?: string | null;
+  meeting_done_by_name?: string | null;
 };
 
 /** メールでアカウントを取得（サーバ専用 / service role）。 */
