@@ -127,21 +127,6 @@ export default async function ProposalsPage() {
 
       {!needSetup && (
         <>
-          <div className="kpi-grid">
-            <div className="kpi brand">
-              <div className="top"><div className="ico-box"><Icons.proposals /></div><div className="chip flat">進行中</div></div>
-              <div><div className="val tnum">{active}<span className="unit">件</span></div><div className="label">進行中の提案</div><div className="note">失注を除く</div></div>
-            </div>
-            <div className="kpi accent">
-              <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">面談合格</div></div>
-              <div><div className="val tnum">{passed}<span className="unit">件</span></div><div className="label">面談合格</div><div className="note">「稼働化」で稼働管理へ</div></div>
-            </div>
-            <div className="kpi">
-              <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip flat">見送り</div></div>
-              <div><div className="val tnum">{lost}<span className="unit">件</span></div><div className="label">見送り（失注）</div><div className="note">{lost > 0 ? <a href="#lost-summary" style={{ color: "inherit", textDecoration: "underline" }}>↓ 失注理由サマリーで確認</a> : "画面下部で確認"}</div></div>
-            </div>
-          </div>
-
           {proposals.length === 0 ? (
             <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
               まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。
