@@ -9,6 +9,8 @@ import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, f
 import { Icons } from "./icons";
 
 const salaryShort = (lo: number | null, hi: number | null) => lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
+// 登録担当（KPI集計用）。トップ右の担当者バッジで選んだ名前を localStorage から取得。
+const getOperator = (): string | undefined => { try { return localStorage.getItem("enger.operator") || undefined; } catch { return undefined; } };
 
 const numOf = (s: string) => { const n = parseFloat((s || "").replace(/[^\d.]/g, "")); return isNaN(n) ? null : n; };
 const dateOf = (s: string) => { const m = (s || "").match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/); return m ? `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}` : null; };
@@ -183,8 +185,8 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
         for (let i = 0; i < recs.length; i += CHUNK) {
           const slice = recs.slice(i, i + CHUNK);
           const res = kind === "candidates"
-            ? await importCandidates(slice as CandidateInput[], fileName)
-            : await importJobs(slice as JobInput[], fileName);
+            ? await importCandidates(slice as CandidateInput[], fileName, getOperator())
+            : await importJobs(slice as JobInput[], fileName, getOperator());
           if (!res.ok) { setProg(null); setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
           inserted += res.inserted ?? 0;
           skipped += (res as any).skipped ?? 0;
@@ -401,6 +403,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         email: f.email?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
         source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
+        operator: getOperator() || null,
       };
       if (rec.rate) rec.rate_num = numOf(rec.rate);
       start(async () => {
@@ -432,6 +435,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         contact_name: f.contact_name?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
         source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
+        operator: getOperator() || null,
       };
       start(async () => {
         const res = await upsertJobManual(rec as JobInput);
@@ -607,7 +611,7 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
             flow_note: j.flow_note?.trim() || null,
             detail: j.detail?.trim() || null,
           }));
-          res = await importJobs(rows, "メール一括取込");
+          res = await importJobs(rows, "メール一括取込", getOperator());
         } else {
           const rows: CandidateInput[] = chosen.map((c) => {
             const rate = c.rate?.trim() || null;
@@ -624,7 +628,7 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
               location: c.location?.trim() || null,
             };
           });
-          res = await importCandidates(rows, "メール一括取込");
+          res = await importCandidates(rows, "メール一括取込", getOperator());
         }
         if (res?.ok) {
           const n = res.inserted ?? chosen.length;
