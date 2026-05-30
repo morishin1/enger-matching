@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
 import { gmailMessageUrl } from "@/lib/gmail";
-import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, type CandidateInput, type JobInput } from "@/lib/actions";
+import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate } from "@/lib/actions";
 import { Icons } from "./icons";
+
+const salaryShort = (lo: number | null, hi: number | null) => lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
 
 const numOf = (s: string) => { const n = parseFloat((s || "").replace(/[^\d.]/g, "")); return isNaN(n) ? null : n; };
 const dateOf = (s: string) => { const m = (s || "").match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/); return m ? `${m[1]}-${String(+m[2]).padStart(2, "0")}-${String(+m[3]).padStart(2, "0")}` : null; };
@@ -338,7 +341,35 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [f, setF] = useState<Record<string, string>>({});
   const set = (k: string) => (v: string) => setF((s) => ({ ...s, [k]: v }));
-  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); } };
+  // 類似候補プレビュー（二重登録/取り違え防止）
+  const [similarJobs, setSimilarJobs] = useState<SimilarJob[]>([]);
+  const [similarCands, setSimilarCands] = useState<SimilarCandidate[]>([]);
+  const [checking, setChecking] = useState(false);
+  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); setSimilarJobs([]); setSimilarCands([]); } };
+
+  // 入力に応じて既存の似た案件/人材を検索（デバウンス）。非公開も対象。
+  const key1 = kind === "jobs" ? (f.title ?? "") : (f.name ?? "");
+  const key2 = kind === "jobs" ? (f.client_name ?? "") : (f.company ?? "");
+  useEffect(() => {
+    if (!open) return;
+    const t1 = key1.trim(), t2 = key2.trim();
+    if (kind === "jobs" ? (t1.length < 2 && t2.length < 2) : t1.length < 1) {
+      setSimilarJobs([]); setSimilarCands([]); setChecking(false); return;
+    }
+    setChecking(true);
+    const h = setTimeout(async () => {
+      try {
+        if (kind === "jobs") {
+          const r = await findSimilarJobs({ title: t1, client_name: t2 });
+          if (r.ok) setSimilarJobs(r.items);
+        } else {
+          const r = await findSimilarCandidates({ name: t1, company: t2 });
+          if (r.ok) setSimilarCands(r.items);
+        }
+      } finally { setChecking(false); }
+    }, 400);
+    return () => clearTimeout(h);
+  }, [open, kind, key1, key2]);
 
   const submit = () => {
     setMsg(null);
@@ -461,6 +492,44 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
                 </>
               )}
             </div>
+
+            {/* 類似候補プレビュー：完全一致でない既存も提示し、二重登録/取り違えを防ぐ */}
+            {(checking || (kind === "jobs" ? similarJobs.length > 0 : similarCands.length > 0)) && (
+              <div className="card" style={{ background: "var(--color-surface-inset)", padding: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-ink-2)" }}>
+                    🔍 似た{kind === "jobs" ? "案件" : "人材"}が{kind === "jobs" ? similarJobs.length : similarCands.length}件あります
+                  </span>
+                  {checking && <span className="muted" style={{ fontSize: 10.5 }}>検索中…</span>}
+                  <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>非公開も含めて確認しています</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {kind === "jobs" ? similarJobs.map((j) => (
+                    <Link key={j.job_no} href={`/jobs/${j.job_no}`} onClick={() => setOpen(false)}
+                      style={{ textDecoration: "none", color: "inherit", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }}>
+                      <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", flexShrink: 0 }}>No.{String(j.job_no).padStart(5, "0")}</span>
+                      <span style={{ minWidth: 0, flex: 1, fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+                      <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{j.client_name ?? "—"} · {salaryShort(j.salary_min, j.salary_max)}</span>
+                      {j.exact && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fff5e6", color: "#b45309", border: "1px solid #fde9b0", flexShrink: 0 }}>完全一致</span>}
+                      {!j.is_published && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
+                    </Link>
+                  )) : similarCands.map((c) => (
+                    <Link key={c.candidate_no} href={`/people/${c.candidate_no}`} onClick={() => setOpen(false)}
+                      style={{ textDecoration: "none", color: "inherit", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }}>
+                      <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", flexShrink: 0 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
+                      <span style={{ minWidth: 0, flex: 1, fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                      <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{[c.company, c.title, c.rate].filter(Boolean).join(" · ") || "—"}</span>
+                      {c.exact && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fff5e6", color: "#b45309", border: "1px solid #fde9b0", flexShrink: 0 }}>完全一致</span>}
+                    </Link>
+                  ))}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 10.5, color: "var(--color-ink-4)" }}>
+                  ※ 同じものがあれば上の行を開いて編集してください。別物なら、このまま「登録」して問題ありません。
+                  {kind === "jobs" && "（案件名×クライアント名が完全一致の場合は新規ではなく既存が更新・再公開されます）"}
+                </div>
+              </div>
+            )}
+
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn ghost" onClick={close} disabled={pending}>キャンセル</button>
