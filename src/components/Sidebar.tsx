@@ -39,6 +39,7 @@ const TOOLS: NavItem[] = [
   { href: "/inbox", id: "inbox", label: "受信箱", icon: "inbox" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
+  { href: "/settings/approvals", id: "approvals", label: "新規登録（承認）", icon: "person_add" },
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
 ];
 
@@ -69,8 +70,8 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
     : role === "agent" ? NAV.filter((n) => allowed.has(n.href))
     : NAV; // admin は全部
   const tools = isClient ? []
-    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings")
-    : TOOLS; // admin は設定含む全部
+    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings" && n.href !== "/settings/approvals") // 設定・承認は admin のみ
+    : TOOLS; // admin は設定・承認含む全部
 
   return (
     <aside className={"side" + (open ? " open" : "")}>
