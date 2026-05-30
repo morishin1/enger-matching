@@ -18,22 +18,29 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   let total = 0;
   let dbError: string | null = null;
 
+  const needle = (initialQuery ?? "").trim();
   if (dbConfigured) {
     try {
       const sb = engerClient();
       const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
+      // 検索時は 300 件上限を超えてDB全体を ilike 検索する。スキル(JSON配列)はテキストにキャスト
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like},affiliation.ilike.${like},title.ilike.${like},skills::text.ilike.${like}`);
+      };
       // rank / email 列が未追加でも落ちないようフォールバック
-      let res: any = await sb
+      let res: any = await withSearch(sb
         .from("candidates")
-        .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" })
+        .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" }))
         .order("candidate_no", { ascending: false })
-        .limit(300);
+        .limit(needle ? 1000 : 300);
       if (res.error) {
-        res = await sb
+        res = await withSearch(sb
           .from("candidates")
-          .select(baseCols, { count: "exact" })
+          .select(baseCols, { count: "exact" }))
           .order("candidate_no", { ascending: false })
-          .limit(300);
+          .limit(needle ? 1000 : 300);
       }
       people = res.data ?? [];
       total = res.count ?? people.length;

@@ -17,9 +17,10 @@ const JOB_EXPORT_HEADERS = [
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string }> }) {
-  const { client, show } = await searchParams;
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string }> }) {
+  const { client, show, q } = await searchParams;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
+  const needle = (q ?? client ?? "").trim();
   let jobs: any[] = [];
   let total = 0;
   let dbError: string | null = null;
@@ -30,22 +31,29 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published";
       // 非公開も表示する場合は is_published フィルタを外す
       const withPub = (qb: any) => showAll ? qb : qb.eq("is_published", true);
+      // 検索時は 300 件の上限を超えてDB全体を ilike 検索する。スキル(JSON配列)もテキストにキャストして拾う
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        // skills は jsonb/text[] のため ::text にキャストして部分一致
+        return qb.or(`title.ilike.${like},client_name.ilike.${like},role_label.ilike.${like},skills::text.ilike.${like}`);
+      };
       // 追加列(email-columns / sales-roles 未実行)でも落ちないよう段階フォールバック
-      let listRes: any = await withPub(sb.from("jobs")
-        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" }))
+      let listRes: any = await withSearch(withPub(sb.from("jobs")
+        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })))
         .order("job_no", { ascending: false })
-        .limit(300);
+        .limit(needle ? 1000 : 300);
       if (listRes.error) {
-        listRes = await withPub(sb.from("jobs")
-          .select(`${baseCols}, outside_owner`, { count: "exact" }))
+        listRes = await withSearch(withPub(sb.from("jobs")
+          .select(`${baseCols}, outside_owner`, { count: "exact" })))
           .order("job_no", { ascending: false })
-          .limit(300);
+          .limit(needle ? 1000 : 300);
       }
       if (listRes.error) {
-        listRes = await withPub(sb.from("jobs")
-          .select(baseCols, { count: "exact" }))
+        listRes = await withSearch(withPub(sb.from("jobs")
+          .select(baseCols, { count: "exact" })))
           .order("job_no", { ascending: false })
-          .limit(300);
+          .limit(needle ? 1000 : 300);
       }
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
@@ -108,7 +116,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       <PendingClientJobs jobs={pendingClientJobs} />
 
-      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={client} outsideOptions={ownerOptions} />
+      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={needle || undefined} outsideOptions={ownerOptions} />
     </div>
   );
 }

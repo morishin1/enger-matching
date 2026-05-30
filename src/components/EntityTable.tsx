@@ -215,6 +215,18 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
   const revalidate = kind === "jobs" ? "/jobs" : "/people";
 
   const [q, setQ] = useState(initialQuery ?? "");
+  // 300件のクライアント側フィルタだけでは古い案件/人材が拾えないので、入力をURL(?q=)に反映して
+  // サーバ側でDB全体を ilike 検索する。デバウンスして連打しないように。
+  useEffect(() => {
+    const cur = (initialQuery ?? "").trim();
+    const next = q.trim();
+    if (cur === next) return;
+    const h = setTimeout(() => {
+      const url = next ? `${revalidate}?q=${encodeURIComponent(next)}` : revalidate;
+      router.replace(url, { scroll: false });
+    }, 350);
+    return () => clearTimeout(h);
+  }, [q, initialQuery, revalidate, router]);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(cols.filter((c) => c.defaultHidden).map((c) => c.key)));
   const [selected, setSelected] = useState<Set<number>>(new Set());
