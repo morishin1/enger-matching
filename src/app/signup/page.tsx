@@ -6,13 +6,20 @@ import { signUp, type SignupState } from "./actions";
 export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
   const [role, setRole] = useState<"client" | "agent" | "candidate" | "partner" | "freelance">("client");
-  // ag.enger.jp（副業エージェント向けドメイン）または ?as=freelance は区分を「副業エージェント」に固定。
   const [agHost, setAgHost] = useState(false);
+  const [oauthNotice, setOauthNotice] = useState<string | null>(null);
   useEffect(() => {
     try {
       const h = window.location.hostname || "";
-      const as = new URLSearchParams(window.location.search).get("as");
+      const qs = new URLSearchParams(window.location.search);
+      const as = qs.get("as");
       if (/^ag\./i.test(h) || as === "freelance") { setAgHost(true); setRole("freelance"); }
+      else if (as === "candidate") { setRole("candidate"); }
+      // OAuth(Google/GitHub) 初回 → 区分を選んでもらう案内
+      if (qs.get("oauth") === "1") {
+        const em = qs.get("email") || "";
+        setOauthNotice(em ? `Googleアカウント（${em}）でのログインを確認しました。ご利用区分を選んで登録を完了してください。` : "Googleアカウントでのログインを確認しました。ご利用区分を選んで登録を完了してください。");
+      }
     } catch { /* noop */ }
   }, []);
 
@@ -45,19 +52,24 @@ export default function SignupPage() {
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: "#0F2440" }}>新規登録</h2>
                 <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>登録後、管理者の承認をもってご利用いただけます。</p>
               </div>
+              {oauthNotice && (
+                <div style={{ background: "#eaf6fd", border: "1px solid #cfe7f8", borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: "#0F2440" }}>{oauthNotice}</div>
+              )}
 
-              {agHost ? (
+              {agHost || role === "freelance" || role === "candidate" ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご登録区分
-                  <div style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0095D9", background: "#eaf6fd", color: "#0F2440", fontSize: 13, fontWeight: 700 }}>副業エージェント（紹介して報酬を得る）</div>
+                  <div style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0095D9", background: "#eaf6fd", color: "#0F2440", fontSize: 13, fontWeight: 700 }}>
+                    {role === "freelance" ? "副業エージェント（紹介して報酬を得る）" : role === "candidate" ? "エンジニア・人材" : "副業エージェント"}
+                  </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご利用区分
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご利用区分（ビジネス向け）
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button type="button" onClick={() => setRole("client")} style={roleBtn(role === "client")}>エンジニアを採用したい企業</button>
-                    <button type="button" onClick={() => setRole("candidate")} style={roleBtn(role === "candidate")}>エンジニア・人材</button>
                     <button type="button" onClick={() => setRole("partner")} style={roleBtn(role === "partner")}>パートナー企業</button>
-                    <button type="button" onClick={() => setRole("freelance")} style={roleBtn(role === "freelance")}>副業エージェント</button>
-                    <button type="button" onClick={() => setRole("agent")} style={roleBtn(role === "agent")}>営業・エージェント</button>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#98a2b3", lineHeight: 1.7 }}>
+                    ※ エンジニア（人材）の方は <a href="https://enger.jp/signup" style={{ color: "#0095D9", fontWeight: 700 }}>enger.jp</a>、副業エージェントの方は <a href="https://ag.enger.jp" style={{ color: "#0095D9", fontWeight: 700 }}>ag.enger.jp</a> からご登録ください。営業エージェントは運営が招待します。
                   </div>
                 </div>
               )}

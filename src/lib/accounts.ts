@@ -28,6 +28,8 @@ export type Account = {
   note: string | null;
   created_at: string;
   approved_at: string | null;
+  meeting_done?: boolean | null;
+  meeting_done_at?: string | null;
 };
 
 /** メールでアカウントを取得（サーバ専用 / service role）。 */
@@ -48,9 +50,9 @@ export async function getAccountByEmail(email: string): Promise<Account | null> 
  *  2) 無い場合は staff の email 許可リストにあれば admin 扱い（移行期の締め出し防止）
  *  3) どちらも無ければ null（未許可）
  */
-export const resolveAccess = cache(async (email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[] } | null> => {
+export const resolveAccess = cache(async (email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean } | null> => {
   const acc = await getAccountByEmail(email);
-  if (acc) return { role: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition, functions: (acc.functions ?? []) as string[] };
+  if (acc) return { role: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition, functions: (acc.functions ?? []) as string[], meetingDone: !!(acc as any).meeting_done };
 
   // フォールバック: 既存 staff 許可リストに載っている email のみ admin（移行期の救済）。
   // ※ 未登録の email を admin に“素通り”させない（Googleログイン等で勝手に管理者になる事故を防止）。
@@ -64,7 +66,7 @@ export const resolveAccess = cache(async (email: string): Promise<{ role: Role; 
     const rows = (data ?? []) as { name: string; email: string | null; position?: string | null }[];
     if (rows.length === 0) return null;
     const me = rows.find((r) => String(r.email || "").toLowerCase() === e);
-    if (me) return { role: "admin", status: "active", companyName: null, name: me.name ?? null, position: (me.position ?? null) as SalesPosition, functions: [] };
+    if (me) return { role: "admin", status: "active", companyName: null, name: me.name ?? null, position: (me.position ?? null) as SalesPosition, functions: [], meetingDone: true };
     return null;
   } catch { return null; }
 });
@@ -101,8 +103,8 @@ export async function createPendingAccount(opts: { email: string; name?: string 
 }
 
 /** ログイン中ユーザーのアクセス情報（role/status/会社名/名前）。未ログインや未設定は null。 */
-export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; email: string } | null> {
-  if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [], email: "" };
+export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; email: string } | null> {
+  if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [], meetingDone: true, email: "" };
   try {
     const email = await getSessionEmail(); // cache() でリクエスト内1回に集約
     if (!email) return null;

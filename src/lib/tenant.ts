@@ -14,24 +14,27 @@ export type ViewerScope = {
   isTenant: boolean;     // partner || freelance → テナント隔離が必要
   ownerKey: string | null; // 所有テナントの突合キー（owner_company に入る値）
   company: string | null;  // 互換用（partner の会社名）
+  meetingDone: boolean;  // エージェント面談済み（詳細閲覧の許可）
 };
 
 export async function getViewerScope(): Promise<ViewerScope> {
   let role: Role = "admin";
   let company: string | null = null;
   let email = "";
+  let meetingDone = true;
   try {
     const a = await currentAccess();
     role = (a?.role ?? "admin") as Role;
     company = a?.companyName ?? null;
     email = a?.email ?? "";
+    meetingDone = a?.meetingDone ?? false;
   } catch { /* 認証未設定(ローカル)等は admin 扱い */ }
   const isPartner = role === "partner";
   const isFreelance = role === "freelance";
   const isTenant = isPartner || isFreelance;
   // パートナーは会社名、副業エージェントは個人なので本人メールを所有キーにする（同名衝突回避）。
   const ownerKey = isPartner ? (company || null) : isFreelance ? (email ? email.toLowerCase() : null) : null;
-  return { role, isInternal: role === "admin" || role === "agent", isPartner, isFreelance, isTenant, ownerKey, company: isPartner ? company : null };
+  return { role, isInternal: role === "admin" || role === "agent", isPartner, isFreelance, isTenant, ownerKey, company: isPartner ? company : null, meetingDone };
 }
 
 const norm = (s?: string | null) => String(s ?? "").trim().toLowerCase();
@@ -39,17 +42,19 @@ const norm = (s?: string | null) => String(s ?? "").trim().toLowerCase();
 export const isOwnedByPartner = (row: any, company: string | null) =>
   !!company && norm(row?.owner_company) === norm(company);
 
-/** 案件をパートナー向けに匿名化。
+/** 案件をパートナー/副業エージェント向けに匿名化。
  *   - 他社所有 ：クライアント名・連絡先・本文・商流・勤務地等の固有情報を全て除去
- *   - 自社所有 ：そのまま（自分で登録した内容）。ただし自由記述本文には PII マスクを保険適用
+ *   - 自社所有 ：そのまま。ただし自由記述本文には PII マスクを保険適用
+ *   - meetingDone=false（エージェント面談前）：詳細本文を見せない（連絡を促す）
  */
-export function maskJobForPartner(job: any, company: string | null): any {
-  if (isOwnedByPartner(job, company)) {
-    // 自社所有でも、本文に電話/メール/社名等が紛れていることがあるので保険でマスク
-    return {
-      ...job,
-      detail: redactPii(job?.detail ?? null),
-    };
+export function maskJobForPartner(job: any, company: string | null, meetingDone: boolean = true): any {
+  const own = isOwnedByPartner(job, company);
+  if (own && meetingDone) {
+    return { ...job, detail: redactPii(job?.detail ?? null) };
+  }
+  if (own && !meetingDone) {
+    // 自社所有でも面談前は詳細本文を伏せ、UIで「エージェント面談後に解放」と案内
+    return { ...job, detail: null, description: null, _gated: true };
   }
   return {
     ...job,
@@ -58,22 +63,20 @@ export function maskJobForPartner(job: any, company: string | null): any {
     contact_name: null,
     source_mail_url: null,
     outside_owner: null,
-    // 自由記述系（本文・商流・勤務地・職種テキスト）も他社固有情報を含み得るため伏せる
     detail: null,
     description: null,
     flow_note: null,
     work_location: null,
     role_label: null,
-    _anon: true,                  // UI 表示用の匿名フラグ
+    _anon: true,                  // 他社匿名
+    _gated: !meetingDone,         // さらに面談前なら完全ゲート
   };
 }
 
-/** 人材をパートナー向けに匿名化。
- *   - 他社所有 ：氏名・連絡先・所属会社・自由記述（経歴/備考/headline）を全て除去
- *   - 自社所有 ：そのまま。本文には PII マスクを保険適用
- */
-export function maskCandidateForPartner(c: any, company: string | null): any {
-  if (isOwnedByPartner(c, company)) {
+/** 人材をパートナー/副業エージェント向けに匿名化。 */
+export function maskCandidateForPartner(c: any, company: string | null, meetingDone: boolean = true): any {
+  const own = isOwnedByPartner(c, company);
+  if (own && meetingDone) {
     return {
       ...c,
       exp: redactPii(c?.exp ?? null),
@@ -82,10 +85,17 @@ export function maskCandidateForPartner(c: any, company: string | null): any {
       bio: redactPii(c?.bio ?? null),
     };
   }
+  if (own && !meetingDone) {
+    return {
+      ...c,
+      exp: null, note: null, headline: null, bio: null, skill_sheet_url: null,
+      _gated: true,
+    };
+  }
   const initials = c?.initials || (c?.name ? String(c.name).slice(0, 1) : "—");
   return {
     ...c,
-    name: initials,               // 氏名はイニシャルのみ
+    name: initials,
     company: null,
     source_company: null,
     affiliation: null,
@@ -93,18 +103,18 @@ export function maskCandidateForPartner(c: any, company: string | null): any {
     contact_email: null,
     source_mail_url: null,
     operator: null,
-    // 自由記述系（経歴・備考・自己紹介）は固有情報を含み得るため伏せる
     exp: null,
     note: null,
     headline: null,
     bio: null,
-    skill_sheet_url: null,        // 他社人材のスキルシートURLも伏せる（連絡先や氏名が記載される）
+    skill_sheet_url: null,
     _anon: true,
+    _gated: !meetingDone,
   };
 }
 
-export const maskJobs = (rows: any[], company: string | null) => rows.map((r) => maskJobForPartner(r, company));
-export const maskCandidates = (rows: any[], company: string | null) => rows.map((r) => maskCandidateForPartner(r, company));
+export const maskJobs = (rows: any[], company: string | null, meetingDone: boolean = true) => rows.map((r) => maskJobForPartner(r, company, meetingDone));
+export const maskCandidates = (rows: any[], company: string | null, meetingDone: boolean = true) => rows.map((r) => maskCandidateForPartner(r, company, meetingDone));
 
 /** 登録系で使う：テナント隔離ロール(partner/freelance)なら所有キー、社内なら null。 */
 export async function tenantOwnerKey(): Promise<string | null> {

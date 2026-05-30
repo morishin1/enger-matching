@@ -26,10 +26,11 @@ export async function GET(req: Request) {
   const email = data?.user?.email ?? "";
   const access = await resolveAccess(email);
   if (!access) {
-    // 初回ログイン → 承認待ちアカウントを自動作成して案内
-    const name = (data?.user?.user_metadata?.full_name as string) || (data?.user?.user_metadata?.name as string) || null;
-    await createPendingAccount({ email, name, role: "client" });
-    return deny("登録を受け付けました。管理者の承認後にログインできます。");
+    // OAuth(Google/GitHub) 初回ログイン → どの区分(企業/パートナー/人材/副業エージェント)か未定。
+    // 自動で client 等で pending を作るのは誤分類のもとなので、区分を選んでもらうため
+    // サインアップ画面（メール事前入力）へ誘導する。
+    void supabase.auth.signOut();
+    return NextResponse.redirect(`${origin}/signup?oauth=1&email=${encodeURIComponent(email)}`);
   }
   if (access.status === "pending") return deny("このアカウントは承認待ちです。管理者の承認後にログインできます。");
   if (access.status === "disabled") return deny("このアカウントは無効化されています。管理者にお問い合わせください。");
