@@ -10,21 +10,26 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
 type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
 
+// 営業フローに沿った並び：
+//   ① ダッシュボード（毎日のホーム）
+//   ② 打合せ記録（クライアント/SESと商談・面談 → ここから案件/人材を獲得）
+//   ③ 取り込んだ情報（企業 → 案件 → 人材 → LP登録）
+//   ④ マッチング（案件×人材を当てる）
+//   ⑤ 提案管理（提案→面談調整→クロージング→面談合格）
+//   ⑥ 稼働管理（稼働化したペアの管理）
+//   ⑦ 書類送付（契約書類）
+//   ⑧ パイプライン／分析（全体の俯瞰と振り返り）
 const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
-  {
-    href: "/matching", id: "matching", label: "マッチング", icon: "matching",
-    children: [
-      { href: "/jobs", id: "jobs", label: "案件", count: "jobs", newCount: "newJobs" },
-      { href: "/people", id: "people", label: "人材", count: "people", newCount: "newPeople" },
-      { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },
-    ],
-  },
+  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
+  { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
+  { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
+  { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
+  { href: "/engineers", id: "engineers", label: "LP登録", icon: "ai", count: "engineers" },
+  { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
   { href: "/documents", id: "documents", label: "書類送付", icon: "doc" },
-  { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
-  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics" },
 ];
