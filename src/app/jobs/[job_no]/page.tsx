@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { MailButton } from "@/components/MailButton";
 import { EditJobButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
+import { getViewerScope } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,11 @@ const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
   ) : null;
 
 export default async function JobDetailPage({ params }: { params: Promise<{ job_no: string }> }) {
+  // 個別詳細ページは社内(admin/agent)のみ。テナント隔離ロール(partner/freelance)は
+  // 一覧のドロワー（匿名化済み）からの閲覧に限定する（漏洩防止の二重防御）。
+  const scope = await getViewerScope();
+  if (scope.isTenant) redirect("/jobs");
+
   const { job_no } = await params;
   const no = Number(job_no);
   let j: any = null;
