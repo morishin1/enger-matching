@@ -34,7 +34,7 @@ export function PartnerMatching({ jobs, candidates }: { jobs: Job[]; candidates:
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>
-        <b>パートナー向けマッチング</b>：自社で登録した案件・人材と、共有された案件・人材で相性を表示します。<b>他社のクライアント名・氏名・連絡先は伏せた匿名表示</b>です。提案・メール作成は本画面では行えません（社内担当へご連絡ください）。
+        <b>マッチング</b>：あなたが登録した（自社の）案件・人材と、共有された案件・人材で相性を表示します。<b>他社のクライアント名・氏名・連絡先は伏せた匿名表示</b>です。提案・メール作成は本画面では行えません（社内担当へご連絡ください）。
       </div>
 
       {/* モード切替 */}

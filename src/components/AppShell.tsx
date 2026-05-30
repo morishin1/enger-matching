@@ -43,6 +43,7 @@ const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
   client: { label: "ユーザー企業", bg: "#e7f7ee", fg: "#067647" },
   candidate: { label: "人材", bg: "#fff1e6", fg: "#b45309" },
   partner: { label: "パートナー企業", bg: "#eef2ff", fg: "#3730a3" },
+  freelance: { label: "副業エージェント", bg: "#fef3f2", fg: "#b42318" },
 };
 
 const POSITION_LABEL: Record<string, string> = { inside: "インサイドセールス", outside: "アウトサイドセールス" };

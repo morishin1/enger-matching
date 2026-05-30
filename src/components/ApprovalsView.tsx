@@ -7,10 +7,11 @@ import { useRouter } from "next/navigation";
 import type { Account, Role } from "@/lib/accounts";
 import { approveAccount, setAccountStatus, setAccountRole } from "@/app/settings/account-actions";
 
-type TabKey = "client" | "partner" | "candidate" | "agent" | "admin";
+type TabKey = "client" | "partner" | "freelance" | "candidate" | "agent" | "admin";
 const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
   { key: "client", label: "企業", role: "client", hint: "承認すると自社ポータル（案件掲載・おすすめ人材・選考）を利用できます。" },
   { key: "partner", label: "パートナー企業", role: "partner", hint: "承認すると、自社＋共有の案件/人材でマッチングできます。他社情報は匿名表示で漏洩防止。" },
+  { key: "freelance", label: "副業エージェント", role: "freelance", hint: "ag.enger.jp から登録した個人。自分＋共有でマッチング。他社は匿名表示で漏洩防止。" },
   { key: "candidate", label: "人材", role: "candidate", hint: "承認すると人材ダッシュボードを利用できます。" },
   { key: "agent", label: "営業", role: "agent", hint: "承認すると営業業務（マッチング・提案等）を利用できます。" },
   { key: "admin", label: "管理者", role: "admin", hint: "全機能にアクセスできます。" },
@@ -32,7 +33,7 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const pendingCount = useMemo(() => {
-    const m: Record<TabKey, number> = { client: 0, partner: 0, candidate: 0, agent: 0, admin: 0 };
+    const m: Record<TabKey, number> = { client: 0, partner: 0, freelance: 0, candidate: 0, agent: 0, admin: 0 };
     for (const a of accounts) if (a.status === "pending") m[a.role as TabKey] = (m[a.role as TabKey] ?? 0) + 1;
     return m;
   }, [accounts]);
@@ -118,6 +119,7 @@ export function ApprovalsView({ accounts }: { accounts: Account[] }) {
                             style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
                             <option value="client">企業</option>
                             <option value="partner">パートナー企業</option>
+                            <option value="freelance">副業エージェント</option>
                             <option value="candidate">人材</option>
                             <option value="agent">営業</option>
                             <option value="admin">管理者</option>

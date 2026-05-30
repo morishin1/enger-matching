@@ -8,7 +8,7 @@ type MenuItem = { label: string; href: string; icon?: string; danger?: boolean }
 type MenuGroup = { label?: string; items: MenuItem[] };
 
 /** ログイン中の本人。アカウントに紐づく表示＋メニュー（提案文の差出人にも使用）。 */
-export function OperatorBadge({ defaultName = "", email = "", compact = false, role = "admin" }: { operators?: string[]; defaultName?: string; email?: string; compact?: boolean; role?: "admin" | "agent" | "client" | "candidate" | "partner" }) {
+export function OperatorBadge({ defaultName = "", email = "", compact = false, role = "admin" }: { operators?: string[]; defaultName?: string; email?: string; compact?: boolean; role?: "admin" | "agent" | "client" | "candidate" | "partner" | "freelance" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const name = defaultName || "";

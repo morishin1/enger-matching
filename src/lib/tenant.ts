@@ -8,20 +8,29 @@ import type { Role } from "./roles";
 export type ViewerScope = {
   role: Role;
   isInternal: boolean;   // admin / agent は全データ可視（社内）
-  isPartner: boolean;
-  company: string | null; // partner の所有キー（app_users.company_name）
+  isPartner: boolean;    // パートナー企業（owner_company=会社名）
+  isFreelance: boolean;  // 副業エージェント（owner_company=本人メール）
+  isTenant: boolean;     // partner || freelance → テナント隔離が必要
+  ownerKey: string | null; // 所有テナントの突合キー（owner_company に入る値）
+  company: string | null;  // 互換用（partner の会社名）
 };
 
 export async function getViewerScope(): Promise<ViewerScope> {
   let role: Role = "admin";
   let company: string | null = null;
+  let email = "";
   try {
     const a = await currentAccess();
     role = (a?.role ?? "admin") as Role;
     company = a?.companyName ?? null;
+    email = a?.email ?? "";
   } catch { /* 認証未設定(ローカル)等は admin 扱い */ }
   const isPartner = role === "partner";
-  return { role, isInternal: role === "admin" || role === "agent", isPartner, company: isPartner ? company : null };
+  const isFreelance = role === "freelance";
+  const isTenant = isPartner || isFreelance;
+  // パートナーは会社名、副業エージェントは個人なので本人メールを所有キーにする（同名衝突回避）。
+  const ownerKey = isPartner ? (company || null) : isFreelance ? (email ? email.toLowerCase() : null) : null;
+  return { role, isInternal: role === "admin" || role === "agent", isPartner, isFreelance, isTenant, ownerKey, company: isPartner ? company : null };
 }
 
 const norm = (s?: string | null) => String(s ?? "").trim().toLowerCase();
@@ -64,8 +73,10 @@ export function maskCandidateForPartner(c: any, company: string | null): any {
 export const maskJobs = (rows: any[], company: string | null) => rows.map((r) => maskJobForPartner(r, company));
 export const maskCandidates = (rows: any[], company: string | null) => rows.map((r) => maskCandidateForPartner(r, company));
 
-/** 登録系で使う：現在のユーザーがパートナーなら自社名(=所有テナント)、社内なら null。 */
-export async function partnerOwnerCompany(): Promise<string | null> {
+/** 登録系で使う：テナント隔離ロール(partner/freelance)なら所有キー、社内なら null。 */
+export async function tenantOwnerKey(): Promise<string | null> {
   const s = await getViewerScope();
-  return s.isPartner ? s.company : null;
+  return s.isTenant ? s.ownerKey : null;
 }
+/** 後方互換エイリアス。 */
+export const partnerOwnerCompany = tenantOwnerKey;

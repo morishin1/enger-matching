@@ -1,9 +1,9 @@
 // クライアント/サーバ両方から import 可能な、純粋なロール定義とアクセス判定。
 // （サーバ専用処理は accounts.ts 側に置く）
 
-// admin=管理者(全機能) / agent=自社営業・契約社員(全業務) / partner=パートナー企業(限定・自社＋共有のみ)
-// client=エンド企業(enger.jpポータル) / candidate=人材(enger.jpダッシュボード)
-export type Role = "admin" | "agent" | "client" | "candidate" | "partner";
+// admin=管理者(全機能) / agent=自社営業・契約社員(全業務) / partner=パートナー企業(限定・自社＋共有)
+// freelance=副業エージェント(ag.enger.jp・個人・限定・自分＋共有) / client=エンド企業 / candidate=人材(enger.jp)
+export type Role = "admin" | "agent" | "client" | "candidate" | "partner" | "freelance";
 export type AccountStatus = "pending" | "active" | "disabled";
 
 // 職能（兼務可・複数選択）
@@ -28,8 +28,8 @@ const CANDIDATE_ALLOWED = ["/"];
  * データは「自社登録＋共有」のみ表示し、他社分は匿名化する（各ページのサーバ側で隔離）。
  * 非表示：企業管理・受信箱・請求・日報・書類・パイプライン・PR・AI・設定・LP登録・打合せ。
  */
-// v2: 案件/人材＋マッチング（自社＋共有・匿名）。提案/稼働/分析は別途隔離実装後に順次解放。
-const PARTNER_ALLOWED = ["/", "/jobs", "/people", "/matching"];
+// テナント隔離ロール(partner/freelance)が開けるルート。自分＋共有のみ・他社匿名。
+const TENANT_ALLOWED = ["/", "/jobs", "/people", "/matching"];
 /**
  * 営業系の職能を持つ人だけがアクセスできる業務ルート。
  * バックオフィス専任（営業系職能なし）には案件・人材・打合せ記録・パイプライン等を非表示にする。
@@ -47,10 +47,10 @@ export function canAccess(role: Role, pathname: string, functions?: string[] | n
   }
   // candidate(人材): 自分のダッシュボードのみ。
   if (role === "candidate") return hit(CANDIDATE_ALLOWED);
-  // partner(パートナー企業): 限定ルートのみ（settings等は不可）。
-  if (role === "partner") {
+  // partner(パートナー企業) / freelance(副業エージェント): 限定ルートのみ（settings等は不可）。
+  if (role === "partner" || role === "freelance") {
     if (hit(ADMIN_PREFIXES)) return false;
-    return hit(PARTNER_ALLOWED);
+    return hit(TENANT_ALLOWED);
   }
   // client: 自社ポータルのみ。他の内部画面はデータ分離前のため非表示。
   return hit(CLIENT_ALLOWED);

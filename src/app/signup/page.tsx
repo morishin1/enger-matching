@@ -1,11 +1,19 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { signUp, type SignupState } from "./actions";
 
 export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
-  const [role, setRole] = useState<"client" | "agent" | "candidate" | "partner">("client");
+  const [role, setRole] = useState<"client" | "agent" | "candidate" | "partner" | "freelance">("client");
+  // ag.enger.jp（副業エージェント向けドメイン）からのアクセスは区分を「副業エージェント」に固定。
+  const [agHost, setAgHost] = useState(false);
+  useEffect(() => {
+    try {
+      const h = window.location.hostname || "";
+      if (/^ag\./i.test(h)) { setAgHost(true); setRole("freelance"); }
+    } catch { /* noop */ }
+  }, []);
 
   const input = { padding: "12px 14px", border: "1px solid #d6dce5", borderRadius: 10, fontSize: 14, fontFamily: "inherit", background: "#fff", outline: "none", width: "100%" } as const;
   const roleBtn = (active: boolean) => ({ flex: 1, padding: "10px", borderRadius: 10, border: active ? "1.5px solid #0095D9" : "1px solid #d6dce5", background: active ? "#eaf6fd" : "#fff", color: active ? "#0F2440" : "#6b7280", fontSize: 12.5, fontWeight: 700, cursor: "pointer" } as const);
@@ -37,14 +45,21 @@ export default function SignupPage() {
                 <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>登録後、管理者の承認をもってご利用いただけます。</p>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご利用区分
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button type="button" onClick={() => setRole("client")} style={roleBtn(role === "client")}>エンジニアを採用したい企業</button>
-                  <button type="button" onClick={() => setRole("candidate")} style={roleBtn(role === "candidate")}>エンジニア・人材</button>
-                  <button type="button" onClick={() => setRole("partner")} style={roleBtn(role === "partner")}>パートナー企業</button>
-                  <button type="button" onClick={() => setRole("agent")} style={roleBtn(role === "agent")}>営業・エージェント</button>
+              {agHost ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご登録区分
+                  <div style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0095D9", background: "#eaf6fd", color: "#0F2440", fontSize: 13, fontWeight: 700 }}>副業エージェント（紹介して報酬を得る）</div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご利用区分
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => setRole("client")} style={roleBtn(role === "client")}>エンジニアを採用したい企業</button>
+                    <button type="button" onClick={() => setRole("candidate")} style={roleBtn(role === "candidate")}>エンジニア・人材</button>
+                    <button type="button" onClick={() => setRole("partner")} style={roleBtn(role === "partner")}>パートナー企業</button>
+                    <button type="button" onClick={() => setRole("freelance")} style={roleBtn(role === "freelance")}>副業エージェント</button>
+                    <button type="button" onClick={() => setRole("agent")} style={roleBtn(role === "agent")}>営業・エージェント</button>
+                  </div>
+                </div>
+              )}
               <input type="hidden" name="role" value={role} />
 
               <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>お名前（ご担当者名）
@@ -53,6 +68,11 @@ export default function SignupPage() {
               {(role === "client" || role === "partner") && (
                 <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>会社名
                   <input name="company" type="text" required placeholder="株式会社〇〇" style={input} />
+                </label>
+              )}
+              {role === "freelance" && (
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>屋号・会社名（任意）
+                  <input name="company" type="text" placeholder="個人／屋号があれば" style={input} />
                 </label>
               )}
               <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>メールアドレス
