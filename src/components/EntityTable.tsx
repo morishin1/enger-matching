@@ -8,6 +8,8 @@ import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { AffiliationSelect } from "./AffiliationSelect";
+import { EditCandidateButton, EditJobButton } from "./EditEntryButton";
+import { DeleteEntityButton } from "./DeleteEntityButton";
 import { bulkSetFocus, bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
@@ -514,6 +516,10 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} block />
+              {kind === "jobs"
+                ? <EditJobButton job={detail} />
+                : <EditCandidateButton candidate={detail} />}
+              <DeleteEntityButton kind={kind === "jobs" ? "jobs" : "candidates"} idValue={kind === "jobs" ? detail.job_no : detail.candidate_no} label={titleOf(detail)} />
             </div>
 
             {/* スキル */}

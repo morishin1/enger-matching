@@ -66,6 +66,7 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
                   {jobAbbr} ↔ {c.name}
+                  <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
                   {proposedCandIds?.has(c.id) && (
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
                   )}
