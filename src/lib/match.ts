@@ -53,17 +53,32 @@ function remoteFit(jobRemote: string | null | undefined, candPref: string | null
   return 0.6;
 }
 
-function salaryFit(job: Job, c: Candidate): number {
-  const jMax = job.salary_max ?? job.salary_min;
-  const cMin = c.salary_min ?? c.salary_max;
-  if (jMax == null || cMin == null) return 0.5; // 不明
-  if (cMin <= jMax) {
-    // 予算内。希望が予算ぴったり〜下回るほど高評価
-    const cMax = c.salary_max ?? cMin;
-    return cMax <= jMax ? 1 : 0.75;
+// 希望単価レンジ（数値・万円）。salary_min/max が無い人材は rate 文字列("70〜90万"等)から推定。
+const rateNums = (rate?: string | null): number[] => (rate?.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0 && n < 1000);
+function candRange(c: Candidate): { min: number | null; max: number | null } {
+  let min = c.salary_min ?? null;
+  let max = c.salary_max ?? null;
+  if (min == null || max == null) {
+    const ns = rateNums(c.rate);
+    if (ns.length) { if (min == null) min = Math.min(...ns); if (max == null) max = Math.max(...ns); }
   }
-  // 希望が予算超過。超過幅が小さければ部分点
-  return cMin <= jMax * 1.1 ? 0.4 : 0.1;
+  return { min, max };
+}
+
+// 単価適合と「予算超過幅(万円)」を返す。
+//   超過幅 ≤ 10万 … 調整可能 / 10〜20万 … 調整困難 / 20万超 … ミスマッチ（調整不能）
+function salaryGap(job: Job, c: Candidate): { fit: number; overage: number | null } {
+  const jMax = job.salary_max ?? job.salary_min;
+  const { min: cMin, max: cMax } = candRange(c);
+  if (jMax == null || cMin == null) return { fit: 0.5, overage: null }; // 不明
+  if (cMin <= jMax) {
+    // 予算内。希望上限も予算内なら満点、上限のみ超過なら微減
+    return { fit: (cMax ?? cMin) <= jMax ? 1 : 0.85, overage: 0 };
+  }
+  const over = cMin - jMax; // 予算超過幅（万円）
+  if (over <= 10) return { fit: 0.55, overage: over };  // 10万以内＝調整余地あり
+  if (over <= 20) return { fit: 0.25, overage: over };  // 調整困難
+  return { fit: 0.08, overage: over };                  // 40万差などは実質ミスマッチ
 }
 
 export function scoreMatch(job: Job, c: Candidate): MatchResult {
@@ -79,19 +94,23 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   });
   const skillPct = jobSkills.length ? matchedSkills.length / jobSkills.length : (c.skills?.length ? 0.3 : 0);
 
-  const salary = salaryFit(job, c);
+  const { fit: salary, overage } = salaryGap(job, c);
   const jg = roleGroup(job.role_label);
   const cg = roleGroup(c.title);
   const roleHit = jg && cg && jg === cg;
   const remote = remoteFit(job.remote_type, c.remote_pref);
 
-  const score = Math.round(skillPct * 60 + salary * 20 + (roleHit ? 10 : 0) + remote * 10);
+  let score = Math.round(skillPct * 60 + salary * 20 + (roleHit ? 10 : 0) + remote * 10);
+  // 単価ギャップが大きいと現場では調整できずミスマッチになる。スキル満点でも上位に出さないよう上限を被せる。
+  //   超過 10〜20万 → 最大60点 / 20万超(=40万差など) → 最大40点
+  if (overage != null && overage > 10) score = Math.min(score, overage > 20 ? 40 : 60);
 
   const reasons: string[] = [];
   if (matchedSkills.length) reasons.push(`必須スキル ${matchedSkills.length}/${jobSkills.length} 一致 ✓`);
   if (missingSkills.length && jobSkills.length) reasons.push(`不足: ${missingSkills.slice(0, 3).join("・")} △`);
-  if (salary >= 1) reasons.push("希望単価が予算内 ✓");
-  else if (salary <= 0.2) reasons.push("希望単価が予算超過 ✗");
+  if (overage != null && overage > 20) reasons.push(`単価が予算より約${overage}万円高く調整困難 ✗`);
+  else if (overage != null && overage > 10) reasons.push(`単価が予算より約${overage}万円高い（要交渉）△`);
+  else if (salary >= 1) reasons.push("希望単価が予算内 ✓");
   if (roleHit) reasons.push("職種カテゴリ一致 ✓");
   if (remote >= 0.9) reasons.push("リモート条件 適合 ✓");
   if (/即アサイン|即日/.test(c.status ?? "")) reasons.push("即アサイン可 ✓");
