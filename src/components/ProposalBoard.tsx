@@ -51,6 +51,20 @@ const CALLER_TONE: Record<string, string> = {
   返信あり: "#1aa260", 電話済み: "#0095D9", "電話(不在)": "#d98a2b", LINE確認中: "#7c5cff", メール確認中: "#7c5cff", 未架電: "#9aa7b4",
 };
 
+// 登録元（流入経路）。一目で分かるよう固有のアイコン・色を割り当て、ステージが進んでも色は変えない。
+type SourceKey = "line" | "enger" | "mail";
+const SOURCE_META: Record<SourceKey, { label: string; color: string; icon: string }> = {
+  line:  { label: "LINE",     color: "#06C755", icon: "💬" },   // LINEブランドグリーン
+  enger: { label: "エンジャー", color: "#0095D9", icon: "✦" },   // エンジャーブルー（従来通り）
+  mail:  { label: "メール",    color: "#e0567f", icon: "✉" },   // メールはピンク
+};
+const SOURCE_OPTIONS: { value: SourceKey; label: string }[] = [
+  { value: "line", label: "💬 LINE登録" },
+  { value: "enger", label: "✦ エンジャー登録" },
+  { value: "mail", label: "✉ メール登録" },
+];
+const sourceMeta = (s?: string | null) => (s && (s in SOURCE_META) ? SOURCE_META[s as SourceKey] : null);
+
 function Field({ label, value, options, onChange, placeholder }: { label: string; value: string; options: string[]; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>
@@ -74,7 +88,13 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
+  const [company, setCompany] = useState(p.company ?? "");
+  const [clientContact, setClientContact] = useState(p.client_contact ?? "");
+  const [source, setSource] = useState(p.source ?? "");
   const tone = STAGE_TONE[p.stage] ?? "#6b7280";
+  const src = sourceMeta(p.source);
+  // 左ボーダーは「登録元」の色（固定）。登録元未設定の時のみステージ色にフォールバック。
+  const edgeColor = src?.color ?? tone;
   // 滞留時間（ステージ内 / 提案開始からの全期間）と目標日数(SLA)
   const stageDays = daysSince(p.stage_updated_at ?? p.updated_at ?? p.created_at);
   const totalDays = daysSince(p.created_at);
@@ -94,17 +114,34 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       draggable={!busy}
       onDragStart={(e) => { if (busy) { e.preventDefault(); return; } e.dataTransfer.setData("text/proposal-id", p.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(p.id); }}
       onDragEnd={() => onDragEnd?.()}
+      onClick={(e) => {
+        // カードのどこをクリックしても編集パネルを開く（リンク/ボタン/入力は除外、ドラッグ時は発火しない）
+        if (busy) return;
+        if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return;
+        setOpen(true);
+      }}
+      title="クリックで編集"
       style={{
         padding: 12,
         opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
-        borderLeft: `3px solid ${tone}`,
+        borderLeft: `4px solid ${edgeColor}`,
         // 滞留が警告/危険な場合は右端にもアクセント
         boxShadow: at.level === "danger" ? `inset -3px 0 0 ${at.fg}` : at.level === "warn" ? `inset -3px 0 0 ${at.fg}` : "none",
-        cursor: busy ? "default" : "grab",
+        cursor: busy ? "default" : "pointer",
         userSelect: "none",
         transition: "opacity .12s ease",
       }}
     >
+      {/* 登録元バッジ（固定色・アイコン） */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+        {src ? (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: `${src.color}1a`, color: src.color, border: `1px solid ${src.color}55` }}>
+            <span>{src.icon}</span>{src.label}
+          </span>
+        ) : (
+          <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>登録元 未設定</span>
+        )}
+      </div>
       <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
         {p.job_no != null
           ? <Link
@@ -163,6 +200,22 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
 
       {open && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* 登録元（流入経路）。設定するとカードの色・アイコンが固定される */}
+          <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>登録元（LINE / エンジャー / メール）
+            <select value={source} onChange={(e) => setSource(e.target.value)} style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+              <option value="">未設定</option>
+              {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          {/* 会社名・先方担当者（企業マスタへも紐づけ保存される） */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>会社名
+              <input type="text" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="クライアント会社名" style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>先方担当者
+              <input type="text" value={clientContact} onChange={(e) => setClientContact(e.target.value)} placeholder="窓口の担当者名" style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+            </label>
+          </div>
           <Field label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
           {/* 2人1組（提案者＋パートナー）。区分に関係なく全員が担当できる */}
           <div style={{ fontSize: 10.5, color: "#0b5cab", fontWeight: 600 }}>👥 2人1組</div>
@@ -180,8 +233,9 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           />
           <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>
             {p.company_owner ? <>※ 既定は企業担当の <b>{p.company_owner}</b> さん。ペアで相談して変更できます。</> : <>※ 企業担当が未設定です。案件管理で企業担当を設定すると既定になります。</>}
+            <br />※ 会社名・先方担当者は<b>企業管理</b>にも紐づけ保存されます。
           </div>
-          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner, closer })}>保存</button>
+          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner, closer, company: company.trim() || null, client_contact: clientContact.trim() || null, source: source || null })}>保存</button>
 
           {/* 面談（これから捌く予定）— ファネルの面談到達率の素 */}
           <div style={{ paddingTop: 8, borderTop: "1px dashed var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>

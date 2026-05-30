@@ -171,11 +171,33 @@ export async function bulkDeleteCandidates(candidateNos: number[]) {
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "next_action", "stage", "meeting_date", "meeting_status"];
+  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "next_action", "stage", "meeting_date", "meeting_status", "company", "source"];
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
-  const { error } = await admin.from("proposals").update(patch).eq("id", id);
+  let { error } = await admin.from("proposals").update(patch).eq("id", id);
+  // source 列が未追加の環境でも落ちないようフォールバック（proposals-source.sql 未実行時）
+  if (error && /source|column/i.test(error.message) && "source" in patch) {
+    const { source: _drop, ...rest } = patch;
+    ({ error } = await admin.from("proposals").update(rest).eq("id", id));
+  }
   if (error) return { ok: false, error: error.message };
+
+  // 会社名が入力されていれば企業マスタへ紐づけ（窓口担当=client_contact / 自社担当=closer）。
+  // 企業管理(/companies) でも「その会社の誰が担当か」を一元で確認できるようにする。
+  const company = typeof fields.company === "string" ? fields.company.trim() : "";
+  if (company) {
+    const crow: Record<string, any> = { name: company };
+    if (typeof fields.client_contact === "string" && fields.client_contact.trim()) crow.contact_name = fields.client_contact.trim();
+    if (typeof fields.closer === "string" && fields.closer.trim()) crow.owner_staff = fields.closer.trim();
+    try {
+      let r = await admin.from("companies").upsert(crow, { onConflict: "name" });
+      if (r.error && /column|owner_staff|contact_name/i.test(r.error.message)) {
+        await admin.from("companies").upsert({ name: company }, { onConflict: "name" });
+      }
+      revalidatePath("/companies");
+    } catch { /* companies 未整備でも提案更新は成功させる */ }
+  }
+
   revalidatePath("/proposals");
   bustCounts();
   return { ok: true };
