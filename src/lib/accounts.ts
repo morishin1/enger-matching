@@ -70,7 +70,7 @@ export const resolveAccess = cache(async (email: string): Promise<{ role: Role; 
 });
 
 /** 承認待ちアカウントを作成（自己登録 / Google初回）。既存はそのまま。 */
-export async function createPendingAccount(opts: { email: string; name?: string | null; role?: "agent" | "client"; companyName?: string | null }): Promise<{ ok: boolean; created: boolean; error?: string }> {
+export async function createPendingAccount(opts: { email: string; name?: string | null; role?: "agent" | "client" | "candidate"; companyName?: string | null }): Promise<{ ok: boolean; created: boolean; error?: string }> {
   const e = (opts.email || "").toLowerCase().trim();
   if (!e) return { ok: false, created: false, error: "メールアドレスが不正です" };
   if (!dbConfigured) return { ok: false, created: false, error: "DB未設定" };

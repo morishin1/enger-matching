@@ -1,7 +1,7 @@
 // クライアント/サーバ両方から import 可能な、純粋なロール定義とアクセス判定。
 // （サーバ専用処理は accounts.ts 側に置く）
 
-export type Role = "admin" | "agent" | "client";
+export type Role = "admin" | "agent" | "client" | "candidate";
 export type AccountStatus = "pending" | "active" | "disabled";
 
 // 職能（兼務可・複数選択）
@@ -19,6 +19,8 @@ export function roleHome(_role: Role): string {
 const ADMIN_PREFIXES = ["/settings"];
 /** client(ユーザー企業) が開けるルート。ここ以外は自社ポータル"/"へ戻す。 */
 const CLIENT_ALLOWED = ["/", "/portal"];
+/** candidate(人材) が開けるルート。自分のダッシュボード"/"のみ（企業ポータルは見せない）。 */
+const CANDIDATE_ALLOWED = ["/"];
 /**
  * 営業系の職能を持つ人だけがアクセスできる業務ルート。
  * バックオフィス専任（営業系職能なし）には案件・人材・打合せ記録・パイプライン等を非表示にする。
@@ -34,6 +36,8 @@ export function canAccess(role: Role, pathname: string, functions?: string[] | n
     if (!hasSalesFunction(functions) && hit(SALES_ONLY_PREFIXES)) return false; // バックオフィス専任は営業業務を非表示
     return true;
   }
+  // candidate(人材): 自分のダッシュボードのみ。
+  if (role === "candidate") return hit(CANDIDATE_ALLOWED);
   // client: 自社ポータルのみ。他の内部画面はデータ分離前のため非表示。
   return hit(CLIENT_ALLOWED);
 }

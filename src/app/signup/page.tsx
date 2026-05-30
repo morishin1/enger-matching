@@ -5,7 +5,7 @@ import { signUp, type SignupState } from "./actions";
 
 export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
-  const [role, setRole] = useState<"client" | "agent">("client");
+  const [role, setRole] = useState<"client" | "agent" | "candidate">("client");
 
   const input = { padding: "12px 14px", border: "1px solid #d6dce5", borderRadius: 10, fontSize: 14, fontFamily: "inherit", background: "#fff", outline: "none", width: "100%" } as const;
   const roleBtn = (active: boolean) => ({ flex: 1, padding: "10px", borderRadius: 10, border: active ? "1.5px solid #0095D9" : "1px solid #d6dce5", background: active ? "#eaf6fd" : "#fff", color: active ? "#0F2440" : "#6b7280", fontSize: 12.5, fontWeight: 700, cursor: "pointer" } as const);
@@ -38,8 +38,9 @@ export default function SignupPage() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご利用区分
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button type="button" onClick={() => setRole("client")} style={roleBtn(role === "client")}>エンジニアを採用したい企業</button>
+                  <button type="button" onClick={() => setRole("candidate")} style={roleBtn(role === "candidate")}>エンジニア・人材</button>
                   <button type="button" onClick={() => setRole("agent")} style={roleBtn(role === "agent")}>営業・エージェント</button>
                 </div>
               </div>

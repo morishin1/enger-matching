@@ -12,7 +12,7 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   const name = String(formData.get("name") ?? "").trim();
   const company = String(formData.get("company") ?? "").trim();
   const roleRaw = String(formData.get("role") ?? "client");
-  const role: "agent" | "client" = roleRaw === "agent" ? "agent" : "client";
+  const role: "agent" | "client" | "candidate" = roleRaw === "agent" ? "agent" : roleRaw === "candidate" ? "candidate" : "client";
 
   if (!email || !password) return { error: "メールアドレスとパスワードを入力してください" };
   if (password.length < 8) return { error: "パスワードは8文字以上で設定してください" };
