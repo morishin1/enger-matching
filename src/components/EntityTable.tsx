@@ -10,6 +10,7 @@ import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { AffiliationSelect } from "./AffiliationSelect";
 import { EditCandidateButton, EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
+import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
@@ -519,23 +520,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, p
             </div>
 
             {/* 面談前ゲート案内（partner/freelance で未面談時） */}
-            {partner && !meetingDone && (
-              <div style={{ background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#9a7b12" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "middle", marginRight: 4 }}>lock</span>
-                  詳細はエージェント面談後に解放されます
-                </div>
-                <div style={{ fontSize: 12, color: "#6b5410", lineHeight: 1.7 }}>
-                  ご利用前に担当エージェントとの面談（オンライン可）をお願いしています。下記までお気軽にご連絡ください。
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-                  {agentContact?.line && <a href={agentContact.line} target="_blank" rel="noreferrer" className="btn btn-xs" style={{ background: "#06C755", color: "#fff", borderColor: "#06C755", textDecoration: "none" }}>💬 LINEで相談</a>}
-                  {agentContact?.email && <a href={`mailto:${agentContact.email}`} className="btn btn-xs" style={{ background: "#e0567f", color: "#fff", borderColor: "#e0567f", textDecoration: "none" }}>✉ メールで相談</a>}
-                  {agentContact?.phone && <a href={`tel:${agentContact.phone}`} className="btn btn-xs" style={{ background: "#0095D9", color: "#fff", borderColor: "#0095D9", textDecoration: "none" }}>📞 電話で相談</a>}
-                  {(!agentContact?.line && !agentContact?.email && !agentContact?.phone) && <span className="muted" style={{ fontSize: 11.5 }}>担当エージェントの連絡先：運営にお問い合わせください</span>}
-                </div>
-              </div>
-            )}
+            {partner && !meetingDone && <MeetingGateBanner />}
 
             {/* アクションバー（詳細ページと同等の動線） */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

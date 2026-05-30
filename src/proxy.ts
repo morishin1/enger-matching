@@ -22,6 +22,8 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup") ||
     pathname.startsWith("/agent") ||           // 副業エージェント募集の公開LP
+    pathname.startsWith("/terms") ||           // 利用規約（公開）
+    pathname.startsWith("/privacy") ||         // プライバシーポリシー（公開）
     pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/api/")

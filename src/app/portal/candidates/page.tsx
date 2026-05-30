@@ -5,6 +5,7 @@ import { overlapSkills } from "@/lib/match";
 import { getFeedbackMap } from "@/lib/client-feedback";
 import { CandidateRecommendations, type RecoCandidate } from "@/components/CandidateRecommendations";
 import { PortalTalentList, type PortalTalent } from "@/components/PortalTalentList";
+import { MeetingGateBanner } from "@/components/MeetingGateBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,16 @@ export const dynamic = "force-dynamic";
 export default async function PortalCandidatesPage() {
   const access = await currentAccess();
   if (access && access.role !== "client") redirect("/");
+
+  // 面談前は詳細を出さない（人材の匿名情報すら出さず、面談誘導のみ）
+  if (access && !access.meetingDone) {
+    return (
+      <div className="page">
+        <div className="page-head"><div><div className="meta">おすすめ人材</div><h1>おすすめ人材</h1></div></div>
+        <MeetingGateBanner title="おすすめ人材の閲覧は担当との面談後に解放されます" description="ご利用前に担当エージェントとの面談（オンライン可）をお願いしています。面談後、提案された人材を匿名（イニシャル＋スキル＋単価）でご確認いただけます。" />
+      </div>
+    );
+  }
 
   const companyName = access?.companyName ?? null;
   let items: RecoCandidate[] = [];

@@ -19,13 +19,14 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const access = await currentAccess();
+  const needGate = !!access && !access.meetingDone && (access.role === "client" || access.role === "candidate" || access.role === "partner" || access.role === "freelance");
   // ユーザー企業 → 自社ポータル
   if (access?.role === "client") {
-    return <ClientHome companyName={access.companyName} displayName={access.name} />;
+    return <ClientHome companyName={access.companyName} displayName={access.name} needGate={needGate} />;
   }
   // 人材（エンジニア） → 人材ダッシュボード
   if (access?.role === "candidate") {
-    return <TalentHome displayName={access.name} />;
+    return <TalentHome displayName={access.name} needGate={needGate} />;
   }
   // パートナー企業 → パートナーホーム
   if (access?.role === "partner") {

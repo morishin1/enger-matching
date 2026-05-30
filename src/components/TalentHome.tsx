@@ -1,7 +1,8 @@
 // 人材(candidate)ロール用の最小ダッシュボード。承認後に表示される。
 // まずは「ようこそ＋登録状況」を案内。今後、自分のスキルシート編集やスカウト受信などを拡張予定。
+import { MeetingGateBanner } from "./MeetingGateBanner";
 
-export function TalentHome({ displayName }: { displayName?: string | null }) {
+export function TalentHome({ displayName, needGate = false }: { displayName?: string | null; needGate?: boolean }) {
   return (
     <div className="page">
       <div className="page-head">
@@ -11,6 +12,8 @@ export function TalentHome({ displayName }: { displayName?: string | null }) {
           <div className="sub">登録が承認されました。ENGER があなたに合った案件をご紹介します。</div>
         </div>
       </div>
+
+      {needGate && <MeetingGateBanner title="ご案件紹介の前に、まずは面談をお願いしています" description="ご経歴・ご希望条件をヒアリングしたうえで、最適な案件をご紹介します。下記までお気軽にご連絡ください。" />}
 
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
