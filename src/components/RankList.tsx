@@ -14,21 +14,26 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
   jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; jobForAI: any;
 }) {
   const [ai, setAi] = useState<Map<number, { score: number; reason: string }> | null>(null);
+  const [view, setView] = useState<"rule" | "ai">("rule"); // 既定はルール順（AI未使用＝コスト0）
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const linkFor = (no: number) => `/matching?tab=${tab}&job=${jobNo}&cand=${no}`;
 
-  // AI再ランキング適用後の並び
+  // AI順で表示するのは view==="ai" かつ AI評価がある時だけ
+  const aiActive = view === "ai" && !!ai;
   const ordered = useMemo(() => {
-    if (!ai) return ranked;
+    if (!aiActive || !ai) return ranked;
     return [...ranked].sort((a, b) => (ai.get(b.candidate.candidate_no)?.score ?? -1) - (ai.get(a.candidate.candidate_no)?.score ?? -1));
-  }, [ranked, ai]);
+  }, [ranked, ai, aiActive]);
 
   const rerank = async () => {
+    // 既に取得済みなら再フェッチせずAI順に切替（再課金なし）
+    if (ai) { setView("ai"); setMsg("AI順に切り替えました（前回の評価を再利用）"); return; }
     setLoading(true); setMsg(null);
     try {
-      const candidates = ranked.map((r) => ({
+      // コスト最小化のため上位10件だけAIに渡す
+      const candidates = ranked.slice(0, 10).map((r) => ({
         candidate_no: r.candidate.candidate_no, name: r.candidate.name, title: r.candidate.title,
         skills: r.candidate.skills, rate: r.candidate.rate, exp: r.candidate.exp, remote_pref: r.candidate.remote_pref,
       }));
@@ -37,8 +42,8 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
       if (!data.ok) { setMsg(data.error || "再ランキングに失敗しました"); return; }
       const m = new Map<number, { score: number; reason: string }>();
       for (const r of data.results) m.set(r.candidate_no, { score: r.score, reason: r.reason });
-      setAi(m);
-      setMsg("AIで再ランキングしました（相性スコアにAI評価を反映）");
+      setAi(m); setView("ai");
+      setMsg(data.cached ? "AI順に切替（キャッシュ・課金なし）" : "AIで再ランキングしました（上位10件をAI評価）");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "再ランキングに失敗しました");
     } finally { setLoading(false); }
@@ -48,7 +53,19 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
     <div className="card flush" style={{ position: "sticky", top: 80 }}>
       <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.4 }}>{jobAbbr} のマッチング人材 <span className="tag brand">{ranked.length}件</span></div>
-        <button type="button" className="btn ghost btn-xs" disabled={loading || ranked.length === 0} onClick={rerank} title="上位候補をAIが文脈評価して並べ替え">{loading ? "AI評価中…" : ai ? "✓ AI再評価済" : "✨ AIで再ランキング"}</button>
+        {ai ? (
+          // 取得済みは「ルール順 / AI順」をワンタップで切替（再課金なし）
+          <div style={{ display: "inline-flex", gap: 2, padding: 2, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+            {([["rule", "ルール順"], ["ai", "AI順"]] as const).map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setView(v)}
+                style={{ padding: "4px 12px", borderRadius: 99, border: 0, cursor: "pointer", fontSize: 11.5, fontWeight: 700, fontFamily: "inherit",
+                  background: view === v ? "var(--color-surface)" : "transparent", color: view === v ? "var(--color-ink)" : "var(--color-ink-3)",
+                  boxShadow: view === v ? "0 1px 2px rgba(15,23,42,.1)" : "none" }}>{label}</button>
+            ))}
+          </div>
+        ) : (
+          <button type="button" className="btn ghost btn-xs" disabled={loading || ranked.length === 0} onClick={rerank} title="上位10件をAIが文脈評価して並べ替え（押した時だけ課金）">{loading ? "AI評価中…" : "✨ AIで再ランキング"}</button>
+        )}
       </div>
       {msg && <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--color-ink-3)", borderBottom: "1px solid var(--color-border)" }}>{msg}</div>}
       <div style={{ display: "flex", flexDirection: "column" }}>
@@ -57,7 +74,7 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
         ) : ordered.map((r, i) => {
           const c = r.candidate;
           const active = selCandNo === c.candidate_no;
-          const aiv = ai?.get(c.candidate_no);
+          const aiv = aiActive ? ai?.get(c.candidate_no) : undefined; // ルール順表示ではAIスコアを出さない
           const shown = aiv ? aiv.score : r.score;
           const rankColor = i === 0 ? "#f0a92b" : i === 1 ? "#9aa7b4" : i === 2 ? "#cd853f" : "var(--color-surface-inset)";
           return (
