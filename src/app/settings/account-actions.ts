@@ -211,6 +211,73 @@ export async function setAccountNote(id: string, note: string): Promise<Result> 
 }
 
 /** 職能（複数）を管理者が設定。 */
+/** クライアントからの活動取得（送信メール＋打合せ）。 */
+export async function getAccountActivity(accountId: string): Promise<{ ok: true; emails: any[]; meetings: any[] } | { ok: false; error: string }> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return { ok: false, error: guard.error ?? "権限が必要です" };
+  try {
+    const { listAccountActivity } = await import("@/lib/accounts");
+    const d = await listAccountActivity(accountId);
+    return { ok: true, emails: d.emails, meetings: d.meetings };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** 承認待ちユーザーへのメール送信を記録（実送信は Gmail コンポーズURLで担当が行う）。 */
+export async function logAccountEmail(input: { account_id: string; account_email: string; template: string; subject: string; body: string }): Promise<Result> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  if (!input.account_id || !input.subject) return { ok: false, error: "必要項目が不足しています" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("account_emails").insert({
+      account_id: input.account_id,
+      account_email: input.account_email,
+      template: input.template,
+      subject: input.subject,
+      body: input.body,
+      actor_email: actor.email,
+      actor_name: actor.name,
+      status: "sent",
+    });
+    if (error) return { ok: false, error: error.message };
+    await audit(input.account_id, input.account_email, "email_sent", `tpl=${input.template}`, actor);
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** アカウントに紐づく打合せ予定/実績を1件記録（連動：面談実施 → 後に承認/面談済み）。 */
+export async function createAccountMeeting(input: { account_id: string; account_email: string; meeting_date: string; title?: string; our_owner?: string; new_or_existing?: string; needs?: string }): Promise<Result> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  if (!input.account_id || !input.meeting_date) return { ok: false, error: "必要項目が不足しています" };
+  try {
+    const sb = engerAdmin();
+    const row: Record<string, any> = {
+      title: input.title?.trim() || `面談（${input.account_email}）`,
+      meeting_date: input.meeting_date,
+      our_owner: input.our_owner ?? actor.name ?? null,
+      new_or_existing: input.new_or_existing || "新規",
+      needs: input.needs ?? null,
+      account_id: input.account_id,
+      account_email: input.account_email,
+    };
+    let r: any = await sb.from("meetings").insert(row);
+    if (r.error && /account_id|account_email|column/i.test(r.error.message)) {
+      // 列未追加環境は account_* 抜きで保存
+      delete row.account_id; delete row.account_email;
+      r = await sb.from("meetings").insert(row);
+    }
+    if (r.error) return { ok: false, error: r.error.message };
+    await audit(input.account_id, input.account_email, "meeting_scheduled", `date=${input.meeting_date}`, actor);
+    bustMembers();
+    revalidatePath("/meetings");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** 職能（複数）を管理者が設定。 */
 export async function setAccountFunctions(id: string, functions: string[]): Promise<Result> {
   const guard = await requireAdmin();
   if (!guard.ok) return guard;

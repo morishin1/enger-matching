@@ -5,7 +5,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Account, Role } from "@/lib/accounts";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity } from "@/app/settings/account-actions";
+import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 
 type TabKey = "client" | "partner" | "freelance" | "candidate" | "agent" | "admin";
 const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
@@ -32,6 +33,17 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // 詳細(メール送信＋面談)パネルの展開状態と取得済みアクティビティ
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [activity, setActivity] = useState<Record<string, { emails: any[]; meetings: any[] }>>({});
+  const toggleExpand = async (id: string) => {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!activity[id]) {
+      const res = await getAccountActivity(id);
+      if (res.ok) setActivity((m) => ({ ...m, [id]: { emails: res.emails, meetings: res.meetings } }));
+    }
+  };
 
   const pendingCount = useMemo(() => {
     const m: Record<TabKey, number> = { client: 0, partner: 0, freelance: 0, candidate: 0, agent: 0, admin: 0 };
@@ -91,10 +103,10 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                 <tr><th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日時</th><th style={{ width: 140 }}>担当エージェント</th><th style={{ width: 200 }}>メモ（根拠/連絡）</th><th style={{ width: 220 }}>承認・面談履歴</th><th style={{ width: 260 }}>操作</th></tr>
               </thead>
               <tbody>
-                {rows.map((a) => {
+                {rows.flatMap((a) => {
                   const sb = STATUS_BADGE[a.status] ?? STATUS_BADGE.pending;
                   const busy = busyId === a.id && pending;
-                  return (
+                  const mainRow = (
                     <tr key={a.id}>
                       <td><span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: sb.c, background: sb.bg }}>{sb.l}</span></td>
                       <td>
@@ -164,10 +176,22 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                             <option value="agent">営業</option>
                             <option value="admin">管理者</option>
                           </select>
+                          {/* メール送信＋面談予定（展開） */}
+                          <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="メール送信／面談予定を開く">
+                            {expanded === a.id ? "閉じる" : "📧 連絡・面談"}
+                          </button>
                         </div>
                       </td>
                     </tr>
                   );
+                  const expandedRow = expanded === a.id ? (
+                    <tr key={`${a.id}-x`}>
+                      <td colSpan={8} style={{ background: "var(--color-surface-soft)", padding: 12 }}>
+                        <ApprovalDetailPanel account={a} emails={activity[a.id]?.emails ?? []} meetings={activity[a.id]?.meetings ?? []} />
+                      </td>
+                    </tr>
+                  ) : null;
+                  return expandedRow ? [mainRow, expandedRow] : [mainRow];
                 })}
               </tbody>
             </table>
