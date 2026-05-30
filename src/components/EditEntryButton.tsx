@@ -21,6 +21,31 @@ function Field({ label, value, onChange, full, placeholder, warn }: { label: str
     </label>
   );
 }
+
+// 重複検出キー用：初期は read-only。「🔓 ロック解除」で編集可になり警告を表示。
+// 誤編集による重複は防ぎつつ、誤字修正など必要時には変更できる。
+function LockedField({ label, value, onChange, full, lockNote }: { label: string; value?: string; onChange: (v: string) => void; full?: boolean; lockNote: string }) {
+  const [unlocked, setUnlocked] = useState(false);
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: full ? "1 / -1" : undefined }}>
+      <span style={labelStyle}>{label} {!unlocked && <span style={{ color: "var(--color-ink-4)", fontWeight: 500 }}>（重複防止のため保護中）</span>}</span>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          type="text" value={value ?? ""}
+          readOnly={!unlocked}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ ...fieldStyle, flex: 1, background: unlocked ? "var(--color-surface)" : "var(--color-surface-inset)", color: unlocked ? "var(--color-ink)" : "var(--color-ink-3)" }}
+        />
+        <button type="button" onClick={() => setUnlocked((v) => !v)}
+          className="btn ghost btn-xs"
+          style={{ whiteSpace: "nowrap", color: unlocked ? "var(--color-warn, #b45309)" : "var(--color-ink-3)" }}>
+          {unlocked ? "🔒 ロック" : "🔓 ロック解除"}
+        </button>
+      </div>
+      {unlocked && <span style={warnStyle}>⚠ {lockNote}</span>}
+    </label>
+  );
+}
 function Select({ label, value, onChange, options }: { label: string; value?: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -105,9 +130,9 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-              <Field label="氏名 *" value={f.name} onChange={set("name")} warn="重複検出のキー。変更時は注意" />
+              <LockedField label="氏名 *" value={f.name} onChange={set("name")} lockNote="重複検出キー。変更すると別人材として扱われる可能性があります" />
               <Field label="職種" value={f.title} onChange={set("title")} />
-              <Field label="所属会社" value={f.source_company} onChange={set("source_company")} />
+              <LockedField label="所属会社" value={f.source_company} onChange={set("source_company")} lockNote="所属が変わると重複判定や絞り込みに影響します" />
               <Field label="所属区分" value={f.affiliation} onChange={set("affiliation")} placeholder="一社下社員 / 一社下フリーランス / 二社下以降" />
               <Field label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               <Field label="希望単価" value={f.rate} onChange={set("rate")} />
@@ -204,8 +229,8 @@ export function EditJobButton({ job }: { job: any }) {
               <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-              <Field label="案件名 *" value={f.title} onChange={set("title")} full warn="重複検出のキー（title×client_name）。変更時は注意" />
-              <Field label="クライアント名" value={f.client_name} onChange={set("client_name")} warn="重複検出のキー。変更時は注意" />
+              <LockedField label="案件名 *" value={f.title} onChange={set("title")} full lockNote="重複検出キー（title × client_name）。変更すると同じ案件が二重登録される可能性があります" />
+              <LockedField label="クライアント名" value={f.client_name} onChange={set("client_name")} lockNote="重複検出キー。変更すると重複判定が崩れます" />
               <Field label="募集職種" value={f.role_label} onChange={set("role_label")} />
               <Field label="必要スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               <Field label="単価下限（万）" value={f.salary_min} onChange={set("salary_min")} />

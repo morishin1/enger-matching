@@ -436,30 +436,105 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
         </span>
       </div>
 
-      {/* 詳細モーダル */}
+      {/* 詳細モーダル（案件詳細／人材詳細ページと同じデザインベース） */}
       {detail && (
         <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{titleOf(detail)}</h3>
+              <div style={{ minWidth: 0 }}>
+                <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600 }}>
+                  {kind === "jobs" ? "JOB · 案件詳細" : "SKILL SHEET · スキルシート"}
+                </div>
+                <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span>{titleOf(detail)}</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>
+                    {kind === "jobs" ? `No.${String(detail.job_no ?? 0).padStart(5, "0")}` : `P-${String(detail.candidate_no ?? 0).padStart(5, "0")}`}
+                  </span>
+                </h3>
+                <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+                  {kind === "jobs"
+                    ? [detail.client_name, detail.role_label, remoteLabel(detail.remote_type), salaryLabel(detail.salary_min, detail.salary_max)].filter(Boolean).join(" · ") || "—"
+                    : (() => { const co = detail.source_company || detail.company; const com = co && detail.affiliation ? `${co}（${detail.affiliation}）` : (co || detail.affiliation); return [detail.title, com].filter(Boolean).join(" · ") || "—"; })()}
+                </div>
                 {detail._reasons?.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>{detail._reasons.map((rs: string) => <span key={rs} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{rs}</span>)}</div>}
               </div>
               <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
-              {cols.map((c) => (
-                <div key={c.key} style={{ background: "var(--color-surface)", padding: "9px 11px" }}>
-                  <div style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 600 }}>{c.label}</div>
-                  <div style={{ fontSize: 13, marginTop: 2 }}>{c.render ? c.render(detail) : "—"}</div>
+
+            {/* アクションバー（詳細ページと同等の動線） */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
+              </Link>
+              {kind === "jobs"
+                ? <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>
+                : <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>}
+              {kind === "people" && detail.skill_sheet_url && (
+                <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
+              )}
+              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} />
+            </div>
+
+            {/* スキル */}
+            {Array.isArray(detail.skills) && detail.skills.length > 0 && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {(detail.skills as string[]).map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
                 </div>
-              ))}
+              </div>
+            )}
+
+            {/* プロフィール／案件情報（ラベル + 値 の行レイアウト） */}
+            <div className="card" style={{ padding: 12 }}>
+              <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>
+                {kind === "jobs" ? "案件情報" : "プロフィール"}
+              </div>
+              {(kind === "jobs"
+                ? [
+                    ["案件名", detail.title],
+                    ["クライアント", detail.client_name],
+                    ["募集職種", detail.role_label],
+                    ["必要スキル", (detail.skills ?? []).join(" / ") || null],
+                    ["単価", salaryLabel(detail.salary_min, detail.salary_max)],
+                    ["リモート可否", remoteLabel(detail.remote_type)],
+                    ["商流", detail.flow_note],
+                    ["勤務地", detail.work_location],
+                    ["開始希望", detail.start_date],
+                    ["ステータス", detail.status],
+                    ["窓口メール", detail.contact_email],
+                  ]
+                : [
+                    ["ステータス", detail.status],
+                    ["ランク", detail.rank],
+                    ["経験", detail.exp],
+                    ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : null)],
+                    ["稼働開始", detail.avail],
+                    ["勤務地", detail.location],
+                    ["リモート希望", detail.remote_pref],
+                    ["所属", detail.affiliation ?? detail.source_company],
+                    ["連絡先", detail.email ?? detail.contact_email],
+                  ]
+              ).map(([label, value]) => value ? (
+                <div key={label as string} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
+                  <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+                  <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value as React.ReactNode}</div>
+                </div>
+              ) : null)}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Link href={matchHref(detail)} className="btn" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 19, lineHeight: 1 }}>auto_awesome</span></Link>
-              {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
-            </div>
+
+            {kind === "jobs" && detail.detail && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>案件詳細</div>
+                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", maxHeight: 240, overflow: "auto" }}>{detail.detail}</div>
+              </div>
+            )}
+            {kind === "people" && detail.note && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>備考</div>
+                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)" }}>{detail.note}</div>
+              </div>
+            )}
           </div>
         </div>
       )}
