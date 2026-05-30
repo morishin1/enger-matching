@@ -46,6 +46,7 @@ const TOOLS: NavItem[] = [
 // パートナー企業(partner)向けメニュー。漏洩防止のため限定（自社＋共有のみ／他社は匿名）。
 const PARTNER_NAV: NavItem[] = [
   { href: "/", id: "p-home", label: "ホーム", icon: "dashboard" },
+  { href: "/matching", id: "p-matching", label: "マッチング", icon: "matching" },
   { href: "/jobs", id: "p-jobs", label: "案件（自社・共有）", icon: "jobs" },
   { href: "/people", id: "p-people", label: "人材（自社・共有）", icon: "people" },
 ];

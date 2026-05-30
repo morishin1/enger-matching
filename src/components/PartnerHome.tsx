@@ -3,6 +3,7 @@ import Link from "next/link";
 
 export function PartnerHome({ companyName, displayName }: { companyName?: string | null; displayName?: string | null }) {
   const cards = [
+    { href: "/matching", icon: "compare_arrows", t: "マッチング", d: "自社＋共有の案件・人材で相性の良いペアを表示します（他社は匿名）。" },
     { href: "/jobs", icon: "work", t: "案件（自社・共有）", d: "自社の案件を登録・管理。共有案件も匿名で確認できます。" },
     { href: "/people", icon: "groups", t: "人材（自社・共有）", d: "自社の人材を登録・管理。共有人材も匿名で確認できます。" },
   ];
