@@ -310,7 +310,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     <Link key={j.job_no} href={linkFor(j.job_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
                       <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+                          <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>No.{String(j.job_no).padStart(5, "0")}</span>
+                        </div>
                         <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {salaryLabel(j.salary_min, j.salary_max)}</div>
                       </div>
                       <div style={{ textAlign: "right" }}><div style={{ fontSize: 9, color: "var(--color-ink-4)" }}>相性</div><Stars score={r.score} /></div>
@@ -355,7 +358,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
                     </div>
                     <div style={{ padding: 20 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title}</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
                       {/* 左：スキル評価／右：マッチ理由（スクロール量を抑えるため2カラム） */}
@@ -502,7 +505,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
                   <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} row={job} />
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
                 <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                   <span>{job.client_name ?? "—"}</span>
                   {job.role_label && <span className="tag">{job.role_label}</span>}
