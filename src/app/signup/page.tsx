@@ -6,12 +6,13 @@ import { signUp, type SignupState } from "./actions";
 export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
   const [role, setRole] = useState<"client" | "agent" | "candidate" | "partner" | "freelance">("client");
-  // ag.enger.jp（副業エージェント向けドメイン）からのアクセスは区分を「副業エージェント」に固定。
+  // ag.enger.jp（副業エージェント向けドメイン）または ?as=freelance は区分を「副業エージェント」に固定。
   const [agHost, setAgHost] = useState(false);
   useEffect(() => {
     try {
       const h = window.location.hostname || "";
-      if (/^ag\./i.test(h)) { setAgHost(true); setRole("freelance"); }
+      const as = new URLSearchParams(window.location.search).get("as");
+      if (/^ag\./i.test(h) || as === "freelance") { setAgHost(true); setRole("freelance"); }
     } catch { /* noop */ }
   }, []);
 
