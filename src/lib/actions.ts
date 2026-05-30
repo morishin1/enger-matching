@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin } from "./supabase";
 import { currentAccess } from "./accounts";
 import { canSeeMargin } from "./engagement-access";
+import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
 
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
@@ -945,6 +946,8 @@ export async function upsertJobManual(rec: JobInput) {
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!rec.title?.trim()) return { ok: false as const, error: "案件名は必須です" };
   const now = new Date().toISOString();
+  // パートナー企業の登録は自社所有(owner_company)で隔離。社内は null（社内所有）。
+  const ownerCompany = await partnerOwnerCompany();
   const salaryLabel = (lo?: number | null, hi?: number | null) =>
     lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
   const row: Record<string, any> = {
@@ -968,21 +971,22 @@ export async function upsertJobManual(rec: JobInput) {
     is_published: true,
     source_csv: "manual",
     operator: rec.operator?.trim() || null,
+    owner_company: ownerCompany,
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.operator; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.operator; delete c.owner_company; return c; };
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
     const update: Record<string, any> = { is_published: true, imported_at: now };
     for (const [k, v] of Object.entries(row)) {
-      if (k === "is_published" || k === "imported_at" || k === "created_at" || k === "operator") continue; // operatorは登録時のみ
+      if (k === "is_published" || k === "imported_at" || k === "created_at" || k === "operator" || k === "owner_company") continue; // operator/所有は登録時のみ
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       update[k] = v;
     }
     let r: any = await admin.from("jobs").update(update).eq("id", id);
-    if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
+    if (r.error && /contact_email|contact_name|source_mail_url|owner_company|column/i.test(r.error.message)) {
       r = await admin.from("jobs").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
@@ -997,14 +1001,16 @@ export async function upsertJobManual(rec: JobInput) {
   // 並べて先頭(最若番)の既存案件を採用して更新・再公開する。
   let q = admin.from("jobs").select("id, job_no, is_published").eq("title", row.title);
   q = row.client_name ? q.eq("client_name", row.client_name) : q.is("client_name", null);
+  // テナント隔離：パートナーは自社所有のみ、社内は社内所有(null)のみと突合（他テナントの行を書き換えない）
+  if (ownerCompany != null) q = q.eq("owner_company", ownerCompany); else { try { q = q.is("owner_company", null); } catch { /* 列未整備 */ } }
   const exList: any = await q.order("job_no", { ascending: true }).limit(1);
-  const exRow = exList.data?.[0] ?? null;
+  const exRow = !exList.error ? (exList.data?.[0] ?? null) : null;
   if (exRow?.id) return updateExisting(exRow.id, exRow.job_no, !!exRow.is_published);
 
   // 新規 INSERT
   row.created_at = now;
   let r: any = await admin.from("jobs").insert(row).select("job_no").maybeSingle();
-  if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
+  if (r.error && /contact_email|contact_name|source_mail_url|owner_company|column/i.test(r.error.message)) {
     r = await admin.from("jobs").insert(stripCols(row)).select("job_no").maybeSingle();
   }
   // 一意制約に当たった場合（直前の検索では拾えなかった既存行がある）は、
@@ -1027,6 +1033,8 @@ export async function upsertCandidateManual(rec: CandidateInput) {
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!rec.name?.trim()) return { ok: false as const, error: "氏名は必須です" };
   const now = new Date().toISOString();
+  // パートナー企業の登録は自社所有(owner_company)で隔離。社内は null（社内所有）。
+  const ownerCompany = await partnerOwnerCompany();
   const row: Record<string, any> = {
     code: rec.code?.trim() || null,
     name: rec.name.trim(),
@@ -1046,22 +1054,23 @@ export async function upsertCandidateManual(rec: CandidateInput) {
     contact_email: rec.contact_email?.trim() || null,
     source_mail_url: rec.source_mail_url?.trim() || null,
     operator: rec.operator?.trim() || null,
+    owner_company: ownerCompany,
     score: 0,
     source_csv: "manual",
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.operator; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
   const updateExisting = async (id: string, candidateNo: number) => {
     const update: Record<string, any> = { imported_at: now };
     for (const [k, v] of Object.entries(row)) {
-      if (k === "imported_at" || k === "operator") continue; // operatorは登録時のみ
+      if (k === "imported_at" || k === "operator" || k === "owner_company") continue; // operator/所有は登録時のみ
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       update[k] = v;
     }
     let r: any = await admin.from("candidates").update(update).eq("id", id);
-    if (r.error && /skill_sheet_url|email|source_mail_url|column/i.test(r.error.message)) {
+    if (r.error && /skill_sheet_url|email|source_mail_url|owner_company|column/i.test(r.error.message)) {
       r = await admin.from("candidates").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
@@ -1070,20 +1079,23 @@ export async function upsertCandidateManual(rec: CandidateInput) {
   };
 
   // 既存検索（name×company）。複数行・重複でも落ちないよう最若番を採用。
+  // テナント隔離：パートナーは自社所有のみ、社内は社内所有(null)のみと突合。
   let q = admin.from("candidates").select("id, candidate_no").eq("name", row.name);
   q = row.company ? q.eq("company", row.company) : q.is("company", null);
+  if (ownerCompany != null) q = q.eq("owner_company", ownerCompany); else { try { q = q.is("owner_company", null); } catch { /* 列未整備 */ } }
   const exList: any = await q.order("candidate_no", { ascending: true }).limit(1);
-  const exRow = exList.data?.[0] ?? null;
+  const exRow = !exList.error ? (exList.data?.[0] ?? null) : null;
   if (exRow?.id) return updateExisting(exRow.id, exRow.candidate_no);
 
   let r: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
-  if (r.error && /skill_sheet_url|email|source_mail_url|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|owner_company|column/i.test(r.error.message)) {
     r = await admin.from("candidates").insert(stripCols(row)).select("candidate_no").maybeSingle();
   }
   // 一意制約に当たった場合は既存人材の更新へフォールバック（重複エラーにしない）
   if (r.error && /duplicate key|unique|candidates_/i.test(r.error.message)) {
     let q2 = admin.from("candidates").select("id, candidate_no").eq("name", row.name);
     q2 = row.company ? q2.eq("company", row.company) : q2.is("company", null);
+    if (ownerCompany != null) q2 = q2.eq("owner_company", ownerCompany); else { try { q2 = q2.is("owner_company", null); } catch { /* 列未整備 */ } }
     const again: any = await q2.order("candidate_no", { ascending: true }).limit(1);
     const hit = again.data?.[0];
     if (hit?.id) return updateExisting(hit.id, hit.candidate_no);

@@ -12,12 +12,13 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   const name = String(formData.get("name") ?? "").trim();
   const company = String(formData.get("company") ?? "").trim();
   const roleRaw = String(formData.get("role") ?? "client");
-  const role: "agent" | "client" | "candidate" = roleRaw === "agent" ? "agent" : roleRaw === "candidate" ? "candidate" : "client";
+  const role: "agent" | "client" | "candidate" | "partner" =
+    roleRaw === "agent" ? "agent" : roleRaw === "candidate" ? "candidate" : roleRaw === "partner" ? "partner" : "client";
 
   if (!email || !password) return { error: "メールアドレスとパスワードを入力してください" };
   if (password.length < 8) return { error: "パスワードは8文字以上で設定してください" };
   if (!name) return { error: "お名前（ご担当者名）を入力してください" };
-  if (role === "client" && !company) return { error: "会社名を入力してください" };
+  if ((role === "client" || role === "partner") && !company) return { error: "会社名を入力してください" };
 
   const supabase = await authServerClient();
   const { error } = await supabase.auth.signUp({
@@ -33,7 +34,7 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   }
 
   // 承認待ちアカウントを作成（既に存在すればそのまま）
-  const acc = await createPendingAccount({ email, name, role, companyName: role === "client" ? company : null });
+  const acc = await createPendingAccount({ email, name, role, companyName: (role === "client" || role === "partner") ? company : null });
   if (!acc.ok) return { error: `アカウント登録に失敗しました：${acc.error ?? "不明なエラー"}` };
 
   // 自動でセッションが張られても入室はさせない（承認待ち）

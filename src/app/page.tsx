@@ -6,6 +6,7 @@ import { ReportIssues } from "@/components/ReportIssues";
 import { CompanyStructure } from "@/components/CompanyStructure";
 import { WorkHome } from "@/components/WorkHome";
 import { TalentHome } from "@/components/TalentHome";
+import { PartnerHome } from "@/components/PartnerHome";
 import { TalentRequests } from "@/components/TalentRequests";
 import { RecentActivity } from "@/components/RecentActivity";
 import { currentAccess } from "@/lib/accounts";
@@ -24,6 +25,10 @@ export default async function DashboardPage() {
   // 人材（エンジニア） → 人材ダッシュボード
   if (access?.role === "candidate") {
     return <TalentHome displayName={access.name} />;
+  }
+  // パートナー企業 → パートナーホーム
+  if (access?.role === "partner") {
+    return <PartnerHome companyName={access.companyName} displayName={access.name} />;
   }
   // 非営業の一般職（バックオフィス/EC/サポート等・営業職能を持たない） → 業務ホーム
   const fns = access?.functions ?? [];
