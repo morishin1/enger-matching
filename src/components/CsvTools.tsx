@@ -542,5 +542,166 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
   );
 }
 
+// ---- メールから複数レコードを分離して一括取込 ------------------------------
+// 1通のメールに複数名の人材／複数案件が書かれているケースを、AIで個別に分離して登録する。
+function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [records, setRecords] = useState<any[]>([]);
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const isJob = kind === "jobs";
+  const noun = isJob ? "案件" : "人材";
+
+  const close = () => { if (!loading && !pending) { setOpen(false); setText(""); setRecords([]); setPicked(new Set()); setMsg(null); } };
+
+  const extract = async () => {
+    if (!text.trim()) { setMsg({ ok: false, text: "メール本文を貼り付けてください" }); return; }
+    setLoading(true); setMsg(null); setRecords([]); setPicked(new Set());
+    try {
+      const res = await fetch("/api/extract-bulk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, kind }) });
+      const data = await res.json();
+      if (!data.ok) { setMsg({ ok: false, text: data.error || "抽出に失敗しました" }); return; }
+      const recs: any[] = data.records ?? [];
+      setRecords(recs);
+      setPicked(new Set(recs.map((_, i) => i)));
+      setMsg({ ok: true, text: `${recs.length} 件を抽出しました。内容を確認して登録してください。` });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "抽出に失敗しました" });
+    } finally { setLoading(false); }
+  };
+
+  const toggle = (i: number) => setPicked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+
+  const register = () => {
+    const chosen = records.filter((_, i) => picked.has(i));
+    if (chosen.length === 0) { setMsg({ ok: false, text: "登録する行を選択してください" }); return; }
+    setMsg(null);
+    start(async () => {
+      try {
+        let res: any;
+        if (isJob) {
+          const rows: JobInput[] = chosen.map((j) => ({
+            title: String(j.title ?? "").trim(),
+            client_name: j.client_name?.trim() || null,
+            role_label: j.role_label?.trim() || null,
+            skills: Array.isArray(j.skills) ? j.skills.map(cleanSkill).filter(Boolean) : splitSkills(j.skills ?? ""),
+            salary_min: j.salary_min != null ? Number(j.salary_min) : null,
+            salary_max: j.salary_max != null ? Number(j.salary_max) : null,
+            remote_type: j.remote_type || null,
+            work_location: j.work_location?.trim() || null,
+            start_date: dateOf(j.start_date || "") || (j.start_date?.trim() || null),
+            flow_note: j.flow_note?.trim() || null,
+            detail: j.detail?.trim() || null,
+          }));
+          res = await importJobs(rows, "メール一括取込");
+        } else {
+          const rows: CandidateInput[] = chosen.map((c) => {
+            const rate = c.rate?.trim() || null;
+            return {
+              name: String(c.name ?? "").trim(),
+              title: c.title?.trim() || null,
+              company: c.company?.trim() || null,
+              affiliation: c.affiliation?.trim() || null,
+              skills: Array.isArray(c.skills) ? c.skills.map(cleanSkill).filter(Boolean) : splitSkills(c.skills ?? ""),
+              rate,
+              rate_num: rate ? numOf(rate) : null,
+              exp: c.exp?.trim() || null,
+              avail: c.avail?.trim() || null,
+              location: c.location?.trim() || null,
+            };
+          });
+          res = await importCandidates(rows, "メール一括取込");
+        }
+        if (res?.ok) {
+          const n = res.inserted ?? chosen.length;
+          setMsg({ ok: true, text: `${n} 件を登録しました${res.skipped ? `（重複 ${res.skipped} 件はスキップ）` : ""}` });
+          router.refresh();
+          setTimeout(close, 1200);
+        } else {
+          setMsg({ ok: false, text: res?.error || "登録に失敗しました" });
+        }
+      } catch (e) {
+        setMsg({ ok: false, text: e instanceof Error ? e.message : "登録に失敗しました" });
+      }
+    });
+  };
+
+  return (
+    <>
+      <button className="btn ghost" onClick={() => setOpen(true)} title={`1通のメールに複数の${noun}が書かれている場合、AIで分離して個別に取り込みます`}>
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>call_split</span><span>メールから一括取込</span>
+      </button>
+      {open && (
+        <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 760, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>メールから{noun}を一括取込</h3>
+              <button className="btn ghost btn-xs" onClick={close} disabled={loading || pending}>閉じる</button>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+              1通に複数の{noun}がまとまっているメールを貼り付け、「AIで分離抽出」を押すと個別の{noun}に分けて取り込めます。
+            </div>
+            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={7} placeholder={`メール本文を貼り付け（複数${noun}OK）`}
+              style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.6, padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", background: "var(--color-surface)" }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn brand" onClick={extract} disabled={loading || pending}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>auto_awesome</span>
+                <span>{loading ? "抽出中…" : "AIで分離抽出"}</span>
+              </button>
+            </div>
+
+            {records.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>抽出結果（{picked.size}/{records.length} 件を登録）</span>
+                  <button className="btn ghost btn-xs" onClick={() => setPicked(new Set(records.map((_, i) => i)))}>全選択</button>
+                  <button className="btn ghost btn-xs" onClick={() => setPicked(new Set())}>全解除</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {records.map((r, i) => {
+                    const on = picked.has(i);
+                    const skills = Array.isArray(r.skills) ? r.skills : splitSkills(r.skills ?? "");
+                    return (
+                      <label key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", border: `1px solid ${on ? "var(--color-brand-200)" : "var(--color-border)"}`, borderRadius: 10, background: on ? "var(--color-brand-25)" : "var(--color-surface)", cursor: "pointer" }}>
+                        <input type="checkbox" checked={on} onChange={() => toggle(i)} style={{ marginTop: 3 }} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{isJob ? r.title : r.name}
+                            {isJob ? (r.client_name ? <span className="muted" style={{ fontWeight: 400 }}> ・ {r.client_name}</span> : null)
+                                   : (r.company ? <span className="muted" style={{ fontWeight: 400 }}> ・ {r.company}</span> : null)}
+                          </div>
+                          <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                            {isJob
+                              ? [r.role_label, (r.salary_min || r.salary_max) ? `¥${r.salary_min ?? ""}〜${r.salary_max ?? ""}万` : null, r.work_location].filter(Boolean).join(" / ") || "—"
+                              : [r.title, r.rate, r.exp, r.affiliation].filter(Boolean).join(" / ") || "—"}
+                          </div>
+                          {skills.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{skills.slice(0, 8).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10 }}>{s}</span>)}</div>}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
+            {records.length > 0 && (
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button className="btn ghost" onClick={close} disabled={pending}>キャンセル</button>
+                <button className="btn brand" onClick={register} disabled={pending || picked.size === 0}>{pending ? "登録中…" : `選択した ${picked.size} 件を登録`}</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function CandidateNewButton() { return <NewEntryButton kind="candidates" />; }
 export function JobNewButton() { return <NewEntryButton kind="jobs" />; }
+export function CandidateBulkExtractButton() { return <BulkExtractButton kind="candidates" />; }
+export function JobBulkExtractButton() { return <BulkExtractButton kind="jobs" />; }
