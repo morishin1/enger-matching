@@ -262,6 +262,23 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(0);
   const [detail, setDetail] = useState<any | null>(null);
+  // 右からスライドインする詳細ドロワー。mount後に1フレーム置いて開く＝translateで滑らせる。
+  const [drawerIn, setDrawerIn] = useState(false);
+  useEffect(() => {
+    if (!detail) { setDrawerIn(false); return; }
+    const id = requestAnimationFrame(() => setDrawerIn(true));
+    return () => cancelAnimationFrame(id);
+  }, [detail]);
+  const closeDetail = () => { setDrawerIn(false); setTimeout(() => setDetail(null), 260); };
+  // 開いている間は背面スクロールを止め、Escで閉じる
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeDetail(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [detail]);
   useEffect(() => { setPage(0); }, [q, filters, pageSize]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
@@ -449,10 +466,23 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
         </span>
       </div>
 
-      {/* 詳細モーダル（案件詳細／人材詳細ページと同じデザインベース） */}
+      {/* 詳細ドロワー（右からスライドイン。案件詳細／人材詳細ページと同じデザインベース） */}
       {detail && (
-        <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div onClick={closeDetail} style={{ position: "fixed", inset: 0, zIndex: 300, background: `rgba(15,23,42,${drawerIn ? 0.45 : 0})`, transition: "background .26s ease" }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            role="dialog" aria-modal="true"
+            style={{
+              position: "absolute", top: 0, right: 0, height: "100%",
+              width: "min(680px, 94vw)", maxWidth: "94vw",
+              borderRadius: 0, borderTop: 0, borderRight: 0, borderBottom: 0,
+              overflowY: "auto", display: "flex", flexDirection: "column", gap: 12,
+              boxShadow: "-12px 0 32px rgba(15,23,42,.18)",
+              transform: drawerIn ? "translateX(0)" : "translateX(100%)",
+              transition: "transform .26s cubic-bezier(.22,.61,.36,1)",
+            }}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <div style={{ minWidth: 0 }}>
                 <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600 }}>
@@ -471,7 +501,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                 </div>
                 {detail._reasons?.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>{detail._reasons.map((rs: string) => <span key={rs} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{rs}</span>)}</div>}
               </div>
-              <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
+              <button className="btn ghost btn-xs" onClick={closeDetail}>閉じる</button>
             </div>
 
             {/* アクションバー（詳細ページと同等の動線） */}
