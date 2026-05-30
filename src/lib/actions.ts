@@ -33,6 +33,7 @@ export type CandidateInput = {
   email?: string | null;          // 人材本人の連絡先（あれば）
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
+  operator?: string | null;        // 登録担当（KPI集計用・新規登録時のみ記録）
 };
 
 function initialsOf(name: string): string {
@@ -44,7 +45,7 @@ function initialsOf(name: string): string {
 const normKey = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　]/g, "").replace(/[（）()・,，、。．.\-－_/／]/g, "");
 
 /** 人材CSVの取り込み (service role)。バッチで insert。 */
-export async function importCandidates(records: CandidateInput[], sourceLabel: string) {
+export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -78,6 +79,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       email: r.email?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
       source_mail_url: r.source_mail_url?.trim() || null,
+      operator: operator?.trim() || null,
       score: 0,
       source_csv: sourceLabel,
       imported_at: now,
@@ -113,9 +115,9 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   for (let i = 0; i < fresh.length; i += BATCH) {
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
-    // 追加列（skill_sheet_url/email/remote_pref/age_band 等）が未整備でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note"]) delete o[k]; return o; });
+    // 追加列（skill_sheet_url/email/remote_pref/age_band/operator 等）が未整備でも落ちないよう、その列を外して再試行
+    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|operator|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "operator"]) delete o[k]; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -818,10 +820,11 @@ export type JobInput = {
   contact_name?: string | null;   // 案件窓口の担当者名
   contact_email?: string | null;  // 案件窓口＝元メールの送信元（返信先）
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
+  operator?: string | null;        // 登録担当（KPI集計用）
 };
 
 /** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
-export async function importJobs(records: JobInput[], sourceLabel: string) {
+export async function importJobs(records: JobInput[], sourceLabel: string, operator?: string | null) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -850,6 +853,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
       rank: "-",
       is_published: true,
       source_csv: sourceLabel,
+      operator: operator?.trim() || null,
       imported_at: now,
       created_at: now,
     }));
@@ -863,9 +867,9 @@ export async function importJobs(records: JobInput[], sourceLabel: string) {
     let { error, count } = await admin
       .from("jobs")
       .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
-    // contact_email / source_mail_url 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /contact_email|contact_name|source_mail_url|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; return o; });
+    // contact_email / source_mail_url / operator 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /contact_email|contact_name|source_mail_url|operator|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; delete o.operator; return o; });
       ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -963,15 +967,16 @@ export async function upsertJobManual(rec: JobInput) {
     rank: "-",
     is_published: true,
     source_csv: "manual",
+    operator: rec.operator?.trim() || null,
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.operator; return c; };
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
     const update: Record<string, any> = { is_published: true, imported_at: now };
     for (const [k, v] of Object.entries(row)) {
-      if (k === "is_published" || k === "imported_at" || k === "created_at") continue;
+      if (k === "is_published" || k === "imported_at" || k === "created_at" || k === "operator") continue; // operatorは登録時のみ
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       update[k] = v;
@@ -1040,16 +1045,17 @@ export async function upsertCandidateManual(rec: CandidateInput) {
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
     source_mail_url: rec.source_mail_url?.trim() || null,
+    operator: rec.operator?.trim() || null,
     score: 0,
     source_csv: "manual",
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.operator; return c; };
   const updateExisting = async (id: string, candidateNo: number) => {
     const update: Record<string, any> = { imported_at: now };
     for (const [k, v] of Object.entries(row)) {
-      if (k === "imported_at") continue;
+      if (k === "imported_at" || k === "operator") continue; // operatorは登録時のみ
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       update[k] = v;

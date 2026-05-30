@@ -48,11 +48,11 @@ export default async function AnalyticsPage() {
     try {
       const sb = engerClient();
       [jobs, cands, proposals, engs, meetings] = await Promise.all([
-        grab(sb, "jobs", "job_no, title, client_name, skills, salary_min, salary_max, is_published, outside_owner, created_at", "job_no, title, client_name, created_at"),
-        grab(sb, "candidates", "candidate_no, skills, rate, salary_min, salary_max, affiliation, title, status, created_at", "candidate_no, skills, status, created_at"),
-        grab(sb, "proposals", "id, stage, caller_status, created_at, proposer, closer, rate, score, ai_match, disqualified, lost_reason, company, job_title", "id, stage, created_at, rate"),
-        grab(sb, "engagements", "id, monthly_rate, cost, end_date, status", "id, monthly_rate, status"),
-        grab(sb, "meetings", "id, our_owner, new_or_existing, fb_sentiment, company_name", "id, our_owner"),
+        grab(sb, "jobs", "job_no, title, client_name, skills, salary_min, salary_max, is_published, outside_owner, operator, created_at", "job_no, title, client_name, created_at"),
+        grab(sb, "candidates", "candidate_no, skills, rate, salary_min, salary_max, affiliation, title, status, operator, created_at", "candidate_no, skills, status, created_at"),
+        grab(sb, "proposals", "id, stage, caller_status, created_at, stage_updated_at, proposer, closer, rate, score, ai_match, disqualified, lost_reason, company, job_title", "id, stage, created_at, rate"),
+        grab(sb, "engagements", "id, proposal_id, monthly_rate, cost, end_date, status", "id, monthly_rate, status"),
+        grab(sb, "meetings", "id, our_owner, new_or_existing, fb_sentiment, company_name, meeting_date", "id, our_owner"),
       ]);
       if (!jobs.length && !proposals.length) setup = true;
     } catch { setup = true; }
@@ -134,6 +134,49 @@ export default async function AnalyticsPage() {
   }).filter((i) => i.proposed > 0 || i.meetings > 0 || i.ownedJobs > 0)
     .sort((a, b) => b.issues.length - a.issues.length || (b.proposed + b.meetings) - (a.proposed + a.meetings));
 
+  // ===== 営業KPIスコアカード（担当者別・当月）=====
+  // 売上につながる活動を「量→質→精度→スピード→成果」で見える化し、各自の達成を経営が管理する。
+  const now2 = new Date();
+  const monthStart = new Date(now2.getFullYear(), now2.getMonth(), 1).getTime();
+  const monthLabel = `${now2.getFullYear()}/${now2.getMonth() + 1}`;
+  const t = (d: any) => { if (!d) return 0; const x = new Date(d).getTime(); return isNaN(x) ? 0 : x; };
+  const inMonth = (d: any) => t(d) >= monthStart;
+  // 月間KPI目標（目安・あとで調整可）
+  const KPI_TARGET = { regJobs: 8, regCands: 15, meetings: 8, proposed: 10, meetRate: 40, won: 2 };
+  // 提案ID→クロージング担当（稼働売上の担当付けに使用）
+  const closerOf = new Map<string, string>(proposals.map((p: any) => [p.id, p.closer || p.proposer || "未割当"]));
+  const liveEngs2 = engs.filter((e: any) => (e.status ?? "稼働中") === "稼働中" || e.status === "予定");
+
+  const kpiNames = new Set<string>();
+  proposals.forEach((p: any) => { if (p.proposer) kpiNames.add(p.proposer); });
+  meetings.forEach((m: any) => { if (m.our_owner) kpiNames.add(m.our_owner); });
+  jobs.forEach((j: any) => { if (j.operator) kpiNames.add(j.operator); });
+  cands.forEach((c: any) => { if (c.operator) kpiNames.add(c.operator); });
+
+  type Score = { name: string; regJobs: number; regCands: number; meetings: number; proposed: number; reached: number; meetRate: number; won: number; confirmedMan: number; avgCloseDays: number | null; hit: number };
+  const scorecard: Score[] = [...kpiNames].map((name) => {
+    const regJobs = jobs.filter((j: any) => j.operator === name && inMonth(j.created_at)).length;
+    const regCands = cands.filter((c: any) => c.operator === name && inMonth(c.created_at)).length;
+    const myMtg = meetings.filter((m: any) => m.our_owner === name && (m.meeting_date ? inMonth(m.meeting_date) : true)).length;
+    const myProp = proposals.filter((p: any) => p.proposer === name && !p.disqualified && inMonth(p.created_at));
+    const proposed = myProp.length;
+    const reached = myProp.filter((p: any) => MET_STAGES.includes(p.stage)).length;
+    const meetRate = proposed ? Math.round((reached / proposed) * 100) : 0;
+    const wonProps = proposals.filter((p: any) => (p.proposer === name || p.closer === name) && (p.stage === "稼働" || p.stage === "稼働決定") && inMonth(p.stage_updated_at ?? p.created_at));
+    const won = wonProps.length;
+    // 確定売上(月額)＝自分がクロージング担当の稼働中エンゲージメント合計
+    const confirmedMan = liveEngs2.filter((e: any) => closerOf.get(e.proposal_id) === name).reduce((s: number, e: any) => s + parseManYen(e.monthly_rate), 0);
+    // 平均クロージング日数＝今月の稼働化について 提案→稼働 までの日数
+    const closeDays = wonProps.map((p: any) => (t(p.stage_updated_at) - t(p.created_at))).filter((ms: number) => ms > 0).map((ms: number) => Math.round(ms / 86400000));
+    const avgCloseDays = closeDays.length ? Math.round(closeDays.reduce((a: number, b: number) => a + b, 0) / closeDays.length) : null;
+    const hit = [regJobs >= KPI_TARGET.regJobs, regCands >= KPI_TARGET.regCands, myMtg >= KPI_TARGET.meetings, proposed >= KPI_TARGET.proposed, meetRate >= KPI_TARGET.meetRate, won >= KPI_TARGET.won].filter(Boolean).length;
+    return { name, regJobs, regCands, meetings: myMtg, proposed, reached, meetRate, won, confirmedMan, avgCloseDays, hit };
+  }).filter((s) => s.regJobs + s.regCands + s.meetings + s.proposed + s.won > 0)
+    .sort((a, b) => b.hit - a.hit || b.won - a.won || (b.confirmedMan - a.confirmedMan));
+
+  const kpiTone = (v: number, target: number) => v >= target ? "#067647" : v >= target * 0.5 ? "#b45309" : "#b42318";
+  const judge = (hit: number) => hit >= 5 ? { l: "◎", c: "#067647", bg: "#e7f7ee" } : hit >= 3 ? { l: "○", c: "#b45309", bg: "#fff6e0" } : { l: "△", c: "#b42318", bg: "#fdecef" };
+
   // データ充足
   const jc = { skills: pub.filter((j) => j.skills?.length).length, salary: pub.filter((j) => j.salary_min || j.salary_max).length, client: pub.filter((j) => j.client_name).length, owner: pub.filter((j) => j.outside_owner).length };
   const cc = { skills: cands.filter((c) => c.skills?.length).length, rate: cands.filter((c) => c.rate || c.salary_min || c.salary_max).length, affiliation: cands.filter((c) => c.affiliation).length, title: cands.filter((c) => c.title).length };
@@ -156,6 +199,61 @@ export default async function AnalyticsPage() {
         <div className="kpi"><div><div className="val tnum">{kpi.postLostRate}<span className="unit">%</span></div><div className="label">接触後失注率</div><div className="note">接触後失注 {kpi.postLost}件</div></div></div>
         <div className="kpi accent"><div><div className="val tnum">{yen(confirmedMan)}</div><div className="label">確定（稼働中の月額）</div><div className="note">見込み {yen(pipelineMan)}</div></div></div>
         <div className="kpi warn"><div><div className="val tnum">{grossMan == null ? "—" : yen(grossMan)}</div><div className="label">粗利（月額）</div><div className="note">{grossMan == null ? "原価データ未設定" : "売上−原価"}</div></div></div>
+      </div>
+
+      {/* 営業KPIスコアカード（担当者別・当月） */}
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🎯 営業KPIスコアカード（{monthLabel} 当月・担当者別）</h3>
+          <span className="muted" style={{ fontSize: 11 }}>量→質→精度→スピード→成果。目標達成は緑、未達は赤。</span>
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginBottom: 10 }}>
+          月間目標の目安：案件登録 {KPI_TARGET.regJobs} / 人材登録 {KPI_TARGET.regCands} / 打合せ {KPI_TARGET.meetings} / 提案 {KPI_TARGET.proposed} / 面談化率 {KPI_TARGET.meetRate}% / 稼働化 {KPI_TARGET.won}
+        </div>
+        {scorecard.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13 }}>当月の活動データがありません。登録担当（人材/案件登録時の担当者）・提案者・打合せ担当が入ると集計されます。</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="tbl tbl-compact" style={{ minWidth: 880 }}>
+              <thead>
+                <tr>
+                  <th>担当者</th>
+                  <th className="num" title="量：案件登録（当月）">案件登録</th>
+                  <th className="num" title="量：人材登録（当月）">人材登録</th>
+                  <th className="num" title="量：打合せ件数（当月）">打合せ</th>
+                  <th className="num" title="量：提案件数（当月）">提案</th>
+                  <th className="num" title="精度：提案→面談到達率">面談化率</th>
+                  <th className="num" title="スピード：提案→稼働の平均日数">クロージング日数</th>
+                  <th className="num" title="成果：稼働化（成約）件数">稼働化</th>
+                  <th className="num" title="成果：自分がクローザーの稼働中 月額合計">確定売上</th>
+                  <th className="num" title="6指標のうち目標達成数">判定</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scorecard.map((s) => {
+                  const j = judge(s.hit);
+                  return (
+                    <tr key={s.name}>
+                      <td style={{ fontWeight: 700 }}>{s.name}</td>
+                      <td className="num" style={{ color: kpiTone(s.regJobs, KPI_TARGET.regJobs), fontWeight: 700 }}>{s.regJobs}</td>
+                      <td className="num" style={{ color: kpiTone(s.regCands, KPI_TARGET.regCands), fontWeight: 700 }}>{s.regCands}</td>
+                      <td className="num" style={{ color: kpiTone(s.meetings, KPI_TARGET.meetings), fontWeight: 700 }}>{s.meetings}</td>
+                      <td className="num" style={{ color: kpiTone(s.proposed, KPI_TARGET.proposed), fontWeight: 700 }}>{s.proposed}</td>
+                      <td className="num" style={{ color: kpiTone(s.meetRate, KPI_TARGET.meetRate), fontWeight: 700 }}>{s.meetRate}%</td>
+                      <td className="num" style={{ color: "var(--color-ink-3)" }}>{s.avgCloseDays == null ? "—" : `${s.avgCloseDays}日`}</td>
+                      <td className="num" style={{ color: kpiTone(s.won, KPI_TARGET.won), fontWeight: 700 }}>{s.won}</td>
+                      <td className="num" style={{ fontWeight: 700 }}>{s.confirmedMan ? yen(s.confirmedMan) : "—"}</td>
+                      <td className="num"><span style={{ fontWeight: 800, color: j.c, background: j.bg, borderRadius: 99, padding: "2px 10px" }}>{j.l} {s.hit}/6</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="muted" style={{ fontSize: 10.5, marginTop: 10 }}>
+          ※ 「案件登録／人材登録」は登録時に選択中の担当者で集計します（トップ右の担当者バッジ）。過去データは担当不明のため0表示になることがあります。目標値は運用に合わせて調整できます。
+        </div>
       </div>
 
       {/* ファネル */}
