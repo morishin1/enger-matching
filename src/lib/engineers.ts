@@ -83,6 +83,8 @@ export type Engineer = {
   created_at: string;
   name: string | null;        // 無限道場(role=student)の表示名フォールバック
   role: string | null;
+  phone: string | null;       // 連絡先：電話
+  contact_line: string | null; // 連絡先：LINE/メッセージID
   source: EngineerSource;     // 派生フィールド（UIバッジ用）
 };
 
@@ -94,15 +96,21 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // signup_source / signup_method 列は将来 LP 側で追加される想定。
     // 列が無い環境でも落ちないように、まず rich select →エラー時にフォールバック。
     const base = "id, display_name, github_login, avatar_url, email, skills, primary_language, total_stars, total_repos, estimated_pay_low, estimated_pay_mid, estimated_pay_high, portfolio_url, skill_sheet_url, skill_sheet_name, headline, bio, qiita_id, last_login_at, created_at, name, role";
-    let rich: any = await sb.from("profiles").select(`${base}, signup_source, signup_method`)
-      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student")
-      .order("created_at", { ascending: false }).limit(500);
+    // 連絡先(電話/メッセージ)列は LP 側にあれば取得（無くても落ちないよう段階フォールバック）
+    const orFilter = "github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student";
+    let rich: any = await sb.from("profiles").select(`${base}, signup_source, signup_method, phone, contact_line`)
+      .or(orFilter).order("created_at", { ascending: false }).limit(500);
     let data = rich.data; let error = rich.error;
+    if (error) {
+      rich = await sb.from("profiles").select(`${base}, signup_source, signup_method`)
+        .or(orFilter).order("created_at", { ascending: false }).limit(500);
+      data = rich.data; error = rich.error;
+    }
     if (error) {
       const r2: any = await sb
       .from("profiles")
       .select(base)
-      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student")
+      .or(orFilter)
       .order("created_at", { ascending: false }).limit(500);
       data = r2.data; error = r2.error;
     }
@@ -112,6 +120,8 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       skills: Array.isArray(r.skills) ? r.skills : [],
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
+      phone: r.phone ?? null,
+      contact_line: r.contact_line ?? null,
       source: classifySource(r),
     })) as Engineer[];
     return { rows, available: true };
