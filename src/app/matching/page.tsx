@@ -86,7 +86,7 @@ async function attachCompanyContact(sb: any, items: any[], companyKey: "client_n
 
 /** パートナー企業向け：自社(owner_company)＋共有(shared)のみ取得して匿名化。
  *  既存マッチング画面のクエリは内部メールアドレス等を多数返すため、パートナーは別ビューで分離。 */
-async function loadPartnerData(company: string) {
+async function loadTenantData(company: string) {
   const sb = engerClient();
   const J = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, work_location, start_date, is_published, owner_company, shared";
   const C = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, avail, location, owner_company, shared";
@@ -114,20 +114,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   // パートナー企業はテナント隔離のため別画面（自社＋共有のみ・他社匿名・提案/メール無効）
   const scope = await getViewerScope();
-  if (scope.isPartner) {
-    if (!scope.company) {
+  if (scope.isTenant) {
+    if (!scope.ownerKey) {
       return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>会社情報が未設定です。管理者にお問い合わせください。</div></div>;
     }
     if (!dbConfigured) {
       return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>DB未接続のためマッチングを利用できません。</div></div>;
     }
-    const data = await loadPartnerData(scope.company);
+    const data = await loadTenantData(scope.ownerKey);
     if (!data.jobs || !data.cands) {
       return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）。安全のため一覧を表示しません。</div></div>;
     }
     return (
       <div className="page">
-        <div className="page-head"><div><div className="meta">Partner Matching · 自社×共有</div><h1>マッチング</h1></div></div>
+        <div className="page-head"><div><div className="meta">Matching · 自分×共有</div><h1>マッチング</h1></div></div>
         <PartnerMatching jobs={data.jobs} candidates={data.cands} />
       </div>
     );

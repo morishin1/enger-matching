@@ -5,13 +5,14 @@ import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, s
 import type { Account, Role } from "@/lib/accounts";
 import { FUNCTIONS } from "@/lib/roles";
 
-const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "エージェント", client: "ユーザー企業", candidate: "人材", partner: "パートナー企業" };
+const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "エージェント", client: "ユーザー企業", candidate: "人材", partner: "パートナー企業", freelance: "副業エージェント" };
 const ROLE_TONE: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe7fb", fg: "#6b21a8" },
   agent: { bg: "#eaf4fd", fg: "#0b5cab" },
   client: { bg: "#e7f7ee", fg: "#067647" },
   candidate: { bg: "#fff1e6", fg: "#b45309" },
   partner: { bg: "#eef2ff", fg: "#3730a3" },
+  freelance: { bg: "#fef3f2", fg: "#b42318" },
 };
 
 function PendingRow({ a, busy, onApprove }: { a: Account; busy: boolean; onApprove: (fd: FormData) => void }) {

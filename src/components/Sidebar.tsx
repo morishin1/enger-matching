@@ -43,12 +43,12 @@ const TOOLS: NavItem[] = [
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
 ];
 
-// パートナー企業(partner)向けメニュー。漏洩防止のため限定（自社＋共有のみ／他社は匿名）。
-const PARTNER_NAV: NavItem[] = [
-  { href: "/", id: "p-home", label: "ホーム", icon: "dashboard" },
-  { href: "/matching", id: "p-matching", label: "マッチング", icon: "matching" },
-  { href: "/jobs", id: "p-jobs", label: "案件（自社・共有）", icon: "jobs" },
-  { href: "/people", id: "p-people", label: "人材（自社・共有）", icon: "people" },
+// テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
+const TENANT_NAV: NavItem[] = [
+  { href: "/", id: "t-home", label: "ホーム", icon: "dashboard" },
+  { href: "/matching", id: "t-matching", label: "マッチング", icon: "matching" },
+  { href: "/jobs", id: "t-jobs", label: "案件（自分・共有）", icon: "jobs" },
+  { href: "/people", id: "t-people", label: "人材（自分・共有）", icon: "people" },
 ];
 
 // ユーザー企業(client)向けの専用メニュー
@@ -67,7 +67,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
   const isClient = role === "client";
-  const isPartner = role === "partner";
+  const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
   const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
@@ -76,10 +76,10 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }
 
   const nav = isClient ? CLIENT_NAV
-    : isPartner ? PARTNER_NAV
+    : isTenant ? TENANT_NAV
     : role === "agent" ? NAV.filter((n) => allowed.has(n.href))
     : NAV; // admin は全部
-  const tools = (isClient || isPartner) ? []
+  const tools = (isClient || isTenant) ? []
     : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings" && n.href !== "/settings/approvals") // 設定・承認は admin のみ
     : TOOLS; // admin は設定・承認含む全部
 
