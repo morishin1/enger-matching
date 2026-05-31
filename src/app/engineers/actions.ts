@@ -82,6 +82,44 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   return { ok: true };
 }
 
+/** 応募を作成（dx側からも応募を起票できるよう。enger.jp が INSERT する経路と並行）。
+ *  作成時は notifications にお知らせを投函（DBトリガー未実行環境でもアプリ側で確実に通知）。 */
+export async function createApplication(input: { engineer_id: string; engineer_name?: string | null; job_id?: string | null; job_no?: string | null; job_title?: string | null; message?: string | null }): Promise<{ ok: boolean; existed?: boolean; id?: string; error?: string }> {
+  const access = await currentAccess();
+  if (!access) return { ok: false, error: "未認証です" };
+  if (!input.engineer_id) return { ok: false, error: "engineer_id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  try {
+    // 重複チェック（engineer_id × job_id）。既にあれば既存を返す。
+    if (input.job_id) {
+      const dup: any = await admin.from("applications").select("id").eq("engineer_id", input.engineer_id).eq("job_id", input.job_id).maybeSingle();
+      if (dup.data?.id) return { ok: true, existed: true, id: dup.data.id };
+    }
+    const ins: any = await admin.from("applications").insert({
+      engineer_id: input.engineer_id,
+      engineer_name: input.engineer_name ?? null,
+      job_id: input.job_id ?? null,
+      job_no: input.job_no ?? null,
+      job_title: input.job_title ?? null,
+      message: input.message ?? null,
+      stage: "応募",
+    }).select("id").maybeSingle();
+    if (ins.error) return { ok: false, error: ins.error.message };
+    // 通知（DBトリガーが入っていない環境向け・冗長で安全）
+    try {
+      await admin.from("notifications").insert({
+        recipient: "all",
+        title: "新しい応募がありました",
+        body: `${input.engineer_name ?? "人材"} さんが「${input.job_title ?? "案件"}」(No.${input.job_no ?? "-"}) に応募しました。`,
+        kind: "info",
+      });
+    } catch { /* 通知失敗は無視 */ }
+    revalidatePath("/notifications");
+    return { ok: true, existed: false, id: ins.data?.id };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 応募の選考ステージを更新（営業/管理者）。応募→面談合格→稼働を追跡。
  *  ステージ変更時に notifications にお知らせを投函（操作した営業が誰か、どの応募がどう動いたか）。 */
 export async function updateApplicationStage(id: string, stage: string): Promise<Result> {
