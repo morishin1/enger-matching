@@ -8,12 +8,12 @@ import type { Account, Role } from "@/lib/accounts";
 import { approveAccount, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity } from "@/app/settings/account-actions";
 import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 
-type TabKey = "client" | "partner" | "freelance" | "candidate" | "agent" | "admin";
+type TabKey = "candidate" | "client" | "partner" | "freelance" | "agent" | "admin";
 const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
+  { key: "candidate", label: "エンジニア", role: "candidate", hint: "承認すると人材ダッシュボードを利用できます。" },
   { key: "client", label: "企業", role: "client", hint: "承認すると自社ポータル（案件掲載・おすすめ人材・選考）を利用できます。" },
   { key: "partner", label: "パートナー企業", role: "partner", hint: "承認すると、自社＋共有の案件/人材でマッチングできます。他社情報は匿名表示で漏洩防止。" },
   { key: "freelance", label: "副業エージェント", role: "freelance", hint: "ag.enger.jp から登録した個人。自分＋共有でマッチング。他社は匿名表示で漏洩防止。" },
-  { key: "candidate", label: "人材", role: "candidate", hint: "承認すると人材ダッシュボードを利用できます。" },
   { key: "agent", label: "営業", role: "agent", hint: "承認すると営業業務（マッチング・提案等）を利用できます。" },
   { key: "admin", label: "管理者", role: "admin", hint: "全機能にアクセスできます。" },
 ];
@@ -29,7 +29,7 @@ const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new
 
 export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; agents?: { email: string | null; name: string | null }[] }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("client");
+  const [tab, setTab] = useState<TabKey>("candidate");
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -46,7 +46,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   };
 
   const pendingCount = useMemo(() => {
-    const m: Record<TabKey, number> = { client: 0, partner: 0, freelance: 0, candidate: 0, agent: 0, admin: 0 };
+    const m: Record<TabKey, number> = { candidate: 0, client: 0, partner: 0, freelance: 0, agent: 0, admin: 0 };
     for (const a of accounts) if (a.status === "pending") m[a.role as TabKey] = (m[a.role as TabKey] ?? 0) + 1;
     return m;
   }, [accounts]);
