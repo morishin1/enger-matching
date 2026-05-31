@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { engerAdmin, engerClient, dbConfigured, publicAdmin } from "./supabase";
+import { engerAdmin, engerClient, dbConfigured, publicAdmin, authAdmin } from "./supabase";
 import { authServerClient, authConfigured } from "./supabase-auth";
 import { type Role, type AccountStatus, canAccess, roleHome } from "./roles";
 
@@ -163,25 +163,58 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
         .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student,email.not.is.null")
         .order("created_at", { ascending: false }).limit(500);
     }
-    if (r.error || !r.data) return [];
     const accounts: Account[] = [];
-    for (const p of r.data as any[]) {
-      const em = String(p.email ?? "").toLowerCase();
-      if (!em || existingEmails.has(em)) continue; // 既に app_users 済みは除外
-      accounts.push({
-        id: `profile:${p.id}`,                  // 仮想ID（プレフィックスで判別）
-        email: em,
-        name: p.display_name ?? p.name ?? null,
-        role: "candidate" as Role,              // LP登録者は人材として扱う
-        status: "pending" as AccountStatus,
-        company_name: null,
-        position: null,
-        functions: null,
-        note: [p.signup_source ? `登録元: ${p.signup_source}` : "", p.signup_method ? `方式: ${p.signup_method}` : "", p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
-        created_at: p.created_at ?? new Date().toISOString(),
-        approved_at: null,
-      } as Account);
+    const profileEmails = new Set<string>();
+    if (!r.error && r.data) {
+      for (const p of r.data as any[]) {
+        const em = String(p.email ?? "").toLowerCase();
+        if (!em || existingEmails.has(em)) continue; // 既に app_users 済みは除外
+        profileEmails.add(em);
+        accounts.push({
+          id: `profile:${p.id}`,                  // 仮想ID（プレフィックスで判別）
+          email: em,
+          name: p.display_name ?? p.name ?? null,
+          role: "candidate" as Role,              // LP登録者は人材として扱う
+          status: "pending" as AccountStatus,
+          company_name: null,
+          position: null,
+          functions: null,
+          note: [p.signup_source ? `登録元: ${p.signup_source}` : "", p.signup_method ? `方式: ${p.signup_method}` : "", p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
+          created_at: p.created_at ?? new Date().toISOString(),
+          approved_at: null,
+        } as Account);
+      }
     }
+    // フォールバック: auth.users に居るが profiles にも app_users にも無い人（enger.jp 側で profiles を作っていない場合）
+    //   → こちらも「LP登録 (Auth)」として承認待ち人材に拾う
+    try {
+      const aa = authAdmin();
+      for (let page = 1; page <= 5; page++) {
+        const { data, error } = await aa.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error || !data) break;
+        for (const u of data.users) {
+          const em = String(u.email ?? "").toLowerCase();
+          if (!em || existingEmails.has(em) || profileEmails.has(em)) continue;
+          const prov = (u.app_metadata as any)?.provider ?? "email";
+          const meta: any = u.user_metadata ?? {};
+          const name = (meta.full_name as string) || (meta.name as string) || null;
+          accounts.push({
+            id: `auth:${u.id}`,
+            email: em,
+            name,
+            role: "candidate" as Role,
+            status: "pending" as AccountStatus,
+            company_name: null,
+            position: null,
+            functions: null,
+            note: `登録元: enger.jp（auth・profiles未作成）／方式: ${prov}`,
+            created_at: u.created_at ?? new Date().toISOString(),
+            approved_at: null,
+          } as Account);
+        }
+        if (data.users.length < 1000) break;
+      }
+    } catch { /* authAdmin 未設定環境はスキップ */ }
     return accounts;
   } catch { return []; }
 }
