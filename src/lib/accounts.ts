@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { engerAdmin, engerClient, dbConfigured } from "./supabase";
+import { engerAdmin, engerClient, dbConfigured, publicAdmin } from "./supabase";
 import { authServerClient, authConfigured } from "./supabase-auth";
 import { type Role, type AccountStatus, canAccess, roleHome } from "./roles";
 
@@ -139,5 +139,49 @@ export async function listAccounts(): Promise<Account[]> {
     const { data, error } = await sb.from("app_users").select("*").order("created_at", { ascending: false });
     if (error || !data) return [];
     return data as Account[];
+  } catch { return []; }
+}
+
+/** LP(enger.jp)からGoogle等で登録されたが、まだ app_users に無い人材を「承認待ちの人材」として返す。
+ *   enger.jp 側は public.profiles に保存し、app_users には書き込まないため、
+ *   承認画面の人材タブに出ない問題を仮想エントリで解消する。
+ *   承認時に app_users へ昇格させる（approveProfileAsCandidate）。 */
+export async function listLpPendingCandidates(): Promise<Account[]> {
+  if (!dbConfigured) return [];
+  try {
+    const sb = engerAdmin();
+    const existing = await sb.from("app_users").select("email").limit(50000);
+    const existingEmails = new Set<string>((existing.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase()).filter(Boolean));
+    const pub = publicAdmin();
+    const sel = "id, display_name, email, name, phone, contact_line, signup_source, signup_method, created_at, role";
+    let r: any = await pub.from("profiles").select(sel)
+      .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student,email.not.is.null")
+      .order("created_at", { ascending: false }).limit(500);
+    if (r.error) {
+      // 連絡先列が無い環境向けフォールバック
+      r = await pub.from("profiles").select("id, display_name, email, name, signup_source, signup_method, created_at, role")
+        .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student,email.not.is.null")
+        .order("created_at", { ascending: false }).limit(500);
+    }
+    if (r.error || !r.data) return [];
+    const accounts: Account[] = [];
+    for (const p of r.data as any[]) {
+      const em = String(p.email ?? "").toLowerCase();
+      if (!em || existingEmails.has(em)) continue; // 既に app_users 済みは除外
+      accounts.push({
+        id: `profile:${p.id}`,                  // 仮想ID（プレフィックスで判別）
+        email: em,
+        name: p.display_name ?? p.name ?? null,
+        role: "candidate" as Role,              // LP登録者は人材として扱う
+        status: "pending" as AccountStatus,
+        company_name: null,
+        position: null,
+        functions: null,
+        note: [p.signup_source ? `登録元: ${p.signup_source}` : "", p.signup_method ? `方式: ${p.signup_method}` : "", p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
+        created_at: p.created_at ?? new Date().toISOString(),
+        approved_at: null,
+      } as Account);
+    }
+    return accounts;
   } catch { return []; }
 }
