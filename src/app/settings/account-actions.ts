@@ -90,6 +90,30 @@ export async function approveAccount(formData: FormData): Promise<Result> {
   if (!id) return { ok: false, error: "id がありません" };
   // エージェントは admin ロール付与不可（権限昇格防止）
   if (role === "admin" && actor.role !== "admin") return { ok: false, error: "管理者ロールの付与は管理者のみ実行できます" };
+  // LP登録(public.profiles)からの承認は、まず app_users に挿入してから処理する
+  if (id.startsWith("profile:")) {
+    const email = String(formData.get("email") ?? "").trim().toLowerCase();
+    const name = String(formData.get("name") ?? "").trim() || null;
+    if (!email) return { ok: false, error: "メールアドレスがありません" };
+    try {
+      const sb0 = engerAdmin();
+      // 既存重複は無視
+      const ex = await sb0.from("app_users").select("id").ilike("email", email).maybeSingle();
+      let newId: string | null = ex.data?.id ?? null;
+      if (!newId) {
+        const ins: any = await sb0.from("app_users").insert({ email, name, role: "candidate", status: "pending" }).select("id").maybeSingle();
+        if (ins.error) return { ok: false, error: ins.error.message };
+        newId = ins.data?.id ?? null;
+      }
+      if (!newId) return { ok: false, error: "アカウント作成に失敗しました" };
+      // 後段の更新で active 化
+      const fd2 = new FormData();
+      fd2.set("id", newId);
+      fd2.set("role", ["admin", "agent", "client", "candidate", "partner", "freelance"].includes(role) ? role : "candidate");
+      if (company) fd2.set("company_name", company);
+      return approveAccount(fd2);
+    } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+  }
   try {
     const sb = engerAdmin();
     const upd: Record<string, any> = {

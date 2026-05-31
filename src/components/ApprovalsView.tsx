@@ -70,6 +70,8 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     fd.set("id", a.id);
     fd.set("role", a.role);
     if (a.company_name) fd.set("company_name", a.company_name);
+    // LP仮想エントリ（profile:）の場合は app_users 作成のため email/name も送る
+    if (a.id.startsWith("profile:")) { fd.set("email", a.email); if (a.name) fd.set("name", a.name); }
     run(a.id, () => approveAccount(fd), `${a.name || a.email} を承認しました`);
   };
 
@@ -114,9 +116,12 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                         {a.company_name && <div className="muted" style={{ fontSize: 11 }}>{a.company_name}</div>}
                       </td>
                       <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{a.email}</td>
-                      <td style={{ fontSize: 11.5, color: "var(--color-ink-3)" }} title={a.created_at}>{fmtDateTime(a.created_at)}</td>
+                      <td style={{ fontSize: 11.5, color: "var(--color-ink-3)" }} title={a.created_at}>
+                        {fmtDateTime(a.created_at)}
+                        {a.id.startsWith("profile:") && <div style={{ fontSize: 9.5, color: "#0095D9", fontWeight: 700, marginTop: 2 }}>LP登録（enger.jp）</div>}
+                      </td>
                       <td>
-                        <select disabled={busy} defaultValue={(a as any).owner_agent_email ?? ""}
+                        <select disabled={busy || a.id.startsWith("profile:")} defaultValue={(a as any).owner_agent_email ?? ""}
                           onChange={(e) => {
                             const em = e.target.value || null;
                             const ag = agents.find((x) => x.email === em);
@@ -131,7 +136,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                         {(a as any).owner_agent_name && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{(a as any).owner_agent_name}</div>}
                       </td>
                       <td>
-                        <input type="text" defaultValue={(a as any).note ?? ""} disabled={busy}
+                        <input type="text" defaultValue={(a as any).note ?? ""} disabled={busy || a.id.startsWith("profile:")}
                           placeholder="連絡・面談メモ"
                           onBlur={(e) => {
                             const v = e.target.value.trim();
@@ -166,7 +171,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                               : <button type="button" className="btn btn-xs" disabled={busy} style={{ background: "#067647", borderColor: "#067647", color: "#fff" }} onClick={() => run(a.id, () => setAccountMeetingDone(a.id, true), "面談済みにしました（詳細解放）")}>面談済みにする</button>
                           )}
                           {/* 区分の付け替え（誤って別区分で登録された場合の救済） */}
-                          <select defaultValue={a.role} disabled={busy}
+                          <select defaultValue={a.role} disabled={busy || a.id.startsWith("profile:")}
                             onChange={(e) => { const r = e.target.value as Role; run(a.id, () => setAccountRole(a.id, r as any), "区分を変更しました"); }}
                             style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
                             <option value="client">企業</option>
@@ -176,10 +181,12 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                             <option value="agent">営業</option>
                             <option value="admin">管理者</option>
                           </select>
-                          {/* メール送信＋面談予定（展開） */}
-                          <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="メール送信／面談予定を開く">
-                            {expanded === a.id ? "閉じる" : "📧 連絡・面談"}
-                          </button>
+                          {/* メール送信＋面談予定（展開）。LP仮想行は承認後に有効化（履歴はDB id 必須） */}
+                          {!a.id.startsWith("profile:") && (
+                            <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="メール送信／面談予定を開く">
+                              {expanded === a.id ? "閉じる" : "📧 連絡・面談"}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

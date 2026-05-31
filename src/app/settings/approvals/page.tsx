@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ApprovalsView } from "@/components/ApprovalsView";
-import { currentAccess, listAccounts } from "@/lib/accounts";
+import { currentAccess, listAccounts, listLpPendingCandidates } from "@/lib/accounts";
 import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,9 @@ export default async function ApprovalsPage() {
   // 管理者・エージェントが利用可能（agent は admin ロール付与・admin の操作は不可）
   if (access && access.role !== "admin" && access.role !== "agent") redirect("/");
 
-  const accounts = await listAccounts();
-  const staff = await getStaff();
+  const [accountsReal, lpPending, staff] = await Promise.all([listAccounts(), listLpPendingCandidates(), getStaff()]);
+  // 実 app_users ＋ LP（profiles）から昇格待ちの人材を合算。LP分は人材タブに承認待ちで表示される。
+  const accounts = [...accountsReal, ...lpPending];
   const agentOptions = staff.rows
     .filter((s: any) => s.active !== false && (s.email || s.name))
     .map((s: any) => ({ email: s.email ?? null, name: s.name ?? null }));
