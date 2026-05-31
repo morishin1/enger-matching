@@ -69,7 +69,7 @@ export default function SignupPage() {
                     <button type="button" onClick={() => setRole("partner")} style={roleBtn(role === "partner")}>パートナー企業</button>
                   </div>
                   <div style={{ marginTop: 6, fontSize: 11, color: "#98a2b3", lineHeight: 1.7 }}>
-                    ※ エンジニア（人材）の方は <a href="https://enger.jp/signup" style={{ color: "#0095D9", fontWeight: 700 }}>enger.jp</a>、副業エージェントの方は <a href="https://ag.enger.jp" style={{ color: "#0095D9", fontWeight: 700 }}>ag.enger.jp</a> からご登録ください。営業エージェントは運営が招待します。
+                    ※ エンジニア（人材）の方は <a href="https://enger.jp/signup" style={{ color: "#0095D9", fontWeight: 700 }}>enger.jp</a>、副業エージェントの方は <a href="/signup?as=freelance" style={{ color: "#0095D9", fontWeight: 700 }}>こちら</a> からご登録ください（ag.enger.jp 準備中）。営業エージェントは運営が招待します。
                   </div>
                 </div>
               )}
