@@ -90,8 +90,8 @@ export async function approveAccount(formData: FormData): Promise<Result> {
   if (!id) return { ok: false, error: "id がありません" };
   // エージェントは admin ロール付与不可（権限昇格防止）
   if (role === "admin" && actor.role !== "admin") return { ok: false, error: "管理者ロールの付与は管理者のみ実行できます" };
-  // LP登録(public.profiles)からの承認は、まず app_users に挿入してから処理する
-  if (id.startsWith("profile:")) {
+  // LP登録(public.profiles または auth.users)からの承認は、まず app_users に挿入してから処理する
+  if (id.startsWith("profile:") || id.startsWith("auth:")) {
     const email = String(formData.get("email") ?? "").trim().toLowerCase();
     const name = String(formData.get("name") ?? "").trim() || null;
     if (!email) return { ok: false, error: "メールアドレスがありません" };
