@@ -33,6 +33,15 @@ async function fetchCounts(): Promise<SidebarCounts> {
     try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", since7).or("github_id.not.is.null,display_name.not.is.null,role.eq.student"); return error ? undefined : (count ?? undefined); }
     catch { return undefined; }
   };
+  // 承認待ち合算（app_users pending ＋ LP仮想エントリ）
+  const approvalsPendingCount = async (): Promise<number | undefined> => {
+    try {
+      const real = await safeCount(() => sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending"));
+      const { listLpPendingCandidates } = await import("./accounts");
+      const lp = await listLpPendingCandidates();
+      return (real ?? 0) + lp.length;
+    } catch { return undefined; }
+  };
 
   const [jobs, people, companies, proposals, engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending] = await Promise.all([
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true)),
@@ -44,8 +53,10 @@ async function fetchCounts(): Promise<SidebarCounts> {
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true).gte("created_at", since7)),
     safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true }).gte("created_at", since7)),
     newEngineerCount(),
-    // 承認待ち件数（サイドメニューの NEW バッジ用）
-    safeCount(() => sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending")),
+    // 承認待ち件数（サイドメニューの NEW バッジ用）。
+    //   app_users(status=pending) ＋ LP仮想エントリ(profiles/auth.users で app_users 未登録) の合算。
+    //   サーバ集計は listLpPendingCandidates を内部で呼んで件数化する。
+    approvalsPendingCount(),
   ]);
   return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending };
 }
