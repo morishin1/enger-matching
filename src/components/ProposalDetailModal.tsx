@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo } from "@/lib/actions";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
+import { ProposalMeetingModal } from "./ProposalMeetingModal";
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -81,6 +82,7 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
   const [memos, setMemos] = useState<Memo[]>([]);
   const [memosLoading, setMemosLoading] = useState(false);
   const [memoModalOpen, setMemoModalOpen] = useState(false);
+  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
   const loadMemos = () => {
     setMemosLoading(true);
     fetch(`/api/proposals/${p.id}/memos`).then((r) => r.json()).then((d) => {
@@ -205,6 +207,29 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
                 </div>
               )}
             </div>
+          </div>
+
+          {/* 面談履歴（現在設定されている面談の詳細） */}
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div className="muted" style={{ fontSize: 11.5 }}>面談履歴</div>
+              <button type="button" className="btn ghost btn-sm" onClick={() => setMeetingModalOpen(true)} title="面談の日時・形式・URL・参加者・備考を設定">
+                <span className="material-symbols-outlined" style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>event</span>
+                面談設定
+              </button>
+            </div>
+            {!p.meeting_date && !p.meeting_status && !p.meeting_format ? (
+              <div className="muted" style={{ fontSize: 12 }}>面談の記録はありません</div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "84px 1fr", rowGap: 6, columnGap: 12, fontSize: 12.5 }}>
+                <span style={{ color: "var(--color-ink-4)" }}>日時</span>
+                <span style={{ fontWeight: 600 }}>{[p.meeting_date, p.meeting_time].filter(Boolean).join(" ") || "—"}{p.meeting_status ? <span style={{ marginLeft: 8, fontSize: 11, padding: "1px 8px", borderRadius: 99, background: "#fff1e6", color: "#b45309", fontWeight: 700 }}>{p.meeting_status}</span> : null}</span>
+                {p.meeting_format && (<><span style={{ color: "var(--color-ink-4)" }}>形式</span><span style={{ fontWeight: 600 }}>{p.meeting_format}</span></>)}
+                {p.meeting_url && (<><span style={{ color: "var(--color-ink-4)" }}>URL</span><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}><a href={p.meeting_url} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.meeting_url}</a></span></>)}
+                {p.meeting_attendees && (<><span style={{ color: "var(--color-ink-4)" }}>参加者</span><span>{p.meeting_attendees}</span></>)}
+                {p.meeting_note && (<><span style={{ color: "var(--color-ink-4)" }}>備考</span><span style={{ whiteSpace: "pre-wrap" }}>{p.meeting_note}</span></>)}
+              </div>
+            )}
           </div>
 
           {/* メモ履歴（カテゴリ別の対応ログ） */}
@@ -341,6 +366,7 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
         </div>
       </div>
       {memoModalOpen && <ProposalMemoModal proposalId={p.id} onClose={() => setMemoModalOpen(false)} onAdded={loadMemos} />}
+      {meetingModalOpen && <ProposalMeetingModal p={p} onClose={() => setMeetingModalOpen(false)} onSaved={() => router.refresh()} />}
     </div>
   );
 }
