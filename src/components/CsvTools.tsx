@@ -188,7 +188,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
           const slice = recs.slice(i, i + CHUNK);
           const res = kind === "candidates"
             ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName })
-            : await importJobs(slice as JobInput[], fileName, getOperator());
+            : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName });
           if (!res.ok) { setProg(null); setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
           inserted += res.inserted ?? 0;
           skipped += (res as any).skipped ?? 0;
@@ -301,12 +301,12 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
               </div>
             ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
 
-            {kind === "candidates" && (
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
-                <input type="checkbox" checked={mergeByName} onChange={(e) => setMergeByName(e.target.checked)} />
-                <span>☑ 同姓同名は既存と統合する（空欄を補完し、新規登録しない）</span>
-              </label>
-            )}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
+              <input type="checkbox" checked={mergeByName} onChange={(e) => setMergeByName(e.target.checked)} />
+              {kind === "candidates"
+                ? <span>☑ 同姓同名は既存と統合する（空欄を補完し、新規登録しない）</span>
+                : <span>☑ 既存案件（案件名×クライアント一致）は更新する（空欄を補完し、再公開）</span>}
+            </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価（案件はクライアントも）が揃った行だけ取り込みます">重要データ完備の {strictCount} 件のみ取込（推奨）</button>
               <button className="btn" disabled={pending} onClick={() => doImport("all")}>取込可能な {preview.rows.length - errCount} 件を取込</button>

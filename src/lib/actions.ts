@@ -909,7 +909,7 @@ export type JobInput = {
 };
 
 /** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
-export async function importJobs(records: JobInput[], sourceLabel: string, operator?: string | null) {
+export async function importJobs(records: JobInput[], sourceLabel: string, operator?: string | null, opts?: { mergeExisting?: boolean }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -946,6 +946,49 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
   if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（案件名必須）" };
 
   let inserted = 0;
+  let merged = 0;
+  // mergeExisting: 既存(title × client_name 一致)を空欄補完で更新し、INSERT はスキップ。
+  //   - 既存値は上書きしない（運用上の手動編集を保護）
+  //   - スキル/タグ等の配列は重複排除でマージ
+  //   - 非公開だった案件は最新CSV取込で再公開する
+  if (opts?.mergeExisting) {
+    const stillNew: typeof rows = [];
+    const tk = (t?: string | null, c?: string | null) => normKey(t) + "|" + normKey(c);
+    // 既存を一気に取得して索引化
+    const byKey = new Map<string, any>();
+    try {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await admin.from("jobs").select("id, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, contact_name, contact_email, source_mail_url, is_published, operator").range(from, from + 999);
+        if (error || !data) break;
+        for (const r of data as any[]) { const k = tk(r.title, r.client_name); if (k && !byKey.has(k)) byKey.set(k, r); }
+        if (data.length < 1000) break;
+      }
+    } catch { /* 取得失敗時は通常のINSERTパスへ */ }
+    for (const r of rows) {
+      const k = tk(r.title, r.client_name);
+      const ex = byKey.get(k);
+      if (!ex?.id) { stillNew.push(r); continue; }
+      const patch: Record<string, any> = { is_published: true, imported_at: now };
+      const fields = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
+      for (const f of fields) {
+        const cur = (ex as any)[f];
+        const nv = (r as any)[f];
+        if ((cur == null || cur === "") && nv != null && nv !== "") patch[f] = nv;
+      }
+      const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
+      const newSkills: string[] = Array.isArray((r as any).skills) ? (r as any).skills : [];
+      const mergedSkills = Array.from(new Set([...curSkills, ...newSkills]));
+      if (mergedSkills.length !== curSkills.length) patch.skills = mergedSkills;
+      let upd = await admin.from("jobs").update(patch).eq("id", ex.id);
+      if (upd.error && /column/i.test(upd.error.message)) {
+        const p2: any = { ...patch }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator"]) delete p2[k2];
+        upd = await admin.from("jobs").update(p2).eq("id", ex.id);
+      }
+      if (!upd.error) merged++;
+    }
+    rows.length = 0; for (const r of stillNew) (rows as any).push(r);
+  }
+
   const BATCH = 500;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
@@ -963,7 +1006,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
 
   revalidatePath("/jobs");
   bustCounts();
-  return { ok: true, inserted };
+  return { ok: true, inserted, merged };
 }
 
 // ----- 手動登録前の類似候補プレビュー --------------------------------------
