@@ -6,7 +6,7 @@ import { RankList } from "@/components/RankList";
 import { FocusList } from "@/components/FocusList";
 import { JumpToMatching } from "@/components/JumpToMatching";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { rankCandidates, rankJobs, type Job } from "@/lib/match";
+import { rankCandidates, rankJobs, type Job, type MatchResult, type Verdict } from "@/lib/match";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
 
@@ -18,6 +18,62 @@ const salaryLabel = (lo: number | null | undefined, hi: number | null | undefine
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
 
 const ageDays = (d: any) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
+
+const verdictStyle = (v: Verdict): { bg: string; fg: string; bd: string } => {
+  if (v === "提案推奨") return { bg: "#e7f3ea", fg: "#067647", bd: "#bfe3cc" };
+  if (v === "条件付き提案推奨") return { bg: "#fff6e0", fg: "#9a7b12", bd: "#fde9b0" };
+  if (v === "条件付き提案検討") return { bg: "#fef0c7", fg: "#b45309", bd: "#fcd97a" };
+  return { bg: "#fdecef", fg: "#b42318", bd: "#f7c5cf" };
+};
+
+/** マッチ理由を 🔴重要 / 🟡注意 / 🟢参考 の3段階で表示。 */
+function NotesPanel({ sel }: { sel: MatchResult }) {
+  const red = sel.notes.filter((n) => n.level === "red");
+  const yel = sel.notes.filter((n) => n.level === "yellow");
+  const grn = sel.notes.filter((n) => n.level === "green");
+  const Bar = ({ label, color, score, max }: { label: string; color: string; score: number; max: number }) => (
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(64px,90px) 1fr 56px", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{label}</span>
+      <div style={{ height: 6, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ width: `${score}%`, height: "100%", background: color, borderRadius: 99 }} />
+      </div>
+      <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-3)", textAlign: "right" }}>{Math.round(score)}/{max}</span>
+    </div>
+  );
+  const b = sel.breakdown;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-4)" }}>📊 内訳</div>
+        <Bar label="スキル" color="#0095D9" score={b.skill * 0.8} max={80} />
+        <Bar label="単価" color="#1aa260" score={b.salary * 0.08} max={8} />
+        <Bar label="勤務形態" color="#0F2440" score={b.remote * 0.05} max={5} />
+        <Bar label="稼働時期" color="#9a7b12" score={b.timing * 0.04} max={4} />
+        <Bar label="年齢" color="#7c3aed" score={b.age * 0.03} max={3} />
+        {b.bonus > 0 && <div style={{ fontSize: 11, color: "#067647" }}>＋ ボーナス {b.bonus}（PP/マージン/業界経験）</div>}
+      </div>
+      {red.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#b42318", marginBottom: 3 }}>🔴 重要</div>
+          {red.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#b42318", lineHeight: 1.6 }}>{n.text}</div>)}
+        </div>
+      )}
+      {yel.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309", marginBottom: 3 }}>🟡 注意</div>
+          {yel.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#9a7b12", lineHeight: 1.6 }}>{n.text}</div>)}
+        </div>
+      )}
+      {grn.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#067647", marginBottom: 3 }}>🟢 参考</div>
+          {grn.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#067647", lineHeight: 1.6 }}>{n.text}</div>)}
+        </div>
+      )}
+      {red.length + yel.length + grn.length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+    </div>
+  );
+}
 const isProper = (a: any) => /\bPP\b|プロパー|自社/i.test(String(a || ""));
 
 /**
@@ -398,15 +454,18 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 const skillPct = j.skills?.length ? Math.round((sel.matchedSkills.length / j.skills.length) * 100) : 0;
                 return (
                   <div className="card flush">
-                    <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（要件スキル {skillPct}%）</div>
-                      <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
+                        <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                      </div>
                     </div>
                     <div style={{ padding: 20 }}>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
-                      {/* 左：スキル評価／右：マッチ理由（スクロール量を抑えるため2カラム） */}
+                      {/* 左：スキル評価／右：マッチ理由（3段階） */}
                       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }}>
                         <div>
                           <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
@@ -415,12 +474,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                             {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
                           </div>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💡 マッチ理由</div>
-                          <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
-                            {sel.reasons.length ? sel.reasons.map((r: string, i: number) => <div key={i}>{r}</div>) : <span className="muted">—</span>}
-                          </div>
-                        </div>
+                        <NotesPanel sel={sel} />
                       </div>
                     </div>
                     <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
@@ -573,9 +627,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               const skillPct = job.skills?.length ? Math.round((sel.matchedSkills.length / job.skills.length) * 100) : 0;
               return (
                 <div className="card flush">
-                  <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（必須スキル {skillPct}%）</div>
-                    <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
+                      <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                    </div>
                   </div>
                   <div style={{ padding: 20 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
@@ -605,21 +662,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流・単価</div>
                         <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
                           <div>商流：{job.flow_note && job.flow_note !== "不明" ? job.flow_note : "確認中"}</div>
-                          <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}
-                            {" "}<span style={{ color: sel.reasons.some((r: string) => r.includes("予算内")) ? "var(--color-success)" : "var(--color-warn)" }}>
-                              {sel.reasons.some((r: string) => r.includes("予算内")) ? "（予算内 ✓）" : "（要調整）"}
-                            </span>
-                          </div>
+                          <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
                         </div>
                       </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>⚠️ 注意点</div>
-                        <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.8 }}>
-                          {sel.missingSkills.length > 0 && <div>不足スキル：{sel.missingSkills.join("・")}</div>}
-                          {!sel.reasons.some((r: string) => r.includes("予算内")) && <div>希望単価が案件予算と乖離の可能性</div>}
-                          {sel.missingSkills.length === 0 && sel.reasons.some((r: string) => r.includes("予算内")) && <div className="muted">特筆すべき懸念はありません</div>}
-                        </div>
-                      </div>
+                      <NotesPanel sel={sel} />
                     </div>
                   </div>
 
