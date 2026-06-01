@@ -96,20 +96,27 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   // mergeByName 用：氏名(正規化) → 既存レコード(複数あれば最古を採用)
   const byName = new Map<string, any>();
   try {
+    // ① 既存重複の判定はキー列のみで全件ロード（軽量）
     for (let from = 0; ; from += 1000) {
-      const cols = opts?.mergeByName
-        ? "id, name, company, source_company, source_mail_url, skills, rate, rate_num, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, skill_sheet_url, email, contact_email, title, affiliation, operator"
-        : "name, company, source_company, source_mail_url";
-      const { data, error } = await admin.from("candidates").select(cols).range(from, from + 999);
+      const { data, error } = await admin.from("candidates").select("name, company, source_company, source_mail_url").range(from, from + 999);
       if (error || !data) break;
-      for (const r of data as any[]) {
-        existing.add(dkey(r.name, r.company || r.source_company, r.source_mail_url));
-        if (opts?.mergeByName) {
+      for (const r of data as any[]) existing.add(dkey(r.name, r.company || r.source_company, r.source_mail_url));
+      if (data.length < 1000) break;
+    }
+    // ② mergeByName のときだけ、このバッチの名前に絞って既存レコードを取得（チャンク毎の全件再取得を回避）
+    if (opts?.mergeByName) {
+      const batchNames = Array.from(new Set(rows.map((r) => r.name).filter(Boolean) as string[]));
+      const FULL_COLS = "id, name, company, source_company, source_mail_url, skills, rate, rate_num, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, skill_sheet_url, email, contact_email, title, affiliation, operator";
+      const CHUNK = 500;
+      for (let i = 0; i < batchNames.length; i += CHUNK) {
+        const slice = batchNames.slice(i, i + CHUNK);
+        const { data, error } = await admin.from("candidates").select(FULL_COLS).in("name", slice);
+        if (error || !data) continue;
+        for (const r of data as any[]) {
           const k = normKey(r.name);
           if (k && !byName.has(k)) byName.set(k, r); // 同姓同名は最初に拾った1件を統合先に
         }
       }
-      if (data.length < 1000) break;
     }
   } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
 
