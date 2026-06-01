@@ -1,5 +1,8 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { leadKpi } from "@/lib/quality";
+import { currentAccess } from "@/lib/accounts";
+import { currentPeriod } from "@/lib/billing";
+import { Icons } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +45,12 @@ function CoverageBar({ label, filled, total }: { label: string; filled: number; 
 }
 
 export default async function AnalyticsPage() {
+  // ロール判定：エージェントには活動指標のみ表示、金額系（売上/粗利）は管理者限定。
+  const access = await currentAccess();
+  const isAdmin = !access || access.role === "admin";
   let jobs: any[] = [], cands: any[] = [], proposals: any[] = [], engs: any[] = [], meetings: any[] = [];
+  let bills: any[] = [];
+  const period = currentPeriod();
   let setup = false;
   if (dbConfigured) {
     try {
@@ -54,12 +62,28 @@ export default async function AnalyticsPage() {
         grab(sb, "engagements", "id, proposal_id, monthly_rate, cost, end_date, status", "id, monthly_rate, status"),
         grab(sb, "meetings", "id, our_owner, new_or_existing, fb_sentiment, company_name, meeting_date", "id, our_owner"),
       ]);
+      // 当月の billing_tasks（勤怠/請求の進捗）。テーブル未作成でも分析ページは動かす。
+      try {
+        const bt = await sb.from("billing_tasks").select("engagement_id, attendance_status, invoice_status").eq("period", period);
+        if (!bt.error) bills = bt.data ?? [];
+      } catch { /* ignore */ }
       if (!jobs.length && !proposals.length) setup = true;
     } catch { setup = true; }
   } else setup = true;
 
   const pub = jobs.filter((j) => j.is_published !== false);
   const liveEngs = engs.filter((e) => (e.status ?? "稼働中") === "稼働中" || e.status === "予定");
+
+  // 稼働ダッシュボード（旧 /progress 上部のKPI）
+  const engActive = engs.filter((e) => e.status === "稼働中").length;
+  const engPlanned = engs.filter((e) => e.status === "予定").length;
+  const engEnded = engs.filter((e) => e.status === "終了").length;
+  const monthlyRevenueMan = engs.filter((e) => e.status === "稼働中").reduce((a, e) => a + (Number(e.monthly_rate) || 0), 0);
+  const taskTarget = engs.filter((e) => e.status === "稼働中" || e.status === "予定");
+  const billByEng = new Map(bills.map((b: any) => [b.engagement_id, b]));
+  const invSent = (s?: string | null) => s === "送付完了" || s === "発行済";
+  const attPending = taskTarget.filter((e) => (billByEng.get(e.id)?.attendance_status ?? "未") !== "確認済").length;
+  const invPending = taskTarget.filter((e) => !invSent(billByEng.get(e.id)?.invoice_status)).length;
 
   // リード品質
   const kpi = leadKpi(proposals);
@@ -185,7 +209,7 @@ export default async function AnalyticsPage() {
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">Analytics · 管理者ビュー</div>
+          <div className="meta">Analytics · {isAdmin ? "管理者ビュー" : "エージェントビュー"}</div>
           <h1>分析 — 仮説立案ボード</h1>
           <div className="sub">「人数」ではなく<b style={{ color: "var(--color-ink)" }}>リード品質 × 各ステージの歩留まり</b>で見る。接触前失注・NGは母数から除外しています。</div>
         </div>
@@ -193,13 +217,46 @@ export default async function AnalyticsPage() {
 
       {setup && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>データがまだありません。案件・提案が入るとここに集計が表示されます。</div>}
 
-      {/* KPIサマリー */}
+      {/* 稼働ダッシュボード（旧 /progress の上部から移動）。稼働の量と月初業務の未処理を俯瞰。 */}
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🛠 稼働ダッシュボード（{period}）</h3>
+          <a href="/progress" style={{ fontSize: 11.5, color: "var(--color-brand-700)", textDecoration: "underline" }}>稼働管理を開く →</a>
+        </div>
+        <div className="kpi-grid">
+          <div className="kpi brand">
+            <div className="top"><div className="ico-box"><Icons.progress /></div><div className="chip flat">稼働</div></div>
+            <div><div className="val tnum">{engActive}<span className="unit">名</span></div><div className="label">稼働中</div><div className="note">予定 {engPlanned} / 終了 {engEnded}</div></div>
+          </div>
+          {isAdmin && (
+            <div className="kpi accent">
+              <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">売上</div></div>
+              <div><div className="val tnum">{monthlyRevenueMan.toLocaleString("ja-JP")}<span className="unit">万</span></div><div className="label">月次売上(稼働中)</div><div className="note">請求ベース</div></div>
+            </div>
+          )}
+          <div className="kpi warn">
+            <div className="top"><div className="ico-box"><Icons.clock /></div><div className="chip">勤怠</div></div>
+            <div><div className="val tnum">{attPending}<span className="unit">件</span></div><div className="label">勤怠 未チェック</div><div className="note">{period}</div></div>
+          </div>
+          <div className="kpi warn">
+            <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">請求</div></div>
+            <div><div className="val tnum">{invPending}<span className="unit">件</span></div><div className="label">請求書 未送付</div><div className="note">{period}</div></div>
+          </div>
+        </div>
+      </div>
+
+      {/* KPIサマリー（売上・粗利は管理者限定） */}
       <div className="kpi-grid">
         <div className="kpi brand"><div><div className="val tnum">{kpi.valid}</div><div className="label">有効リード</div><div className="note">全{kpi.total} − 接触前失注{kpi.preLost} − NG{kpi.ngExcluded}</div></div></div>
         <div className="kpi"><div><div className="val tnum">{kpi.postLostRate}<span className="unit">%</span></div><div className="label">接触後失注率</div><div className="note">接触後失注 {kpi.postLost}件</div></div></div>
-        <div className="kpi accent"><div><div className="val tnum">{yen(confirmedMan)}</div><div className="label">確定（稼働中の月額）</div><div className="note">見込み {yen(pipelineMan)}</div></div></div>
-        <div className="kpi warn"><div><div className="val tnum">{grossMan == null ? "—" : yen(grossMan)}</div><div className="label">粗利（月額）</div><div className="note">{grossMan == null ? "原価データ未設定" : "売上−原価"}</div></div></div>
+        {isAdmin && <div className="kpi accent"><div><div className="val tnum">{yen(confirmedMan)}</div><div className="label">確定（稼働中の月額）</div><div className="note">見込み {yen(pipelineMan)}</div></div></div>}
+        {isAdmin && <div className="kpi warn"><div><div className="val tnum">{grossMan == null ? "—" : yen(grossMan)}</div><div className="label">粗利（月額）</div><div className="note">{grossMan == null ? "原価データ未設定" : "売上−原価"}</div></div></div>}
+        {!isAdmin && <div className="kpi"><div><div className="val tnum">{won.length}</div><div className="label">稼働化（成約）</div><div className="note">活動中の総数</div></div></div>}
+        {!isAdmin && <div className="kpi"><div><div className="val tnum">{active.length}</div><div className="label">進行中の提案</div><div className="note">未失注・未NG</div></div></div>}
       </div>
+      {!isAdmin && (
+        <div className="muted" style={{ fontSize: 11, marginTop: -8 }}>※ 売上・粗利の金額は管理者のみ閲覧できます。エージェントには活動指標を表示しています。</div>
+      )}
 
       {/* 営業KPIスコアカード（担当者別・当月） */}
       <div className="card">
@@ -225,7 +282,7 @@ export default async function AnalyticsPage() {
                   <th className="num" title="精度：提案→面談到達率">面談化率</th>
                   <th className="num" title="スピード：提案→稼働の平均日数">クロージング日数</th>
                   <th className="num" title="成果：稼働化（成約）件数">稼働化</th>
-                  <th className="num" title="成果：自分がクローザーの稼働中 月額合計">確定売上</th>
+                  {isAdmin && <th className="num" title="成果：自分がクローザーの稼働中 月額合計">確定売上</th>}
                   <th className="num" title="6指標のうち目標達成数">判定</th>
                 </tr>
               </thead>
@@ -242,7 +299,7 @@ export default async function AnalyticsPage() {
                       <td className="num" style={{ color: kpiTone(s.meetRate, KPI_TARGET.meetRate), fontWeight: 700 }}>{s.meetRate}%</td>
                       <td className="num" style={{ color: "var(--color-ink-3)" }}>{s.avgCloseDays == null ? "—" : `${s.avgCloseDays}日`}</td>
                       <td className="num" style={{ color: kpiTone(s.won, KPI_TARGET.won), fontWeight: 700 }}>{s.won}</td>
-                      <td className="num" style={{ fontWeight: 700 }}>{s.confirmedMan ? yen(s.confirmedMan) : "—"}</td>
+                      {isAdmin && <td className="num" style={{ fontWeight: 700 }}>{s.confirmedMan ? yen(s.confirmedMan) : "—"}</td>}
                       <td className="num"><span style={{ fontWeight: 800, color: j.c, background: j.bg, borderRadius: 99, padding: "2px 10px" }}>{j.l} {s.hit}/6</span></td>
                     </tr>
                   );
@@ -294,10 +351,10 @@ export default async function AnalyticsPage() {
         <div className="card">
           <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700 }}>👥 提案者別の動き</h3>
           {proposers.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>提案データがありません。</div> : (
-            <table className="tbl"><thead><tr><th>提案者</th><th className="num">進行中</th><th className="num">決定</th><th className="num">取扱見込み</th></tr></thead>
+            <table className="tbl"><thead><tr><th>提案者</th><th className="num">進行中</th><th className="num">決定</th>{isAdmin && <th className="num">取扱見込み</th>}</tr></thead>
               <tbody>
                 {proposers.map(([who, v]) => (
-                  <tr key={who}><td style={{ fontWeight: 600 }}>{who}</td><td className="num">{v.active}</td><td className="num">{v.won}</td><td className="num">{yen(v.man)}</td></tr>
+                  <tr key={who}><td style={{ fontWeight: 600 }}>{who}</td><td className="num">{v.active}</td><td className="num">{v.won}</td>{isAdmin && <td className="num">{yen(v.man)}</td>}</tr>
                 ))}
               </tbody>
             </table>

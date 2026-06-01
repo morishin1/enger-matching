@@ -71,7 +71,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings"];
+  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics"];
   const allowed = new Set<string>(["/", "/progress"]); // ダッシュボード・稼働/請求/勤怠は全エージェント可
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
   if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }
