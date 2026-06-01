@@ -6,6 +6,7 @@ import { currentAccess } from "./accounts";
 import { canSeeMargin } from "./engagement-access";
 import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
+import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
 
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
 const bustCounts = () => revalidateTag("sidebar-counts", "max");
@@ -187,6 +188,47 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 
   revalidatePath("/people");
   bustCounts();
+
+  // スキルシートのAI解析（バックグラウンド・fail-soft）。GOOGLE_SERVICE_ACCOUNT_JSON 設定時のみ。
+  //   取込で挿入された人材のうち skill_sheet_url があり未解析のものを最大50件ずつ並行5本で解析。
+  //   失敗してもユーザー応答は止めない。完了は revalidate で反映される。
+  if (driveConfigured() && inserted > 0) {
+    queueMicrotask(async () => {
+      try {
+        const pending = await admin
+          .from("candidates")
+          .select("id, skill_sheet_url, skills")
+          .not("skill_sheet_url", "is", null)
+          .is("skill_sheet_extracted_at", null)
+          .limit(50);
+        const rows = (pending.data ?? []) as any[];
+        const work = async (c: any) => {
+          const now = new Date().toISOString();
+          const res = await analyzeSkillSheet(c.skill_sheet_url);
+          if (!res.ok) {
+            await admin.from("candidates").update({ skill_sheet_error: res.error, skill_sheet_extracted_at: now }).eq("id", c.id);
+            return;
+          }
+          const cur: string[] = Array.isArray(c.skills) ? c.skills : [];
+          const merged = Array.from(new Set([...cur, ...res.skills]));
+          await admin.from("candidates").update({
+            skill_sheet_summary: res.summary,
+            skill_sheet_skills: res.skills,
+            skill_sheet_extracted_at: now,
+            skill_sheet_error: null,
+            skills: merged,
+          }).eq("id", c.id);
+        };
+        // 同時5本で消化（LLM側のレート制限を考慮）
+        const POOL = 5; let idx = 0;
+        const workers = Array.from({ length: Math.min(POOL, rows.length) }, async () => {
+          while (idx < rows.length) { const i = idx++; try { await work(rows[i]); } catch { /* fail-soft */ } }
+        });
+        await Promise.all(workers);
+      } catch { /* fail-soft */ }
+    });
+  }
+
   return { ok: true, inserted, skipped, merged: mergedCount };
 }
 
