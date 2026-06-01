@@ -11,7 +11,8 @@ import { ProposalListView } from "./ProposalListView";
 type View = "kanban" | "list";
 
 export function ProposalBoardSwitcher({ proposals, members }: { proposals: any[]; members?: string[] }) {
-  const [view, setView] = useState<View>("kanban");
+  // 既定はリスト表示（一覧性が高く運用に合いやすい）。ユーザーが切替えれば localStorage に保存される。
+  const [view, setView] = useState<View>("list");
   useEffect(() => {
     try { const v = localStorage.getItem("enger.proposal-board.view"); if (v === "kanban" || v === "list") setView(v); } catch { /* noop */ }
   }, []);
