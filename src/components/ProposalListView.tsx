@@ -8,7 +8,7 @@
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
 import { useMemo, useState } from "react";
 import { ProposalDetailModal } from "./ProposalDetailModal";
-import { NotifyDot } from "./NotifyDot";
+import { NotifyChip } from "./NotifyDot";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -158,11 +158,11 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.created_at)}</td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
                 <td style={td}>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
                     <StageBadge stage={normStage(p.stage)} />
-                    <span title="左: 案件側 / 右: 人材側 — 赤(未処理) / 青(処理中) / 完了は薄い丸。クリックで状態を切替。" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
-                      <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} />
-                      <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                      <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
+                      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
                     </span>
                   </div>
                 </td>

@@ -33,8 +33,8 @@ export function ProposalBoardSwitcher({ proposals, members }: { proposals: any[]
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span className="muted" style={{ fontSize: 11.5, marginRight: 2 }}>表示</span>
-        <Btn v="kanban" icon="view_kanban" label="カンバン" />
         <Btn v="list" icon="table_rows" label="リスト" />
+        <Btn v="kanban" icon="view_kanban" label="カンバン" />
       </div>
       {view === "kanban" ? <ProposalBoard proposals={proposals} members={members} /> : <ProposalListView proposals={proposals} members={members} />}
     </div>
