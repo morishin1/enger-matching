@@ -3,6 +3,7 @@ import { ProposalHistory } from "@/components/ProposalHistory";
 import { ProposalsTabs } from "@/components/ProposalsTabs";
 import { LostAnalytics } from "@/components/LostAnalytics";
 import { NewProposalButton } from "@/components/NewProposalButton";
+import { ProposalStartStats } from "@/components/ProposalStartStats";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
@@ -14,6 +15,8 @@ export default async function ProposalsPage() {
   let lost = 0;
   let dbError: string | null = null;
   let needSetup = false;
+  // 提案開始件数（created_at 基準）。ステージ移動の影響を受けず一貫してカウントする。
+  let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
 
   const staff = await getStaff();
   let lostRows: any[] = [];
@@ -100,6 +103,24 @@ export default async function ProposalsPage() {
           .filter((p: any) => fbMap[p.id])
           .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
           .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
+
+        // 「提案開始件数」の固定期間集計（DB の正確な COUNT・400件上限の影響を受けない）
+        const now = Date.now();
+        const dayMs = 24 * 3600 * 1000;
+        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+        const isos = {
+          today:  startOfToday.toISOString(),
+          week:   new Date(now - 6 * dayMs).toISOString(),
+          month:  new Date(now - 29 * dayMs).toISOString(),
+          thirty: new Date(now - 29 * dayMs).toISOString(),
+        };
+        const [tc, wc, mc, ttc] = await Promise.all([
+          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.today),
+          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.week),
+          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.month),
+          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.thirty),
+        ]);
+        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: mc.count ?? 0, thirty: ttc.count ?? 0 };
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
@@ -128,6 +149,8 @@ export default async function ProposalsPage() {
           <b>提案テーブルが未作成です。</b> 中央 Supabase の SQL Editor で <span className="mono">supabase/schema-matching.sql</span> を実行すると、提案管理・稼働管理が使えるようになります。
         </div>
       )}
+
+      {!needSetup && <ProposalStartStats today={startStats.today} week={startStats.week} month={startStats.month} thirty={startStats.thirty} />}
 
       {!needSetup && (
         <ProposalsTabs
