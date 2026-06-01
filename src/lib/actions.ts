@@ -746,7 +746,7 @@ export async function setJobOutsideOwner(jobNo: number, owner: string | null) {
 // ===================== 打ち合わせ記録 =====================
 
 export type MeetingInput = {
-  title?: string; company_name?: string; meeting_date?: string | null;
+  title?: string; company_name?: string; meeting_date?: string | null; meeting_time?: string | null;
   their_contact?: string; our_owner?: string; new_or_existing?: string;
   relation_status?: string; fb_sentiment?: string; ai_summary?: string;
   enger_fb?: string; hit_points?: string; miss_points?: string; needs?: string;
@@ -760,9 +760,10 @@ export async function createMeeting(input: MeetingInput) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const row = {
-    title: input.title?.trim() || `${input.company_name ?? "打合せ"}（${input.meeting_date ?? ""}）`,
+    title: input.title?.trim() || `${input.company_name ?? "打合せ"}（${input.meeting_date ?? ""}${input.meeting_time ? ` ${input.meeting_time}` : ""}）`,
     company_name: input.company_name?.trim() || null,
     meeting_date: input.meeting_date || null,
+    meeting_time: input.meeting_time || null,
     their_contact: input.their_contact?.trim() || null,
     our_owner: input.our_owner || null,
     new_or_existing: input.new_or_existing || null,
@@ -784,14 +785,51 @@ export async function createMeeting(input: MeetingInput) {
     follow_up_date: input.follow_up_date || null,
   };
   let { error } = await admin.from("meetings").insert(row);
-  if (error && /follow_up_date/.test(error.message)) {
-    // 列未追加(meetings-followup.sql 未実行)時はフォロー列を除いて再試行
-    const { follow_up_date, ...rest } = row;
-    ({ error } = await admin.from("meetings").insert(rest));
+  // meeting_time / follow_up_date 列未追加でも落ちないようフォールバック
+  if (error && /meeting_time|follow_up_date|column/i.test(error.message)) {
+    const r2: any = { ...row }; delete r2.meeting_time; delete r2.follow_up_date;
+    ({ error } = await admin.from("meetings").insert(r2));
   }
   if (error) return { ok: false, error: error.message };
   revalidatePath("/meetings");
   revalidatePath("/companies");
+  return { ok: true };
+}
+
+/** 打ち合わせ記録を更新（admin/agent 想定）。 */
+export async function updateMeeting(id: string, input: MeetingInput) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  if (!id) return { ok: false, error: "id がありません" };
+  const patch: Record<string, any> = {};
+  const setStr = (k: keyof MeetingInput) => { const v = (input as any)[k]; if (v !== undefined) patch[k as string] = (typeof v === "string" ? (v.trim() || null) : v); };
+  setStr("title"); setStr("company_name"); setStr("meeting_date"); setStr("meeting_time");
+  setStr("their_contact"); setStr("our_owner"); setStr("new_or_existing");
+  setStr("relation_status"); setStr("fb_sentiment"); setStr("ai_summary");
+  setStr("enger_fb"); setStr("hit_points"); setStr("miss_points"); setStr("needs");
+  setStr("strategy"); setStr("next_action_us"); setStr("next_action_them");
+  if (input.competitors !== undefined) patch.competitors = input.competitors;
+  setStr("competitor_detail");
+  if (input.tags !== undefined) patch.tags = input.tags;
+  setStr("transcript_url"); setStr("publishable"); setStr("follow_up_date");
+  let { error } = await admin.from("meetings").update(patch).eq("id", id);
+  if (error && /meeting_time|follow_up_date|column/i.test(error.message)) {
+    const p2: any = { ...patch }; delete p2.meeting_time; delete p2.follow_up_date;
+    ({ error } = await admin.from("meetings").update(p2).eq("id", id));
+  }
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/meetings"); revalidatePath("/companies");
+  return { ok: true };
+}
+
+/** 打ち合わせ記録を削除。 */
+export async function deleteMeeting(id: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  if (!id) return { ok: false, error: "id がありません" };
+  const { error } = await admin.from("meetings").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/meetings"); revalidatePath("/companies");
   return { ok: true };
 }
 

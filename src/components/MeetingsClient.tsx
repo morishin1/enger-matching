@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
-import { createMeeting, setMeetingFollowDone } from "@/lib/actions";
+import { createMeeting, updateMeeting, deleteMeeting, setMeetingFollowDone } from "@/lib/actions";
 import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_OWNERS, MEETING_COMPETITORS, MEETING_TAGS, MEETING_HITS, MEETING_MISSES, MEETING_NEEDS, MEETING_NEXT_ACTIONS } from "@/lib/proposal-constants";
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -18,7 +18,7 @@ const SENT_TONE: Record<string, string> = { "👍ポジティブ": "#1aa260", "�
 const dateLabel = (d: string | null) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${t.getMonth() + 1}/${t.getDate()}`; };
 
 const empty = {
-  company_name: "", meeting_date: "", their_contact: "", our_owner: "", new_or_existing: "新規",
+  company_name: "", meeting_date: "", meeting_time: "", their_contact: "", our_owner: "", new_or_existing: "新規",
   relation_status: "🆕新規", fb_sentiment: "😐中立", ai_summary: "", enger_fb: "", hit_points: "",
   miss_points: "", needs: "", strategy: "", next_action_us: "", next_action_them: "",
   competitors: [] as string[], competitor_detail: "", tags: [] as string[], transcript_url: "", publishable: "配信可能", follow_up_date: "",
@@ -68,7 +68,7 @@ function SegButtons({ options, value, onChange }: { options: string[]; value: st
   );
 }
 
-function MeetingForm({ companies, onDone, initial }: { companies: string[]; onDone: () => void; initial?: Partial<typeof empty> }) {
+function MeetingForm({ companies, onDone, initial, editId, onDeleted }: { companies: string[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
   const router = useRouter();
   const [f, setF] = useState({ ...empty, ...(initial ?? {}) });
   const [saving, setSaving] = useState(false);
@@ -115,7 +115,7 @@ function MeetingForm({ companies, onDone, initial }: { companies: string[]; onDo
   const submit = async () => {
     if (!f.company_name.trim()) { setErr("相手企業を入力してください"); return; }
     setSaving(true); setErr(null);
-    const res = await createMeeting(f);
+    const res = editId ? await updateMeeting(editId, f) : await createMeeting(f);
     setSaving(false);
     if (res.ok) { router.refresh(); onDone(); } else setErr(res.error || "保存に失敗しました");
   };
@@ -129,6 +129,7 @@ function MeetingForm({ companies, onDone, initial }: { companies: string[]; onDo
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
         <div><L>相手企業 *</L><input style={inp} list="company-list" value={f.company_name} onChange={(e) => set("company_name", e.target.value)} placeholder="企業名" /><datalist id="company-list">{companies.map((c) => <option key={c} value={c} />)}</datalist></div>
         <div><L>打ち合わせ日</L><input style={inp} type="date" value={f.meeting_date} onChange={(e) => set("meeting_date", e.target.value)} /></div>
+        <div><L>時刻</L><input style={inp} type="time" value={(f as any).meeting_time ?? ""} onChange={(e) => set("meeting_time" as any, e.target.value)} /></div>
         <div><L>自社担当者</L><select style={inp} value={f.our_owner} onChange={(e) => set("our_owner", e.target.value)}><option value="">—</option>{MEETING_OWNERS.map((o) => <option key={o}>{o}</option>)}</select></div>
       </div>
 
@@ -178,9 +179,22 @@ function MeetingForm({ companies, onDone, initial }: { companies: string[]; onDo
       )}
 
       {err && <div style={{ color: "var(--color-danger)", fontSize: 12 }}>{err}</div>}
-      <div style={{ display: "flex", gap: 8 }}>
-        <button type="button" className="btn brand" disabled={saving} onClick={submit}>{saving ? "保存中…" : "記録を保存"}</button>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" className="btn brand" disabled={saving} onClick={submit}>{saving ? "保存中…" : (editId ? "更新を保存" : "記録を保存")}</button>
         <button type="button" className="btn ghost" onClick={onDone}>キャンセル</button>
+        {editId && (
+          <button type="button" className="btn ghost" disabled={saving}
+            onClick={async () => {
+              if (!confirm("この打ち合わせ記録を削除しますか？ 元に戻せません。")) return;
+              setSaving(true);
+              const res = await deleteMeeting(editId);
+              setSaving(false);
+              if (res.ok) { router.refresh(); onDeleted?.(); onDone(); } else setErr(res.error || "削除に失敗しました");
+            }}
+            style={{ marginLeft: "auto", color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
+            🗑 削除
+          </button>
+        )}
       </div>
     </div>
   );
@@ -190,7 +204,7 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const ymd = (y: number, mo: number, d: number) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
 /** 月カレンダー：打ち合わせ記録（meeting_date）・面談予定（提案）・フォロー予定（follow_up_date）を可視化。 */
-function MonthCalendar({ meetings, interviews, onPick, onInterview }: { meetings: any[]; interviews: any[]; onPick: (company: string) => void; onInterview: (iv: any) => void }) {
+function MonthCalendar({ meetings, interviews, onPick, onInterview, onPickDay }: { meetings: any[]; interviews: any[]; onPick: (company: string) => void; onInterview: (iv: any) => void; onPickDay?: (dateStr: string) => void }) {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -245,7 +259,8 @@ function MonthCalendar({ meetings, interviews, onPick, onInterview }: { meetings
           const isToday = key === todayStr;
           const dow = (startDow + d - 1) % 7;
           return (
-            <div key={key} style={{ background: "var(--color-surface)", minHeight: 92, padding: 5, display: "flex", flexDirection: "column", gap: 3, outline: isToday ? "2px solid var(--color-brand-500,#0b5cab)" : "none", outlineOffset: -2 }}>
+            <div key={key} onClick={(ev) => { if (onPickDay && !(ev.target as HTMLElement).closest("button,a")) onPickDay(key); }}
+              style={{ background: "var(--color-surface)", minHeight: 92, padding: 5, display: "flex", flexDirection: "column", gap: 3, outline: isToday ? "2px solid var(--color-brand-500,#0b5cab)" : "none", outlineOffset: -2, cursor: onPickDay ? "pointer" : "default" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: isToday ? "var(--color-brand-700,#0b5cab)" : dow === 0 ? "#d23f57" : dow === 6 ? "#0b5cab" : "var(--color-ink-3)" }}>{d}</span>
                 {follows > 0 && <span title={`フォロー予定 ${follows}件`} style={{ fontSize: 9.5 }}>🔔{follows}</span>}
@@ -283,6 +298,23 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
   const router = useRouter();
   const [show, setShow] = useState(false);
   const [formInitial, setFormInitial] = useState<Partial<typeof empty> | undefined>(undefined);
+  const [editId, setEditId] = useState<string | null>(null);
+  // カレンダー日付クリック時のドロワー（その日の打合せ一覧）
+  const [dayDrawer, setDayDrawer] = useState<string | null>(null);
+  const openEdit = (m: any) => {
+    setEditId(m.id);
+    setFormInitial({
+      company_name: m.company_name ?? "", meeting_date: m.meeting_date ? String(m.meeting_date).slice(0, 10) : "", meeting_time: m.meeting_time ? String(m.meeting_time).slice(0, 5) : "",
+      their_contact: m.their_contact ?? "", our_owner: m.our_owner ?? "", new_or_existing: m.new_or_existing ?? "新規",
+      relation_status: m.relation_status ?? "", fb_sentiment: m.fb_sentiment ?? "", ai_summary: m.ai_summary ?? "",
+      enger_fb: m.enger_fb ?? "", hit_points: m.hit_points ?? "", miss_points: m.miss_points ?? "",
+      needs: m.needs ?? "", strategy: m.strategy ?? "", next_action_us: m.next_action_us ?? "", next_action_them: m.next_action_them ?? "",
+      competitors: m.competitors ?? [], competitor_detail: m.competitor_detail ?? "", tags: m.tags ?? [],
+      transcript_url: m.transcript_url ?? "", publishable: m.publishable ?? "", follow_up_date: m.follow_up_date ? String(m.follow_up_date).slice(0, 10) : "",
+    });
+    setShow(true);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const [view, setView] = useState<"calendar" | "cards">("calendar");
 
   // 面談予定（提案）をクリック → 記録フォームを企業名・日付・候補名でプリフィルして開く
@@ -314,7 +346,7 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
   return (
     <>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button className="btn brand" onClick={() => { setFormInitial(undefined); setShow((v) => !v); }} title="打合せ記録を新規に追加">
+        <button className="btn brand" onClick={() => { setEditId(null); setFormInitial(undefined); setShow((v) => !v); }} title="打合せ記録を新規に追加">
           <Icons.plus /><span>{show ? "フォームを閉じる" : "新規記録"}</span>
         </button>
         <button onClick={() => setOnlyFollow((v) => !v)} style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${onlyFollow ? "#d98a2b" : "var(--color-border-strong)"}`, background: onlyFollow ? "#fff1e6" : "var(--color-surface)", color: onlyFollow ? "#b45309" : "var(--color-ink-3)" }}>🔔 要フォロー {followCount}</button>
@@ -328,10 +360,10 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
         </div>
       </div>
 
-      {show && <MeetingForm key={JSON.stringify(formInitial ?? {})} companies={companies} initial={formInitial} onDone={() => { setShow(false); setFormInitial(undefined); }} />}
+      {show && <MeetingForm key={editId ?? JSON.stringify(formInitial ?? {})} companies={companies} initial={formInitial} editId={editId} onDone={() => { setShow(false); setFormInitial(undefined); setEditId(null); }} onDeleted={() => { /* refresh after deletion handled in form */ }} />}
 
       {view === "calendar" ? (
-        <MonthCalendar meetings={filtered} interviews={interviews} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} />
+        <MonthCalendar meetings={filtered} interviews={interviews} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} onPickDay={(ds) => setDayDrawer(ds)} />
       ) : filtered.length === 0 ? (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>記録がありません。上の「新規記録」ボタンから追加してください。</div>
       ) : (
@@ -343,7 +375,7 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{m.company_name ?? "—"}</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{dateLabel(m.meeting_date)} · {m.our_owner ?? "—"}{m.their_contact ? ` / 先方 ${m.their_contact}` : ""}</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{dateLabel(m.meeting_date)}{m.meeting_time ? ` ${String(m.meeting_time).slice(0, 5)}` : ""} · {m.our_owner ?? "—"}{m.their_contact ? ` / 先方 ${m.their_contact}` : ""}</div>
                   </div>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                     {m.fb_sentiment && <span className="pill" style={{ fontSize: 10.5, background: `${tone}1a`, color: tone, borderColor: "transparent" }}>{m.fb_sentiment}</span>}
@@ -370,11 +402,62 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
                   </div>
                 )}
                 {m.transcript_url && <a href={m.transcript_url} target="_blank" rel="noreferrer" className="btn ghost btn-xs" style={{ alignSelf: "flex-start", textDecoration: "none" }}>📄 元文字起こし</a>}
+                {/* 編集・削除 */}
+                <div style={{ display: "flex", gap: 6, marginTop: "auto", borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
+                  <button type="button" className="btn ghost btn-xs" onClick={() => openEdit(m)}>✎ 編集</button>
+                  <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }}
+                    onClick={async () => { if (!confirm(`「${m.company_name ?? "この記録"}」を削除しますか？元に戻せません。`)) return; const r = await deleteMeeting(m.id); if (r.ok) router.refresh(); else alert(r.error ?? "削除に失敗しました"); }}>
+                    🗑 削除
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* カレンダーから日付クリックで開くドロワー（その日の打合せ一覧） */}
+      {dayDrawer && (() => {
+        const dayMeetings = filtered.filter((m) => m.meeting_date && String(m.meeting_date).slice(0, 10) === dayDrawer)
+          .sort((a, b) => String(a.meeting_time ?? "").localeCompare(String(b.meeting_time ?? "")));
+        return (
+          <div onClick={() => setDayDrawer(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.4)", zIndex: 300 }}>
+            <div onClick={(e) => e.stopPropagation()} className="card" role="dialog" aria-modal="true"
+              style={{ position: "absolute", top: 0, right: 0, height: "100%", width: "min(560px, 92vw)", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, borderRadius: 0, boxShadow: "-12px 0 32px rgba(15,23,42,.18)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", color: "var(--color-ink-4)", fontWeight: 700 }}>MEETINGS · 日付詳細</div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{dayDrawer}</h3>
+                </div>
+                <button className="btn ghost btn-xs" onClick={() => setDayDrawer(null)}>閉じる</button>
+              </div>
+              <button className="btn brand btn-xs" onClick={() => { setDayDrawer(null); setEditId(null); setFormInitial({ ...empty, meeting_date: dayDrawer } as any); setShow(true); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+                ＋ この日に新規記録
+              </button>
+              {dayMeetings.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>この日の打合せはありません。</div> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {dayMeetings.map((m) => (
+                    <div key={m.id} className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{m.meeting_time ? `${String(m.meeting_time).slice(0, 5)} · ` : ""}{m.company_name ?? "—"}</div>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <button className="btn ghost btn-xs" onClick={() => { setDayDrawer(null); openEdit(m); }}>✎</button>
+                          <button className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }}
+                            onClick={async () => { if (!confirm("削除しますか？")) return; const r = await deleteMeeting(m.id); if (r.ok) router.refresh(); }}>🗑</button>
+                        </div>
+                      </div>
+                      <div className="muted" style={{ fontSize: 11 }}>{m.our_owner ?? "—"}{m.their_contact ? ` / 先方 ${m.their_contact}` : ""}</div>
+                      {m.fb_sentiment && <span className="pill" style={{ alignSelf: "flex-start", fontSize: 10.5 }}>{m.fb_sentiment}</span>}
+                      {m.ai_summary && <div style={{ fontSize: 12, color: "var(--color-ink-2)" }}>{m.ai_summary}</div>}
+                      {m.next_action_us && <div style={{ fontSize: 11.5 }}>▶ 次(自社)：{m.next_action_us}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
