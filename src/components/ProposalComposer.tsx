@@ -123,6 +123,62 @@ export function ProposalComposer({
   const replyTargetLabel = target === "client" ? "案件の元メール" : "人材の元メール";
   // URL では Gmail の返信フォームに本文を流し込めないため、本文をクリップボードへコピーしてから
   // 元スレッドを開き、Gmailの「返信」に貼り付けてもらう（＝本当の返信スレッドになる）。
+  // 送信プレビュー（確認ダイアログ）
+  const [sendOpen, setSendOpen] = useState(false);
+  // 「同時に両方」モード：クライアント宛と人材宛の両方の本文を生成して並行送信
+  const dualPreview = useMemo(() => {
+    const clientM = jobProposalMail({
+      jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name, sender,
+      candidate: {
+        name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate,
+        affiliation: cand.affiliation, exp: cand.exp,
+        skillSheetUrl: cand.skill_sheet_url ?? cand.skillSheetUrl ?? null,
+        ageBand: cand.age_band ?? null, avail: cand.avail ?? null, location: cand.location ?? null,
+      },
+      matchedSkills, score,
+      originalBody: job.detail ?? job.description ?? null,
+      originalMailUrl: job.source_mail_url ?? null,
+    });
+    const candM = candidateProposalMail({
+      candidateName: cand.name,
+      candidateCompany: (() => {
+        const isAff = (v?: string | null) => !!v && /(社員|フリーランス|個人事業|パートナー|下社員|社内|プロパー|PP|社下|協力会社)/.test(String(v));
+        const sc = cand.source_company; const co = cand.company;
+        if (sc && !isAff(sc)) return sc;
+        if (co && !isAff(co)) return co;
+        return null;
+      })(),
+      contactName: cand.contact_name,
+      ageBand: cand.age_band ?? null, sender,
+      job: { title: job.title, client_name: job.client_name, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, detail: job.detail ?? null, work_location: job.work_location ?? null, flow_note: job.flow_note ?? null, start_date: job.start_date ?? null, remote_type: job.remote_type ?? null },
+      matchedSkills, score,
+    });
+    return {
+      client: { to: job.contact_email as string | null, subject: clientM.subject, body: clientM.body, threadUrl: gmailMessageUrl(job?.source_mail_url) },
+      cand:   { to: (cand.email ?? cand.contact_email) as string | null, subject: candM.subject, body: candM.body, threadUrl: gmailMessageUrl(cand?.source_mail_url) },
+    };
+  }, [job, cand, matchedSkills, score, sender]);
+
+  const composeNoRe = (s: string) => s.replace(/^re:\s*/i, "");
+  // 「送信する」確定 → クライアント・人材それぞれを並行で開く（元スレあれば本文コピー＋スレッド、無ければ新規メール）
+  const confirmSendBoth = async () => {
+    setSendOpen(false);
+    const { client, cand: c2 } = dualPreview;
+    try {
+      // 両方の本文を改行区切りでクリップボードへ（タブ切替時に貼り付けやすく）
+      await navigator.clipboard.writeText(`【クライアント宛】\n${client.body}\n\n──────────\n\n【人材宛】\n${c2.body}`);
+    } catch { /* noop */ }
+    // クライアント宛
+    if (client.threadUrl) window.open(client.threadUrl, "_blank", "noopener");
+    else window.open(gmailComposeUrl({ to: client.to, subject: composeNoRe(client.subject), body: client.body }), "_blank", "noopener");
+    // 人材宛
+    setTimeout(() => {
+      if (c2.threadUrl) window.open(c2.threadUrl, "_blank", "noopener");
+      else window.open(gmailComposeUrl({ to: c2.to, subject: composeNoRe(c2.subject), body: c2.body }), "_blank", "noopener");
+    }, 200);
+    setMsg("クライアント宛・人材宛の Gmail を両方開きました。本文はクリップボードにコピー済み。");
+  };
+
   const replyOnThread = async () => {
     if (!replyThreadUrl) return;
     try { await navigator.clipboard.writeText(effectiveBody); setMsg(`本文をコピーしました。開いた${replyTargetLabel}の「返信」に貼り付けてください。`); }
@@ -209,37 +265,70 @@ export function ProposalComposer({
         )}
       </div>
 
-      {/* ② 送信操作：返信(推奨) / 新規 / ボード記録 / コピー */}
+      {/* ② シンプル送信操作：1つのメインCTAで両方送信＋確認プレビュー */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        {replyThreadUrl ? (
-          <button type="button" className="btn-mail block" onClick={replyOnThread} title={`本文をコピーして${replyTargetLabel}を開きます。Gmailの「返信」に貼り付けてください`}>
-            ↩ {replyTargetLabel}に返信（本文コピー）
-          </button>
-        ) : (
-          <span className="muted" style={{ fontSize: 10.5 }}>※ {replyTargetLabel}が未保存のため返信スレッドを開けません（新規メールで送付）</span>
-        )}
-        <button type="button" className={replyThreadUrl ? "btn ghost" : "btn-mail block"} onClick={openNewMail} title="Gmailで新規メールを作成（本文を流し込み）">
-          ✉ 新規メールで作成
+        <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
+          style={{ fontSize: 13, padding: "0 22px", height: 38 }}
+          title="クライアント宛と人材宛の Gmail を1クリックで両方開きます（送信前に内容を確認）">
+          📤 送信する（クライアント＋人材へ）
         </button>
         {saved ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            {savedId ? (
-              <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
-                style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
-                title="クリックして取り消し（記録直後のみ）">
-                {undoing ? "取消中…" : "✓ 記録済み（取り消す）"}
-              </button>
-            ) : (
-              <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 記録済み</span>
-            )}
-            <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline" }}>提案管理</Link>
-          </span>
+          savedId ? (
+            <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
+              style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
+              title="クリックして取り消し（記録直後のみ）">
+              {undoing ? "取消中…" : "✓ ボード記録済み（取消）"}
+            </button>
+          ) : (
+            <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ ボード記録済み</span>
+          )
         ) : (
-          <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "提案する（ボードに記録）"}</button>
+          <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "📋 ボードに記録"}</button>
         )}
-        <button type="button" className="btn ghost" onClick={() => copy(effectiveBody, "本文")}>本文をコピー</button>
+        <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
+        {saved && <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline", marginLeft: 4 }}>提案管理を開く</Link>}
       </div>
       {msg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{msg}</div>}
+
+      {/* 送信プレビュー（クライアント宛＋人材宛の両方を確認） */}
+      {sendOpen && (
+        <div onClick={() => setSendOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 760, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>📤 送信プレビュー（この内容でよろしいですか？）</h3>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setSendOpen(false)}>閉じる</button>
+            </div>
+            <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+              「✓ 送信する」を押すと、<b>クライアント宛</b>と<b>人材宛</b>の Gmail を新しいタブで両方同時に開きます。元メールがあればそのスレッドに、なければ新規メールで開きます。本文は自動でクリップボードにコピーされます。
+            </div>
+            {/* クライアント宛 */}
+            <div className="card" style={{ padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", background: "#0095D9", padding: "2px 10px", borderRadius: 99 }}>1. クライアント宛</span>
+                <span className="muted" style={{ fontSize: 11.5 }}>{dualPreview.client.threadUrl ? "↩ 元スレッドに返信" : "✉ 新規メール"}</span>
+                <span className="muted" style={{ fontSize: 11 }}>宛先 {dualPreview.client.to ?? "（手入力）"}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 4 }}>件名：<b style={{ color: "var(--color-ink)" }}>{dualPreview.client.threadUrl ? `（返信）${composeNoRe(dualPreview.client.subject)}` : composeNoRe(dualPreview.client.subject)}</b></div>
+              <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.7, padding: 10, background: "var(--color-surface-inset)", borderRadius: 8, maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)" }}>{dualPreview.client.body}</pre>
+            </div>
+            {/* 人材宛 */}
+            <div className="card" style={{ padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "#fff", background: "#e0567f", padding: "2px 10px", borderRadius: 99 }}>2. 人材宛</span>
+                <span className="muted" style={{ fontSize: 11.5 }}>{dualPreview.cand.threadUrl ? "↩ 元スレッドに返信" : "✉ 新規メール"}</span>
+                <span className="muted" style={{ fontSize: 11 }}>宛先 {dualPreview.cand.to ?? "（手入力）"}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 4 }}>件名：<b style={{ color: "var(--color-ink)" }}>{dualPreview.cand.threadUrl ? `（返信）${composeNoRe(dualPreview.cand.subject)}` : composeNoRe(dualPreview.cand.subject)}</b></div>
+              <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.7, padding: 10, background: "var(--color-surface-inset)", borderRadius: 8, maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)" }}>{dualPreview.cand.body}</pre>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap" }}>
+              <span className="muted" style={{ fontSize: 10.5 }}>※ 元スレッドの場合は本文を「返信」フィールドに貼り付けてください（クリップボードに自動コピー済み）</span>
+              <button type="button" className="btn ghost" onClick={() => setSendOpen(false)}>キャンセル</button>
+              <button type="button" className="btn-mail block" onClick={confirmSendBoth}>✓ 送信する（両方開く）</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmOpen && (
         <div onClick={() => setConfirmOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
