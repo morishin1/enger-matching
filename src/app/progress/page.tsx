@@ -1,8 +1,7 @@
-import { Icons } from "@/components/icons";
 import { Workbench } from "@/components/Workbench";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { canSeeMargin, maskEngagement } from "@/lib/engagement-access";
+import { maskEngagement } from "@/lib/engagement-access";
 import { currentPeriod } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
@@ -62,22 +61,8 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
     dbError = "Supabase の環境変数が未設定です";
   }
 
-  // サマリー
-  const active = rows.filter((e) => e.status === "稼働中").length;
-  const planned = rows.filter((e) => e.status === "予定").length;
-  const ended = rows.filter((e) => e.status === "終了").length;
-  const liveRows = rows.filter((e) => e.status === "稼働中");
-  const mrr = liveRows.reduce((a, e) => a + (Number(e.monthly_rate) || 0), 0);
-  const visibleGrossRows = liveRows.filter((e) => canSeeMargin(role, e.affiliation) && e.cost != null);
-  const grossSum = visibleGrossRows.reduce((a, e) => a + ((Number(e.monthly_rate) || 0) - (Number(e.cost) || 0)), 0);
-  const grossHidden = liveRows.length - visibleGrossRows.length;
-  // 当月タスク（稼働中・予定が対象）
-  const taskRows = rows.filter((e) => e.status === "稼働中" || e.status === "予定");
-  const attPending = taskRows.filter((e) => (e.bill?.attendance_status ?? "未") !== "確認済").length;
-  const invSent = (s?: string | null) => s === "送付完了" || s === "発行済";
-  const invPending = taskRows.filter((e) => !invSent(e.bill?.invoice_status)).length;
-
   // F-4: 原価をサーバ側でマスク（bill はそのまま）
+  // ※ サマリーKPI（稼働中名数・月次売上・勤怠未チェック・請求書未送付）は /analytics に集約。
   const masked = rows.map((e) => ({ ...maskEngagement(e, role), bill: e.bill ?? null }));
 
   const canManage = role === "admin" || isBackoffice;
@@ -88,7 +73,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Engagements · 稼働管理</div>
           <h1>稼働管理</h1>
-          <div className="sub">稼働中の契約・粗利・精算に加えて、<b>当月の勤怠チェックと請求書の送付状況</b>を同じ画面で処理。<b>請求書は board で作成・送付</b>し、ENGER では送付完了をチェックするだけ（二重管理なし）。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。{agentScoped ? "自分が担当する稼働のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
+          <div className="sub"><b>月初業務</b>（勤怠チェック・請求書送付）と<b>契約管理</b>をタブで切り分け。<b>請求書は board で作成・送付</b>し、ENGER は送付完了のチェックのみ（二重管理なし）。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。集計KPIは<a href="/analytics" style={{ textDecoration: "underline" }}>分析</a>に集約しました。{agentScoped ? "自分が担当する稼働のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
         </div>
       </div>
 
@@ -100,28 +85,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
       )}
 
       {!needSetup && (
-        <>
-          <div className="kpi-grid">
-            <div className="kpi brand">
-              <div className="top"><div className="ico-box"><Icons.progress /></div><div className="chip flat">稼働</div></div>
-              <div><div className="val tnum">{active}<span className="unit">名</span></div><div className="label">稼働中</div><div className="note">予定 {planned} / 終了 {ended}</div></div>
-            </div>
-            <div className="kpi accent">
-              <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">売上</div></div>
-              <div><div className="val tnum">{mrr.toLocaleString("ja-JP")}<span className="unit">万</span></div><div className="label">月次売上(稼働中)</div><div className="note">請求ベース</div></div>
-            </div>
-            <div className="kpi warn">
-              <div className="top"><div className="ico-box"><Icons.clock /></div><div className="chip">勤怠</div></div>
-              <div><div className="val tnum">{attPending}<span className="unit">件</span></div><div className="label">勤怠 未チェック</div><div className="note">{period}</div></div>
-            </div>
-            <div className="kpi warn">
-              <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">請求</div></div>
-              <div><div className="val tnum">{invPending}<span className="unit">件</span></div><div className="label">請求書 未送付</div><div className="note">{period}</div></div>
-            </div>
-          </div>
-
-          <Workbench rows={masked} role={role} period={period} canManage={canManage} agentScoped={agentScoped} boardLastSynced={boardLastSynced} />
-        </>
+        <Workbench rows={masked} role={role} period={period} canManage={canManage} agentScoped={agentScoped} boardLastSynced={boardLastSynced} />
       )}
     </div>
   );

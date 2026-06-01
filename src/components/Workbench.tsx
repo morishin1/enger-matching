@@ -124,7 +124,148 @@ function AffSelect({ e, isAdmin, onSave }: { e: Eng; isAdmin: boolean; onSave: (
   );
 }
 
-function Row({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean }) {
+/** 当月の処理が完了か：請求書=送付完了 かつ 注文書=回収済。 */
+const isDone = (e: Eng) => (e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
+
+export function Workbench({ rows, role = "admin", period, canManage, agentScoped, boardLastSynced }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean; boardLastSynced?: string | null }) {
+  const router = useRouter();
+  // 月初業務(tasks)＝勤怠/請求のチェックリスト。契約管理(contract)＝月額/原価/粗利/満了など。デフォルトは月初業務。
+  const [tab, setTab] = useState<"tasks" | "contract">("tasks");
+  const [view, setView] = useState<"list" | "card" | "graph">("list");
+  const [q, setQ] = useState("");
+  const [showDone, setShowDone] = useState(false);
+  const onChanged = () => router.refresh();
+
+  const setMonth = (delta: number) => {
+    const [y, m] = period.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    router.push(`/progress?period=${d.toISOString().slice(0, 7)}`);
+  };
+
+  const searched = useMemo(() => rows.filter((e) => !q.trim() || (e.candidate_name ?? "").includes(q.trim()) || (e.company ?? "").includes(q.trim()) || (e.job_title ?? "").includes(q.trim())), [rows, q]);
+  // 月初業務は「稼働中・予定」のみ対象（終了は当月タスクなし）
+  const taskRows = useMemo(() => searched.filter((e) => e.status === "稼働中" || e.status === "予定"), [searched]);
+  const doneCount = useMemo(() => (tab === "tasks" ? taskRows : searched).filter(isDone).length, [taskRows, searched, tab]);
+  const visible = showDone ? (tab === "tasks" ? taskRows : searched) : (tab === "tasks" ? taskRows : searched).filter((e) => !isDone(e));
+
+  const mainTab = (id: "tasks" | "contract", label: string, sub: string) => (
+    <button onClick={() => setTab(id)} style={{ padding: "9px 18px", borderRadius: 10, border: `1px solid ${tab === id ? "var(--color-brand-600)" : "var(--color-border)"}`, fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", background: tab === id ? "var(--color-brand-25)" : "var(--color-surface)", color: tab === id ? "var(--color-brand-700)" : "var(--color-ink-3)", display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2, gap: 2 }}>
+      <span>{label}</span><span style={{ fontSize: 10.5, fontWeight: 500, color: tab === id ? "var(--color-brand-600)" : "var(--color-ink-4)" }}>{sub}</span>
+    </button>
+  );
+  const subTabBtn = (id: "list" | "card" | "graph", label: string) => (
+    <button onClick={() => setView(id)} style={{ padding: "6px 14px", borderRadius: 99, border: 0, fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: view === id ? "var(--color-surface)" : "transparent", color: view === id ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: view === id ? "0 1px 2px rgba(15,23,42,0.06)" : "none" }}>{label}</button>
+  );
+  const th = { padding: "8px", textAlign: "left", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700, whiteSpace: "nowrap", borderBottom: "2px solid var(--color-border)" } as const;
+
+  return (
+    <>
+      {/* 主タブ：月初業務 / 契約管理 */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {mainTab("tasks", "🗓 月初業務", `${period} の勤怠・請求書`)}
+        {mainTab("contract", "📑 契約管理", "稼働状態・月額・粗利・満了")}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        {tab === "contract" && (
+          <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>{subTabBtn("list", "📋 リスト")}{subTabBtn("card", "🗂 カード")}{subTabBtn("graph", "🗓 稼働")}</div>
+        )}
+        {(tab === "tasks" || view !== "graph") && (
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <button className="btn ghost btn-xs" onClick={() => setMonth(-1)}>← 前月</button>
+            <span style={{ fontWeight: 700, fontSize: 13.5, minWidth: 78, textAlign: "center" }}>{period}</span>
+            <button className="btn ghost btn-xs" onClick={() => setMonth(1)}>翌月 →</button>
+            <span className="muted" style={{ fontSize: 11 }}>{tab === "tasks" ? "の月初業務" : "の勤怠・請求"}</span>
+          </div>
+        )}
+        <div className="tbl-search" style={{ width: 180, flex: "0 0 180px" }}><input placeholder="人材・企業で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        {(tab === "tasks" || view !== "graph") && (
+          <button onClick={() => setShowDone((v) => !v)} title="請求書＋注文書が揃った稼働" style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${showDone ? "#1aa260" : "var(--color-border-strong)"}`, background: showDone ? "#e7f3ea" : "var(--color-surface)", color: showDone ? "#067647" : "var(--color-ink-3)" }}>✓ 済 {doneCount}{showDone ? "（表示中）" : "（非表示）"}</button>
+        )}
+        {agentScoped && <span className="muted" style={{ fontSize: 11 }}>自分の担当のみ</span>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {canManage && <BoardSync period={period} lastSyncedAt={boardLastSynced} />}
+          {canManage && <EngagementTools rows={rows} />}
+        </div>
+      </div>
+
+      {tab === "tasks" ? (
+        visible.length === 0 ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+            {taskRows.length > 0 && doneCount > 0 ? <>未処理の月初業務はありません 🎉 「✓ 済 {doneCount}」で完了分を表示できます。</> : <>{period} の対象稼働がありません（稼働中・予定）。</>}
+          </div>
+        ) : (
+          <div className="card flush" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+              <thead>
+                <tr>
+                  <th style={th}>人材 / 企業・案件</th>
+                  <th style={th}>当月勤怠({period})</th>
+                  <th style={th}>契約書/注文書</th>
+                  <th style={th}>請求(万・{period})</th>
+                  <th style={th}>状態</th>
+                </tr>
+              </thead>
+              <tbody>{visible.map((e) => <TaskRow key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
+            </table>
+          </div>
+        )
+      ) : view === "graph" ? (
+        <ScheduleView rows={rows} />
+      ) : visible.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+          {searched.length > 0 && doneCount > 0 ? <>未処理の稼働はありません 🎉 「✓ 済 {doneCount}」で完了分を表示できます。</> : <>対象の稼働がありません。提案管理で成約 →「稼働化」、または「＋新規追加」で登録してください。</>}
+        </div>
+      ) : view === "list" ? (
+        <div className="card flush" style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+            <thead>
+              <tr>
+                <th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th>
+              </tr>
+            </thead>
+            <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
+          </table>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+          {visible.map((e) => <Card key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** 月初業務タブ用：勤怠・契約書/注文書・請求書だけのスリムな行。 */
+function TaskRow({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean }) {
+  const [pending, start] = useTransition();
+  const tone = TONE[e.status] ?? TONE["予定"];
+  const save = (patch: Record<string, any>) => start(async () => { await updateEngagementFields(e.id, patch); onChanged(); });
+  const td = { padding: "7px 8px", borderBottom: "1px solid var(--color-border)", verticalAlign: "top" } as const;
+  return (
+    <tr style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined }}>
+      <td style={td}>
+        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{e.candidate_name ?? "—"}{done && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}</div>
+        <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
+      </td>
+      <td style={td}><AttCell e={e} period={period} onChanged={onChanged} /></td>
+      <td style={td}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <select defaultValue={e.contract_status ?? ""} style={{ ...inp, width: 96, color: collectTone(e.contract_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ contract_status: ev.target.value || null })}><option value="">契約書:未</option>{COLLECT.map((s) => <option key={s} value={s}>契約{s}</option>)}</select>
+          <select defaultValue={e.po_status ?? ""} style={{ ...inp, width: 96, color: collectTone(e.po_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ po_status: ev.target.value || null })}><option value="">注文書:未</option>{COLLECT.map((s) => <option key={s} value={s}>注文{s}</option>)}</select>
+        </div>
+      </td>
+      <td style={td}><InvCell e={e} period={period} onChanged={onChanged} canManage={canManage} /></td>
+      <td style={td}>
+        <span style={{ padding: "3px 9px", borderRadius: 99, background: tone.bg, color: tone.fg, fontSize: 11, fontWeight: 700 }}>{e.status}</span>
+        {role === "admin" && <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>※ 状態/月額/原価は契約管理タブで編集</div>}
+      </td>
+    </tr>
+  );
+}
+
+/** 契約管理タブ用：月額・原価・粗利・満了日に絞った行（勤怠/請求は除外）。 */
+function ContractRow({ e, role, onChanged, done, canManage }: { e: Eng; role: Role; onChanged: () => void; done?: boolean; canManage: boolean }) {
   const [pending, start] = useTransition();
   const isAdmin = role === "admin";
   const masked = e._maskMargin;
@@ -141,98 +282,16 @@ function Row({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Ro
         <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
       </td>
       <td style={td}><AffSelect e={e} isAdmin={isAdmin} onSave={(v) => save({ affiliation: v })} /></td>
-      <td style={td}><div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}><input key={`rate-${e.monthly_rate ?? ""}`} type="number" defaultValue={e.monthly_rate ?? ""} placeholder="万" title="月額（万円）" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.monthly_rate ?? "")) save({ monthly_rate: ev.target.value === "" ? null : Number(ev.target.value) }); }} /><RateHistoryButton e={e} canManage={canManage} /></div></td>
-      <td style={td}>{masked ? <Locked /> : <input type="number" defaultValue={e.cost ?? ""} placeholder="万" title="原価（万円）" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.cost ?? "")) save({ cost: ev.target.value === "" ? null : Number(ev.target.value) }); }} />}</td>
+      <td style={td}><div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}><input key={`rate-${e.monthly_rate ?? ""}`} type="number" defaultValue={e.monthly_rate ?? ""} placeholder="万" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.monthly_rate ?? "")) save({ monthly_rate: ev.target.value === "" ? null : Number(ev.target.value) }); }} /><RateHistoryButton e={e} canManage={canManage} /></div></td>
+      <td style={td}>{masked ? <Locked /> : <input type="number" defaultValue={e.cost ?? ""} placeholder="万" style={{ ...inp, width: 62 }} disabled={pending} onBlur={(ev) => { if (String(ev.target.value) !== String(e.cost ?? "")) save({ cost: ev.target.value === "" ? null : Number(ev.target.value) }); }} />}</td>
       <td style={{ ...td, fontWeight: 700, color: masked ? "var(--color-ink-4)" : gross != null ? (gross >= 0 ? "#067647" : "#b42318") : "var(--color-ink-4)" }}>{masked ? <Locked /> : gross != null ? `${gross}` : "—"}</td>
       <td style={td}>
         <select value={e.status ?? "予定"} disabled={pending} onChange={(ev) => setStatus(ev.target.value)} style={{ ...inp, width: 74, background: tone.bg, color: tone.fg, fontWeight: 700 }}>
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </td>
-      <td style={td}><AttCell e={e} period={period} onChanged={onChanged} /></td>
-      <td style={td}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <select defaultValue={e.contract_status ?? ""} style={{ ...inp, width: 78, color: collectTone(e.contract_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ contract_status: ev.target.value || null })}><option value="">契約書:未</option>{COLLECT.map((s) => <option key={s} value={s}>契約{s}</option>)}</select>
-          <select defaultValue={e.po_status ?? ""} style={{ ...inp, width: 78, color: collectTone(e.po_status), fontWeight: 600 }} disabled={pending} onChange={(ev) => save({ po_status: ev.target.value || null })}><option value="">注文書:未</option>{COLLECT.map((s) => <option key={s} value={s}>注文{s}</option>)}</select>
-        </div>
-      </td>
-      <td style={td}><InvCell e={e} period={period} onChanged={onChanged} canManage={canManage} /></td>
       <td style={td}><input type="date" defaultValue={dateVal(e.end_date)} style={{ ...inp, width: 124 }} disabled={pending} onBlur={(ev) => { if (ev.target.value !== dateVal(e.end_date)) save({ end_date: ev.target.value || null }); }} /></td>
     </tr>
-  );
-}
-
-/** 当月の処理が完了か：請求書=送付完了 かつ 注文書=回収済。 */
-const isDone = (e: Eng) => (e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
-
-export function Workbench({ rows, role = "admin", period, canManage, agentScoped, boardLastSynced }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean; boardLastSynced?: string | null }) {
-  const router = useRouter();
-  const [view, setView] = useState<"list" | "card" | "graph">("list");
-  const [q, setQ] = useState("");
-  const [showDone, setShowDone] = useState(false);
-  const onChanged = () => router.refresh();
-
-  const setMonth = (delta: number) => {
-    const [y, m] = period.split("-").map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    router.push(`/progress?period=${d.toISOString().slice(0, 7)}`);
-  };
-
-  const searched = useMemo(() => rows.filter((e) => !q.trim() || (e.candidate_name ?? "").includes(q.trim()) || (e.company ?? "").includes(q.trim()) || (e.job_title ?? "").includes(q.trim())), [rows, q]);
-  const doneCount = useMemo(() => searched.filter(isDone).length, [searched]);
-  // 済（請求書＋注文書 揃い）は既定で非表示。トグルで一覧表示。
-  const visible = showDone ? searched : searched.filter((e) => !isDone(e));
-
-  const tabBtn = (id: "list" | "card" | "graph", label: string) => (
-    <button onClick={() => setView(id)} style={{ padding: "6px 14px", borderRadius: 99, border: 0, fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: view === id ? "var(--color-surface)" : "transparent", color: view === id ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: view === id ? "0 1px 2px rgba(15,23,42,0.06)" : "none" }}>{label}</button>
-  );
-  const th = { padding: "8px", textAlign: "left", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700, whiteSpace: "nowrap", borderBottom: "2px solid var(--color-border)" } as const;
-
-  return (
-    <>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>{tabBtn("list", "📋 リスト")}{tabBtn("card", "🗂 カード")}{tabBtn("graph", "🗓 稼働")}</div>
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <button className="btn ghost btn-xs" onClick={() => setMonth(-1)}>← 前月</button>
-          <span style={{ fontWeight: 700, fontSize: 13.5, minWidth: 78, textAlign: "center" }}>{period}</span>
-          <button className="btn ghost btn-xs" onClick={() => setMonth(1)}>翌月 →</button>
-          <span className="muted" style={{ fontSize: 11 }}>の勤怠・請求</span>
-        </div>
-        <div className="tbl-search" style={{ width: 180, flex: "0 0 180px" }}><input placeholder="人材・企業で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        {view !== "graph" && (
-          <button onClick={() => setShowDone((v) => !v)} title="請求書＋注文書が揃った稼働" style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${showDone ? "#1aa260" : "var(--color-border-strong)"}`, background: showDone ? "#e7f3ea" : "var(--color-surface)", color: showDone ? "#067647" : "var(--color-ink-3)" }}>✓ 済 {doneCount}{showDone ? "（表示中）" : "（非表示）"}</button>
-        )}
-        {agentScoped && <span className="muted" style={{ fontSize: 11 }}>自分の担当のみ</span>}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {canManage && <BoardSync period={period} lastSyncedAt={boardLastSynced} />}
-          {canManage && <EngagementTools rows={rows} />}
-        </div>
-      </div>
-
-      {view === "graph" ? (
-        <ScheduleView rows={rows} />
-      ) : visible.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
-          {searched.length > 0 && doneCount > 0 ? <>未処理の稼働はありません 🎉 「✓ 済 {doneCount}」で完了分を表示できます。</> : <>対象の稼働がありません。提案管理で成約 →「稼働化」、または「＋新規追加」で登録してください。</>}
-        </div>
-      ) : view === "list" ? (
-        <div className="card flush" style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
-            <thead>
-              <tr>
-                <th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th>
-                <th style={th}>当月勤怠({period})</th><th style={th}>契約書/注文書</th><th style={th}>請求(万・{period})</th><th style={th}>満了日</th>
-              </tr>
-            </thead>
-            <tbody>{visible.map((e) => <Row key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
-          </table>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
-          {visible.map((e) => <Card key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}
-        </div>
-      )}
-    </>
   );
 }
 

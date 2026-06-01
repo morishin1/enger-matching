@@ -1,6 +1,8 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { leadKpi } from "@/lib/quality";
 import { currentAccess } from "@/lib/accounts";
+import { currentPeriod } from "@/lib/billing";
+import { Icons } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,8 @@ export default async function AnalyticsPage() {
   const access = await currentAccess();
   const isAdmin = !access || access.role === "admin";
   let jobs: any[] = [], cands: any[] = [], proposals: any[] = [], engs: any[] = [], meetings: any[] = [];
+  let bills: any[] = [];
+  const period = currentPeriod();
   let setup = false;
   if (dbConfigured) {
     try {
@@ -58,12 +62,28 @@ export default async function AnalyticsPage() {
         grab(sb, "engagements", "id, proposal_id, monthly_rate, cost, end_date, status", "id, monthly_rate, status"),
         grab(sb, "meetings", "id, our_owner, new_or_existing, fb_sentiment, company_name, meeting_date", "id, our_owner"),
       ]);
+      // 当月の billing_tasks（勤怠/請求の進捗）。テーブル未作成でも分析ページは動かす。
+      try {
+        const bt = await sb.from("billing_tasks").select("engagement_id, attendance_status, invoice_status").eq("period", period);
+        if (!bt.error) bills = bt.data ?? [];
+      } catch { /* ignore */ }
       if (!jobs.length && !proposals.length) setup = true;
     } catch { setup = true; }
   } else setup = true;
 
   const pub = jobs.filter((j) => j.is_published !== false);
   const liveEngs = engs.filter((e) => (e.status ?? "稼働中") === "稼働中" || e.status === "予定");
+
+  // 稼働ダッシュボード（旧 /progress 上部のKPI）
+  const engActive = engs.filter((e) => e.status === "稼働中").length;
+  const engPlanned = engs.filter((e) => e.status === "予定").length;
+  const engEnded = engs.filter((e) => e.status === "終了").length;
+  const monthlyRevenueMan = engs.filter((e) => e.status === "稼働中").reduce((a, e) => a + (Number(e.monthly_rate) || 0), 0);
+  const taskTarget = engs.filter((e) => e.status === "稼働中" || e.status === "予定");
+  const billByEng = new Map(bills.map((b: any) => [b.engagement_id, b]));
+  const invSent = (s?: string | null) => s === "送付完了" || s === "発行済";
+  const attPending = taskTarget.filter((e) => (billByEng.get(e.id)?.attendance_status ?? "未") !== "確認済").length;
+  const invPending = taskTarget.filter((e) => !invSent(billByEng.get(e.id)?.invoice_status)).length;
 
   // リード品質
   const kpi = leadKpi(proposals);
@@ -196,6 +216,34 @@ export default async function AnalyticsPage() {
       </div>
 
       {setup && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>データがまだありません。案件・提案が入るとここに集計が表示されます。</div>}
+
+      {/* 稼働ダッシュボード（旧 /progress の上部から移動）。稼働の量と月初業務の未処理を俯瞰。 */}
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🛠 稼働ダッシュボード（{period}）</h3>
+          <a href="/progress" style={{ fontSize: 11.5, color: "var(--color-brand-700)", textDecoration: "underline" }}>稼働管理を開く →</a>
+        </div>
+        <div className="kpi-grid">
+          <div className="kpi brand">
+            <div className="top"><div className="ico-box"><Icons.progress /></div><div className="chip flat">稼働</div></div>
+            <div><div className="val tnum">{engActive}<span className="unit">名</span></div><div className="label">稼働中</div><div className="note">予定 {engPlanned} / 終了 {engEnded}</div></div>
+          </div>
+          {isAdmin && (
+            <div className="kpi accent">
+              <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">売上</div></div>
+              <div><div className="val tnum">{monthlyRevenueMan.toLocaleString("ja-JP")}<span className="unit">万</span></div><div className="label">月次売上(稼働中)</div><div className="note">請求ベース</div></div>
+            </div>
+          )}
+          <div className="kpi warn">
+            <div className="top"><div className="ico-box"><Icons.clock /></div><div className="chip">勤怠</div></div>
+            <div><div className="val tnum">{attPending}<span className="unit">件</span></div><div className="label">勤怠 未チェック</div><div className="note">{period}</div></div>
+          </div>
+          <div className="kpi warn">
+            <div className="top"><div className="ico-box"><Icons.yen /></div><div className="chip">請求</div></div>
+            <div><div className="val tnum">{invPending}<span className="unit">件</span></div><div className="label">請求書 未送付</div><div className="note">{period}</div></div>
+          </div>
+        </div>
+      </div>
 
       {/* KPIサマリー（売上・粗利は管理者限定） */}
       <div className="kpi-grid">
