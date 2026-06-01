@@ -291,7 +291,7 @@ export async function bulkDeleteCandidates(candidateNos: number[]) {
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "next_action", "stage", "meeting_date", "meeting_status", "company", "source"];
+  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "company", "source"];
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
   let { error } = await admin.from("proposals").update(patch).eq("id", id);
@@ -453,8 +453,8 @@ export async function restoreProposal(id: string) {
   // 稼働化済みなら稼働も取り消し
   try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* 続行 */ }
   const now = new Date().toISOString();
-  let rr: any = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, updated_at: now, stage_updated_at: now }).eq("id", id);
-  if (rr.error && /stage_updated_at|column/i.test(rr.error.message)) {
+  let rr: any = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, lost_reason_note: null, updated_at: now, stage_updated_at: now }).eq("id", id);
+  if (rr.error && /stage_updated_at|lost_reason_note|column/i.test(rr.error.message)) {
     rr = await admin.from("proposals").update({ stage: "返信待ち", lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
   }
   const error = rr.error;

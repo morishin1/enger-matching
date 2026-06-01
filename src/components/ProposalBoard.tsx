@@ -86,6 +86,10 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const [closer, setCloser] = useState(p.closer ?? p.company_owner ?? "");
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
+  const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
+  // 「E3: その他」は分析でブラックボックスになりやすいので、自由記述メモを必須化する。
+  const needsLostNote = lostReason === "E3: その他";
+  const lostReady = !!lostReason && (!needsLostNote || lostNote.trim().length > 0);
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
   const [company, setCompany] = useState(p.company ?? "");
@@ -254,7 +258,14 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             <Field label="失注フェーズ" value={lostPhase} options={LOST_PHASES} onChange={setLostPhase} />
             <Field label="失注理由（主要因・必須）" value={lostReason} options={LOST_REASONS} onChange={setLostReason} />
             {!lostReason && <div style={{ fontSize: 10, color: "var(--color-danger)" }}>※ 失注理由は分析の必須項目です。選択してください。</div>}
-            <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReason ? 1 : 0.5 }} disabled={busy || !lostReason} onClick={() => onLose(p.id, lostPhase, lostReason)}>見送りにする</button>
+            {needsLostNote && (
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>
+                <span>理由メモ（必須・E3 を選んだ場合）</span>
+                <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="A〜D に該当しない具体的な事情を簡潔に（例: 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
+                {!lostNote.trim() && <span style={{ color: "var(--color-danger)" }}>※ E3: その他 を選んだ場合はメモが必須です（分析のため）。</span>}
+              </label>
+            )}
+            <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReady ? 1 : 0.5 }} disabled={busy || !lostReady} onClick={() => onLose(p.id, lostPhase, lostReason, lostNote.trim() || null)}>見送りにする</button>
           </div>
         </div>
       )}
@@ -273,7 +284,8 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const onMove = (id: string, stage: string) => run(id, () => updateProposalStage(id, stage));
   const onEngage = (id: string) => run(id, () => convertToEngagement(id));
   const onSave = (id: string, fields: any) => run(id, () => updateProposalFields(id, fields));
-  const onLose = (id: string, lost_phase: string, lost_reason: string) => run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason }));
+  const onLose = (id: string, lost_phase: string, lost_reason: string, lost_reason_note?: string | null) =>
+    run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason, lost_reason_note: lost_reason_note ?? null }));
   const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
   // 未知のステージ（旧仕様の "返信あり" 等の残骸や null）は「返信待ち」に丸めて、

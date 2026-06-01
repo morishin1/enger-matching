@@ -57,7 +57,10 @@ export function ProposalHistory({ items }: { items: any[] }) {
                       <td style={td}>{p.company ?? ""}{p.job_title ? ` / ${p.job_title}` : ""}</td>
                       <td style={{ ...td, textAlign: "center" }}><span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: t.bg, color: t.fg }}>{p.stage}</span></td>
                       <td style={{ ...td, color: "var(--color-ink-3)" }}>{[p.proposer, p.closer].filter(Boolean).join(" / ") || "—"}</td>
-                      <td style={{ ...td, color: "var(--color-ink-3)" }}>{p.lost_reason || "—"}</td>
+                      <td style={{ ...td, color: "var(--color-ink-3)" }}>
+                        <div>{p.lost_reason || "—"}</div>
+                        {p.lost_reason_note && <div style={{ marginTop: 2, fontSize: 11, color: "var(--color-ink-4)", whiteSpace: "pre-wrap" }}>「{p.lost_reason_note}」</div>}
+                      </td>
                       <td style={td}>{fmt(p.updated_at || p.created_at)}</td>
                       <td style={{ ...td, textAlign: "right" }}>
                         <button className="btn ghost btn-xs" disabled={pending} onClick={() => restore(p.id, `${p.candidate_name ?? ""} × ${p.job_title ?? ""}`)}>↩ 戻す</button>
