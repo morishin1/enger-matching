@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { boardConfigured, fetchInvoices, fetchProjects, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, projectId, projectNo, projectName, projectClientName, type BoardProbe } from "@/lib/board";
+import { boardConfigured, fetchInvoices, fetchProjects, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, billingAmountMan, projectId, projectNo, projectName, projectClientName, type BoardProbe } from "@/lib/board";
 
 type Access = Awaited<ReturnType<typeof currentAccess>>;
 function canManage(access: Access): boolean {
@@ -63,11 +63,11 @@ export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; 
     const sent = billingSent(b);
     if (sent == null) continue; // 不明ステータスは更新しない（安全側）
     matched++;
+    const amount = billingAmountMan(b);
     for (const engId of engIds) {
-      const { error } = await admin.from("billing_tasks").upsert(
-        { engagement_id: engId, period, invoice_status: sent ? "送付完了" : "未", updated_at: new Date().toISOString() },
-        { onConflict: "engagement_id,period" },
-      );
+      const patch: Record<string, any> = { engagement_id: engId, period, invoice_status: sent ? "送付完了" : "未", updated_at: new Date().toISOString() };
+      if (amount != null) patch.invoice_amount = amount;
+      const { error } = await admin.from("billing_tasks").upsert(patch, { onConflict: "engagement_id,period" });
       if (!error) updated++;
     }
   }
