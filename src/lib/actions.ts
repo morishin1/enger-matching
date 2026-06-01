@@ -46,7 +46,7 @@ function initialsOf(name: string): string {
 const normKey = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　]/g, "").replace(/[（）()・,，、。．.\-－_/／]/g, "");
 
 /** 人材CSVの取り込み (service role)。バッチで insert。 */
-export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null) {
+export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null, opts?: { mergeByName?: boolean }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -93,14 +93,60 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   const dkey = (name?: string | null, company?: string | null, mail?: string | null) =>
     normKey(name) + "|" + normKey(company) + "|" + String(mail ?? "").trim();
   const existing = new Set<string>();
+  // mergeByName 用：氏名(正規化) → 既存レコード(複数あれば最古を採用)
+  const byName = new Map<string, any>();
   try {
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await admin.from("candidates").select("name, company, source_company, source_mail_url").range(from, from + 999);
+      const cols = opts?.mergeByName
+        ? "id, name, company, source_company, source_mail_url, skills, rate, rate_num, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, skill_sheet_url, email, contact_email, title, affiliation, operator"
+        : "name, company, source_company, source_mail_url";
+      const { data, error } = await admin.from("candidates").select(cols).range(from, from + 999);
       if (error || !data) break;
-      for (const r of data as any[]) existing.add(dkey(r.name, r.company || r.source_company, r.source_mail_url));
+      for (const r of data as any[]) {
+        existing.add(dkey(r.name, r.company || r.source_company, r.source_mail_url));
+        if (opts?.mergeByName) {
+          const k = normKey(r.name);
+          if (k && !byName.has(k)) byName.set(k, r); // 同姓同名は最初に拾った1件を統合先に
+        }
+      }
       if (data.length < 1000) break;
     }
   } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
+
+  // 同姓同名統合：既存に氏名一致がある行は、空欄補完で既存を更新（INSERT スキップ）
+  let mergedCount = 0;
+  if (opts?.mergeByName) {
+    const stillFresh: typeof rows = [];
+    for (const r of rows) {
+      const nk = normKey(r.name);
+      const ex = nk ? byName.get(nk) : null;
+      if (!ex || !ex.id) { stillFresh.push(r); continue; }
+      // 空欄補完パッチ（既存が null/空文字 のときだけ入力値で埋める）
+      const patch: Record<string, any> = { imported_at: now };
+      const fields = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
+      for (const f of fields) {
+        const cur = (ex as any)[f];
+        const nv = (r as any)[f];
+        if ((cur == null || cur === "") && nv != null && nv !== "") patch[f] = nv;
+      }
+      // スキルは配列マージ（重複排除）
+      const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
+      const newSkills: string[] = Array.isArray(r.skills) ? r.skills : [];
+      const mergedSkills = Array.from(new Set([...curSkills, ...newSkills]));
+      if (mergedSkills.length !== curSkills.length) patch.skills = mergedSkills;
+      let upd = await admin.from("candidates").update(patch).eq("id", ex.id);
+      if (upd.error && /column/i.test(upd.error.message)) {
+        // 列未整備フォールバック：未整備の列を順次外す
+        const p2: any = { ...patch };
+        for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete p2[k];
+        upd = await admin.from("candidates").update(p2).eq("id", ex.id);
+      }
+      if (!upd.error) mergedCount++;
+    }
+    // 統合対象だった行は新規INSERTのループから除外
+    if (stillFresh.length !== rows.length) (rows as any).length = 0;
+    for (const r of stillFresh) (rows as any).push(r);
+  }
 
   const seen = new Set<string>();
   const fresh = rows.filter((r) => {
@@ -127,7 +173,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 
   revalidatePath("/people");
   bustCounts();
-  return { ok: true, inserted, skipped };
+  return { ok: true, inserted, skipped, merged: mergedCount };
 }
 
 /** 注力フラグのトグル (service role)。案件=jobs/job_no、人材=candidates/candidate_no */
