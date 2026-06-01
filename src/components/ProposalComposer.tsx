@@ -103,16 +103,16 @@ export function ProposalComposer({
     } finally { setLoading(false); }
   };
 
-  // 新規メール作成（元スレッドが無い／使わない場合）。新規なので件名の "Re:" は外す。
-  const composeSubject = tpl.subject.replace(/^re:\s*/i, "");
+  // 新規メール作成（元スレッドが無い／使わない場合）。確認の意味を込めて件名は「Re: 」で開く。
+  const composeSubject = /^re:/i.test(tpl.subject.trim()) ? tpl.subject.trim() : `Re: ${tpl.subject.trim()}`;
   const openNewMail = () => {
     window.open(gmailComposeUrl({ to: tpl.to, subject: composeSubject, body: effectiveBody }), "_blank", "noopener");
   };
 
-  // 元メール（原本）：読む用は検索フォールバックあり。返信用は「実際のスレッド」が必要なので
-  // gmailMessageUrl（保存済みメッセージID/URL）が取れる時だけ有効にする。
-  const origMailUrl = job?.source_mail_url || gmailSearchUrl([job?.client_name, job?.title].filter(Boolean).join(" "));
-  const candMailUrl = cand?.source_mail_url || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
+  // 元メール（原本）：保存値が「16進ID」のままでも window.open で開けるよう、必ず gmailMessageUrl で
+  // 正規化（http(s)/16進IDのみ受理）。null になった場合は検索URLにフォールバックして必ず開けるように。
+  const origMailUrl = gmailMessageUrl(job?.source_mail_url) || gmailSearchUrl([job?.client_name, job?.title].filter(Boolean).join(" "));
+  const candMailUrl = gmailMessageUrl(cand?.source_mail_url) || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
   const openOriginal = () => window.open(origMailUrl, "_blank", "noopener");
   const openCandidateOriginal = () => { if (candMailUrl) window.open(candMailUrl, "_blank", "noopener"); };
 
@@ -159,8 +159,9 @@ export function ProposalComposer({
     };
   }, [job, cand, matchedSkills, score, sender]);
 
-  const composeNoRe = (s: string) => s.replace(/^re:\s*/i, "");
-  // 「送信する」確定 → クライアント・人材それぞれを並行で開く（元スレあれば本文コピー＋スレッド、無ければ新規メール）
+  // ユーザー要望: クライアント宛も人材宛も RE: の返信形式で確認できるよう、件名に必ず "Re: " を付ける。
+  const ensureRe = (s: string) => /^re:/i.test(s.trim()) ? s.trim() : `Re: ${s.trim()}`;
+  // 「送信する」確定 → クライアント・人材それぞれを並行で開く（元スレあれば本文コピー＋スレッド、無ければ Re: 形式の新規メール）
   const confirmSendBoth = async () => {
     setSendOpen(false);
     const { client, cand: c2 } = dualPreview;
@@ -170,13 +171,13 @@ export function ProposalComposer({
     } catch { /* noop */ }
     // クライアント宛
     if (client.threadUrl) window.open(client.threadUrl, "_blank", "noopener");
-    else window.open(gmailComposeUrl({ to: client.to, subject: composeNoRe(client.subject), body: client.body }), "_blank", "noopener");
+    else window.open(gmailComposeUrl({ to: client.to, subject: ensureRe(client.subject), body: client.body }), "_blank", "noopener");
     // 人材宛
     setTimeout(() => {
       if (c2.threadUrl) window.open(c2.threadUrl, "_blank", "noopener");
-      else window.open(gmailComposeUrl({ to: c2.to, subject: composeNoRe(c2.subject), body: c2.body }), "_blank", "noopener");
+      else window.open(gmailComposeUrl({ to: c2.to, subject: ensureRe(c2.subject), body: c2.body }), "_blank", "noopener");
     }, 200);
-    setMsg("クライアント宛・人材宛の Gmail を両方開きました。本文はクリップボードにコピー済み。");
+    setMsg("クライアント宛・人材宛の Gmail を両方開きました（RE形式）。本文はクリップボードにコピー済み。");
   };
 
   const replyOnThread = async () => {
@@ -308,7 +309,7 @@ export function ProposalComposer({
                 <span className="muted" style={{ fontSize: 11.5 }}>{dualPreview.client.threadUrl ? "↩ 元スレッドに返信" : "✉ 新規メール"}</span>
                 <span className="muted" style={{ fontSize: 11 }}>宛先 {dualPreview.client.to ?? "（手入力）"}</span>
               </div>
-              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 4 }}>件名：<b style={{ color: "var(--color-ink)" }}>{dualPreview.client.threadUrl ? `（返信）${composeNoRe(dualPreview.client.subject)}` : composeNoRe(dualPreview.client.subject)}</b></div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 4 }}>件名：<b style={{ color: "var(--color-ink)" }}>{dualPreview.client.threadUrl ? `（返信）${ensureRe(dualPreview.client.subject)}` : ensureRe(dualPreview.client.subject)}</b></div>
               <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.7, padding: 10, background: "var(--color-surface-inset)", borderRadius: 8, maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)" }}>{dualPreview.client.body}</pre>
             </div>
             {/* 人材宛 */}
@@ -318,7 +319,7 @@ export function ProposalComposer({
                 <span className="muted" style={{ fontSize: 11.5 }}>{dualPreview.cand.threadUrl ? "↩ 元スレッドに返信" : "✉ 新規メール"}</span>
                 <span className="muted" style={{ fontSize: 11 }}>宛先 {dualPreview.cand.to ?? "（手入力）"}</span>
               </div>
-              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 4 }}>件名：<b style={{ color: "var(--color-ink)" }}>{dualPreview.cand.threadUrl ? `（返信）${composeNoRe(dualPreview.cand.subject)}` : composeNoRe(dualPreview.cand.subject)}</b></div>
+              <div style={{ fontSize: 12, color: "var(--color-ink-3)", marginBottom: 4 }}>件名：<b style={{ color: "var(--color-ink)" }}>{dualPreview.cand.threadUrl ? `（返信）${ensureRe(dualPreview.cand.subject)}` : ensureRe(dualPreview.cand.subject)}</b></div>
               <pre style={{ margin: 0, fontSize: 11.5, lineHeight: 1.7, padding: 10, background: "var(--color-surface-inset)", borderRadius: 8, maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)" }}>{dualPreview.cand.body}</pre>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap" }}>
