@@ -120,12 +120,12 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       onDragStart={(e) => { if (busy) { e.preventDefault(); return; } e.dataTransfer.setData("text/proposal-id", p.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(p.id); }}
       onDragEnd={() => onDragEnd?.()}
       onClick={(e) => {
-        // カードのどこをクリックしても編集パネルを開く（リンク/ボタン/入力は除外、ドラッグ時は発火しない）
+        // カードのどこをクリックしても編集パネルを開閉トグル（リンク/ボタン/入力は除外、ドラッグ時は発火しない）
         if (busy) return;
         if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return;
-        setOpen(true);
+        setOpen((v) => !v);
       }}
-      title="クリックで編集"
+      title={open ? "クリックで閉じる" : "クリックで編集"}
       style={{
         padding: compact ? 8 : 12,
         opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
