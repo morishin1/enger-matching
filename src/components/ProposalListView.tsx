@@ -8,6 +8,7 @@
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
 import { useMemo, useState } from "react";
 import { ProposalDetailModal } from "./ProposalDetailModal";
+import { NotifyDot } from "./NotifyDot";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -30,7 +31,10 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [active, setActive] = useState<any | null>(null);
+  const isPending = (v: any) => v == null || v === "pending";
+  const pendingCount = useMemo(() => proposals.filter((p) => isPending(p.job_notify_status) || isPending(p.cand_notify_status)).length, [proposals]);
 
   // ステージ別件数（KPI）
   const counts = useMemo(() => {
@@ -51,12 +55,13 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
     return proposals
       .filter((p) => !stageFilter || normStage(p.stage) === stageFilter)
       .filter((p) => !ownerFilter || [p.proposer, p.partner, p.closer, p.company_owner].includes(ownerFilter))
+      .filter((p) => !pendingOnly || isPending(p.job_notify_status) || isPending(p.cand_notify_status))
       .filter((p) => {
         if (!needle) return true;
         return [p.candidate_name, p.c_init, p.job_title, p.company, p.client_contact].some((v) => String(v ?? "").toLowerCase().includes(needle));
       })
       .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
-  }, [proposals, q, stageFilter, ownerFilter]);
+  }, [proposals, q, stageFilter, ownerFilter, pendingOnly]);
 
   const th: React.CSSProperties = { textAlign: "left", padding: "10px 12px", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, whiteSpace: "nowrap" };
   const td: React.CSSProperties = { padding: "10px 12px", fontSize: 12.5, verticalAlign: "middle" };
@@ -104,6 +109,14 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
             {owners.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </label>
+        <button type="button" onClick={() => setPendingOnly((v) => !v)} aria-pressed={pendingOnly}
+          title="未処理（赤ドット）の提案だけを表示"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 8,
+            border: "1px solid " + (pendingOnly ? "#dc2626" : "var(--color-border-strong)"),
+            background: pendingOnly ? "#dc2626" : "var(--color-surface)", color: pendingOnly ? "#fff" : "var(--color-ink-2)", cursor: "pointer" }}>
+          <span style={{ width: 8, height: 8, borderRadius: 99, background: pendingOnly ? "#fff" : "#dc2626" }} />
+          未処理のみ <span style={{ opacity: 0.85 }}>({pendingCount})</span>
+        </button>
       </div>
 
       {/* テーブル */}
@@ -116,7 +129,7 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
               <th style={th}>担当者</th>
               <th style={th}>提案日</th>
               <th style={th}>更新日</th>
-              <th style={th}>ステータス</th>
+              <th style={th}>ステータス / 通知</th>
               <th style={th}>架電</th>
               <th style={{ ...th, textAlign: "center" }}>詳細</th>
             </tr>
@@ -144,7 +157,15 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                 <td style={{ ...td, whiteSpace: "nowrap" }}>{p.proposer ?? p.company_owner ?? "—"}</td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.created_at)}</td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
-                <td style={td}><StageBadge stage={normStage(p.stage)} /></td>
+                <td style={td}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <StageBadge stage={normStage(p.stage)} />
+                    <span title="左: 案件側 / 右: 人材側 — 赤(未処理) / 青(処理中) / 完了は薄い丸。クリックで状態を切替。" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                      <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} />
+                      <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                    </span>
+                  </div>
+                </td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)", fontSize: 11.5 }}>{p.caller_status ?? "—"}</td>
                 <td style={{ ...td, textAlign: "center" }}>
                   <button type="button" onClick={(e) => { e.stopPropagation(); setActive(p); }} className="btn ghost btn-xs" aria-label="詳細を開く" title="詳細を開く">
