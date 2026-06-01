@@ -1,4 +1,4 @@
-import { ProposalBoard } from "@/components/ProposalBoard";
+import { ProposalBoardSwitcher } from "@/components/ProposalBoardSwitcher";
 import { ProposalHistory } from "@/components/ProposalHistory";
 import { ProposalsTabs } from "@/components/ProposalsTabs";
 import { LostAnalytics } from "@/components/LostAnalytics";
@@ -164,7 +164,7 @@ export default async function ProposalsPage() {
               </div>
             ) : (
               <>
-                <ProposalBoard proposals={proposals} members={staff.members} />
+                <ProposalBoardSwitcher proposals={proposals} members={staff.members} />
                 {feedbackList.length > 0 && (
                   <div className="card" style={{ marginTop: 14 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
