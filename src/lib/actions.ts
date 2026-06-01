@@ -1463,3 +1463,34 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
   revalidatePath(`/jobs/${jobNo}`); revalidatePath("/jobs"); bustCounts();
   return { ok: true as const };
 }
+
+// ────────────────────────────────────────────────────────
+// 提案メモ（連絡記録/重要事項/内部メモ/クライアント対応/人材対応）
+// ────────────────────────────────────────────────────────
+export const PROPOSAL_MEMO_CATEGORIES = ["連絡記録", "重要事項", "内部メモ", "クライアント対応", "人材対応"] as const;
+
+export async function addProposalMemo(proposalId: string, category: string, body: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const cat = (category || "").trim();
+  const text = (body || "").trim();
+  if (!proposalId) return { ok: false as const, error: "提案IDが必要です" };
+  if (!cat || !(PROPOSAL_MEMO_CATEGORIES as readonly string[]).includes(cat)) return { ok: false as const, error: "カテゴリが不正です" };
+  if (!text) return { ok: false as const, error: "本文を入力してください" };
+  let by_email: string | null = null, by_name: string | null = null;
+  try { const a = await currentAccess(); by_email = a?.email ?? null; by_name = a?.name ?? null; } catch { /* noop */ }
+  const r: any = await admin.from("proposal_memos").insert({ proposal_id: proposalId, category: cat, body: text, created_by_email: by_email, created_by_name: by_name }).select("*").single();
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath("/proposals");
+  return { ok: true as const, memo: r.data };
+}
+
+export async function deleteProposalMemo(memoId: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー" }; }
+  if (!memoId) return { ok: false as const, error: "メモIDが必要です" };
+  const r: any = await admin.from("proposal_memos").delete().eq("id", memoId);
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath("/proposals");
+  return { ok: true as const };
+}
