@@ -32,10 +32,11 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
     if (ai) { setView("ai"); setMsg("AI順に切り替えました（前回の評価を再利用）"); return; }
     setLoading(true); setMsg(null);
     try {
-      // コスト最小化のため上位10件だけAIに渡す
+      // コスト最小化のため上位10件だけAIに渡す。スキルシートのAI要約があれば文脈として同梱。
       const candidates = ranked.slice(0, 10).map((r) => ({
         candidate_no: r.candidate.candidate_no, name: r.candidate.name, title: r.candidate.title,
         skills: r.candidate.skills, rate: r.candidate.rate, exp: r.candidate.exp, remote_pref: r.candidate.remote_pref,
+        skill_sheet_summary: r.candidate.skill_sheet_summary ?? null,
       }));
       const res = await fetch("/api/match-rerank", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job: jobForAI, candidates }) });
       const data = await res.json();

@@ -50,9 +50,11 @@ export async function POST(req: Request) {
     (job.salary_min || job.salary_max) ? `単価: ${job.salary_min ?? ""}〜${job.salary_max ?? ""}万円` : "",
     job.remote_type ? `リモート: ${job.remote_type}` : "",
   ].filter(Boolean).join("\n");
-  const candList = candidates.map((c, i) =>
-    `${i + 1}. no=${c.candidate_no} / ${c.name ?? ""} / ${c.title ?? ""} / 経験:${c.exp ?? "—"} / 希望単価:${c.rate ?? "—"} / リモート希望:${c.remote_pref ?? "—"} / スキル:${(c.skills ?? []).join(" ")}`
-  ).join("\n");
+  const candList = candidates.map((c, i) => {
+    const head = `${i + 1}. no=${c.candidate_no} / ${c.name ?? ""} / ${c.title ?? ""} / 経験:${c.exp ?? "—"} / 希望単価:${c.rate ?? "—"} / リモート希望:${c.remote_pref ?? "—"} / スキル:${(c.skills ?? []).join(" ")}`;
+    const sum = c.skill_sheet_summary ? `\n   経歴要約: ${String(c.skill_sheet_summary).slice(0, 400)}` : "";
+    return head + sum;
+  }).join("\n");
 
   const prompt = [
     "次の案件に対して、各候補者の適合度を0〜100で採点し、JSON配列だけを出力してください（説明やコードフェンス不要）。",

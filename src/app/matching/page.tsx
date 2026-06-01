@@ -220,11 +220,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     try {
       const sb = engerClient();
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url";
+      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date";
 
       if (personNo) {
         // ---- 人材 → 案件（逆マッチング）----
-        const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", personNo).maybeSingle();
+        let pr: any = await sb.from("candidates").select(CAND_RICH).eq("candidate_no", personNo).maybeSingle();
+        if (pr.error) pr = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", personNo).maybeSingle();
         person = pr.error ? (await sb.from("candidates").select(CAND_BASE).eq("candidate_no", personNo).maybeSingle()).data : pr.data;
         // 第1優先：企業マスタから contact_name / contact_email を引いて付与
         if (person) await attachCompanyContact(sb, [person], "source_company");
@@ -324,7 +326,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
         if (job?.skills?.length) {
           const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
-          let cr: any = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
+          let cr: any = await buildC(CAND_RICH);
+          if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
           // 旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
@@ -332,7 +335,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           // 指定された candidate_no が skills-overlap で取得できていない場合は個別に取得して追加
           const reqCandNo = sp.cand ? Number(sp.cand) : null;
           if (reqCandNo && !candList.find((c) => c.candidate_no === reqCandNo)) {
-            let xr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", reqCandNo).maybeSingle();
+            let xr: any = await sb.from("candidates").select(CAND_RICH).eq("candidate_no", reqCandNo).maybeSingle();
+            if (xr.error) xr = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", reqCandNo).maybeSingle();
             if (xr.error) xr = await sb.from("candidates").select(CAND_BASE).eq("candidate_no", reqCandNo).maybeSingle();
             if (xr.data) candList.push(xr.data);
           }
