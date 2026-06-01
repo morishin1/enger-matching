@@ -314,7 +314,9 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
   return (
     <>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button className="btn brand" onClick={() => { setFormInitial(undefined); setShow((v) => !v); }}><Icons.plus /><span>{show ? "フォームを閉じる" : "打合せを記録"}</span></button>
+        <button className="btn brand" onClick={() => { setFormInitial(undefined); setShow((v) => !v); }} title="打合せ記録を新規に追加">
+          <Icons.plus /><span>{show ? "フォームを閉じる" : "新規記録"}</span>
+        </button>
         <button onClick={() => setOnlyFollow((v) => !v)} style={{ padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${onlyFollow ? "#d98a2b" : "var(--color-border-strong)"}`, background: onlyFollow ? "#fff1e6" : "var(--color-surface)", color: onlyFollow ? "#b45309" : "var(--color-ink-3)" }}>🔔 要フォロー {followCount}</button>
         <div className="tbl-search" style={{ width: 220, flex: "0 0 220px" }}><Icons.search /><input placeholder="企業名で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select style={sel} value={sent} onChange={(e) => setSent(e.target.value)}><option value="">FB感情：すべて</option>{MEETING_SENTIMENTS.map((o) => <option key={o}>{o}</option>)}</select>
@@ -331,7 +333,7 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
       {view === "calendar" ? (
         <MonthCalendar meetings={filtered} interviews={interviews} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} />
       ) : filtered.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>記録がありません。「打合せを記録」から追加してください。</div>
+        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>記録がありません。上の「新規記録」ボタンから追加してください。</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>
           {filtered.map((m) => {
