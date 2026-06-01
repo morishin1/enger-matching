@@ -9,20 +9,14 @@ import { MeetingGateBanner } from "@/components/MeetingGateBanner";
 
 export const dynamic = "force-dynamic";
 
-/** ユーザー企業(client)向け：自社案件に提案された人材を、マッチ度＋根拠つきで表示しFBを受ける。 */
+/** ユーザー企業(client)向け：自社案件に提案された人材を、マッチ度＋根拠つきで表示しFBを受ける。
+ *  面談前でも「おすすめ人材（匿名・マッチ度のみ）」のランキングは表示し、
+ *  個別の詳細閲覧／「話を聞きたい」アクションは面談後に解放（案件一覧と同じ仕組み）。
+ */
 export default async function PortalCandidatesPage() {
   const access = await currentAccess();
   if (access && access.role !== "client") redirect("/");
-
-  // 面談前は詳細を出さない（人材の匿名情報すら出さず、面談誘導のみ）
-  if (access && !access.meetingDone) {
-    return (
-      <div className="page">
-        <div className="page-head"><div><div className="meta">おすすめ人材</div><h1>おすすめ人材</h1></div></div>
-        <MeetingGateBanner title="おすすめ人材の閲覧は担当との面談後に解放されます" description="ご利用前に担当エージェントとの面談（オンライン可）をお願いしています。面談後、提案された人材を匿名（イニシャル＋スキル＋単価）でご確認いただけます。" />
-      </div>
-    );
-  }
+  const meetingDone = !!access?.meetingDone;
 
   const companyName = access?.companyName ?? null;
   let items: RecoCandidate[] = [];
@@ -131,17 +125,35 @@ export default async function PortalCandidatesPage() {
 
       {note && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginBottom: 14 }}>{note}</div>}
 
+      {!meetingDone && (
+        <div style={{ marginBottom: 14 }}>
+          <MeetingGateBanner
+            title="マッチ度のみ公開中・詳細は担当との面談後に解放されます"
+            description="貴社案件にマッチする人材ランキング（イニシャル＋スキル＋マッチ度）はご覧いただけます。「話を聞きたい」での担当仲介や、ご提案中人材の詳細は、面談（オンライン可）後に解放されます。"
+          />
+        </div>
+      )}
+
       {/* おすすめ人材（匿名マッチ）：自社案件に合う人材を匿名で表示し、話を聞きたい→担当が仲介 */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px 12px" }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>おすすめ人材（マッチ）</h3>
-        <span className="muted" style={{ fontSize: 11.5 }}>氏名・連絡先は伏せています。「話を聞きたい」で担当が仲介します。</span>
+        <span className="muted" style={{ fontSize: 11.5 }}>氏名・連絡先は伏せています。{meetingDone ? "「話を聞きたい」で担当が仲介します。" : "「話を聞きたい」は面談後に解放されます。"}</span>
       </div>
-      <PortalTalentList talent={talent} />
+      <PortalTalentList talent={talent} meetingDone={meetingDone} />
 
-      <div style={{ margin: "26px 2px 12px" }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>ご提案中の人材</h3>
-      </div>
-      <CandidateRecommendations items={items} />
+      {meetingDone ? (
+        <>
+          <div style={{ margin: "26px 2px 12px" }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>ご提案中の人材</h3>
+          </div>
+          <CandidateRecommendations items={items} />
+        </>
+      ) : (
+        <div style={{ margin: "26px 2px 12px" }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "var(--color-ink-3)" }}>ご提案中の人材（面談後に表示）</h3>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>担当がご提案する人材の詳細（マッチ理由・選考状況など）は、初回面談の完了後にこちらに表示されます。</div>
+        </div>
+      )}
     </div>
   );
 }
