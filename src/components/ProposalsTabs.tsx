@@ -20,10 +20,10 @@ export function ProposalsTabs({
   lostCount: number;
 }) {
   const [tab, setTab] = useState<TabKey>("board");
-  const tabs: { key: TabKey; label: string; count: number; show: boolean; title?: string }[] = [
-    { key: "board",   label: "📋 提案ボード", count: boardCount,   show: true, title: "進行中の提案件数（返信待ち〜面談合格の合計）。見送り/失注/稼働済みは除外。" },
-    { key: "history", label: "📜 過去の提案", count: historyCount, show: !!history, title: "見送り/失注/稼働化した提案の累計（直近200件まで表示）" },
-    { key: "lost",    label: "💔 失注理由",   count: lostCount,    show: !!lostSummary, title: "見送り/失注の合計件数" },
+  const tabs: { key: TabKey; label: string; icon: string; count: number; show: boolean; title?: string }[] = [
+    { key: "board",   label: "提案ボード", icon: "view_kanban", count: boardCount,   show: true, title: "進行中の提案件数（返信待ち〜面談合格の合計）。見送り/失注/稼働済みは除外。" },
+    { key: "lost",    label: "失注分析",   icon: "monitoring",  count: lostCount,    show: !!lostSummary, title: "見送り/失注の合計件数" },
+    { key: "history", label: "過去の提案", icon: "history",     count: historyCount, show: !!history, title: "見送り/失注/稼働化した提案の累計（直近200件まで表示）" },
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -54,6 +54,7 @@ export function ProposalsTabs({
                 whiteSpace: "nowrap",
               }}
             >
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
               <span>{t.label}</span>
               {t.count > 0 && (
                 <span className="badge" style={{ fontSize: 10, padding: "1px 7px" }}>{t.count}</span>
