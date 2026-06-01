@@ -10,6 +10,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
+import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -166,6 +167,24 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
                 </div>
               )}
             </div>
+          </div>
+
+          {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
+          <div className="card" style={{ padding: 16 }}>
+            <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>通知ステータス</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>案件</span>
+                <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={14} />
+                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.job_notify_status === "in_progress" || p.job_notify_status === "done") ? p.job_notify_status : "pending") as NotifyStatus]}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>人材</span>
+                <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={14} />
+                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.cand_notify_status === "in_progress" || p.cand_notify_status === "done") ? p.cand_notify_status : "pending") as NotifyStatus]}</span>
+              </div>
+            </div>
+            <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>
           </div>
 
           {/* 編集 */}

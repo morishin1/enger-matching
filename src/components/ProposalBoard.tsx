@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
+import { NotifyDot } from "./NotifyDot";
 
 const dvDate = (d: any) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : `${t.getMonth() + 1}/${t.getDate()}`; };
 const dvDateTime = (d: any) => {
@@ -156,10 +157,14 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
               {at.level === "warn" ? "⚠" : "🚨"} {fmtMD(targetAt)}
             </span>
           )}
+          <span style={{ flexShrink: 0, display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
+            <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={8} />
+            <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={8} />
+          </span>
         </div>
       ) : (
         <>
-          {/* 登録元バッジ（固定色・アイコン） */}
+          {/* 登録元バッジ（固定色・アイコン）＋通知ドット（案件/人材） */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
             {src ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: `${src.color}1a`, color: src.color, border: `1px solid ${src.color}55` }}>
@@ -168,6 +173,10 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             ) : (
               <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>登録元 未設定</span>
             )}
+            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4, alignItems: "center" }} title="左:案件側 / 右:人材側 通知ステータス（赤=未処理）">
+              <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={9} />
+              <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={9} />
+            </span>
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
             {p.job_no != null

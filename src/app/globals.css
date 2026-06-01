@@ -345,3 +345,12 @@ button { font-family: inherit; }
   .page { padding-left: 14px; padding-right: 14px; }
   .duo-grid, .kpi-grid { gap: 12px; }
 }
+
+/* 通知ステータスの未処理ドットの脈動。やってないと光って「早くやって」と促す。 */
+@keyframes engerNotifyPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0);    }
+}
+.enger-notify-pulse { animation: engerNotifyPulse 1.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .enger-notify-pulse { animation: none; } }

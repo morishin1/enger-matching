@@ -291,7 +291,7 @@ export async function bulkDeleteCandidates(candidateNos: number[]) {
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "company", "source"];
+  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "company", "source", "job_notify_status", "cand_notify_status"];
   const patch: Record<string, any> = { updated_at: new Date().toISOString() };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
   let { error } = await admin.from("proposals").update(patch).eq("id", id);
