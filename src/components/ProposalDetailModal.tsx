@@ -6,7 +6,7 @@
 //   - 対応履歴（提案開始・架電・面談）
 //   - 編集フィールド（提案者/パートナー/クロージング/架電/面談）と保存・稼働化・見送り
 //   既存のサーバアクションを再利用（カンバンの編集パネルと同等の操作を提供）。
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
@@ -65,9 +65,29 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
+  // ステータス更新ドロップダウン
+  const [stageMenuOpen, setStageMenuOpen] = useState(false);
+  const stageMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!stageMenuOpen) return;
+    const h = (e: MouseEvent) => { if (stageMenuRef.current && !stageMenuRef.current.contains(e.target as Node)) setStageMenuOpen(false); };
+    window.addEventListener("mousedown", h);
+    return () => window.removeEventListener("mousedown", h);
+  }, [stageMenuOpen]);
+
   const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
   const moveTo = (stage: string) => { if (stage !== p.stage) run(() => updateProposalStage(p.id, stage)); };
   const saveFields = () => run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: partner || null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null }));
+  // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
+  const pickStage = (stage: string) => {
+    setStageMenuOpen(false);
+    if (stage === "見送り") { setLostOpen(true); return; }
+    run(() => updateProposalFields(p.id, {
+      stage,
+      caller_status: caller || null, proposer: proposer || null, partner: partner || null, closer: closer || null,
+      meeting_date: meetingDate || null, meeting_status: meetingStatus || null,
+    }));
+  };
   const engage = () => run(() => convertToEngagement(p.id));
   const lose = () => run(() => updateProposalFields(p.id, { stage: "見送り", lost_phase: lostPhase, lost_reason: lostReason, lost_reason_note: lostNote.trim() || null }));
 
@@ -225,14 +245,45 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
 
         {/* フッタ（操作） */}
         <div style={{ position: "sticky", bottom: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)", padding: "14px 22px", display: "flex", gap: 10, alignItems: "center" }}>
-          <button type="button" className="btn brand" disabled={pending} onClick={saveFields}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>check</span>
-            ステータス更新
-          </button>
+          {/* ステータス更新ドロップダウン（クリックでステージ選択メニュー） */}
+          <div ref={stageMenuRef} style={{ position: "relative" }}>
+            <button type="button" className="btn brand" disabled={pending} onClick={() => setStageMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={stageMenuOpen}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>check</span>
+              ステータス更新
+              <span className="material-symbols-outlined" style={{ fontSize: 16, marginLeft: 4, verticalAlign: "-3px" }}>{stageMenuOpen ? "expand_more" : "expand_less"}</span>
+            </button>
+            {stageMenuOpen && (
+              <div role="listbox" aria-label="ステータス選択" style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, minWidth: 220, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, boxShadow: "0 12px 28px rgba(15,36,64,.18)", zIndex: 3, overflow: "hidden" }}>
+                <div className="muted" style={{ fontSize: 11, padding: "10px 14px 6px" }}>新しいステータスを選択</div>
+                {STAGES.map((s) => {
+                  const tone = STAGE_TONE[s] ?? "#6b7280";
+                  const current = s === p.stage;
+                  return (
+                    <button key={s} type="button" role="option" aria-selected={current} onClick={() => pickStage(s)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", fontFamily: "inherit", fontSize: 13, fontWeight: current ? 700 : 500, color: current ? tone : "var(--color-ink-2)", background: current ? `${tone}10` : "transparent", border: 0, cursor: "pointer", textAlign: "left" }}
+                      onMouseEnter={(e) => { if (!current) (e.currentTarget as HTMLElement).style.background = "var(--color-surface-soft)"; }}
+                      onMouseLeave={(e) => { if (!current) (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 99, background: tone }} />
+                      <span style={{ flex: 1 }}>{s}</span>
+                      {current && <span className="material-symbols-outlined" style={{ fontSize: 16, color: tone }}>check</span>}
+                    </button>
+                  );
+                })}
+                <div style={{ borderTop: "1px solid var(--color-border)" }} />
+                <button type="button" role="option" onClick={() => pickStage("見送り")}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", fontFamily: "inherit", fontSize: 13, fontWeight: 600, color: "var(--color-danger)", background: "transparent", border: 0, cursor: "pointer", textAlign: "left" }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#fdecef"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: "var(--color-danger)" }} />
+                  <span style={{ flex: 1 }}>見送り</span>
+                </button>
+              </div>
+            )}
+          </div>
+          <button type="button" className="btn ghost" disabled={pending} onClick={saveFields} title="ステージは変更せず編集内容のみ保存">編集を保存</button>
           {p.stage === "面談合格" && (
             <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}
-          {!lostOpen && <button type="button" className="btn ghost" style={{ color: "var(--color-danger)", marginLeft: "auto" }} disabled={pending} onClick={() => setLostOpen(true)}>見送りにする</button>}
         </div>
       </div>
     </div>
