@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
@@ -154,12 +154,18 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const [preview, setPreview] = useState<ReturnType<typeof validate> | null>(null);
   const [fileName, setFileName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
+  const [prog, setProg] = useState<{ done: number; total: number; phase?: string } | null>(null);
   // 同姓同名の既存と統合（空欄補完）するか。人材取込のみ有効。
   const [mergeByName, setMergeByName] = useState(false);
+  // 取込完了後、結果を残したまま「閉じる」ボタンで明示的に閉じる
+  const [doneInfo, setDoneInfo] = useState<{ inserted: number; merged: number; skipped: number } | null>(null);
+  // 問題行プレビューの「行クリックでハイライト」
+  const [focusedRow, setFocusedRow] = useState<number | null>(null);
 
   const onFile = async (file: File) => {
     setMsg(null);
+    setDoneInfo(null);
+    setFocusedRow(null);
     const grid = parseCsv(await file.text());
     if (grid.length < 2) { setMsg({ ok: false, text: "データ行がありません" }); return; }
     setFileName(file.name);
@@ -175,17 +181,19 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       return true; // all（取込可能）
     }).map((r) => r.rec);
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
-    // 大量CSV対策：1リクエストが大きすぎるとサーバ側ボディ上限(Vercel ~4.5MB)を超えて
-    // 「This page couldn't load」になる。クライアントで分割送信し、件数に依存しないようにする。
-    //   案件は detail(メール本文)が重いので小さめ。人材は軽い＋取込ごとに全件照合するため大きめにして回数を減らす。
-    const CHUNK = kind === "candidates" ? 800 : 250;
+    // 大量CSV対策：1リクエストが大きすぎるとサーバ側ボディ上限(Vercel ~4.5MB)を超えるためチャンク送信。
+    //   candidates: mergeByName=true だと既存全件フェッチがチャンク毎に走るため、小さめにして進捗が早く見えるようにする。
+    const CHUNK = kind === "candidates" ? (mergeByName ? 400 : 800) : 250;
+    // 即時フィードバック：ボタンを押したことが即わかるよう、最初に「準備中」を見せる
+    setMsg(null);
+    setDoneInfo(null);
+    setProg({ done: 0, total: recs.length, phase: "送信準備中…" });
     start(async () => {
       let inserted = 0, skipped = 0, merged = 0;
-      setMsg(null);
-      setProg({ done: 0, total: recs.length });
       try {
         for (let i = 0; i < recs.length; i += CHUNK) {
           const slice = recs.slice(i, i + CHUNK);
+          setProg({ done: i, total: recs.length, phase: mergeByName ? "既存データと突合中…" : "サーバへ送信中…" });
           const res = kind === "candidates"
             ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName })
             : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName });
@@ -193,11 +201,12 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
           inserted += res.inserted ?? 0;
           skipped += (res as any).skipped ?? 0;
           merged += (res as any).merged ?? 0;
-          setProg({ done: Math.min(i + slice.length, recs.length), total: recs.length });
+          setProg({ done: Math.min(i + slice.length, recs.length), total: recs.length, phase: "サーバへ送信中…" });
         }
         setProg(null);
+        // モーダルは閉じず、結果パネルを残してユーザーに確認してもらう
+        setDoneInfo({ inserted, merged, skipped });
         setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（同姓同名 ${merged} 件は既存に統合）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
-        setPreview(null);
         router.refresh();
       } catch (e) {
         setProg(null);
@@ -232,88 +241,133 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       {msg && <span style={{ fontSize: 12, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</span>}
 
       {preview && (
-        <div onClick={() => { if (!pending) setPreview(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>CSV取込プレビュー / 検証</h3>
-              <button className="btn ghost btn-xs" onClick={() => setPreview(null)} disabled={pending}>閉じる</button>
-            </div>
-            <div className="muted" style={{ fontSize: 12 }}>{fileName} · {preview.rows.length} 行</div>
-
-            {/* 取込中の進捗バー */}
-            {prog && (
-              <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600 }}>
-                  <span>取り込み中… サーバへ送信しています</span>
-                  <span className="mono">{prog.done}/{prog.total}（{Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%）</span>
-                </div>
-                <div style={{ height: 8, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%`, background: "var(--color-brand, #0b5cab)", transition: "width .25s ease" }} />
-                </div>
-                <div className="muted" style={{ fontSize: 10.5 }}>※ ブラウザを閉じずにお待ちください（分割送信のため少し時間がかかります）。</div>
+        <div onClick={() => { if (!pending && !doneInfo) setPreview(null); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", display: "flex", flexDirection: "column", gap: 0, padding: 0 }}>
+            <div style={{ padding: "14px 16px 8px", borderBottom: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>CSV取込プレビュー / 検証</h3>
+                <button className="btn ghost btn-xs" onClick={() => setPreview(null)} disabled={pending}>閉じる</button>
               </div>
-            )}
-
-            {/* サマリ */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <span className="pill" style={{ background: "#e7f3ea", color: "#1aa260", borderColor: "transparent" }}>✓ 正常 {okCount}</span>
-              <span className="pill" style={{ background: "#fff6e0", color: "#9a7b12", borderColor: "transparent" }}>⚠ 警告 {warnCount}</span>
-              <span className="pill" style={{ background: "#fdecef", color: "#d23f57", borderColor: "transparent" }}>✗ 取込不可 {errCount}</span>
+              <div className="muted" style={{ fontSize: 12 }}>{fileName} · {preview.rows.length} 行</div>
             </div>
 
-            {/* 列マッピング */}
-            <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>
-              認識した列：{preview.mapped.join(" / ") || "なし"}
-              {preview.unmapped.length > 0 && <div style={{ color: "var(--color-warn)" }}>未対応の列（無視）：{preview.unmapped.join(" / ")}</div>}
-            </div>
+            <div style={{ overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
 
-            {/* 重要データ充足（この取込分） */}
-            {importable.length > 0 && (
-              <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px" }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>📋 重要データの充足（取込可能 {importable.length} 件中）</div>
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12 }}>
-                  <span>スキル <b style={{ color: cov.skills === importable.length ? "#067647" : "#b42318" }}>{cov.skills}/{importable.length}</b></span>
-                  <span>単価 <b style={{ color: cov.money === importable.length ? "#067647" : "#b45309" }}>{cov.money}/{importable.length}</b></span>
-                  <span>{kind === "candidates" ? "所属区分" : "クライアント"} <b style={{ color: cov.extra === importable.length ? "#067647" : "#b45309" }}>{cov.extra}/{importable.length}</b></span>
+              {/* 取込完了パネル（モーダルは自動で閉じない） */}
+              {doneInfo && (
+                <div style={{ background: "#e7f3ea", border: "1px solid #1aa260", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#067647" }}>✓ 取り込み完了</div>
+                  <div style={{ fontSize: 12 }}>
+                    新規 <b>{doneInfo.inserted}</b> 件{doneInfo.merged ? `／既存統合 ${doneInfo.merged} 件` : ""}{doneInfo.skipped ? `／重複スキップ ${doneInfo.skipped} 件` : ""} を登録しました。
+                  </div>
+                  <div className="muted" style={{ fontSize: 10.5 }}>※ 一覧の更新が反映されているか確認してから閉じてください。</div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* 問題行 */}
-            {problems.length > 0 ? (
-              <div className="card flush" style={{ maxHeight: 320, overflowY: "auto" }}>
-                <table className="tbl">
-                  <thead><tr><th style={{ width: 50 }}>行</th><th>{kind === "candidates" ? "氏名" : "案件名"}</th><th>検出された問題</th></tr></thead>
-                  <tbody>
-                    {problems.slice(0, 100).map((r) => (
-                      <tr key={r.rowNo}>
-                        <td className="mono muted">{r.rowNo}</td>
-                        <td style={{ fontWeight: 600 }}>{r.label}</td>
-                        <td>
-                          {r.errors.map((e) => <span key={e} className="tag" style={{ fontSize: 10, background: "#fdecef", color: "#d23f57", marginRight: 4 }}>✗ {e}</span>)}
-                          {r.warnings.map((w) => <span key={w} className="tag" style={{ fontSize: 10, background: "#fff6e0", color: "#9a7b12", marginRight: 4 }}>⚠ {w}</span>)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {problems.length > 100 && <div className="muted" style={{ padding: "8px 12px", fontSize: 11 }}>ほか {problems.length - 100} 行…</div>}
+              {/* サマリ */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span className="pill" style={{ background: "#e7f3ea", color: "#1aa260", borderColor: "transparent" }}>✓ 正常 {okCount}</span>
+                <span className="pill" style={{ background: "#fff6e0", color: "#9a7b12", borderColor: "transparent" }}>⚠ 警告 {warnCount}</span>
+                <span className="pill" style={{ background: "#fdecef", color: "#d23f57", borderColor: "transparent" }}>✗ 取込不可 {errCount}</span>
               </div>
-            ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
 
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
-              <input type="checkbox" checked={mergeByName} onChange={(e) => setMergeByName(e.target.checked)} />
-              {kind === "candidates"
-                ? <span>☑ 同姓同名は既存と統合する（空欄を補完し、新規登録しない）</span>
-                : <span>☑ 既存案件（案件名×クライアント一致）は更新する（空欄を補完し、再公開）</span>}
-            </label>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価（案件はクライアントも）が揃った行だけ取り込みます">重要データ完備の {strictCount} 件のみ取込（推奨）</button>
-              <button className="btn" disabled={pending} onClick={() => doImport("all")}>取込可能な {preview.rows.length - errCount} 件を取込</button>
-              <button className="btn ghost" disabled={pending || okCount === 0} onClick={() => doImport("clean")}>正常 {okCount} 件のみ</button>
-              <button className="btn ghost" onClick={() => setPreview(null)}>キャンセル</button>
+              {/* 列マッピング */}
+              <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>
+                認識した列：{preview.mapped.join(" / ") || "なし"}
+                {preview.unmapped.length > 0 && <div style={{ color: "var(--color-warn)" }}>未対応の列（無視）：{preview.unmapped.join(" / ")}</div>}
+              </div>
+
+              {/* 重要データ充足（この取込分） */}
+              {importable.length > 0 && (
+                <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 6 }}>📋 重要データの充足（取込可能 {importable.length} 件中）</div>
+                  <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12 }}>
+                    <span>スキル <b style={{ color: cov.skills === importable.length ? "#067647" : "#b42318" }}>{cov.skills}/{importable.length}</b></span>
+                    <span>単価 <b style={{ color: cov.money === importable.length ? "#067647" : "#b45309" }}>{cov.money}/{importable.length}</b></span>
+                    <span>{kind === "candidates" ? "所属区分" : "クライアント"} <b style={{ color: cov.extra === importable.length ? "#067647" : "#b45309" }}>{cov.extra}/{importable.length}</b></span>
+                  </div>
+                </div>
+              )}
+
+              {/* 問題行（クリックで詳細表示） */}
+              {problems.length > 0 ? (
+                <div className="card flush" style={{ maxHeight: 280, overflowY: "auto" }}>
+                  <table className="tbl">
+                    <thead><tr><th style={{ width: 50 }}>行</th><th>{kind === "candidates" ? "氏名" : "案件名"}</th><th>検出された問題</th></tr></thead>
+                    <tbody>
+                      {problems.slice(0, 100).map((r) => {
+                        const isFocused = focusedRow === r.rowNo;
+                        return (
+                          <Fragment key={r.rowNo}>
+                            <tr onClick={() => setFocusedRow(isFocused ? null : r.rowNo)} style={{ cursor: "pointer", background: isFocused ? "var(--color-surface-soft)" : undefined }}>
+                              <td className="mono muted">{r.rowNo}</td>
+                              <td style={{ fontWeight: 600 }}>{r.label}</td>
+                              <td>
+                                {r.errors.map((e) => <span key={e} className="tag" style={{ fontSize: 10, background: "#fdecef", color: "#d23f57", marginRight: 4 }}>✗ {e}</span>)}
+                                {r.warnings.map((w) => <span key={w} className="tag" style={{ fontSize: 10, background: "#fff6e0", color: "#9a7b12", marginRight: 4 }}>⚠ {w}</span>)}
+                              </td>
+                            </tr>
+                            {isFocused && (
+                              <tr><td colSpan={3} style={{ background: "var(--color-surface-inset)", padding: "8px 12px", fontSize: 11.5, lineHeight: 1.6 }}>
+                                {kind === "candidates" ? (
+                                  <>
+                                    <div><b>会社：</b>{r.rec.company || "—"} ／ <b>所属：</b>{r.rec.affiliation || "—"} ／ <b>単価：</b>{r.rec.rate || "—"} ／ <b>稼働：</b>{r.rec.avail || "—"}</div>
+                                    <div><b>スキル：</b>{(r.rec.skills && r.rec.skills.length) ? r.rec.skills.join(", ") : "—"}</div>
+                                    <div><b>送信元：</b>{r.rec.contact_email || "—"} ／ <b>元メール：</b>{r.rec.source_mail_url ? <a href={r.rec.source_mail_url} target="_blank" rel="noreferrer">開く</a> : "—"}</div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div><b>クライアント：</b>{r.rec.client_name || "—"} ／ <b>単価：</b>{r.rec.salary_min ?? "—"}〜{r.rec.salary_max ?? "—"} ／ <b>稼働開始：</b>{r.rec.start_date || "—"}</div>
+                                    <div><b>スキル：</b>{(r.rec.skills && r.rec.skills.length) ? r.rec.skills.join(", ") : "—"}</div>
+                                  </>
+                                )}
+                              </td></tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {problems.length > 100 && <div className="muted" style={{ padding: "8px 12px", fontSize: 11 }}>ほか {problems.length - 100} 行…</div>}
+                </div>
+              ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
+
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
+                <input type="checkbox" checked={mergeByName} onChange={(e) => setMergeByName(e.target.checked)} disabled={pending} />
+                {kind === "candidates"
+                  ? <span>☑ 同姓同名は既存と統合する（空欄を補完し、新規登録しない）</span>
+                  : <span>☑ 既存案件（案件名×クライアント一致）は更新する（空欄を補完し、再公開）</span>}
+              </label>
+
+              <div className="muted" style={{ fontSize: 10.5 }}>※「取込不可（✗）」は常に除外。<b>重要データ完備</b>＝スキル・単価{kind === "jobs" ? "・クライアント" : ""}が揃った行のみ。質を担保するなら「完備のみ」を推奨します。{mergeByName && kind === "candidates" && importable.length > 1000 && <span style={{ color: "#b45309" }}>（{importable.length}件＋既存統合ONの大量取込は数分かかる場合があります。プログレスバーが0%のまま見えても処理中です）</span>}</div>
             </div>
-            <div style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>※「取込不可（✗）」は常に除外。<b>重要データ完備</b>＝スキル・単価{kind === "jobs" ? "・クライアント" : ""}が揃った行のみ。質を担保するなら「完備のみ」を推奨します。</div>
+
+            {/* スティッキー：プログレス＋アクションボタン（常に視界に入る） */}
+            <div style={{ borderTop: "1px solid var(--color-border)", padding: "12px 16px", background: "var(--color-surface)", display: "flex", flexDirection: "column", gap: 10 }}>
+              {prog && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600 }}>
+                    <span>⏳ {prog.phase ?? "処理中…"}</span>
+                    <span className="mono">{prog.done}/{prog.total}（{Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%）</span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.round((prog.done / Math.max(prog.total, 1)) * 100)}%`, background: "var(--color-brand-600, #0b5cab)", transition: "width .25s ease" }} />
+                  </div>
+                </div>
+              )}
+              {doneInfo ? (
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="btn brand" onClick={() => { setPreview(null); setDoneInfo(null); }}>閉じる</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価（案件はクライアントも）が揃った行だけ取り込みます">{pending ? "送信中…" : `重要データ完備の ${strictCount} 件のみ取込（推奨）`}</button>
+                  <button className="btn" disabled={pending} onClick={() => doImport("all")}>{pending ? "送信中…" : `取込可能な ${preview.rows.length - errCount} 件を取込`}</button>
+                  <button className="btn ghost" disabled={pending || okCount === 0} onClick={() => doImport("clean")}>{pending ? "送信中…" : `正常 ${okCount} 件のみ`}</button>
+                  <button className="btn ghost" onClick={() => setPreview(null)} disabled={pending}>キャンセル</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
