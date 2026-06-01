@@ -318,10 +318,10 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
 /** 候補配列を job に対してスコアリングし降順に並べて返す */
 export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
-  return candidates
+  const scored = candidates
     .map((c) => ({ candidate: c, ...scoreMatch(job, c) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
+  return collapseSamePeople(scored).slice(0, limit);
 }
 
 /** 案件配列を 1 人材に対してスコアリングし降順に並べて返す */
@@ -330,4 +330,72 @@ export function rankJobs(candidate: Candidate, jobs: Job[], limit = 30) {
     .map((j) => ({ job: j, ...scoreMatch(j, candidate) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+}
+
+// ===== 同一人物の集約（厳格・非破壊） =====================================
+// イニシャル(name)は弱いキーのため、別人を潰さないよう複合条件で「ほぼ確実に同一人物」のみ集約。
+//   条件: 氏名(正規化)一致 かつ スキル8割以上一致 かつ 単価レンジ重複 かつ（所属会社 or 登録元が一致）
+// DB は一切変更せず、ランキング表示上だけ1件に畳む（代表＝最上位スコアのレコード）。
+
+const normName = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　.．・,，]/g, "");
+
+function skillOverlapRatio(a: Candidate, b: Candidate): number {
+  const sa = new Set((a.skills ?? []).map(canon));
+  const sb = new Set((b.skills ?? []).map(canon));
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let inter = 0; for (const s of sa) if (sb.has(s)) inter++;
+  return inter / Math.min(sa.size, sb.size);
+}
+
+function rateOverlap(a: Candidate, b: Candidate): boolean {
+  const ra = candRange(a), rb = candRange(b);
+  // どちらかが単価不明（要相談など）の場合は判定材料にせず重複扱い（他条件で担保）
+  if (ra.min == null || rb.min == null) return true;
+  const aMin = ra.min, aMax = ra.max ?? ra.min;
+  const bMin = rb.min, bMax = rb.max ?? rb.min;
+  return aMin <= bMax && bMin <= aMax;
+}
+
+function sameCompanyOrSource(a: Candidate, b: Candidate): boolean {
+  const ca = normName((a as any).source_company || a.company);
+  const cb = normName((b as any).source_company || b.company);
+  if (ca && cb && ca === cb) return true;
+  const sa = normName((a as any).source_csv);
+  const sb = normName((b as any).source_csv);
+  if (sa && sb && sa === sb) return true;
+  // 元メール(送信元SES窓口)が一致するなら同一供給元＝同一人物の可能性が高い
+  const ma = String((a as any).source_mail_url ?? "").trim();
+  const mb = String((b as any).source_mail_url ?? "").trim();
+  if (ma && mb && ma === mb) return true;
+  return false;
+}
+
+/** 厳格判定：別人を巻き込まないよう全条件を満たすときのみ同一人物とみなす。 */
+function isSamePerson(a: Candidate, b: Candidate): boolean {
+  if (!a.name || !b.name) return false;
+  if (normName(a.name) !== normName(b.name)) return false;
+  if (skillOverlapRatio(a, b) < 0.8) return false;
+  if (!rateOverlap(a, b)) return false;
+  return sameCompanyOrSource(a, b);
+}
+
+export type Collapsible<T> = T & { candidate: Candidate; dupCount?: number; dupNos?: number[] };
+
+/** スコア降順の配列から同一人物を畳み、代表(先頭=最上位)に集約件数を付与して返す。 */
+function collapseSamePeople<T extends { candidate: Candidate; score: number }>(rows: T[]): Collapsible<T>[] {
+  const out: Collapsible<T>[] = [];
+  for (const r of rows) {
+    const rep = out.find((o) => isSamePerson(o.candidate, r.candidate));
+    if (rep) {
+      rep.dupCount = (rep.dupCount ?? 1) + 1;
+      (rep.dupNos ??= rep.candidate.candidate_no != null ? [rep.candidate.candidate_no] : []);
+      if (r.candidate.candidate_no != null) rep.dupNos.push(r.candidate.candidate_no);
+      // 代表に欠けている表示情報を吸収（スキルは和集合、空欄は補完）して情報量を上げる
+      const merged = new Set([...(rep.candidate.skills ?? []), ...(r.candidate.skills ?? [])]);
+      rep.candidate = { ...r.candidate, ...rep.candidate, skills: Array.from(merged) };
+      continue;
+    }
+    out.push({ ...r });
+  }
+  return out;
 }

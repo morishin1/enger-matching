@@ -8,7 +8,7 @@ function Stars({ score }: { score: number }) {
   return <span style={{ color: "#f0a92b", letterSpacing: 1, fontSize: 13 }}>{"★".repeat(n)}<span style={{ color: "var(--color-ink-5)" }}>{"★".repeat(5 - n)}</span></span>;
 }
 
-type Ranked = { candidate: any; score: number };
+type Ranked = { candidate: any; score: number; dupCount?: number; dupNos?: number[] };
 
 export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, jobForAI }: {
   jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; jobForAI: any;
@@ -100,7 +100,8 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
           const active = selCandNo === c.candidate_no;
           const aiv = aiActive ? ai?.get(c.candidate_no) : undefined; // ルール順表示ではAIスコアを出さない
           const shown = aiv ? aiv.score : r.score;
-          const dupCount = nameCount.get((c.name ?? "").trim()) ?? 0;
+          const nameCollision = nameCount.get((c.name ?? "").trim()) ?? 0;
+          const mergedCount = r.dupCount ?? 0; // 厳格判定で同一人物として畳んだ件数
           const rankColor = i === 0 ? "#f0a92b" : i === 1 ? "#9aa7b4" : i === 2 ? "#cd853f" : "var(--color-surface-inset)";
           return (
             <Link key={c.candidate_no} href={linkFor(c.candidate_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
@@ -109,8 +110,11 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
                   {jobAbbr} ↔ {c.name}
                   <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
-                  {dupCount > 1 && (
-                    <span title="同姓同名のレコードがランキング内に複数あります。取込元データが分かれている可能性。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#fff1e6", color: "#b45309", border: "1px solid #fde9b0", lineHeight: 1.5, flexShrink: 0 }}>同名 {dupCount}件</span>
+                  {mergedCount > 1 && (
+                    <span title={`同一人物とみなせる重複レコード ${mergedCount} 件を1件に集約して表示しています（イニシャル＋スキル8割以上＋単価＋所属/登録元が一致）。${r.dupNos?.length ? "対象: " + r.dupNos.map((n: number) => "P-" + String(n).padStart(5, "0")).join(", ") : ""}`} style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", lineHeight: 1.5, flexShrink: 0 }}>統合 {mergedCount}件</span>
+                  )}
+                  {mergedCount <= 1 && nameCollision > 1 && (
+                    <span title="イニシャルが同じ別レコードがランキング内にあります（別人の可能性が高い）。クリックして会社・スキル・単価で確認してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#fff1e6", color: "#b45309", border: "1px solid #fde9b0", lineHeight: 1.5, flexShrink: 0 }}>同名 {nameCollision}件</span>
                   )}
                   {proposedCandIds?.has(c.id) && (
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
