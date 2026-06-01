@@ -87,6 +87,11 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
         )}
       </div>
       {msg && <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--color-ink-3)", borderBottom: "1px solid var(--color-border)" }}>{msg}</div>}
+      {(() => {
+        // 同姓同名の重複候補をハイライト（取込で別レコードになっている可能性をUI上で示す）
+        const nameCount = new Map<string, number>();
+        for (const r of ordered) { const k = (r.candidate.name ?? "").trim(); if (k) nameCount.set(k, (nameCount.get(k) ?? 0) + 1); }
+        return (
       <div style={{ display: "flex", flexDirection: "column" }}>
         {ordered.length === 0 ? (
           <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>重なる人材がいません</div>
@@ -95,6 +100,7 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
           const active = selCandNo === c.candidate_no;
           const aiv = aiActive ? ai?.get(c.candidate_no) : undefined; // ルール順表示ではAIスコアを出さない
           const shown = aiv ? aiv.score : r.score;
+          const dupCount = nameCount.get((c.name ?? "").trim()) ?? 0;
           const rankColor = i === 0 ? "#f0a92b" : i === 1 ? "#9aa7b4" : i === 2 ? "#cd853f" : "var(--color-surface-inset)";
           return (
             <Link key={c.candidate_no} href={linkFor(c.candidate_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
@@ -103,6 +109,9 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
                   {jobAbbr} ↔ {c.name}
                   <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
+                  {dupCount > 1 && (
+                    <span title="同姓同名のレコードがランキング内に複数あります。取込元データが分かれている可能性。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#fff1e6", color: "#b45309", border: "1px solid #fde9b0", lineHeight: 1.5, flexShrink: 0 }}>同名 {dupCount}件</span>
+                  )}
                   {proposedCandIds?.has(c.id) && (
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
                   )}
@@ -127,6 +136,8 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
           );
         })}
       </div>
+        );
+      })()}
     </div>
   );
 }

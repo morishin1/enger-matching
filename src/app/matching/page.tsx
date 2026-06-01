@@ -132,12 +132,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       </div>
     );
   }
-  // 既定は注力マッチング。ただし URL で job/person が明示されている場合は
-  // ランキング表示のため auto（自動スコアリング）にフォールバックする。
+  // 既定は自動マッチング（auto）。URL で tab=focus が明示された時のみ注力マッチング。
   const tab: "auto" | "focus" =
-    sp.tab === "auto" ? "auto"
-    : sp.tab === "focus" ? "focus"
-    : (sp.job || sp.person) ? "auto" : "focus";
+    sp.tab === "focus" ? "focus" : "auto";
   const personNo = sp.person ? Number(sp.person) : null;
 
   let dbError: string | null = null;
