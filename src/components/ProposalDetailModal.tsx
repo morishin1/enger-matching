@@ -9,8 +9,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo } from "@/lib/actions";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
+import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -74,6 +75,23 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
     window.addEventListener("mousedown", h);
     return () => window.removeEventListener("mousedown", h);
   }, [stageMenuOpen]);
+
+  // メモ
+  type Memo = { id: string; category: string; body: string; created_at: string; created_by_name?: string | null; created_by_email?: string | null };
+  const [memos, setMemos] = useState<Memo[]>([]);
+  const [memosLoading, setMemosLoading] = useState(false);
+  const [memoModalOpen, setMemoModalOpen] = useState(false);
+  const loadMemos = () => {
+    setMemosLoading(true);
+    fetch(`/api/proposals/${p.id}/memos`).then((r) => r.json()).then((d) => {
+      if (d.ok) setMemos(d.memos as Memo[]);
+    }).catch(() => {}).finally(() => setMemosLoading(false));
+  };
+  useEffect(() => { loadMemos(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p.id]);
+  const onDeleteMemo = (mid: string) => {
+    if (!confirm("このメモを削除しますか？")) return;
+    start(async () => { const r = await deleteProposalMemo(mid); if (r.ok) loadMemos(); else alert(r.error || "削除に失敗しました"); });
+  };
 
   const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
   const moveTo = (stage: string) => { if (stage !== p.stage) run(() => updateProposalStage(p.id, stage)); };
@@ -189,6 +207,42 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
             </div>
           </div>
 
+          {/* メモ履歴（カテゴリ別の対応ログ） */}
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div className="muted" style={{ fontSize: 11.5 }}>メモ履歴 {memos.length > 0 && <span style={{ marginLeft: 4 }}>({memos.length})</span>}</div>
+              <button type="button" className="btn ghost btn-sm" onClick={() => setMemoModalOpen(true)} title="新しいメモを追加">
+                <span className="material-symbols-outlined" style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>edit_note</span>
+                メモ追加
+              </button>
+            </div>
+            {memosLoading ? (
+              <div className="muted" style={{ fontSize: 12 }}>読み込み中…</div>
+            ) : memos.length === 0 ? (
+              <div className="muted" style={{ fontSize: 12 }}>メモはまだありません。</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {memos.map((m) => {
+                  const tone = memoCategoryTone(m.category);
+                  const dt = new Date(m.created_at);
+                  const dtStr = isNaN(dt.getTime()) ? "—" : `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+                  const author = m.created_by_name || (m.created_by_email ? m.created_by_email.split("@")[0] : "");
+                  return (
+                    <div key={m.id} style={{ borderLeft: `3px solid ${tone.fg}`, paddingLeft: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg }}>{m.category}</span>
+                        {author && <span className="muted" style={{ fontSize: 11 }}>{author}</span>}
+                        <button type="button" onClick={() => onDeleteMemo(m.id)} className="btn ghost btn-xs" title="メモを削除" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>削除</button>
+                      </div>
+                      <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink)" }}>{m.body}</div>
+                      <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>{dtStr}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
           <div className="card" style={{ padding: 16 }}>
             <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>通知ステータス</div>
@@ -286,6 +340,7 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
           )}
         </div>
       </div>
+      {memoModalOpen && <ProposalMemoModal proposalId={p.id} onClose={() => setMemoModalOpen(false)} onAdded={loadMemos} />}
     </div>
   );
 }
