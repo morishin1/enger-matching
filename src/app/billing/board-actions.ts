@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { boardConfigured, fetchInvoices, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, type BoardProbe } from "@/lib/board";
+import { boardConfigured, fetchInvoices, fetchProjects, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, projectId, projectNo, projectName, projectClientName, type BoardProbe } from "@/lib/board";
 
 type Access = Awaited<ReturnType<typeof currentAccess>>;
 function canManage(access: Access): boolean {
@@ -78,6 +78,85 @@ export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; 
   );
   revalidatePath("/progress"); revalidatePath("/billing");
   return { ok: true, matched, updated, period, mapped: byKey.size, scanned: inv.scanned, capHit: inv.capHit };
+}
+
+// ---- 自動ひもづけ ----------------------------------------------------------------
+/** 企業名/案件名を比較しやすい形に正規化（株式会社などを除去、英数小文字、空白除去）。 */
+function normalizeCompany(s: string): string {
+  return s
+    .replace(/[\s　]+/g, "")
+    .replace(/[（）\(\)]/g, "")
+    .replace(/(株式会社|有限会社|合同会社|合資会社|合名会社|（株）|\(株\)|（有）|\(有\)|Inc\.?|Co\.?,?\s*Ltd\.?|Corp\.?|Corporation|Limited|LLC)/gi, "")
+    .toLowerCase();
+}
+function normalizeText(s: string): string {
+  return s.replace(/[\s　]+/g, "").toLowerCase();
+}
+
+/**
+ * 自動ひもづけ：board の案件一覧を取得し、未ひもづけの稼働(board_project_id IS NULL)に対して
+ *   ・企業名(client_name) が完全/包含一致 かつ
+ *   ・人材名(candidate_name) または 案件名(job_title) が案件名に含まれる
+ *   を満たす board 案件を割り当てる。複数候補がある場合はスキップ（安全側）。
+ */
+export async function autoLinkBoardProjects(): Promise<{ ok: boolean; error?: string; linked?: number; skipped?: number; targets?: number; projects?: number; ambiguous?: number }> {
+  if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
+  if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  const eng = await admin
+    .from("engagements")
+    .select("id, company, candidate_name, job_title, board_project_id, status")
+    .is("board_project_id", null)
+    .in("status", ["稼働中", "予定"]);
+  if (eng.error) return { ok: false, error: `稼働取得エラー：${eng.error.message}` };
+  const targets = (eng.data ?? []).filter((e: any) => e.company);
+  if (targets.length === 0) return { ok: true, linked: 0, skipped: 0, targets: 0, projects: 0, ambiguous: 0 };
+
+  const pr = await fetchProjects();
+  if (!pr.ok) return { ok: false, error: `board 案件取得エラー：${pr.error}` };
+
+  // 正規化済みの企業名でグルーピング
+  type P = { id: string; no: string | null; name: string; client: string };
+  const byClient = new Map<string, P[]>();
+  for (const row of pr.rows) {
+    const id = projectId(row); const client = projectClientName(row); const name = projectName(row);
+    if (!id || !client) continue;
+    const key = normalizeCompany(client);
+    if (!key) continue;
+    const arr = byClient.get(key) ?? [];
+    arr.push({ id, no: projectNo(row), name: name ?? "", client });
+    byClient.set(key, arr);
+  }
+
+  let linked = 0, skipped = 0, ambiguous = 0;
+  for (const e of targets) {
+    const candidates = byClient.get(normalizeCompany(String(e.company)));
+    if (!candidates || candidates.length === 0) { skipped++; continue; }
+    // 1案件しかなければ即採用
+    let chosen: P | null = null;
+    if (candidates.length === 1) {
+      chosen = candidates[0];
+    } else {
+      // 人材名 or 案件名が一致する案件を優先
+      const cn = e.candidate_name ? normalizeText(String(e.candidate_name)) : "";
+      const jt = e.job_title ? normalizeText(String(e.job_title)) : "";
+      const hits = candidates.filter((c) => {
+        const nn = normalizeText(c.name);
+        return (cn && nn.includes(cn)) || (jt && nn.includes(jt));
+      });
+      if (hits.length === 1) chosen = hits[0];
+      else { ambiguous++; continue; } // 0件 or 複数 → 安全側でスキップ
+    }
+    const idVal = chosen.no ?? chosen.id;
+    const upd = await admin.from("engagements").update({ board_project_id: idVal }).eq("id", e.id);
+    if (!upd.error) linked++;
+    else skipped++;
+  }
+
+  revalidatePath("/progress");
+  return { ok: true, linked, skipped, targets: targets.length, projects: pr.rows.length, ambiguous };
 }
 
 /** 接続テスト：候補エンドポイントを当たって実レスポンスの形を返す（管理者・バックオフィスのみ）。 */

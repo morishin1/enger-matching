@@ -151,6 +151,47 @@ export function billingPeriod(b: Record<string, unknown>): string | null {
   return null;
 }
 
+// ---- 案件(/projects) — 自動ひもづけ用 ----------------------------------------------
+export type ProjectFetch =
+  | { ok: true; rows: Record<string, unknown>[]; scanned: number; capHit: boolean }
+  | { ok: false; error: string; status: number };
+
+/** board /projects をページングで取得（自動ひもづけの突合元）。 */
+export async function fetchProjects(): Promise<ProjectFetch> {
+  const PER = 100, CAP = 50;
+  const all: Record<string, unknown>[] = [];
+  let scanned = 0, capHit = false, effectivePer = 0;
+  for (let page = 1; page <= CAP; page++) {
+    const r = await boardGet("/projects", { page, per_page: PER });
+    if (!r.ok) return page === 1 ? r : { ok: true, rows: all, scanned, capHit };
+    const rows = asArray(r.data);
+    if (page === 1) effectivePer = rows.length;
+    scanned += rows.length;
+    all.push(...rows);
+    if (rows.length === 0) break;
+    if (page > 1 && effectivePer > 0 && rows.length < effectivePer) break;
+    if (page === CAP) { capHit = true; break; }
+    await sleep(350);
+  }
+  return { ok: true, rows: all, scanned, capHit };
+}
+
+function firstStr(p: Record<string, unknown>, keys: string[]): string | null {
+  for (const k of keys) { const v = p?.[k]; if (v != null && String(v).trim()) return String(v); }
+  return null;
+}
+
+/** 案件の内部ID。 */
+export function projectId(p: Record<string, unknown>): string | null { return firstStr(p, ["id", "project_id"]); }
+/** 案件番号（UI表示）。 */
+export function projectNo(p: Record<string, unknown>): string | null { return firstStr(p, ["project_no", "no", "number"]); }
+/** 案件名。 */
+export function projectName(p: Record<string, unknown>): string | null { return firstStr(p, ["name", "project_name", "title"]); }
+/** 顧客（クライアント）名。 */
+export function projectClientName(p: Record<string, unknown>): string | null {
+  return firstStr(p, ["client_name", "customer_name", "company_name", "client", "customer"]);
+}
+
 /** 請求済/入金済 = true（送付完了扱い）、未請求 = false、判定不能 = null（更新しない）。 */
 export function billingSent(b: Record<string, unknown>): boolean | null {
   if (b?.paid_date) return true; // 入金済なら送付済
