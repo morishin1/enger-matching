@@ -20,10 +20,10 @@ export function ProposalsTabs({
   lostCount: number;
 }) {
   const [tab, setTab] = useState<TabKey>("board");
-  const tabs: { key: TabKey; label: string; count: number; show: boolean }[] = [
-    { key: "board",   label: "📋 提案ボード", count: boardCount,   show: true },
-    { key: "history", label: "📜 過去の提案", count: historyCount, show: !!history },
-    { key: "lost",    label: "💔 失注理由",   count: lostCount,    show: !!lostSummary },
+  const tabs: { key: TabKey; label: string; count: number; show: boolean; title?: string }[] = [
+    { key: "board",   label: "📋 提案ボード", count: boardCount,   show: true, title: "進行中の提案件数（返信待ち〜面談合格の合計）。見送り/失注/稼働済みは除外。" },
+    { key: "history", label: "📜 過去の提案", count: historyCount, show: !!history, title: "見送り/失注/稼働化した提案の累計（直近200件まで表示）" },
+    { key: "lost",    label: "💔 失注理由",   count: lostCount,    show: !!lostSummary, title: "見送り/失注の合計件数" },
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -36,6 +36,7 @@ export function ProposalsTabs({
               type="button"
               role="tab"
               aria-selected={active}
+              title={t.title}
               onClick={() => setTab(t.key)}
               style={{
                 padding: "10px 18px",

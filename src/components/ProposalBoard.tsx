@@ -276,11 +276,13 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const onLose = (id: string, lost_phase: string, lost_reason: string) => run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason }));
   const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
-  const byStage = (s: string) => proposals.filter((p) => (p.stage ?? "返信待ち") === s);
+  // 未知のステージ（旧仕様の "返信あり" 等の残骸や null）は「返信待ち」に丸めて、
+  // ボード合計(boardCount) と 各カラムの合計が一致するようにする。
+  const normalizeStage = (s: string | null | undefined): string => (s && (STAGES as readonly string[]).includes(s)) ? s : "返信待ち";
+  const byStage = (s: string) => proposals.filter((p) => normalizeStage(p.stage) === s);
   // ステージ目標日数を超過 / 大幅超過の件数を集計
   const stalled = proposals.reduce((acc, p) => {
-    const s = p.stage ?? "返信待ち";
-    if (!STAGES.includes(s)) return acc;
+    const s = normalizeStage(p.stage);
     const d = daysSince(p.stage_updated_at ?? p.updated_at ?? p.created_at);
     if (d == null) return acc;
     const sla = STAGE_SLA_DAYS[s] ?? 5;
