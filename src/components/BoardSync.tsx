@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { syncBoardInvoices, boardConnectionTest, autoLinkBoardProjects } from "@/app/billing/board-actions";
 
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "未同期");
+const STALE_MS = 60 * 60 * 1000; // 1時間以上前の同期は「古い」とみなす
 
-/** board 請求の手動同期（管理者・バックオフィス向け）。当月の送付状況を board から読み取り更新。 */
+/** board 請求の同期（手動＋ページ表示時の自動同期）。当月の送付状況を board から読み取り更新。 */
 export function BoardSync({ period, lastSyncedAt }: { period: string; lastSyncedAt?: string | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [debug, setDebug] = useState<string | null>(null);
+  const autoRan = useRef(false);
 
   const sync = () => start(async () => {
     setDebug(null);
@@ -33,6 +35,23 @@ export function BoardSync({ period, lastSyncedAt }: { period: string; lastSynced
     setMsg({ ok: true, text: `✓ 自動ひもづけ：${r.linked ?? 0}/${r.targets ?? 0}件 紐づけ（board案件${r.projects ?? 0}件 走査${amb}）` });
     router.refresh();
   });
+
+  // 自動同期：ページ表示時に最終同期が1時間以上前なら静かに同期して 未送付↔送付済 を最新化
+  useEffect(() => {
+    if (autoRan.current) return;
+    autoRan.current = true;
+    const last = lastSyncedAt ? new Date(lastSyncedAt).getTime() : 0;
+    if (Date.now() - last < STALE_MS) return; // まだ新しい
+    start(async () => {
+      setMsg({ ok: true, text: `🔄 自動同期中…（${period}）` });
+      const r = await syncBoardInvoices(period);
+      if (!r.ok) { setMsg({ ok: false, text: `自動同期失敗: ${r.error ?? "不明"}` }); router.refresh(); return; }
+      if ((r.mapped ?? 0) === 0) { setMsg(null); router.refresh(); return; } // 未ひもづけは静かにスキップ
+      setMsg({ ok: true, text: `✓ 自動同期：${r.matched ?? 0}件一致 / ${r.updated ?? 0}件更新` });
+      router.refresh();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const test = () => start(async () => {
     setMsg(null);

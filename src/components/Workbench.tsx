@@ -50,7 +50,8 @@ function useBilling(engId: string, period: string, onChanged: () => void) {
       if (!r.ok) setMsg({ ok: false, text: r.error ?? "失敗しました" });
       else if (kind === "attendance") {
         if (r.hours != null) { setHours?.(r.hours); setMsg({ ok: true, text: `✓ AI算出 ${r.hours}h` }); }
-        else setMsg({ ok: true, text: r.aiError ? "添付済(自動計算失敗)" : (r.aiNote ?? "添付しました") });
+        else if (r.aiError) setMsg({ ok: true, text: `添付済（自動計算失敗: ${r.aiError.slice(0, 40)}）— h欄に手入力してください` });
+        else setMsg({ ok: true, text: r.aiNote ?? "添付済（h欄に手入力してください）" });
       } else setMsg({ ok: true, text: "✓ 請求書を添付" });
       onChanged();
     });
@@ -84,16 +85,30 @@ function AttCell({ e, period, onChanged }: { e: Eng; period: string; onChanged: 
   );
 }
 
-/** board 案件IDの手動ひもづけ入力（管理者・バックオフィスのみ表示）。 */
+/** board 案件IDの手動ひもづけ入力（管理者・バックオフィスのみ表示）。入力後はフォーカスを外す/Enterで自動保存。 */
 function BoardIdField({ e, onChanged }: { e: Eng; onChanged: () => void }) {
   const [pending, start] = useTransition();
   const [v, setV] = useState<string>(e.board_project_id ?? "");
+  const [saved, setSaved] = useState(false);
   const save = () => {
     if ((v.trim() || null) === (e.board_project_id ?? null)) return;
-    start(async () => { await setBoardProjectId(e.id, v); onChanged(); });
+    start(async () => {
+      const r = await setBoardProjectId(e.id, v);
+      if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 1500); }
+      onChanged();
+    });
   };
   return (
-    <input value={v} disabled={pending} placeholder="board案件ID/番号" title="board の案件ID（URLの数字）または案件番号を設定すると、同期で送付状況を自動更新します" style={{ ...inp, width: 110, fontSize: 10.5, padding: "3px 6px" }} onChange={(ev) => setV(ev.target.value)} onBlur={save} />
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <input value={v} disabled={pending} placeholder="board案件ID/番号" title="board の案件ID（URLの数字）または案件番号を設定。入力後 Enter または別欄をクリックで自動保存。設定後「🔄 今すぐ同期」で送付状況が反映されます。"
+        style={{ ...inp, width: 110, fontSize: 10.5, padding: "3px 6px" }}
+        onChange={(ev) => setV(ev.target.value)}
+        onBlur={save}
+        onKeyDown={(ev) => { if (ev.key === "Enter") { ev.currentTarget.blur(); } }} />
+      {pending && <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>…</span>}
+      {!pending && saved && <span style={{ fontSize: 10, color: "#067647", fontWeight: 700 }}>✓保存</span>}
+      {!pending && !saved && e.board_project_id && <span style={{ fontSize: 10, color: "#067647" }} title="紐づけ済み">✓</span>}
+    </div>
   );
 }
 
@@ -102,12 +117,17 @@ function InvCell({ e, period, onChanged, canManage }: { e: Eng; period: string; 
   const [amount, setAmount] = useState<number | "">(b.invoice_amount ?? "");
   const { pending, saveBill } = useBilling(e.id, period, onChanged);
   // 請求書本体は board で作成・送付。ENGER は「送付状況」だけ管理（二重管理を解消）。
+  // 請求額は board 同期で取り込まれる予定（無ければ任意で手入力）。
   const sent = b.invoice_status === "送付完了" || b.invoice_status === "発行済";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 150 }}>
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        <input type="number" value={amount} disabled={pending} placeholder="請求額(万)" title="請求額（万円・任意）" style={{ ...inp, width: 78 }} onChange={(ev) => setAmount(ev.target.value === "" ? "" : Number(ev.target.value))} onBlur={() => saveBill({ invoice_amount: amount === "" ? null : Number(amount) })} />
-        <button type="button" className="btn ghost btn-xs" disabled={pending} title="boardで請求書を送付したらここを「送付完了」に（同期でも自動更新）" onClick={() => saveBill({ invoice_status: sent ? "未" : "送付完了" })} style={{ color: sent ? "#1aa260" : "var(--color-ink-4)", fontWeight: 600 }}>{sent ? "✓送付完了" : "未送付"}</button>
+        <input type="number" value={amount} disabled={pending} placeholder="請求額(万)" title="任意。board同期で自動入力されます。空欄でもOK。入力後フォーカスを外すと保存"
+          style={{ ...inp, width: 78 }}
+          onChange={(ev) => setAmount(ev.target.value === "" ? "" : Number(ev.target.value))}
+          onBlur={() => saveBill({ invoice_amount: amount === "" ? null : Number(amount) })}
+          onKeyDown={(ev) => { if (ev.key === "Enter") (ev.currentTarget as HTMLInputElement).blur(); }} />
+        <button type="button" className="btn ghost btn-xs" disabled={pending} title="board側で請求書を送付するとここが自動で「送付完了」に切り替わります（🔄 今すぐ同期 を実行）。手動切替も可" onClick={() => saveBill({ invoice_status: sent ? "未" : "送付完了" })} style={{ color: sent ? "#1aa260" : "var(--color-ink-4)", fontWeight: 600 }}>{sent ? "✓送付完了" : "未送付"}</button>
       </div>
       {canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>請求書は board で作成・送付</div>}
     </div>
@@ -242,10 +262,19 @@ function TaskRow({ e, role, period, onChanged, done, canManage }: { e: Eng; role
   const tone = TONE[e.status] ?? TONE["予定"];
   const save = (patch: Record<string, any>) => start(async () => { await updateEngagementFields(e.id, patch); onChanged(); });
   const td = { padding: "7px 8px", borderBottom: "1px solid var(--color-border)", verticalAlign: "top" } as const;
+  const aff = affiliationShort(e.affiliation);
+  const affTone = aff === "PP" ? { bg: "#e7f3ea", fg: "#067647", bd: "#bfe3cc" }
+    : aff === "BP" ? { bg: "#fff6e0", fg: "#9a7b12", bd: "#fde9b0" }
+    : aff === "FL" ? { bg: "#eef2ff", fg: "#3730a3", bd: "#c7d2fe" }
+    : { bg: "var(--color-surface-inset)", fg: "var(--color-ink-4)", bd: "var(--color-border)" };
   return (
     <tr style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined }}>
       <td style={td}>
-        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{e.candidate_name ?? "—"}{done && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}</div>
+        <div style={{ fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {e.candidate_name ?? "—"}
+          <span title={`所属区分: ${e.affiliation ?? "未設定"}`} style={{ fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, background: affTone.bg, color: affTone.fg, border: `1px solid ${affTone.bd}`, lineHeight: 1.4 }}>{aff}</span>
+          {done && <span style={{ fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}
+        </div>
         <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
       </td>
       <td style={td}><AttCell e={e} period={period} onChanged={onChanged} /></td>

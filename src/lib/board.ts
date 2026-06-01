@@ -192,6 +192,16 @@ export function projectClientName(p: Record<string, unknown>): string | null {
   return firstStr(p, ["client_name", "customer_name", "company_name", "client", "customer"]);
 }
 
+/** 請求額(万円換算・整数)。board は円単位なので 10000 で除して四捨五入。複数候補キーを試す。 */
+export function billingAmountMan(b: Record<string, unknown>): number | null {
+  for (const k of ["total_amount", "amount", "billing_amount", "total", "subtotal"]) {
+    const v = b?.[k];
+    const n = typeof v === "number" ? v : (typeof v === "string" ? Number(v.replace(/[^\d.-]/g, "")) : NaN);
+    if (Number.isFinite(n) && n > 0) return Math.round(n / 10000);
+  }
+  return null;
+}
+
 /** 請求済/入金済 = true（送付完了扱い）、未請求 = false、判定不能 = null（更新しない）。 */
 export function billingSent(b: Record<string, unknown>): boolean | null {
   if (b?.paid_date) return true; // 入金済なら送付済
