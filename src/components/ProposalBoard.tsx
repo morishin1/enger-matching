@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
@@ -77,8 +77,9 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, onDragStart, onDragEnd, isDragging }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, onDragStart, onDragEnd, isDragging, density = "normal" }: any) {
   const [open, setOpen] = useState(false);
+  const compact = density === "compact" && !open;
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
   const [partner, setPartner] = useState(p.partner ?? "");
@@ -126,7 +127,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       }}
       title="クリックで編集"
       style={{
-        padding: 12,
+        padding: compact ? 8 : 12,
         opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
         borderLeft: `4px solid ${edgeColor}`,
         // 滞留が警告/危険な場合は右端にもアクセント
@@ -136,64 +137,89 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         transition: "opacity .12s ease",
       }}
     >
-      {/* 登録元バッジ（固定色・アイコン） */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-        {src ? (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: `${src.color}1a`, color: src.color, border: `1px solid ${src.color}55` }}>
-            <span>{src.icon}</span>{src.label}
-          </span>
-        ) : (
-          <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>登録元 未設定</span>
-        )}
-      </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
-        {p.job_no != null
-          ? <Link
-              href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`}
-              title="この案件×人材のマッチング結果画面へ"
-              style={{ color: "var(--color-brand-700)", textDecoration: "none" }}
-            >{p.job_title ?? "—"}</Link>
-          : (p.job_title ?? "—")}
-      </div>
-      <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
-        {(proposedAt || targetAt) && (
-          <span style={{ flexShrink: 0, display: "inline-flex", gap: 4, alignItems: "center", fontSize: 10.5 }}>
-            <span title={`提案開始：${fmtMDt(proposedAt)}（経過 ${totalDays ?? 0}日）`}
-              style={{ color: "var(--color-ink-3)", fontWeight: 600 }}>
-              提案 {fmtMD(proposedAt)}
+      {compact ? (
+        // ── コンパクト表示：1行サマリ（クリックで展開）。1画面に多く収まる。 ──
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <div className="ava" style={{ width: 22, height: 22, fontSize: 9, flex: "0 0 22px" }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {p.job_no != null
+                ? <Link href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link>
+                : (p.job_title ?? "—")}
+            </div>
+            <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {(p.candidate_name ?? "—")} {p.company ? `· ${p.company}` : ""}{p.proposer ? ` · ${p.proposer}` : ""}
+            </div>
+          </div>
+          {targetAt && at.level !== "ok" && (
+            <span title={`目標 ${fmtMD(targetAt)}${at.level === "warn" ? " ⚠ 目標超過" : ` 🚨 +${overdueDays}d`}`} style={{ flexShrink: 0, padding: "1px 6px", borderRadius: 99, background: at.bg, color: at.fg, border: `1px solid ${at.bd}`, fontWeight: 700, fontSize: 10 }}>
+              {at.level === "warn" ? "⚠" : "🚨"} {fmtMD(targetAt)}
             </span>
-            <span style={{ color: "var(--color-ink-5)" }}>→</span>
-            <span title={`目標：${fmtMDt(targetAt)}（現ステージ「${p.stage}」滞留 ${stageDays ?? 0}日 / SLA ${sla}日）${at.level === "warn" ? "\n⚠ 目標超過" : at.level === "danger" ? "\n🚨 大幅超過" : ""}`}
-              style={{ padding: "1px 6px", borderRadius: 99, background: at.bg, color: at.fg, border: `1px solid ${at.bd}`, fontWeight: 700 }}>
-              目標 {fmtMD(targetAt)}{at.level === "warn" ? " ⚠" : at.level === "danger" ? ` 🚨 +${overdueDays}d` : ""}
-            </span>
-          </span>
-        )}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
-          <div className="muted" style={{ fontSize: 10.5 }}>{p.rate ?? ""}{p.score != null ? ` · マッチ${p.score}%` : ""}</div>
+          )}
         </div>
-      </div>
-      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
-        {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
-        {(p.meeting_date || p.meeting_status) && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: "#fff1e6", color: "#b45309" }}>📅 {[p.meeting_date, p.meeting_status].filter(Boolean).join(" ")}</span>}
-        {p.company_owner && <span className="tag" style={{ fontSize: 10, background: "#eef5fd", color: "#0b5cab" }}>企業担当 {p.company_owner}</span>}
-        {p.proposer && (() => { const col = hashColor(p.proposer); return (
-          <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>提案 {p.proposer}</span>
-        ); })()}
-        {p.partner && (() => { const col = hashColor(p.partner); return (
-          <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55` }}>組 {p.partner}</span>
-        ); })()}
-        {p.proposer && !p.partner && <span className="tag" style={{ fontSize: 10, color: "#b45309", background: "#fff1e6" }}>パートナー未定</span>}
-        {(p.closer ?? p.company_owner) && (p.closer ?? p.company_owner) !== "未割当" && (() => { const closer = p.closer ?? p.company_owner; const col = hashColor(closer); return (
-          <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>CL {closer}</span>
-        ); })()}
-      </div>
+      ) : (
+        <>
+          {/* 登録元バッジ（固定色・アイコン） */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+            {src ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: `${src.color}1a`, color: src.color, border: `1px solid ${src.color}55` }}>
+                <span>{src.icon}</span>{src.label}
+              </span>
+            ) : (
+              <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>登録元 未設定</span>
+            )}
+          </div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
+            {p.job_no != null
+              ? <Link
+                  href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`}
+                  title="この案件×人材のマッチング結果画面へ"
+                  style={{ color: "var(--color-brand-700)", textDecoration: "none" }}
+                >{p.job_title ?? "—"}</Link>
+              : (p.job_title ?? "—")}
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 6 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{p.client_contact ? ` / ${p.client_contact}` : ""}</span>
+            {(proposedAt || targetAt) && (
+              <span style={{ flexShrink: 0, display: "inline-flex", gap: 4, alignItems: "center", fontSize: 10.5 }}>
+                <span title={`提案開始：${fmtMDt(proposedAt)}（経過 ${totalDays ?? 0}日）`}
+                  style={{ color: "var(--color-ink-3)", fontWeight: 600 }}>
+                  提案 {fmtMD(proposedAt)}
+                </span>
+                <span style={{ color: "var(--color-ink-5)" }}>→</span>
+                <span title={`目標：${fmtMDt(targetAt)}（現ステージ「${p.stage}」滞留 ${stageDays ?? 0}日 / SLA ${sla}日）${at.level === "warn" ? "\n⚠ 目標超過" : at.level === "danger" ? "\n🚨 大幅超過" : ""}`}
+                  style={{ padding: "1px 6px", borderRadius: 99, background: at.bg, color: at.fg, border: `1px solid ${at.bd}`, fontWeight: 700 }}>
+                  目標 {fmtMD(targetAt)}{at.level === "warn" ? " ⚠" : at.level === "danger" ? ` 🚨 +${overdueDays}d` : ""}
+                </span>
+              </span>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
+              <div className="muted" style={{ fontSize: 10.5 }}>{p.rate ?? ""}{p.score != null ? ` · マッチ${p.score}%` : ""}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+            {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
+            {(p.meeting_date || p.meeting_status) && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: "#fff1e6", color: "#b45309" }}>📅 {[p.meeting_date, p.meeting_status].filter(Boolean).join(" ")}</span>}
+            {p.company_owner && <span className="tag" style={{ fontSize: 10, background: "#eef5fd", color: "#0b5cab" }}>企業担当 {p.company_owner}</span>}
+            {p.proposer && (() => { const col = hashColor(p.proposer); return (
+              <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>提案 {p.proposer}</span>
+            ); })()}
+            {p.partner && (() => { const col = hashColor(p.partner); return (
+              <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55` }}>組 {p.partner}</span>
+            ); })()}
+            {p.proposer && !p.partner && <span className="tag" style={{ fontSize: 10, color: "#b45309", background: "#fff1e6" }}>パートナー未定</span>}
+            {(p.closer ?? p.company_owner) && (p.closer ?? p.company_owner) !== "未割当" && (() => { const closer = p.closer ?? p.company_owner; const col = hashColor(closer); return (
+              <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>CL {closer}</span>
+            ); })()}
+          </div>
+        </>
+      )}
 
+      {!compact && (
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx <= 0 || busy} onClick={() => onMove(p.id, STAGES[stageIdx - 1])} title="前へ">←</button>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
@@ -201,6 +227,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         <button type="button" className="btn ghost btn-xs" onClick={() => setOpen((v) => !v)} style={{ marginLeft: "auto" }}>{open ? "閉じる" : "編集"}</button>
         <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy} title="この提案を削除（記録ミスの取り消し）" onClick={() => { if (confirm(`「${p.candidate_name ?? "この人材"} × ${p.job_title ?? "案件"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) onDelete(p.id); }}>🗑</button>
       </div>
+      )}
 
       {open && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -279,6 +306,16 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const [busyId, setBusyId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
+  // 表示密度（コンパクト=1行サマリ、ノーマル=詳細）。localStorage に永続化。
+  const [density, setDensity] = useState<"normal" | "compact">("normal");
+  useEffect(() => {
+    try { const v = localStorage.getItem("enger.proposal-board.density"); if (v === "compact" || v === "normal") setDensity(v); } catch { /* noop */ }
+  }, []);
+  const toggleDensity = () => {
+    const next = density === "normal" ? "compact" : "normal";
+    setDensity(next);
+    try { localStorage.setItem("enger.proposal-board.density", next); } catch { /* noop */ }
+  };
 
   const run = (id: string, fn: () => Promise<any>) => { setBusyId(id); start(async () => { await fn(); router.refresh(); setBusyId(null); }); };
   const onMove = (id: string, stage: string) => run(id, () => updateProposalStage(id, stage));
@@ -333,16 +370,24 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
             <span><b style={{ fontSize: 14 }}>{avgClosingDays}</b> 日</span>
           </div>
         )}
-        <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 10.5, color: "var(--color-ink-4)" }}>
-          <span>SLA 目安：</span>
-          {Object.entries(STAGE_SLA_DAYS).map(([s, d]) => (
-            <span key={s} style={{ display: "inline-flex", gap: 3, alignItems: "center" }}>
-              <span style={{ width: 6, height: 6, borderRadius: 99, background: STAGE_TONE[s] ?? "#6b7280" }} />{s} {d}d
-            </span>
-          ))}
+        <div style={{ marginLeft: "auto", display: "inline-flex", gap: 10, alignItems: "center", fontSize: 10.5, color: "var(--color-ink-4)" }}>
+          <button type="button" onClick={toggleDensity} className="btn ghost btn-xs" title={density === "compact" ? "詳細表示に切替（カードを大きく）" : "コンパクト表示に切替（1画面に多く収まる）"} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{density === "compact" ? "expand" : "compress"}</span>
+            {density === "compact" ? "詳細表示" : "コンパクト"}
+          </button>
+          <span style={{ display: "inline-flex", gap: 8 }}>
+            <span>SLA 目安：</span>
+            {Object.entries(STAGE_SLA_DAYS).map(([s, d]) => (
+              <span key={s} style={{ display: "inline-flex", gap: 3, alignItems: "center" }}>
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: STAGE_TONE[s] ?? "#6b7280" }} />{s} {d}d
+              </span>
+            ))}
+          </span>
         </div>
       </div>
 
+      {/* 各カラムを独立スクロール化することで、ページ全体の縦長を抑える（標準的な kanban パターン）。
+          max-height は画面高さ - ヘッダ等を引いた残り。カラムヘッダは sticky で常時表示。 */}
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(230px, 1fr))`, gap: 12, overflowX: "auto", paddingBottom: 8 }}>
       {STAGES.map((stage) => {
         const items = byStage(stage);
@@ -369,10 +414,14 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
               border: isOver ? `2px dashed ${tone}` : isTargetCandidate ? "2px dashed var(--color-border)" : "2px solid transparent",
               borderRadius: 12, padding: 10, minWidth: 230, display: "flex", flexDirection: "column", gap: 8,
               transition: "background .12s ease, border-color .12s ease",
+              // 画面高さ - 上部要素(ヘッダ・タブ・統計バー等)を引いた残りでカラム内スクロール
+              maxHeight: "calc(100vh - 260px)",
+              minHeight: 240,
+              overflow: "hidden", // 子要素のスクロールに任せる
             }}
           >
-            {/* カラムヘッダ：ステージ名と件数を大きく表示 */}
-            <div style={{ padding: "6px 6px 10px", display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--color-border)" }}>
+            {/* カラムヘッダ：sticky で内部スクロール時も常時表示 */}
+            <div style={{ position: "sticky", top: 0, zIndex: 1, background: isOver ? "#fffbeb" : "var(--color-surface-soft)", padding: "6px 6px 10px", display: "flex", flexDirection: "column", gap: 4, borderBottom: "1px solid var(--color-border)", flex: "0 0 auto" }}>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, color: tone }}>
                 <span style={{ width: 10, height: 10, borderRadius: 99, background: tone }} />
                 {stage}
@@ -382,14 +431,17 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
                 <span style={{ fontSize: 12, color: "var(--color-ink-3)", fontWeight: 600 }}>件</span>
               </div>
             </div>
+            {/* カード本体は内部スクロール */}
+            <div style={{ flex: "1 1 auto", overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column", gap: 8, paddingRight: 2 }}>
             {items.length === 0 && <div style={{ fontSize: 11, color: isOver ? tone : "var(--color-ink-4)", textAlign: "center", padding: "16px 0", fontWeight: isOver ? 700 : 400 }}>{isOver ? "ここにドロップ" : "—"}</div>}
             {items.map((p) => (
-              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members}
+              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members} density={density}
                 isDragging={draggingId === p.id}
                 onDragStart={(id: string) => setDraggingId(id)}
                 onDragEnd={() => { setDraggingId(null); setOverStage(null); }}
                 onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} onDelete={onDelete} />
             ))}
+            </div>
           </div>
         );
       })}
