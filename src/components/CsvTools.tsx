@@ -155,6 +155,8 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const [fileName, setFileName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
+  // 同姓同名の既存と統合（空欄補完）するか。人材取込のみ有効。
+  const [mergeByName, setMergeByName] = useState(false);
 
   const onFile = async (file: File) => {
     setMsg(null);
@@ -178,22 +180,23 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     //   案件は detail(メール本文)が重いので小さめ。人材は軽い＋取込ごとに全件照合するため大きめにして回数を減らす。
     const CHUNK = kind === "candidates" ? 800 : 250;
     start(async () => {
-      let inserted = 0, skipped = 0;
+      let inserted = 0, skipped = 0, merged = 0;
       setMsg(null);
       setProg({ done: 0, total: recs.length });
       try {
         for (let i = 0; i < recs.length; i += CHUNK) {
           const slice = recs.slice(i, i + CHUNK);
           const res = kind === "candidates"
-            ? await importCandidates(slice as CandidateInput[], fileName, getOperator())
+            ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName })
             : await importJobs(slice as JobInput[], fileName, getOperator());
           if (!res.ok) { setProg(null); setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
           inserted += res.inserted ?? 0;
           skipped += (res as any).skipped ?? 0;
+          merged += (res as any).merged ?? 0;
           setProg({ done: Math.min(i + slice.length, recs.length), total: recs.length });
         }
         setProg(null);
-        setMsg({ ok: true, text: `${inserted} 件を取り込みました${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
+        setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（同姓同名 ${merged} 件は既存に統合）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
         setPreview(null);
         router.refresh();
       } catch (e) {
@@ -298,6 +301,12 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
               </div>
             ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
 
+            {kind === "candidates" && (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
+                <input type="checkbox" checked={mergeByName} onChange={(e) => setMergeByName(e.target.checked)} />
+                <span>☑ 同姓同名は既存と統合する（空欄を補完し、新規登録しない）</span>
+              </label>
+            )}
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価（案件はクライアントも）が揃った行だけ取り込みます">重要データ完備の {strictCount} 件のみ取込（推奨）</button>
               <button className="btn" disabled={pending} onClick={() => doImport("all")}>取込可能な {preview.rows.length - errCount} 件を取込</button>
