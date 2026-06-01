@@ -106,11 +106,11 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     // ② mergeByName のときだけ、このバッチの名前に絞って既存レコードを取得（チャンク毎の全件再取得を回避）
     if (opts?.mergeByName) {
       const batchNames = Array.from(new Set(rows.map((r) => r.name).filter(Boolean) as string[]));
-      const FULL_COLS = "id, name, company, source_company, source_mail_url, skills, rate, rate_num, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, skill_sheet_url, email, contact_email, title, affiliation, operator";
       const CHUNK = 500;
       for (let i = 0; i < batchNames.length; i += CHUNK) {
         const slice = batchNames.slice(i, i + CHUNK);
-        const { data, error } = await admin.from("candidates").select(FULL_COLS).in("name", slice);
+        // 行全体(*)を取得して未指定列の上書きを防ぐ（後段の upsert で id 衝突時に欠落列が null 化されないように）
+        const { data, error } = await admin.from("candidates").select("*").in("name", slice);
         if (error || !data) continue;
         for (const r of data as any[]) {
           const k = normKey(r.name);
@@ -120,35 +120,42 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     }
   } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
 
-  // 同姓同名統合：既存に氏名一致がある行は、空欄補完で既存を更新（INSERT スキップ）
+  // 同姓同名統合：既存に氏名一致がある行は、空欄補完で既存を更新（一括 upsert）
   let mergedCount = 0;
   if (opts?.mergeByName) {
     const stillFresh: typeof rows = [];
+    // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
+    const mergedRows: any[] = [];
+    const FILL = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
     for (const r of rows) {
       const nk = normKey(r.name);
       const ex = nk ? byName.get(nk) : null;
       if (!ex || !ex.id) { stillFresh.push(r); continue; }
-      // 空欄補完パッチ（既存が null/空文字 のときだけ入力値で埋める）
-      const patch: Record<string, any> = { imported_at: now };
-      const fields = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
-      for (const f of fields) {
+      const merged: Record<string, any> = { ...ex, imported_at: now };
+      for (const f of FILL) {
         const cur = (ex as any)[f];
         const nv = (r as any)[f];
-        if ((cur == null || cur === "") && nv != null && nv !== "") patch[f] = nv;
+        if ((cur == null || cur === "") && nv != null && nv !== "") merged[f] = nv;
       }
-      // スキルは配列マージ（重複排除）
       const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
       const newSkills: string[] = Array.isArray(r.skills) ? r.skills : [];
-      const mergedSkills = Array.from(new Set([...curSkills, ...newSkills]));
-      if (mergedSkills.length !== curSkills.length) patch.skills = mergedSkills;
-      let upd = await admin.from("candidates").update(patch).eq("id", ex.id);
-      if (upd.error && /column/i.test(upd.error.message)) {
-        // 列未整備フォールバック：未整備の列を順次外す
-        const p2: any = { ...patch };
-        for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete p2[k];
-        upd = await admin.from("candidates").update(p2).eq("id", ex.id);
+      const union = Array.from(new Set([...curSkills, ...newSkills]));
+      if (union.length !== curSkills.length) merged.skills = union;
+      mergedRows.push(merged);
+    }
+    // ★ 一括 upsert（id 衝突＝既存ID指定の UPDATE）に変更し、N回の往復を1〜数回に圧縮
+    if (mergedRows.length > 0) {
+      const UB = 500;
+      for (let i = 0; i < mergedRows.length; i += UB) {
+        const slice = mergedRows.slice(i, i + UB);
+        let { error, count } = await admin.from("candidates").upsert(slice, { onConflict: "id", count: "exact" });
+        if (error && /column/i.test(error.message)) {
+          // 未整備列がある環境はその列を外して再試行
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete o[k]; return o; });
+          ({ error, count } = await admin.from("candidates").upsert(stripped, { onConflict: "id", count: "exact" }));
+        }
+        if (!error) mergedCount += count ?? slice.length;
       }
-      if (!upd.error) mergedCount++;
     }
     // 統合対象だった行は新規INSERTのループから除外
     if (stillFresh.length !== rows.length) (rows as any).length = 0;
@@ -961,37 +968,51 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
   if (opts?.mergeExisting) {
     const stillNew: typeof rows = [];
     const tk = (t?: string | null, c?: string | null) => normKey(t) + "|" + normKey(c);
-    // 既存を一気に取得して索引化
+    // 既存をこのバッチの (title × client_name) に絞って取得（チャンク毎の全件再取得を回避）。
     const byKey = new Map<string, any>();
     try {
-      for (let from = 0; ; from += 1000) {
-        const { data, error } = await admin.from("jobs").select("id, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, contact_name, contact_email, source_mail_url, is_published, operator").range(from, from + 999);
-        if (error || !data) break;
+      const titles = Array.from(new Set(rows.map((r) => r.title).filter(Boolean) as string[]));
+      const CH = 500;
+      for (let i = 0; i < titles.length; i += CH) {
+        const slice = titles.slice(i, i + CH);
+        // 行全体(*)を取得し、後段の upsert で欠落列が null 化されないようにする
+        const { data, error } = await admin.from("jobs").select("*").in("title", slice);
+        if (error || !data) continue;
         for (const r of data as any[]) { const k = tk(r.title, r.client_name); if (k && !byKey.has(k)) byKey.set(k, r); }
-        if (data.length < 1000) break;
       }
     } catch { /* 取得失敗時は通常のINSERTパスへ */ }
+
+    // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
+    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
+    const mergedRows: any[] = [];
     for (const r of rows) {
       const k = tk(r.title, r.client_name);
       const ex = byKey.get(k);
       if (!ex?.id) { stillNew.push(r); continue; }
-      const patch: Record<string, any> = { is_published: true, imported_at: now };
-      const fields = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
-      for (const f of fields) {
+      const m: Record<string, any> = { ...ex, is_published: true, imported_at: now };
+      for (const f of FILL) {
         const cur = (ex as any)[f];
         const nv = (r as any)[f];
-        if ((cur == null || cur === "") && nv != null && nv !== "") patch[f] = nv;
+        if ((cur == null || cur === "") && nv != null && nv !== "") m[f] = nv;
       }
       const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
       const newSkills: string[] = Array.isArray((r as any).skills) ? (r as any).skills : [];
-      const mergedSkills = Array.from(new Set([...curSkills, ...newSkills]));
-      if (mergedSkills.length !== curSkills.length) patch.skills = mergedSkills;
-      let upd = await admin.from("jobs").update(patch).eq("id", ex.id);
-      if (upd.error && /column/i.test(upd.error.message)) {
-        const p2: any = { ...patch }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator"]) delete p2[k2];
-        upd = await admin.from("jobs").update(p2).eq("id", ex.id);
+      const union = Array.from(new Set([...curSkills, ...newSkills]));
+      if (union.length !== curSkills.length) m.skills = union;
+      mergedRows.push(m);
+    }
+    // ★ 一括 upsert（id 衝突＝既存IDの UPDATE）に変更
+    if (mergedRows.length > 0) {
+      const UB = 300; // detail を含むため小さめ
+      for (let i = 0; i < mergedRows.length; i += UB) {
+        const slice = mergedRows.slice(i, i + UB);
+        let { error, count } = await admin.from("jobs").upsert(slice, { onConflict: "id", count: "exact" });
+        if (error && /column/i.test(error.message)) {
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator"]) delete o[k2]; return o; });
+          ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "id", count: "exact" }));
+        }
+        if (!error) merged += count ?? slice.length;
       }
-      if (!upd.error) merged++;
     }
     rows.length = 0; for (const r of stillNew) (rows as any).push(r);
   }

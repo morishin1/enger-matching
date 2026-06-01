@@ -182,29 +182,50 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     }).map((r) => r.rec);
     if (recs.length === 0) { setMsg({ ok: false, text: "取込対象がありません" }); return; }
     // 大量CSV対策：1リクエストが大きすぎるとサーバ側ボディ上限(Vercel ~4.5MB)を超えるためチャンク送信。
-    //   candidates: mergeByName=true だと既存全件フェッチがチャンク毎に走るため、小さめにして進捗が早く見えるようにする。
-    const CHUNK = kind === "candidates" ? (mergeByName ? 400 : 800) : 250;
+    //   candidates: mergeByName=true でもサーバ側はバッチ upsert になったのでチャンクサイズを大きく取れる。
+    const CHUNK = kind === "candidates" ? 800 : 250;
+    // 同時2並列で送信して往復のレイテンシを隠す（mergeByName ON でも安全：サーバ側は id 衝突 upsert なので冪等）。
+    const CONCURRENCY = 2;
     // 即時フィードバック：ボタンを押したことが即わかるよう、最初に「準備中」を見せる
     setMsg(null);
     setDoneInfo(null);
     setProg({ done: 0, total: recs.length, phase: "送信準備中…" });
     start(async () => {
       let inserted = 0, skipped = 0, merged = 0;
-      try {
-        for (let i = 0; i < recs.length; i += CHUNK) {
+      let completedRows = 0;
+      let nextStart = 0;
+      let aborted = false;
+      let errMsg: string | null = null;
+      const totalRows = recs.length;
+      const phase = mergeByName ? "既存データと突合中…" : "サーバへ送信中…";
+
+      const worker = async () => {
+        while (!aborted) {
+          const i = nextStart;
+          if (i >= totalRows) return;
+          nextStart = i + CHUNK;
           const slice = recs.slice(i, i + CHUNK);
-          setProg({ done: i, total: recs.length, phase: mergeByName ? "既存データと突合中…" : "サーバへ送信中…" });
-          const res = kind === "candidates"
-            ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName })
-            : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName });
-          if (!res.ok) { setProg(null); setMsg({ ok: false, text: `${res.error || "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
-          inserted += res.inserted ?? 0;
-          skipped += (res as any).skipped ?? 0;
-          merged += (res as any).merged ?? 0;
-          setProg({ done: Math.min(i + slice.length, recs.length), total: recs.length, phase: "サーバへ送信中…" });
+          try {
+            const res = kind === "candidates"
+              ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName })
+              : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName });
+            if (!res.ok) { aborted = true; errMsg = res.error || "取込に失敗しました"; return; }
+            inserted += res.inserted ?? 0;
+            skipped += (res as any).skipped ?? 0;
+            merged += (res as any).merged ?? 0;
+            completedRows += slice.length;
+            setProg({ done: Math.min(completedRows, totalRows), total: totalRows, phase });
+          } catch (e) {
+            aborted = true; errMsg = e instanceof Error ? e.message : "取込に失敗しました"; return;
+          }
         }
+      };
+
+      try {
+        const workerCount = Math.min(CONCURRENCY, Math.ceil(totalRows / CHUNK));
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+        if (aborted) { setProg(null); setMsg({ ok: false, text: `${errMsg ?? "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
         setProg(null);
-        // モーダルは閉じず、結果パネルを残してユーザーに確認してもらう
         setDoneInfo({ inserted, merged, skipped });
         setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（同姓同名 ${merged} 件は既存に統合）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
         router.refresh();
