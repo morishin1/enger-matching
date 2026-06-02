@@ -157,9 +157,13 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
   const onChanged = () => router.refresh();
 
   const setMonth = (delta: number) => {
+    // YYYY-MM を文字列演算で算出。Date経由だと toISOString() の UTC 変換で
+    // JST(+09:00)では1ヶ月手前に化けてしまうので使わない（例: 6月→4月になる不具合）。
     const [y, m] = period.split("-").map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    router.push(`/progress?period=${d.toISOString().slice(0, 7)}`);
+    const total = y * 12 + (m - 1) + delta;
+    const ny = Math.floor(total / 12);
+    const nm = (total % 12) + 1;
+    router.push(`/progress?period=${ny}-${String(nm).padStart(2, "0")}`);
   };
 
   const searched = useMemo(() => rows.filter((e) => !q.trim() || (e.candidate_name ?? "").includes(q.trim()) || (e.company ?? "").includes(q.trim()) || (e.job_title ?? "").includes(q.trim())), [rows, q]);
