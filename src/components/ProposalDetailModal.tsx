@@ -312,7 +312,7 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
 
           {/* 見送り（折りたたみ） */}
           {lostOpen && (
-            <div className="card" style={{ padding: 16, borderColor: "var(--color-danger)" }}>
+            <div id="lost-panel" className="card" style={{ padding: 16, borderColor: "var(--color-danger)" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "var(--color-danger)", marginBottom: 10 }}>見送り（失注）にする</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <SelField label="失注フェーズ" value={lostPhase} options={LOST_PHASES} onChange={setLostPhase} />
@@ -372,6 +372,12 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
           {p.stage === "面談合格" && (
             <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}
+          <button type="button" className="btn ghost" disabled={pending}
+            onClick={() => { setLostOpen(true); setTimeout(() => document.getElementById("lost-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); }}
+            title="失注理由（A〜E）を選んで見送りにする" style={{ color: "var(--color-danger)" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>do_not_disturb_on</span>
+            見送りにする
+          </button>
           <button type="button" className="btn ghost" disabled={pending} onClick={removeProposal} title="提案を削除（記録ミスの取り消し・元に戻せません）" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>delete</span>
             削除
