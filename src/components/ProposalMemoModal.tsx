@@ -2,7 +2,8 @@
 
 // メモ追加モーダル。カテゴリ（連絡記録/重要事項/内部メモ/クライアント対応/人材対応）と本文を入力。
 import { useEffect, useState, useTransition } from "react";
-import { addProposalMemo, PROPOSAL_MEMO_CATEGORIES } from "@/lib/actions";
+import { addProposalMemo } from "@/lib/actions";
+import { PROPOSAL_MEMO_CATEGORIES } from "@/lib/proposal-constants";
 
 const CATEGORY_TONE: Record<string, { fg: string; bg: string }> = {
   連絡記録:        { fg: "#0095D9", bg: "#e0f2fe" },
