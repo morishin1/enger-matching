@@ -20,7 +20,15 @@ export type BillingTask = {
   exists: boolean; // billing_tasks 行が既にあるか
 };
 
-export const currentPeriod = () => new Date().toISOString().slice(0, 7); // YYYY-MM
+// JST 基準で「現在の月」(YYYY-MM)。toISOString は UTC なのでサーバ(UTC)で
+//  月初の早朝 JST に呼ぶと前月になってしまう。Asia/Tokyo を明示して算出する。
+export const currentPeriod = () => {
+  const fmt = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit" });
+  const parts = fmt.formatToParts(new Date());
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = (parts.find((p) => p.type === "month")?.value ?? "01").padStart(2, "0");
+  return `${y}-${m}`;
+};
 
 /**
  * 指定月の請求・勤怠タスク（稼働中/予定の稼働 × 月）。既存の billing_tasks をマージ。

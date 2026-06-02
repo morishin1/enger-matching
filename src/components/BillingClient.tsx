@@ -118,9 +118,12 @@ export function BillingClient({ tasks, period }: { tasks: BillingTask[]; period:
   );
 
   const setMonth = (delta: number) => {
+    // YYYY-MM を文字列演算で算出（toISOString の UTC 変換による月ずれを回避）。
     const [y, m] = period.split("-").map(Number);
-    const d = new Date(y, m - 1 + delta, 1);
-    router.push(`/billing?period=${d.toISOString().slice(0, 7)}`);
+    const total = y * 12 + (m - 1) + delta;
+    const ny = Math.floor(total / 12);
+    const nm = (total % 12) + 1;
+    router.push(`/billing?period=${ny}-${String(nm).padStart(2, "0")}`);
   };
 
   return (
