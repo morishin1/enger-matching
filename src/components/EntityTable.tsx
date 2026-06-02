@@ -121,15 +121,6 @@ const JOB_COLS: Col[] = [
   { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterLabel: "リモート", filter: (j) => remoteLabel(j.remote_type), render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span> },
-  {
-    // マッチング画面へ直行（この案件を起点に人材を探す）
-    key: "match_action", label: "", width: 116,
-    render: (j) => (
-      <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
-        <Icons.matching /><span>マッチング</span>
-      </Link>
-    ),
-  },
   { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterLabel: "商流", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (j) => salaryBand(j.salary_max ?? j.salary_min ?? null) },
@@ -181,15 +172,6 @@ const PEOPLE_COLS: Col[] = [
     render: (p) => p.skill_sheet_url
       ? <a href={p.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
       : <span className="muted" style={{ fontSize: 12 }}>—</span>,
-  },
-  {
-    // マッチング画面へ直行（この人材を起点に案件を探す）
-    key: "match_action", label: "", width: 116,
-    render: (p) => (
-      <Link href={`/matching?person=${p.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
-        <Icons.matching /><span>マッチング</span>
-      </Link>
-    ),
   },
   { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
