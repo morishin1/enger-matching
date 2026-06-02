@@ -49,7 +49,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const withSearch = (qb: any) => {
         if (!needle) return qb;
         const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like},affiliation.ilike.${like},title.ilike.${like},skills::text.ilike.${like}`);
+        // 数値だけの入力（例: "1234"）は candidate_no も拾う。
+        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${needle},candidate_no::text.ilike.${like}` : "";
+        return qb.or(`name.ilike.${like},initials.ilike.${like},source_company.ilike.${like},company.ilike.${like},affiliation.ilike.${like},title.ilike.${like},skills::text.ilike.${like},note.ilike.${like}${numOr}`);
       };
       // rank / email 列が未追加でも落ちないようフォールバック
       let res: any = await withSearch(sb
