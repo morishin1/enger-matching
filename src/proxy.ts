@@ -26,6 +26,7 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith("/privacy") ||         // プライバシーポリシー（公開）
     pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/respond") ||           // メール回答リンク（トークン認証）
     pathname.startsWith("/api/")
   ) return NextResponse.next();
 
@@ -67,7 +68,7 @@ export async function proxy(req: NextRequest) {
   // 未ログイン → ログイン画面へ
   const login = req.nextUrl.clone();
   login.pathname = "/login";
-  login.search = `?redirect=${encodeURIComponent(pathname)}`;
+  login.search = `?redirect=${encodeURIComponent(`${pathname}${req.nextUrl.search}`)}`;
   return NextResponse.redirect(login);
 }
 

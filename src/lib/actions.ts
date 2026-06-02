@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath, revalidateTag } from "next/cache";
+import { randomBytes } from "crypto";
 import { engerAdmin } from "./supabase";
 import { currentAccess } from "./accounts";
 import { canSeeMargin } from "./engagement-access";
@@ -330,7 +331,7 @@ const parseRateNum = (rate?: string | null): number | null => {
 };
 
 /** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。 */
-export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string) {
+export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   let job: any = null, cand: any = null;
@@ -363,12 +364,18 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     } catch { /* companies 未整備 */ }
   }
 
+  const HEX48 = /^[0-9a-f]{48}$/;
+  const job_action_token  = (preTokens?.jobToken  && HEX48.test(preTokens.jobToken))  ? preTokens.jobToken  : randomBytes(24).toString("hex");
+  const cand_action_token = (preTokens?.candToken && HEX48.test(preTokens.candToken)) ? preTokens.candToken : randomBytes(24).toString("hex");
+
   const insertBase = {
     job_id: job.id, candidate_id: cand.id, stage: "返信待ち",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
-    closer: defaultCloser, // 企業担当をデフォルトのクロージング担当に
+    closer: defaultCloser,
     proposer: proposer || null,
+    job_action_type: "未回答", job_action_token,
+    cand_action_type: "未回答", cand_action_token,
   } as Record<string, any>;
   let ins: any = await admin.from("proposals").insert({ ...insertBase, stage_updated_at: new Date().toISOString() }).select("id").single();
   if (ins.error && /stage_updated_at|column/i.test(ins.error.message)) {
@@ -378,7 +385,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
   bustCounts();
-  return { ok: true, id: data.id, existed: false };
+  return { ok: true, id: data.id, existed: false, job_action_token, cand_action_token };
 }
 
 /** 提案ステージの変更 (カンバン移動)。 */

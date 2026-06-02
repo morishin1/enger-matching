@@ -25,18 +25,42 @@ on conflict do nothing;
 
 -- admin user (local dev)
 -- Supabase Auth user: admin@local.dev / admin1234
-insert into auth.users (id, instance_id, email, encrypted_password, email_confirmed_at, role, aud, created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
+insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, invited_at, confirmation_token, confirmation_sent_at, recovery_token, recovery_sent_at, email_change_token_new, email_change, email_change_sent_at, last_sign_in_at, raw_app_meta_data, raw_user_meta_data, is_super_admin, created_at, updated_at, phone, phone_confirmed_at, phone_change, phone_change_token, phone_change_sent_at, confirmed_at, email_change_token_current, email_change_confirm_status, banned_until, reauthentication_token, reauthentication_sent_at, is_sso_user, deleted_at, is_anonymous)
 values (
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000000',
+  'authenticated',
+  'authenticated',
   'admin@local.dev',
   crypt('admin1234', gen_salt('bf')),
   now(),
-  'authenticated',
-  'authenticated',
-  now(), now(),
+  null,
+  '',
+  null,
+  '',
+  null,
+  '',
+  '',
+  null,
+  null,
   '{"provider":"email","providers":["email"]}'::jsonb,
-  '{"email_verified":true}'::jsonb
+  '{"email_verified":true}'::jsonb,
+  null,
+  now(), now(),
+  '',
+  null,
+  '',
+  '',
+  null,
+  now(),
+  '',
+  0,
+  null,
+  '',
+  null,
+  false,
+  null,
+  false
 ) on conflict (id) do nothing;
 
 insert into auth.identities (id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at, provider_id)
