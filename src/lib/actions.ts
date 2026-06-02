@@ -1467,7 +1467,8 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
 // ────────────────────────────────────────────────────────
 // 提案メモ（連絡記録/重要事項/内部メモ/クライアント対応/人材対応）
 // ────────────────────────────────────────────────────────
-export const PROPOSAL_MEMO_CATEGORIES = ["連絡記録", "重要事項", "内部メモ", "クライアント対応", "人材対応"] as const;
+// 注意: PROPOSAL_MEMO_CATEGORIES は値の定数のため proposal-constants.ts に置く。
+//        "use server" の本ファイルは async 関数しか export できない。
 
 export async function addProposalMemo(proposalId: string, category: string, body: string) {
   let admin: ReturnType<typeof engerAdmin>;
@@ -1475,6 +1476,7 @@ export async function addProposalMemo(proposalId: string, category: string, body
   const cat = (category || "").trim();
   const text = (body || "").trim();
   if (!proposalId) return { ok: false as const, error: "提案IDが必要です" };
+  const { PROPOSAL_MEMO_CATEGORIES } = await import("./proposal-constants");
   if (!cat || !(PROPOSAL_MEMO_CATEGORIES as readonly string[]).includes(cat)) return { ok: false as const, error: "カテゴリが不正です" };
   if (!text) return { ok: false as const, error: "本文を入力してください" };
   let by_email: string | null = null, by_name: string | null = null;
