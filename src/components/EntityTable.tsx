@@ -107,7 +107,7 @@ const JOB_COLS: Col[] = [
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (j) => freshnessLabel(j.created_at), filterFixed: FRESH_OPTIONS, render: (j) => <Fresh d={j.created_at} /> },
   {
     key: "title", label: "案件名", always: true,
-    search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
+    search: (j) => `${j.job_no ?? ""} ${j.title ?? ""} ${j.role_label ?? ""} ${j.flow_note ?? ""} ${(j.skills ?? []).join(" ")}`,
     render: (j) => (
       // 行クリックは常にドロワーで詳細を開く動線に統一。案件ページへの遷移はドロワー内ボタンから。
       <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
@@ -141,7 +141,7 @@ const PEOPLE_COLS: Col[] = [
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (p) => freshnessLabel(p.created_at), filterFixed: FRESH_OPTIONS, render: (p) => <Fresh d={p.created_at} /> },
   {
     key: "name", label: "氏名", always: true,
-    search: (p) => `${p.name ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${p.company ?? ""} ${(p.skills ?? []).join(" ")}`,
+    search: (p) => `${p.candidate_no ?? ""} ${p.name ?? ""} ${p.initials ?? ""} ${p.title ?? ""} ${p.affiliation ?? ""} ${p.source_company ?? ""} ${p.company ?? ""} ${(p.skills ?? []).join(" ")}`,
     render: (p) => {
       // サブ行は区分(affiliation)のみ。会社名は独立の「会社」列で表示（見つけやすさ重視）。
       // 行クリックは常にドロワーで詳細を開く動線に統一（人材ページへの遷移はドロワー内ボタンから）。
@@ -360,7 +360,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, p
       <div className="tbl-toolbar">
         <div className="tbl-search">
           <Icons.search />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={kind === "jobs" ? "案件名・クライアント・スキルで検索…" : "氏名・スキル・クライアントで検索…"} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={kind === "jobs" ? "案件名・案件No・クライアント・スキルで検索…" : "氏名・人材No・スキル・クライアントで検索…"} />
         </div>
         {filterCols.map((c) => (
           <label key={c.key} className="tbl-filter">

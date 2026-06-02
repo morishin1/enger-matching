@@ -58,8 +58,10 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const withSearch = (qb: any) => {
         if (!needle) return qb;
         const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        // skills は jsonb/text[] のため ::text にキャストして部分一致
-        return qb.or(`title.ilike.${like},client_name.ilike.${like},role_label.ilike.${like},skills::text.ilike.${like}`);
+        // skills は jsonb/text[] のため ::text にキャストして部分一致。
+        // 数値だけの入力（例: "3978"）は job_no の完全一致／部分一致も含める。
+        const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${needle},job_no::text.ilike.${like}` : "";
+        return qb.or(`title.ilike.${like},client_name.ilike.${like},role_label.ilike.${like},skills::text.ilike.${like},flow_note.ilike.${like}${numOr}`);
       };
       // 追加列(email-columns / sales-roles 未実行)でも落ちないよう段階フォールバック
       let listRes: any = await withSearch(withPub(sb.from("jobs")

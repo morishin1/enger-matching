@@ -21,17 +21,50 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const like = `%${safe}%`;
-      const [jr, cr, co] = await Promise.all([
-        sb.from("jobs").select("job_no, title, client_name, role_label, remote_type, salary_min, salary_max")
-          .eq("is_published", true).or(`title.ilike.${like},client_name.ilike.${like}`).limit(20),
-        sb.from("candidates").select("candidate_no, name, title, affiliation, source_company, rate")
-          .or(`name.ilike.${like},source_company.ilike.${like}`).limit(20),
+      // 数値だけが入力された場合は job_no / candidate_no の完全一致も合わせて検索する
+      const asInt = /^\d+$/.test(safe) ? Number(safe) : null;
+      const orJob = [
+        `title.ilike.${like}`,
+        `client_name.ilike.${like}`,
+        `role_label.ilike.${like}`,
+        `skills::text.ilike.${like}`,
+        `flow_note.ilike.${like}`,
+        `detail.ilike.${like}`,
+      ].join(",");
+      const orCand = [
+        `name.ilike.${like}`,
+        `initials.ilike.${like}`,
+        `title.ilike.${like}`,
+        `source_company.ilike.${like}`,
+        `company.ilike.${like}`,
+        `affiliation.ilike.${like}`,
+        `skills::text.ilike.${like}`,
+        `note.ilike.${like}`,
+      ].join(",");
+
+      // メイン検索（テキスト ilike）。非公開も含めて拾うため is_published 制約は外す。
+      const jobCols = "job_no, title, client_name, role_label, remote_type, salary_min, salary_max, is_published";
+      const candCols = "candidate_no, name, title, affiliation, source_company, rate";
+      let [jr, cr, co] = await Promise.all([
+        sb.from("jobs").select(jobCols).or(orJob).order("created_at", { ascending: false }).limit(20),
+        sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20),
         sb.rpc("company_overview"),
       ]);
+      // ID/番号の直打ち（数値入力時）。重複は後段で uniq する
+      if (asInt != null) {
+        const [jr2, cr2] = await Promise.all([
+          sb.from("jobs").select(jobCols).eq("job_no", asInt).limit(5),
+          sb.from("candidates").select(candCols).eq("candidate_no", asInt).limit(5),
+        ]);
+        const seenJ = new Set<number>((jr.data ?? []).map((j: any) => j.job_no));
+        const seenC = new Set<number>((cr.data ?? []).map((c: any) => c.candidate_no));
+        jr = { ...jr, data: [...(jr2.data ?? []).filter((j: any) => !seenJ.has(j.job_no)), ...(jr.data ?? [])] } as any;
+        cr = { ...cr, data: [...(cr2.data ?? []).filter((c: any) => !seenC.has(c.candidate_no)), ...(cr.data ?? [])] } as any;
+      }
       jobs = jr.data ?? [];
       people = cr.data ?? [];
       const allCo = (Array.isArray(co.data) ? co.data : []) as any[];
-      companies = allCo.filter((c) => (c.name ?? "").includes(safe)).slice(0, 20);
+      companies = allCo.filter((c) => (c.name ?? "").toLowerCase().includes(safe.toLowerCase())).slice(0, 20);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -61,7 +94,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
           {jobs.map((j) => (
             <Link key={j.job_no} href={`/matching?job=${j.job_no}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{j.title}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{j.job_no}</span>{j.title}{j.is_published === false && <span className="tag" style={{ fontSize: 9.5, marginLeft: 6 }}>非公開</span>}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{j.client_name ?? "—"} · {j.role_label ?? ""} · {remoteLabel(j.remote_type)} · {salaryLabel(j.salary_min, j.salary_max)}</div>
               </div>
               <span className="btn brand btn-xs"><Icons.matching /><span>マッチング</span></span>
@@ -78,7 +111,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
           {people.map((p) => (
             <Link key={p.candidate_no} href={`/people/${p.candidate_no}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{p.name}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{p.candidate_no}</span>{p.name}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{p.title ?? "—"} · {p.affiliation ?? p.source_company ?? ""} · {p.rate ?? ""}</div>
               </div>
               <span className="btn btn-xs">スキルシート</span>
