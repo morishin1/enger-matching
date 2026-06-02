@@ -71,7 +71,7 @@ export default async function RootLayout({
         <link rel="stylesheet" href={fontsHref} />
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions}>{children}</AppShell>
       </body>
     </html>

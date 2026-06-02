@@ -330,7 +330,7 @@ const parseRateNum = (rate?: string | null): number | null => {
 };
 
 /** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。 */
-export async function createProposal(jobNo: number, candNo: number, score?: number) {
+export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   let job: any = null, cand: any = null;
@@ -368,6 +368,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser, // 企業担当をデフォルトのクロージング担当に
+    proposer: proposer || null,
   } as Record<string, any>;
   let ins: any = await admin.from("proposals").insert({ ...insertBase, stage_updated_at: new Date().toISOString() }).select("id").single();
   if (ins.error && /stage_updated_at|column/i.test(ins.error.message)) {

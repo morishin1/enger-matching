@@ -59,20 +59,20 @@ export default async function ProposalsPage() {
         try {
           const jobIds = Array.from(new Set(all.map((p: any) => p.job_id).filter(Boolean)));
           if (jobIds.length) {
-            const jn: any = await sb.from("jobs").select("id, job_no").in("id", jobIds as string[]).limit(2000);
+            const jn: any = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds as string[]).limit(2000);
             if (!jn.error) {
-              const m: Record<string, number> = {};
-              for (const j of (jn.data ?? [])) if (j.id != null && j.job_no != null) m[j.id] = j.job_no;
-              for (const p of all) if (p.job_id && m[p.job_id] != null) p.job_no = m[p.job_id];
+              const m: Record<string, { job_no: number; url: string | null }> = {};
+              for (const j of (jn.data ?? [])) if (j.id != null) m[j.id] = { job_no: j.job_no, url: j.source_mail_url ?? null };
+              for (const p of all) if (p.job_id && m[p.job_id] != null) { p.job_no = m[p.job_id].job_no; p.job_source_mail_url = m[p.job_id].url; }
             }
           }
           const candIds = Array.from(new Set(all.map((p: any) => p.candidate_id).filter(Boolean)));
           if (candIds.length) {
-            const cn: any = await sb.from("candidates").select("id, candidate_no").in("id", candIds as string[]).limit(2000);
+            const cn: any = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds as string[]).limit(2000);
             if (!cn.error) {
-              const m: Record<string, number> = {};
-              for (const c of (cn.data ?? [])) if (c.id != null && c.candidate_no != null) m[c.id] = c.candidate_no;
-              for (const p of all) if (p.candidate_id && m[p.candidate_id] != null) p.candidate_no = m[p.candidate_id];
+              const m: Record<string, { candidate_no: number; url: string | null }> = {};
+              for (const c of (cn.data ?? [])) if (c.id != null) m[c.id] = { candidate_no: c.candidate_no, url: c.source_mail_url ?? null };
+              for (const p of all) if (p.candidate_id && m[p.candidate_id] != null) { p.candidate_no = m[p.candidate_id].candidate_no; p.cand_source_mail_url = m[p.candidate_id].url; }
             }
           }
         } catch { /* 解決失敗時はリンク無し（フォールバック） */ }
