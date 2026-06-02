@@ -287,6 +287,14 @@ export function ProposalComposer({
           <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "📋 ボードに記録"}</button>
         )}
         <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
+        {job?.job_no != null && cand?.candidate_no != null && (
+          <a href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
+            target="_blank" rel="noopener noreferrer"
+            className="btn ghost btn-xs" style={{ textDecoration: "none" }}
+            title="メール内容を確認・編集してからボードに記録する">
+            ✉ メールを作成
+          </a>
+        )}
         {saved && <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline", marginLeft: 4 }}>提案管理を開く</Link>}
       </div>
       {msg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{msg}</div>}

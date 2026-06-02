@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, deleteProposal } from "@/lib/actions";
+import { gmailMessageUrl } from "@/lib/gmail";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
@@ -169,7 +170,14 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
           {/* 人材情報 / 案件情報 */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div className="card" style={{ padding: 16 }}>
-              <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>人材情報</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
+                {(() => { const url = gmailMessageUrl(p.cand_source_mail_url); return (
+                  <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
+                    style={{ textDecoration: "none", opacity: url ? 1 : 0.35, pointerEvents: url ? "auto" : "none", cursor: url ? "pointer" : "not-allowed" }}
+                    title={url ? "人材の元メールを開く" : "元メールURLがありません"} aria-disabled={!url}>↗ 元メール</a>
+                ); })()}
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                 <div className="ava" style={{ width: 38, height: 38, fontSize: 13 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
                 <div>
@@ -184,7 +192,14 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
               <Info label="架電進捗" value={p.caller_status ?? "—"} />
             </div>
             <div className="card" style={{ padding: 16 }}>
-              <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>案件情報</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
+                {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
+                  <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
+                    style={{ textDecoration: "none", opacity: url ? 1 : 0.35, pointerEvents: url ? "auto" : "none", cursor: url ? "pointer" : "not-allowed" }}
+                    title={url ? "案件の元メールを開く" : "元メールURLがありません"} aria-disabled={!url}>↗ 元メール</a>
+                ); })()}
+              </div>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
                 {p.job_no != null ? <Link href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
               </div>
