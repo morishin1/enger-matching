@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, deleteProposal } from "@/lib/actions";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
@@ -110,6 +110,15 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
   };
   const engage = () => run(() => convertToEngagement(p.id));
   const lose = () => run(() => updateProposalFields(p.id, { stage: "見送り", lost_phase: lostPhase, lost_reason: lostReason, lost_reason_note: lostNote.trim() || null }));
+  const removeProposal = () => {
+    if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
+    start(async () => {
+      const r = await deleteProposal(p.id);
+      if (!r.ok) { alert(("error" in r ? r.error : null) || "削除に失敗しました"); return; }
+      router.refresh();
+      onClose();
+    });
+  };
 
   const matchPct = p.score != null ? Math.round(Number(p.score)) : null;
 
@@ -363,6 +372,10 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
           {p.stage === "面談合格" && (
             <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}
+          <button type="button" className="btn ghost" disabled={pending} onClick={removeProposal} title="提案を削除（記録ミスの取り消し・元に戻せません）" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>delete</span>
+            削除
+          </button>
         </div>
       </div>
       {memoModalOpen && <ProposalMemoModal proposalId={p.id} onClose={() => setMemoModalOpen(false)} onAdded={loadMemos} />}

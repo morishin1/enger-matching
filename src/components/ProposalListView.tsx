@@ -6,9 +6,11 @@
 //   - ステージ・担当者での絞り込み
 //   - テーブル（行クリックで詳細モーダル）
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 import { NotifyChip } from "./NotifyDot";
+import { deleteProposal } from "@/lib/actions";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
@@ -28,12 +30,26 @@ function StageBadge({ stage }: { stage: string }) {
 }
 
 export function ProposalListView({ proposals }: { proposals: any[]; members?: string[] }) {
+  const router = useRouter();
+  const [busy, start] = useTransition();
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [pendingOnly, setPendingOnly] = useState(false);
   const [active, setActive] = useState<any | null>(null);
   const isPending = (v: any) => v == null || v === "pending";
+
+  const handleDelete = (p: any) => {
+    if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
+    setBusyId(p.id);
+    start(async () => {
+      const r = await deleteProposal(p.id);
+      setBusyId(null);
+      if (!r.ok) { alert(("error" in r ? r.error : null) || "削除に失敗しました"); return; }
+      router.refresh();
+    });
+  };
   const pendingCount = useMemo(() => proposals.filter((p) => isPending(p.job_notify_status) || isPending(p.cand_notify_status)).length, [proposals]);
 
   // ステージ別件数（KPI）
@@ -124,24 +140,26 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <th style={th}>提案日</th>
               <th style={th}>人材</th>
               <th style={th}>案件</th>
               <th style={th}>担当者</th>
-              <th style={th}>提案日</th>
               <th style={th}>更新日</th>
-              <th style={th}>ステータス / 通知</th>
-              <th style={th}>架電</th>
+              <th style={th}>ステータス</th>
+              <th style={th}>通知</th>
               <th style={{ ...th, textAlign: "center" }}>詳細</th>
+              <th style={{ ...th, textAlign: "center" }}>削除</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={8} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
+              <tr><td colSpan={9} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
             )}
             {rows.map((p) => (
-              <tr key={p.id} onClick={() => setActive(p)} style={{ borderBottom: "1px solid var(--color-border)", cursor: "pointer" }}
+              <tr key={p.id} onClick={() => setActive(p)} style={{ borderBottom: "1px solid var(--color-border)", cursor: "pointer", opacity: busyId === p.id ? 0.5 : 1 }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-soft)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.created_at)}</td>
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
@@ -155,21 +173,22 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                   <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.company ?? ""}</div>
                 </td>
                 <td style={{ ...td, whiteSpace: "nowrap" }}>{p.proposer ?? p.company_owner ?? "—"}</td>
-                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.created_at)}</td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
+                <td style={td}><StageBadge stage={normStage(p.stage)} /></td>
                 <td style={td}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
-                    <StageBadge stage={normStage(p.stage)} />
-                    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-                      <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
-                      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
-                    </span>
+                  <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                    <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
+                    <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
                   </div>
                 </td>
-                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)", fontSize: 11.5 }}>{p.caller_status ?? "—"}</td>
                 <td style={{ ...td, textAlign: "center" }}>
                   <button type="button" onClick={(e) => { e.stopPropagation(); setActive(p); }} className="btn ghost btn-xs" aria-label="詳細を開く" title="詳細を開く">
                     <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-brand-700)" }}>mail</span>
+                  </button>
+                </td>
+                <td style={{ ...td, textAlign: "center" }}>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(p); }} className="btn ghost btn-xs" aria-label="提案を削除" title="提案を削除（元に戻せません）" disabled={busy && busyId === p.id}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-danger)" }}>delete</span>
                   </button>
                 </td>
               </tr>
