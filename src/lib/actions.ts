@@ -1504,3 +1504,230 @@ export async function deleteProposalMemo(memoId: string) {
   revalidatePath("/proposals");
   return { ok: true as const };
 }
+
+// ────────────────────────────────────────────────────────
+// 受信メール（Gmail 同期・AI抽出・登録）
+//   - 同期: Gmail API で最新メールを取得して inbox_emails に保存（AIは使わない・無料）
+//   - 抽出: 1通ずつ Claude Haiku に投げて { kind, summary, data } を取得（営業が手動で発火）
+//   - 登録: extracted_data から jobs/candidates テーブルに insert（既存 upsert*Manual を流用）
+// ────────────────────────────────────────────────────────
+
+export async function syncInboxFromGmail(opts?: { query?: string; max?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { gmailConfigured, listMessageIds, fetchMessage } = await import("./gmail-api");
+  if (!gmailConfigured()) return { ok: false, error: "Gmail OAuth 未設定です（GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN を Vercel に設定してください）" };
+
+  const list = await listMessageIds({ q: opts?.query ?? "newer_than:7d", maxResults: opts?.max ?? 100 });
+  if (!list.ok) return { ok: false, error: list.error };
+  if (list.ids.length === 0) return { ok: true, synced: 0, skipped: 0 };
+
+  // 既存の message_id を一括取得（重複保存をスキップ）
+  const existing = await admin.from("inbox_emails").select("gmail_message_id").in("gmail_message_id", list.ids);
+  const seen = new Set<string>((existing.data ?? []).map((r: any) => r.gmail_message_id));
+  const newIds = list.ids.filter((id) => !seen.has(id));
+
+  let synced = 0;
+  // 同時5本で取得（Gmail API は概ね 250 quota/秒なので問題ない）
+  const POOL = 5; let idx = 0;
+  const work = async (gid: string) => {
+    const r = await fetchMessage(gid);
+    if (!r.ok) return;
+    const m = r.msg;
+    await admin.from("inbox_emails").insert({
+      gmail_message_id: m.id, gmail_thread_id: m.threadId || null,
+      subject: m.subject, from_email: m.fromEmail, from_name: m.fromName, to_email: m.toEmail,
+      body: m.body, body_html: m.bodyHtml || null,
+      has_attachment: m.hasAttachment, attachment_names: m.attachmentNames.length ? m.attachmentNames : null,
+      received_at: m.receivedAt,
+    });
+    synced++;
+  };
+  const workers = Array.from({ length: Math.min(POOL, newIds.length) }, async () => {
+    while (idx < newIds.length) { const i = idx++; try { await work(newIds[i]); } catch { /* 1通失敗しても続行 */ } }
+  });
+  await Promise.all(workers);
+
+  revalidatePath("/inbox");
+  return { ok: true, synced, skipped: seen.size };
+}
+
+const INBOX_EXTRACT_SYSTEM = "あなたはエンジニア人材紹介エージェントのメール仕分けアシスタントです。受信メール本文から、それが『案件情報』か『人材情報』か『その他/スパム』かを判定し、構造化データを返してください。出力は必ず指定された JSON 形式のみ（説明文不要）。";
+const INBOX_EXTRACT_PROMPT_TEMPLATE = (subject: string, from: string, body: string) => `次のメールを判定し、JSON のみを出力してください。
+
+形式:
+{
+  "kind": "job" | "candidate" | "skip" | "spam",
+  "summary": "一行要約(80文字以内)",
+  "confidence": 0.0〜1.0,
+  "data": {
+    // kind=="job" の場合（分かるものだけ・無いものは null）:
+    "title": "案件名",
+    "client_name": "クライアント企業名",
+    "role_label": "職種(SE/PMなど)",
+    "skills": ["スキル名(配列・最大10)"],
+    "salary_min": 数値(万) | null,
+    "salary_max": 数値(万) | null,
+    "remote_type": "full_remote" | "partial_remote" | "onsite" | null,
+    "flow_note": "商流の制限(あれば)",
+    "work_location": "勤務地",
+    "start_date": "YYYY-MM-DD" | null,
+    "detail": "求められる経験/スキル要件",
+    // kind=="candidate" の場合:
+    "name": "氏名",
+    "company": "現所属企業",
+    "title": "職種",
+    "skills": ["スキル名"],
+    "rate": "想定単価(例: ¥70万)",
+    "exp": "経験年数や経歴サマリ",
+    "remote_pref": "希望リモート区分",
+    "skill_sheet_url": "添付/Driveリンク(あれば)"
+  }
+}
+
+判定の指針:
+- "案件" = クライアントから「こんな人材を探している」「人材いますか」等の案件依頼
+- "人材" = エンジニア本人/エージェントから「この人材を紹介します」「スキルシート」等の人材提案
+- "skip" = 返信・確認メール・社内連絡・無関係（自動配信/ニュースレター含む）
+- "spam" = スパム/フィッシング
+
+--- メール ---
+件名: ${subject}
+差出人: ${from}
+
+${body}`;
+
+export async function extractInboxEmail(inboxId: string): Promise<{ ok: boolean; kind?: string; summary?: string; data?: any; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  if (!inboxId) return { ok: false, error: "メールID が必要です" };
+
+  const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
+  if (!row) return { ok: false, error: "メールが見つかりません" };
+
+  const { callLLM, parseJsonLoose } = await import("./llm");
+  const { logUsage } = await import("./ai-usage");
+
+  // Haiku を強制（安価モデル）。LLM_MODEL が指定されていてもこの処理だけは Haiku を選好。
+  const previousModel = process.env.LLM_MODEL;
+  if (!previousModel || !/haiku/i.test(previousModel)) process.env.LLM_MODEL = "claude-haiku-4-5";
+
+  const subject = row.subject ?? "(件名なし)";
+  const from = [row.from_name, row.from_email].filter(Boolean).join(" ") || "(差出人不明)";
+  const body = (row.body ?? "").slice(0, 12000);
+  const prompt = INBOX_EXTRACT_PROMPT_TEMPLATE(subject, from, body);
+
+  const r = await callLLM({ system: INBOX_EXTRACT_SYSTEM, prompt, maxTokens: 1200, temperature: 0.1 });
+  // モデル設定を元に戻す
+  if (previousModel) process.env.LLM_MODEL = previousModel; else delete process.env.LLM_MODEL;
+
+  if (!r.ok) return { ok: false, error: r.error };
+  try { await logUsage("inbox-extract", r.model, r.usage); } catch { /* noop */ }
+
+  const parsed = parseJsonLoose<{ kind: string; summary: string; data: any }>(r.text);
+  if (!parsed || !parsed.kind) return { ok: false, error: "AI 応答の JSON 解析に失敗しました" };
+
+  await admin.from("inbox_emails").update({
+    extracted_at: new Date().toISOString(),
+    extracted_kind: parsed.kind,
+    extracted_data: parsed.data ?? null,
+    extracted_summary: parsed.summary ?? null,
+  }).eq("id", inboxId);
+
+  revalidatePath("/inbox");
+  return { ok: true, kind: parsed.kind, summary: parsed.summary, data: parsed.data };
+}
+
+export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>): Promise<{ ok: boolean; job_no?: number; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
+  if (!row) return { ok: false, error: "メールが見つかりません" };
+  const d = row.extracted_data ?? {};
+  const input: JobInput = {
+    title: override?.title ?? d.title ?? row.subject ?? "(無題)",
+    client_name: override?.client_name ?? d.client_name ?? null,
+    role_label: override?.role_label ?? d.role_label ?? null,
+    skills: override?.skills ?? (Array.isArray(d.skills) ? d.skills : []),
+    salary_min: override?.salary_min ?? d.salary_min ?? null,
+    salary_max: override?.salary_max ?? d.salary_max ?? null,
+    remote_type: override?.remote_type ?? d.remote_type ?? "partial_remote",
+    flow_note: override?.flow_note ?? d.flow_note ?? null,
+    work_location: override?.work_location ?? d.work_location ?? null,
+    start_date: override?.start_date ?? d.start_date ?? null,
+    detail: override?.detail ?? d.detail ?? row.body?.slice(0, 1500) ?? null,
+    contact_email: row.from_email ?? null,
+    contact_name: row.from_name ?? null,
+    source_mail_url: `https://mail.google.com/mail/u/0/#all/${row.gmail_message_id}`,
+  };
+  const res = await upsertJobManual(input);
+  if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "案件作成に失敗しました" };
+
+  let by_email: string | null = null;
+  try { const a = await currentAccess(); by_email = a?.email ?? null; } catch { /* noop */ }
+  await admin.from("inbox_emails").update({
+    registered_at: new Date().toISOString(),
+    registered_job_no: (res as any).job_no ?? null,
+    registered_by_email: by_email,
+    extracted_kind: "job",
+  }).eq("id", inboxId);
+
+  revalidatePath("/inbox"); revalidatePath("/jobs"); bustCounts();
+  return { ok: true, job_no: (res as any).job_no };
+}
+
+export async function registerInboxAsCandidate(inboxId: string, override?: Partial<CandidateInput>): Promise<{ ok: boolean; candidate_no?: number; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
+  if (!row) return { ok: false, error: "メールが見つかりません" };
+  const d = row.extracted_data ?? {};
+  const input: CandidateInput = {
+    name: override?.name ?? d.name ?? row.from_name ?? "(氏名未抽出)",
+    title: override?.title ?? d.title ?? null,
+    company: override?.company ?? d.company ?? null,
+    skills: override?.skills ?? (Array.isArray(d.skills) ? d.skills : []),
+    rate: override?.rate ?? d.rate ?? null,
+    exp: override?.exp ?? d.exp ?? null,
+    remote_pref: override?.remote_pref ?? d.remote_pref ?? null,
+    skill_sheet_url: override?.skill_sheet_url ?? d.skill_sheet_url ?? null,
+    note: row.body?.slice(0, 1500) ?? null,
+    contact_email: row.from_email ?? null,
+    source_mail_url: `https://mail.google.com/mail/u/0/#all/${row.gmail_message_id}`,
+  };
+  const res = await upsertCandidateManual(input);
+  if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "人材作成に失敗しました" };
+
+  let by_email: string | null = null;
+  try { const a = await currentAccess(); by_email = a?.email ?? null; } catch { /* noop */ }
+  await admin.from("inbox_emails").update({
+    registered_at: new Date().toISOString(),
+    registered_candidate_no: (res as any).candidate_no ?? null,
+    registered_by_email: by_email,
+    extracted_kind: "candidate",
+  }).eq("id", inboxId);
+
+  revalidatePath("/inbox"); revalidatePath("/people"); bustCounts();
+  return { ok: true, candidate_no: (res as any).candidate_no };
+}
+
+export async function skipInboxEmail(inboxId: string, reason?: string): Promise<{ ok: boolean; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  await admin.from("inbox_emails").update({
+    extracted_kind: "skip",
+    skipped_reason: reason || null,
+    extracted_at: new Date().toISOString(),
+    is_archived: true,
+  }).eq("id", inboxId);
+  revalidatePath("/inbox");
+  return { ok: true };
+}
+
+export async function archiveInboxEmail(inboxId: string, archived: boolean = true): Promise<{ ok: boolean; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  await admin.from("inbox_emails").update({ is_archived: archived }).eq("id", inboxId);
+  revalidatePath("/inbox");
+  return { ok: true };
+}
