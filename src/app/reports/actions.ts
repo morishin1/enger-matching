@@ -148,6 +148,10 @@ export async function sendReportMessage(reportId: string, message: string): Prom
   const title = `日報メッセージ（${(r as any).report_date}）`;
   const { error } = await admin.from("notifications").insert({ recipient: (r as any).author, title, body, kind: "feedback" });
   if (error) return { ok: false, error: error.message };
+  // 日報側にも返信記録を残す（一覧で「返信済」が分かるように）。列が無い環境でも失敗させない。
+  try {
+    await admin.from("daily_reports").update({ replied_at: new Date().toISOString(), replied_by: sender, reply_text: message.trim() }).eq("id", reportId);
+  } catch { /* 列未整備（daily-reports-reply.sql 未実行）でも送信自体は成功 */ }
   revalidatePath("/reports"); revalidatePath("/notifications");
   return { ok: true };
 }

@@ -183,13 +183,19 @@ function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
     setMsgBusy("send"); setMsgInfo(null);
     const res = await sendReportMessage(r.id, msgText);
     setMsgBusy(null);
-    if (res.ok) { setMsgInfo({ ok: true, text: `✓ ${r.author}さんへメッセージを送信しました` }); setMsgText(""); }
+    if (res.ok) { setMsgInfo({ ok: true, text: `✓ ${r.author}さんへ送信しました（お知らせに届きました）` }); setMsgText(""); router.refresh(); }
     else setMsgInfo({ ok: false, text: res.error || "送信に失敗しました" });
   };
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ fontSize: 13.5 }}>{r.author}</b>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <b style={{ fontSize: 13.5 }}>{r.author}</b>
+          {isAdmin && (r.replied_at
+            ? <span title={`${r.replied_by ?? "管理者"} が ${new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に返信済`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", whiteSpace: "nowrap" }}>✓ 返信済</span>
+            : <span title="まだ個別メッセージを送っていません" style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0", whiteSpace: "nowrap" }}>未返信</span>
+          )}
+        </div>
         <span className="muted mono" style={{ fontSize: 11 }}>{r.report_date} {r.mood ?? ""}</span>
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)" }}>
@@ -210,23 +216,33 @@ function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
       {r.ai_comment ? (
         <div style={{ fontSize: 12, color: "var(--color-ink-2)", background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", borderRadius: 8, padding: "8px 10px", whiteSpace: "pre-wrap" }}>🤖 {r.ai_comment}</div>
       ) : (
-        <button className="btn ghost btn-xs" disabled={pending} onClick={coach} style={{ alignSelf: "flex-start" }}>{pending ? "生成中…" : "🤖 AIから一言（任意）"}</button>
+        <button className="btn ghost btn-xs" disabled={pending} onClick={coach} style={{ alignSelf: "flex-start" }} title="AIがこの日報への所感を生成し、このカードにメモ表示します（本人には届きません）">{pending ? "生成中…" : "🤖 AIから一言（メモ・本人には届きません）"}</button>
       )}
 
       {isAdmin && (
         <div style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)" }}>💬 管理者から{r.author}さんへ個別メッセージ</div>
+          {/* 既に送った返信があれば表示（誰がいつ何を送ったか） */}
+          {r.replied_at && r.reply_text && (
+            <div style={{ fontSize: 12, color: "var(--color-ink-2)", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 10px" }}>
+              <div style={{ fontSize: 10.5, color: "#067647", fontWeight: 700, marginBottom: 3 }}>✓ 送信済み（{r.replied_by ?? "管理者"} · {new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}）</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{r.reply_text}</div>
+            </div>
+          )}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)" }}>💬 {r.author}さんへ個別メッセージ{r.replied_at ? "（再送・追記）" : ""}</div>
           <textarea
             value={msgText}
             onChange={(e) => setMsgText(e.target.value)}
-            placeholder="メッセージを直接入力、または「✨ AI下書き」で生成→編集して送信"
+            placeholder="メッセージを直接入力。または「✨ AIで下書き」→編集→「送信」で本人のお知らせに届きます"
             rows={3}
             style={{ fontSize: 12.5, padding: 8, border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", resize: "vertical", fontFamily: "var(--font-sans)" }}
           />
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <button type="button" className="btn ghost btn-xs" disabled={!!msgBusy} onClick={draftMessage}>{msgBusy === "draft" ? "生成中…" : "✨ AIで下書き"}</button>
-            <button type="button" className="btn brand btn-xs" disabled={!!msgBusy || !msgText.trim()} onClick={sendMessage}>{msgBusy === "send" ? "送信中…" : "送信"}</button>
+            <button type="button" className="btn ghost btn-xs" disabled={!!msgBusy} onClick={draftMessage} title="AIが下書きを作成します。この時点では送信されません（編集できます）">{msgBusy === "draft" ? "生成中…" : "✨ AIで下書き"}</button>
+            <button type="button" className="btn brand btn-xs" disabled={!!msgBusy || !msgText.trim()} onClick={sendMessage} title="本人の「お知らせ」に通知が届きます">{msgBusy === "send" ? "送信中…" : "📨 本人へ送信"}</button>
             {msgInfo && <span style={{ fontSize: 11, color: msgInfo.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msgInfo.text}</span>}
+          </div>
+          <div className="muted" style={{ fontSize: 10 }}>
+            ✨ AIで下書き = <b>下書きを作るだけ（未送信）</b>。「📨 本人へ送信」を押すと相手のお知らせに反映されます。🤖 AIから一言 = この日報カードにメモ表示のみ（本人には届きません）。
           </div>
         </div>
       )}
