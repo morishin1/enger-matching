@@ -50,13 +50,14 @@ function credsFor(sender: SenderKey): { user: string; pass: string; fromName: st
 }
 
 export type SendInput = {
-  sender: SenderKey;            // どの差出人で送るか
+  sender: SenderKey;            // どの差出人ドメインの箱で送るか
   to: string;                   // 宛先（カンマ区切り可）
   subject: string;
   text: string;                 // プレーン本文
   cc?: string | null;
   bcc?: string | null;
-  replyTo?: string | null;
+  replyTo?: string | null;      // 返信先（ログイン者のメールを入れると返信が本人に届く）
+  fromNameOverride?: string | null; // 差出人表示名の上書き（ログイン者の名前など）
 };
 
 export type SendResult = { ok: true; messageId: string; from: string } | { ok: false; error: string };
@@ -78,7 +79,10 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
     auth: { user: creds.user, pass: creds.pass },
   });
 
-  const from = `${creds.fromName} <${creds.user}>`;
+  // 差出人の「表示名」だけログイン者の名前に差し替え可能（アドレスは配信のため箱のまま）。
+  //   例) "森田 太郎 <info@enger.jp>"。fromNameOverride 未指定ならドメイン既定名。
+  const displayName = (input.fromNameOverride?.trim()) || creds.fromName;
+  const from = `${displayName} <${creds.user}>`;
   try {
     const info = await transporter.sendMail({
       from,

@@ -1764,10 +1764,16 @@ export async function sendMailAction(input: {
   const role = access?.role ?? "admin";
   if (role !== "admin" && role !== "agent") return { ok: false, error: "メール送信の権限がありません" };
 
+  // 差出人表示名＝ログイン者の名前、返信先＝ログイン者のメール（明示指定があれば優先）。
+  //   送信元アドレス自体は配信（SPF/DKIM）のため共有箱のまま。
+  //   → 相手には「{ログイン者名} <共有箱>」と表示され、返信は本人に届く。
+  const senderName = access?.name?.trim() || null;
+  const replyTo = input.replyTo?.trim() || access?.email || null;
+
   const { sendMail } = await import("./mailer");
   const res = await sendMail({
     sender: input.sender, to: input.to, subject: input.subject, text: input.text,
-    cc: input.cc, bcc: input.bcc, replyTo: input.replyTo,
+    cc: input.cc, bcc: input.bcc, replyTo, fromNameOverride: senderName,
   });
   if (!res.ok) return { ok: false, error: res.error };
 

@@ -33,6 +33,7 @@ function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onS
 }) {
   const [pending, start] = useTransition();
   const [senders, setSenders] = useState<Sender[] | null>(null);
+  const [me, setMe] = useState<{ name: string | null; email: string | null }>({ name: null, email: null });
   const [sender, setSender] = useState<"enger" | "8grp">("enger");
   const [eTo, setETo] = useState(to);
   const [eCc, setECc] = useState(cc ?? "");
@@ -49,7 +50,7 @@ function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onS
 
   useEffect(() => {
     fetch("/api/mail/senders").then((r) => r.json()).then((d) => {
-      if (d.ok) { setSenders(d.senders); if (d.senders?.[0]) setSender(d.senders[0].key); }
+      if (d.ok) { setSenders(d.senders); if (d.me) setMe(d.me); if (d.senders?.[0]) setSender(d.senders[0].key); }
     }).catch(() => setSenders([]));
   }, []);
 
@@ -90,6 +91,12 @@ function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onS
                   {(senders ?? []).map((s) => <option key={s.key} value={s.key}>{s.label} — {s.address}</option>)}
                 </select>
               </label>
+              {/* 実際にどう送られるかのプレビュー：表示名=ログイン者 / 返信先=ログイン者のメール */}
+              <div style={{ fontSize: 11.5, color: "var(--color-ink-3)", background: "var(--color-surface-soft)", borderRadius: 8, padding: "8px 11px", lineHeight: 1.7 }}>
+                <div>差出人表示：<b>{me.name || "（あなたの名前）"}</b> &lt;{(senders ?? []).find((s) => s.key === sender)?.address ?? "—"}&gt;</div>
+                <div>返信先：<b>{me.email || "（あなたのメール）"}</b>（相手が返信するとあなたに届きます）</div>
+                <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>※ 配信のため送信元アドレスは共有箱のままです。名前と返信先がログイン中のあなたになります。</div>
+              </div>
               <label style={lbl}>宛先（To）<input value={eTo} onChange={(e) => setETo(e.target.value)} placeholder="to@example.com（カンマ区切りで複数可）" style={inp} /></label>
               <label style={lbl}>CC（任意）<input value={eCc} onChange={(e) => setECc(e.target.value)} placeholder="cc@example.com" style={inp} /></label>
               <label style={lbl}>件名<input value={eSubject} onChange={(e) => setESubject(e.target.value)} style={inp} /></label>
