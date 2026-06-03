@@ -19,12 +19,111 @@ const STAGE_TONE: Record<string, string> = {
 };
 const normStage = (s: string | null | undefined) => (s && (STAGES as readonly string[]).includes(s) ? s : "返信待ち");
 const fmtDate = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`; };
+const fmtDateTime = (d: any) => {
+  if (!d) return "—";
+  const t = new Date(d);
+  if (isNaN(t.getTime())) return "—";
+  return `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+};
+const daysAgo = (d: any) => {
+  if (!d) return 0;
+  const t = new Date(d).getTime();
+  if (isNaN(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+};
+
+// 安定カラー（同じ名前は同じ色）— 提案者・CLの見分け用
+const PALETTE = ["#0b5cab", "#7c3aed", "#1aa260", "#d97706", "#dc2626", "#0891b2", "#db2777", "#65a30d", "#475569", "#ea580c", "#4338ca", "#0d9488"];
+function hashColor(name?: string | null): string {
+  if (!name) return "#9aa7b4";
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+
+// ネクストアクション判定。ステージ × 通知ステータス × 滞留日数から「今何をすべきか」を返す。
+type NextAction = { text: string; urgency: "high" | "medium" | "low" | "ok"; icon: string };
+function nextActionFor(p: any): NextAction {
+  const stage = normStage(p.stage);
+  const jobPending = !p.job_notify_status || p.job_notify_status === "pending";
+  const candPending = !p.cand_notify_status || p.cand_notify_status === "pending";
+  const stageDays = daysAgo(p.stage_updated_at || p.updated_at || p.created_at);
+  const caller = p.caller_status || "";
+
+  if (stage === "面談合格") return { text: "稼働化へ（契約・条件確認）", urgency: "high", icon: "rocket_launch" };
+  if (stage === "クロージング中") return { text: "条件・最終決裁の詰め", urgency: "high", icon: "handshake" };
+
+  if (stage === "面談調整") {
+    if (p.meeting_date && p.meeting_status !== "実施済") return { text: `面談 ${String(p.meeting_date).slice(5)} 当日対応`, urgency: "medium", icon: "event_available" };
+    return { text: "面談日程の確定", urgency: "high", icon: "event" };
+  }
+
+  if (stage === "提案中") {
+    if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "schedule_send" };
+    if (stageDays >= 3) return { text: `状況確認・フォロー`, urgency: "medium", icon: "schedule_send" };
+    return { text: "返信待ち（必要に応じてフォロー）", urgency: "low", icon: "schedule" };
+  }
+
+  // 返信待ち
+  if (caller === "未架電" || !caller) {
+    if (jobPending && candPending) return { text: "案件・人材へ初回コンタクト", urgency: "high", icon: "call" };
+    if (jobPending) return { text: "クライアントへ確認連絡", urgency: "medium", icon: "business" };
+    if (candPending) return { text: "候補者へ意思確認", urgency: "medium", icon: "person" };
+  }
+  if (jobPending) return { text: "クライアントへフォロー", urgency: "medium", icon: "business" };
+  if (candPending) return { text: "候補者へフォロー", urgency: "medium", icon: "person" };
+  if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "priority_high" };
+  return { text: "フォロー検討", urgency: "low", icon: "schedule" };
+}
+
+const URGENCY_TONE: Record<NextAction["urgency"], { fg: string; bg: string; bd: string }> = {
+  high:   { fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf" },
+  medium: { fg: "#b45309", bg: "#fff6e0", bd: "#fde9b0" },
+  low:    { fg: "#0b5cab", bg: "#eaf4fd", bd: "#bfd9f5" },
+  ok:     { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc" },
+};
+
+function PersonTag({ role, name }: { role: "P" | "CL"; name?: string | null }) {
+  const v = name?.trim();
+  if (!v) return <span className="muted" style={{ fontSize: 10.5 }}>{role === "P" ? "提案 未割当" : "CL 未割当"}</span>;
+  const col = hashColor(v);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: `${col}1a`, color: col, border: `1px solid ${col}55`, whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 9, opacity: 0.75 }}>{role}</span>{v}
+    </span>
+  );
+}
 
 function StageBadge({ stage }: { stage: string }) {
   const tone = STAGE_TONE[stage] ?? "#6b7280";
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99, background: `${tone}14`, color: tone }}>
       <span style={{ width: 6, height: 6, borderRadius: 99, background: tone }} />{stage}
+    </span>
+  );
+}
+
+// 受信者の応答タイプ（PR #130 で導入された job_action_type / cand_action_type 列）。
+const ACTION_TONE: Record<string, { fg: string; bg: string; dashed: boolean }> = {
+  "未回答":    { fg: "#94a3b8", bg: "transparent", dashed: true },
+  "話を進める": { fg: "#16a34a", bg: "#dcfce7",    dashed: false },
+  "見送り":    { fg: "#dc2626", bg: "#fee2e2",    dashed: false },
+};
+const ACTION_SIDE_LABEL: Record<"job" | "cand", string> = { job: "案", cand: "人" };
+
+function ActionChip({ type, side }: { type?: string | null; side: "job" | "cand" }) {
+  const t = type && ACTION_TONE[type] ? type : "未回答";
+  const tone = ACTION_TONE[t];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+      background: tone.bg, color: tone.fg,
+      border: `1px ${tone.dashed ? "dashed" : "solid"} ${tone.fg}55`,
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: 99, background: t === "未回答" ? "transparent" : tone.fg, border: t === "未回答" ? "1px dashed #94a3b8" : "none" }} />
+      <span>{ACTION_SIDE_LABEL[side]}</span>
+      <span style={{ fontSize: 9.5, opacity: 0.9 }}>{t}</span>
     </span>
   );
 }
@@ -140,12 +239,13 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <th style={th}>提案日</th>
+              <th style={th}>提案日時</th>
               <th style={th}>人材</th>
               <th style={th}>案件</th>
-              <th style={th}>担当者</th>
+              <th style={th}>提案者 / CL</th>
               <th style={th}>更新日</th>
               <th style={th}>ステータス</th>
+              <th style={th}>ネクストアクション</th>
               <th style={th}>通知</th>
               <th style={{ ...th, textAlign: "center" }}>詳細</th>
               <th style={{ ...th, textAlign: "center" }}>削除</th>
@@ -153,13 +253,17 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={9} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
+              <tr><td colSpan={10} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
             )}
-            {rows.map((p) => (
+            {rows.map((p) => {
+              const na = nextActionFor(p);
+              const naTone = URGENCY_TONE[na.urgency];
+              const closerName = p.closer ?? p.company_owner;
+              return (
               <tr key={p.id} onClick={() => setActive(p)} style={{ borderBottom: "1px solid var(--color-border)", cursor: "pointer", opacity: busyId === p.id ? 0.5 : 1 }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-soft)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.created_at)}</td>
+                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDateTime(p.created_at)}</td>
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
@@ -172,13 +276,32 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                   <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.job_title ?? "—"}</div>
                   <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.company ?? ""}</div>
                 </td>
-                <td style={{ ...td, whiteSpace: "nowrap" }}>{p.proposer ?? p.company_owner ?? "—"}</td>
+                <td style={td}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                    <PersonTag role="P" name={p.proposer} />
+                    <PersonTag role="CL" name={closerName === "未割当" ? null : closerName} />
+                  </div>
+                </td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
                 <td style={td}><StageBadge stage={normStage(p.stage)} /></td>
                 <td style={td}>
-                  <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-                    <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
-                    <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                  <span title={`緊急度: ${na.urgency}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
+                    {na.text}
+                  </span>
+                </td>
+                <td style={td}>
+                  <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+                    {/* 受信側の応答ステータス（PR #130 で導入された action_type 列を使用） */}
+                    <div style={{ display: "inline-flex", gap: 4 }}>
+                      <ActionChip type={p.job_action_type}  side="job"  />
+                      <ActionChip type={p.cand_action_type} side="cand" />
+                    </div>
+                    {/* 営業側のフォロー進捗（通知ステータス〇） */}
+                    <div style={{ display: "inline-flex", gap: 4 }}>
+                      <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
+                      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                    </div>
                   </div>
                 </td>
                 <td style={{ ...td, textAlign: "center" }}>
@@ -192,7 +315,8 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

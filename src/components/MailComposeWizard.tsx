@@ -8,6 +8,33 @@ import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject } from "./Job
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
+function generateToken(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function buildButtonHtml(siteUrl: string, token: string): string {
+  const agreeUrl  = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("話を進める")}`;
+  const rejectUrl = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("見送り")}`;
+  return `<table cellpadding="0" cellspacing="0" border="0" style="margin:16px 0">
+  <tr>
+    <td style="padding-right:12px">
+      <a href="${agreeUrl}" target="_blank"
+         style="display:inline-block;padding:12px 24px;background:#16a34a;color:#ffffff;font-weight:bold;font-size:14px;border-radius:8px;text-decoration:none;border:2px solid #15803d">
+        話を進める
+      </a>
+    </td>
+    <td>
+      <a href="${rejectUrl}" target="_blank"
+         style="display:inline-block;padding:12px 24px;background:#dc2626;color:#ffffff;font-weight:bold;font-size:14px;border-radius:8px;text-decoration:none;border:2px solid #b91c1c">
+        見送り
+      </a>
+    </td>
+  </tr>
+</table>`;
+}
+
 function StepBar({ current }: { current: 1 | 2 }) {
   const steps = ["メール作成", "確認"];
   return (
@@ -43,15 +70,28 @@ function StepBar({ current }: { current: 1 | 2 }) {
   );
 }
 
-function MailPreviewCard({ title, dotColor, email, subject, body, origMailUrl, proposer }: {
-  title: string; dotColor: string;
-  email: string; subject: string; body: string;
-  origMailUrl?: string | null; proposer: string;
+function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer, buttonHtml }: {
+  title: string; dotColor: string; body: string; origMailUrl?: string | null; proposer: string;
+  buttonHtml?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* noop */ }
+    try {
+      if (buttonHtml && typeof (window as any).ClipboardItem !== "undefined") {
+        const escaped = body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        const htmlContent = `<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${escaped}</div>\n${buttonHtml}`;
+        await navigator.clipboard.write([new (window as any).ClipboardItem({
+          "text/html": new Blob([htmlContent], { type: "text/html" }),
+          "text/plain": new Blob([body], { type: "text/plain" }),
+        })]);
+      } else {
+        await navigator.clipboard.writeText(body);
+      }
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch {
+      try { await navigator.clipboard.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* noop */ }
+    }
   };
 
   const fieldRow: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 3, fontSize: 11, color: "var(--color-ink-4)" };
@@ -59,15 +99,14 @@ function MailPreviewCard({ title, dotColor, email, subject, body, origMailUrl, p
 
   return (
     <div style={{ flex: 1, minWidth: 0, border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 1px 3px rgba(15,23,42,.06)", display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", overflow: "hidden" }}>
-      {/* Header with actions */}
       <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-soft)", flexShrink: 0, gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <div style={{ width: 12, height: 12, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ink)", whiteSpace: "nowrap" }}>{title}</span>
         </div>
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button type="button" onClick={handleCopy} className="btn ghost btn-xs" title="本文をクリップボードにコピー">
-            {copied ? "✓ コピー済" : "📄 コピー"}
+          <button type="button" onClick={handleCopy} className="btn ghost btn-xs" title={buttonHtml ? "本文＋ボタンをコピー" : "本文をコピー"}>
+            {copied ? "✓ コピー済" : buttonHtml ? "📋 本文＋ボタンをコピー" : "📄 コピー"}
           </button>
           <a
             href={origMailUrl ?? undefined}
@@ -96,6 +135,14 @@ function MailPreviewCard({ title, dotColor, email, subject, body, origMailUrl, p
           <pre style={{ margin: 0, fontSize: 12.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "inherit", color: "var(--color-ink-2)" }}>
             {body || "（本文なし）"}
           </pre>
+          {buttonHtml && (
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <span style={{ display: "inline-block", padding: "8px 18px", background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: 13, borderRadius: 7 }}>話を進める</span>
+                <span style={{ display: "inline-block", padding: "8px 18px", background: "#dc2626", color: "#fff", fontWeight: 700, fontSize: 13, borderRadius: 7 }}>見送り</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -131,6 +178,8 @@ export function MailComposeWizard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
   const [_savedId, setSavedId] = useState<string | null>(initialSavedId);
+  const [jobToken, setJobToken] = useState<string | null>(null);
+  const [candToken, setCandToken] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -163,20 +212,40 @@ export function MailComposeWizard({
   const handleNext = () => {
     const clientOk = validateSide(clientForm, setClientErrors, "案件側");
     const candOk = validateSide(candForm, setCandErrors, "人材側");
-    if (clientOk && candOk) setStep(2);
+    if (!clientOk || !candOk) return;
+    if (!jobToken)  setJobToken(generateToken());
+    if (!candToken) setCandToken(generateToken());
+    setStep(2);
   };
 
   const handleSave = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
     setSaving(true); setMsg(null);
     try {
-      const res = await createProposal(job.job_no, cand.candidate_no, score, proposer || undefined);
-      if (res.ok) { setSaved(true); setSavedId(res.id ?? null); setMsg(res.existed ? "既に提案済みです" : "保存しました（提案ボードに追加）"); }
-      else setMsg(res.error || "保存に失敗しました");
+      const res = await createProposal(
+        job.job_no, cand.candidate_no, score, proposer || undefined,
+        { jobToken, candToken },
+      );
+      if (res.ok) {
+        setSaved(true); setSavedId(res.id ?? null);
+        if (res.existed) {
+          setJobToken(null);
+          setCandToken(null);
+          setMsg("既に提案済みです");
+        } else {
+          setMsg("保存しました（提案ボードに追加）");
+        }
+      } else {
+        setMsg(res.error || "保存に失敗しました");
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "保存に失敗しました");
     } finally { setSaving(false); }
   };
+
+  const siteUrl = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL ?? "");
+  const jobButtonHtml  = jobToken  ? buildButtonHtml(siteUrl, jobToken)  : null;
+  const candButtonHtml = candToken ? buildButtonHtml(siteUrl, candToken) : null;
 
   const jobBadge = (job.client_name ?? "").slice(0, 10) || "企業";
   const candBadge = cand.name || cand.initials || "人材";
@@ -224,15 +293,13 @@ export function MailComposeWizard({
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <MailPreviewCard
               title="案件側メール" dotColor="#ef4444"
-              email={clientForm.email} subject={clientForm.subject} body={clientForm.body}
-              origMailUrl={gmailMessageUrl(job.source_mail_url) || null}
-              proposer={proposer}
+              body={clientForm.body} origMailUrl={gmailMessageUrl(job.source_mail_url) || null}
+              proposer={proposer} buttonHtml={jobButtonHtml}
             />
             <MailPreviewCard
               title="人材側メール" dotColor="#3b82f6"
-              email={candForm.email} subject={candForm.subject} body={candForm.body}
-              origMailUrl={gmailMessageUrl(cand.source_mail_url) || null}
-              proposer={proposer}
+              body={candForm.body} origMailUrl={gmailMessageUrl(cand.source_mail_url) || null}
+              proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -248,7 +315,7 @@ export function MailComposeWizard({
               </button>
             )}
           </div>
-          {msg && <div style={{ fontSize: 12, color: saved ? "#067647" : "var(--color-danger)", textAlign: "right" }}>{msg}</div>}
+          {msg && <div style={{ fontSize: 12, color: saved && !msg.includes("既に") ? "#067647" : "var(--color-danger)", textAlign: "right" }}>{msg}</div>}
         </>
       )}
     </div>

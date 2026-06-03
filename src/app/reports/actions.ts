@@ -30,8 +30,60 @@ export async function saveReport(input: { author: string; report_date: string; d
   };
   const { error } = await admin.from("daily_reports").upsert(row, { onConflict: "author,report_date" });
   if (error) return { ok: false, error: error.message };
+
+  // 日報提出時の AI 自動返信（基本ON・1日報につき1回）。
+  //   提出した本人の「お知らせ」に、承認＋次の一手の短い一言が即座に届く。
+  //   AI 失敗や列未整備でも日報保存自体は成功させる（fail-soft）。
+  try {
+    const { data: saved } = await admin.from("daily_reports")
+      .select("id, ai_replied_at, ai_comment").eq("author", row.author).eq("report_date", row.report_date).maybeSingle();
+    if (saved && !(saved as any).ai_replied_at) {
+      await autoReplyToReport((saved as any).id, row).catch(() => {});
+    }
+  } catch { /* fail-soft */ }
+
   revalidatePath("/reports");
   return { ok: true };
+}
+
+/** 日報提出時に AI が一言を生成し、本人の「お知らせ」に届ける（自動・内部関数）。 */
+async function autoReplyToReport(reportId: string, r: { author: string; report_date: string; did: string[]; self_check: Record<string, string>; good: string | null; problem: string | null; cause: string | null; next_action: string | null; mood: string | null; metrics: any }): Promise<void> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return; }
+  const m = r.metrics ?? {};
+  const system = "あなたはメンバーを温かく支える人材紹介エージェントのマネージャーです。提出された日報へ、その日のうちに届く短い返信を書きます。①頑張りや工夫を1つ具体的に承認、②明日に向けた前向きな一言かヒントを1つ。日本語で2〜4行、絵文字は控えめに、説教くさくしない。";
+  const prompt = [
+    `担当者: ${r.author}`,
+    `日付: ${r.report_date}`,
+    `本日実績: 提案${m.proposalsToday ?? 0} / 打合せ${m.meetingsToday ?? 0}`,
+    `やったこと: ${(r.did ?? []).join("、") || "（記載なし）"}`,
+    `自己チェック: ${JSON.stringify(r.self_check ?? {})}`,
+    `うまくいった: ${r.good ?? "（なし）"}`,
+    `詰まった/課題: ${r.problem ?? "（なし）"}（なぜ: ${r.cause ?? "—"}）`,
+    `明日の一手: ${r.next_action ?? "（なし）"}`,
+    `手応え: ${r.mood ?? ""}`,
+  ].join("\n");
+
+  // 安価モデル（Haiku）を選好してコストを抑える。
+  const prev = process.env.LLM_MODEL;
+  if (!prev || !/haiku/i.test(prev)) process.env.LLM_MODEL = "claude-haiku-4-5";
+  const res = await callLLM({ system, prompt, maxTokens: 220, temperature: 0.6 });
+  if (prev) process.env.LLM_MODEL = prev; else delete process.env.LLM_MODEL;
+  if (!res.ok || !res.text?.trim()) return;
+  try { await logUsage("report_auto_reply", res.model, res.usage); } catch { /* noop */ }
+
+  const text = res.text.trim();
+  const now = new Date().toISOString();
+  // 本人のお知らせへ届ける
+  await admin.from("notifications").insert({
+    recipient: r.author,
+    title: `日報へのひとこと（${r.report_date}）`,
+    body: `${text}\n\n— ENGER（AI）`,
+    kind: "feedback",
+  });
+  // 日報側にも記録（カード表示・重複防止）
+  await admin.from("daily_reports").update({ ai_comment: text, ai_replied_at: now }).eq("id", reportId);
+  revalidatePath("/notifications");
 }
 
 /** AIから一言コーチング（任意・1日報につき1回想定）。実績＋気づきから短く。 */
@@ -148,6 +200,10 @@ export async function sendReportMessage(reportId: string, message: string): Prom
   const title = `日報メッセージ（${(r as any).report_date}）`;
   const { error } = await admin.from("notifications").insert({ recipient: (r as any).author, title, body, kind: "feedback" });
   if (error) return { ok: false, error: error.message };
+  // 日報側にも返信記録を残す（一覧で「返信済」が分かるように）。列が無い環境でも失敗させない。
+  try {
+    await admin.from("daily_reports").update({ replied_at: new Date().toISOString(), replied_by: sender, reply_text: message.trim() }).eq("id", reportId);
+  } catch { /* 列未整備（daily-reports-reply.sql 未実行）でも送信自体は成功 */ }
   revalidatePath("/reports"); revalidatePath("/notifications");
   return { ok: true };
 }

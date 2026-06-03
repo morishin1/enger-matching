@@ -6,6 +6,8 @@ export type DailyReport = {
   self_check: Record<string, string> | null; good: string | null; problem: string | null; cause: string | null;
   next_action: string | null; mood: string | null; outputs: number | null; contacts: number | null;
   metrics: any; ai_comment: string | null;
+  replied_at?: string | null; replied_by?: string | null; reply_text?: string | null;
+  ai_replied_at?: string | null;
 };
 
 const ACTIVE = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
