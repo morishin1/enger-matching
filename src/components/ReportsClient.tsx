@@ -103,7 +103,7 @@ function ReportForm({ author, today, actuals }: { author: string; today: string;
         author, report_date: today, did, self_check: checks, good: f.good, problem: f.problem, cause: f.cause,
         next_action, mood: f.mood, outputs: f.outputs === "" ? null : Number(f.outputs), contacts: f.contacts === "" ? null : Number(f.contacts), metrics: actuals,
       });
-      setMsg(r.ok ? "✓ 日報を保存しました" : `エラー：${r.error}`);
+      setMsg(r.ok ? "✓ 日報を保存しました（AIからの一言が「お知らせ」に届きます）" : `エラー：${r.error}`);
       if (r.ok) router.refresh();
     });
   };
@@ -192,8 +192,10 @@ function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <b style={{ fontSize: 13.5 }}>{r.author}</b>
           {isAdmin && (r.replied_at
-            ? <span title={`${r.replied_by ?? "管理者"} が ${new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に返信済`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", whiteSpace: "nowrap" }}>✓ 返信済</span>
-            : <span title="まだ個別メッセージを送っていません" style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0", whiteSpace: "nowrap" }}>未返信</span>
+            ? <span title={`${r.replied_by ?? "管理者"} が ${new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に返信済`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", whiteSpace: "nowrap" }}>✓ 管理者返信済</span>
+            : r.ai_replied_at
+              ? <span title={`提出時にAIが自動で一言を送信済（${new Date(r.ai_replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}）。必要なら下から個別メッセージを追送できます。`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "var(--color-brand-25)", color: "var(--color-brand-700)", border: "1px solid var(--color-brand-100)", whiteSpace: "nowrap" }}>🤖 AI返信済</span>
+              : <span title="まだ返信がありません" style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0", whiteSpace: "nowrap" }}>未返信</span>
           )}
         </div>
         <span className="muted mono" style={{ fontSize: 11 }}>{r.report_date} {r.mood ?? ""}</span>
@@ -242,7 +244,7 @@ function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
             {msgInfo && <span style={{ fontSize: 11, color: msgInfo.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msgInfo.text}</span>}
           </div>
           <div className="muted" style={{ fontSize: 10 }}>
-            ✨ AIで下書き = <b>下書きを作るだけ（未送信）</b>。「📨 本人へ送信」を押すと相手のお知らせに反映されます。🤖 AIから一言 = この日報カードにメモ表示のみ（本人には届きません）。
+            ℹ 日報提出時に <b>AIの一言が自動で本人に届きます</b>（🤖 AI返信済）。ここからは <b>管理者個人のコメントを追送</b>できます。✨ AIで下書き＝下書きのみ（未送信）／📨 本人へ送信＝相手のお知らせに反映。
           </div>
         </div>
       )}
