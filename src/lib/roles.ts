@@ -12,6 +12,16 @@ export const SALES_FUNCTIONS = ["営業", "インサイド", "アウトサイド
 /** 営業系の職能を持つか（未設定は後方互換で営業扱い）。 */
 export const hasSalesFunction = (functions?: string[] | null) => !functions || functions.length === 0 || functions.some((f) => SALES_FUNCTIONS.includes(f));
 
+// 組織：部署とチーム役職（日報の閲覧/返信権限に使用）
+export const DEPARTMENTS = ["ITS", "バックオフィス", "サポート", "開発", "経営", "フリーランス"] as const;
+export type Department = (typeof DEPARTMENTS)[number];
+export const TEAM_ROLES = ["manager", "leader", "member"] as const;
+export type TeamRole = (typeof TEAM_ROLES)[number];
+export const TEAM_ROLE_LABEL: Record<TeamRole, string> = { manager: "マネージャー", leader: "リーダー", member: "メンバー" };
+/** マネージャー/リーダーは「自部署の日報を閲覧・返信」できる。 */
+export const canManageDept = (teamRole?: string | null) => teamRole === "manager" || teamRole === "leader";
+
+
 /** ロール別の初期表示パス。client も自社ポータル(=ダッシュボード"/")へ。 */
 export function roleHome(_role: Role): string {
   return "/";

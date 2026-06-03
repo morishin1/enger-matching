@@ -316,6 +316,35 @@ export async function setAccountFunctions(id: string, functions: string[]): Prom
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 所属部署を管理者が設定。 */
+export async function setAccountDepartment(id: string, department: string | null): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_users").update({ department: department || null }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    bustMembers(); revalidatePath("/"); revalidatePath("/reports");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** チーム役職（manager/leader/member）を管理者が設定。 */
+export async function setAccountTeamRole(id: string, teamRole: "manager" | "leader" | "member" | null): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  if (!id) return { ok: false, error: "id がありません" };
+  if (teamRole && !["manager", "leader", "member"].includes(teamRole)) return { ok: false, error: "不正な役職です" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_users").update({ team_role: teamRole || null }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    bustMembers(); revalidatePath("/"); revalidatePath("/reports");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 営業区分（インサイド/アウトサイド）を管理者が設定。 */
 export async function setAccountPosition(id: string, position: "inside" | "outside" | null): Promise<Result> {
   const guard = await requireAdmin();

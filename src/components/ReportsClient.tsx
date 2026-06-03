@@ -162,7 +162,8 @@ function ReportForm({ author, today, actuals }: { author: string; today: string;
   );
 }
 
-function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
+function ReportCard({ r, canReply }: { r: DailyReport; canReply?: boolean }) {
+  const isAdmin = canReply; // 返信UI（バッジ・返信欄）の表示可否。管理者＝マネージャー/リーダーも返信可。
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msgText, setMsgText] = useState("");
@@ -340,18 +341,21 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports, isAdmin = false, members = [] }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; members?: string[] }) {
+export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, members = [] }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; members?: string[] }) {
   const [q, setQ] = useState("");
   const todays = reports.find((r) => r.author === author && r.report_date === today);
   const filtered = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
+  const canManage = isAdmin || canReply; // 提出カレンダー＋返信UI を出す
   return (
     <>
-      {isAdmin ? (
+      {canManage && (
         <>
           <SubmissionCalendar members={members} reports={reports} today={today} />
           <ManagerReview reports={reports} />
         </>
-      ) : (
+      )}
+      {/* 管理者以外（マネージャー/リーダー/メンバー）は自分の日報も提出できる */}
+      {!isAdmin && (
         <>
           {todays ? (
             <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
@@ -373,7 +377,7 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30 }}>まだ日報がありません。</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-          {filtered.map((r) => <ReportCard key={r.id} r={r} isAdmin={isAdmin} />)}
+          {filtered.map((r) => <ReportCard key={r.id} r={r} canReply={canManage} />)}
         </div>
       )}
     </>

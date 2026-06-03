@@ -54,13 +54,17 @@ export async function getReportIssues(days = 2): Promise<ReportIssue[]> {
   } catch { return []; }
 }
 
-/** 日報一覧（新しい順）。 */
-export async function listReports(opts?: { author?: string; limit?: number }): Promise<DailyReport[]> {
+/** 日報一覧（新しい順）。author 単一指定 or authors 複数指定（部署メンバー）で絞り込み可。 */
+export async function listReports(opts?: { author?: string; authors?: string[]; limit?: number }): Promise<DailyReport[]> {
   if (!dbConfigured) return [];
   try {
     const sb = engerClient();
     let q = sb.from("daily_reports").select("*").order("report_date", { ascending: false }).limit(opts?.limit ?? 60);
     if (opts?.author) q = q.eq("author", opts.author);
+    else if (opts?.authors) {
+      if (opts.authors.length === 0) return [];
+      q = q.in("author", opts.authors);
+    }
     const { data, error } = await q;
     if (error || !data) return [];
     return data as DailyReport[];

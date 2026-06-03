@@ -6,6 +6,7 @@ import { ReportIssues } from "@/components/ReportIssues";
 import { CompanyStructure } from "@/components/CompanyStructure";
 import { WorkHome } from "@/components/WorkHome";
 import { TalentHome } from "@/components/TalentHome";
+import { ReplyAlertBanner } from "@/components/ReplyAlertBanner";
 import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { TalentRequests } from "@/components/TalentRequests";
@@ -39,7 +40,7 @@ export default async function DashboardPage() {
   // 非営業の一般職（バックオフィス/EC/サポート等・営業職能を持たない） → 業務ホーム
   const fns = access?.functions ?? [];
   if (access?.role === "agent" && !hasSalesFunction(fns)) {
-    return <WorkHome name={access?.name ?? ""} functions={fns} />;
+    return <><ReplyAlertBanner name={access?.name ?? null} /><WorkHome name={access?.name ?? ""} functions={fns} /></>;
   }
   // 営業・管理者 → 企業からの人材リクエスト ＋ 経営/営業ダッシュボード
   const isAdmin = access?.role !== "agent"; // admin（または認証未設定のローカル）
@@ -47,6 +48,7 @@ export default async function DashboardPage() {
   const matrix = isAdmin ? await getCompanyMatrix() : null;
   return (
     <>
+      <ReplyAlertBanner name={access?.name ?? null} />
       <div className="page" style={{ paddingBottom: 0 }}>
         <RecentActivity />
       </div>
