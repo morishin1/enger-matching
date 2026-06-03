@@ -8,6 +8,7 @@ import { setBoardProjectId } from "@/app/billing/board-actions";
 import { BoardSync } from "./BoardSync";
 import { EngagementTools } from "./EngagementTools";
 import { RateHistoryButton } from "./RateHistory";
+import { EngagementRowActions } from "./EngagementRowActions";
 import { AFFILIATIONS, affiliationShort } from "@/lib/affiliation";
 import type { Role } from "@/lib/roles";
 
@@ -245,7 +246,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
             <thead>
               <tr>
-                <th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th>
+                <th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th><th style={{ ...th, textAlign: "center" }}>操作</th>
               </tr>
             </thead>
             <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
@@ -324,6 +325,7 @@ function ContractRow({ e, role, onChanged, done, canManage }: { e: Eng; role: Ro
         </select>
       </td>
       <td style={td}><input type="date" defaultValue={dateVal(e.end_date)} style={{ ...inp, width: 124 }} disabled={pending} onBlur={(ev) => { if (ev.target.value !== dateVal(e.end_date)) save({ end_date: ev.target.value || null }); }} /></td>
+      <td style={{ ...td, textAlign: "center" }}><EngagementRowActions e={e} canManage={canManage} canSeeCost={!masked} /></td>
     </tr>
   );
 }

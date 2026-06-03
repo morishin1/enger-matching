@@ -516,6 +516,24 @@ export async function updateEngagementStatus(id: string, status: string) {
   return { ok: true };
 }
 
+/** 稼働(契約)を削除（管理者・バックオフィスのみ）。関連の請求タスクも合わせて削除。 */
+export async function deleteEngagement(id: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!id) return { ok: false as const, error: "id がありません" };
+  // 権限：管理者またはバックオフィス職能のみ
+  const access = await currentAccess();
+  const role = access?.role ?? "admin";
+  const isBackoffice = (access?.functions ?? []).includes("バックオフィス");
+  if (role !== "admin" && !isBackoffice) return { ok: false as const, error: "削除は管理者・バックオフィスのみ可能です" };
+  // 関連する請求タスクを先に削除（FK が無くても掃除する）
+  try { await admin.from("billing_tasks").delete().eq("engagement_id", id); } catch { /* 続行 */ }
+  const { error } = await admin.from("engagements").delete().eq("id", id);
+  if (error) return { ok: false as const, error: error.message };
+  revalidatePath("/progress"); revalidatePath("/billing"); bustCounts();
+  return { ok: true as const };
+}
+
 /** 稼働(契約)の項目を更新。原価/所属区分は権限ガードあり（F-4）。 */
 export async function updateEngagementFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
@@ -527,7 +545,7 @@ export async function updateEngagementFields(id: string, fields: Record<string, 
   let affiliation: string | null = null;
   try { const { data } = await admin.from("engagements").select("affiliation").eq("id", id).maybeSingle(); affiliation = (data as any)?.affiliation ?? null; } catch { /* 列なし等は無視 */ }
 
-  const allowed = ["monthly_rate", "cost", "affiliation", "settle_min", "settle_max", "work_hours", "contract_status", "po_status", "start_date", "end_date", "renewal_due", "renewal_status", "status"];
+  const allowed = ["candidate_name", "company", "job_title", "monthly_rate", "cost", "affiliation", "settle_min", "settle_max", "work_hours", "contract_status", "po_status", "start_date", "end_date", "renewal_due", "renewal_status", "status"];
   const patch: Record<string, any> = {};
   for (const k of allowed) if (k in fields) patch[k] = fields[k] === "" ? null : fields[k];
 
