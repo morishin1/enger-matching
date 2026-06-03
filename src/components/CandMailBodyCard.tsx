@@ -80,7 +80,7 @@ const errText: React.CSSProperties = { fontSize: 11, color: "var(--color-danger)
 const fieldLabel: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" };
 
 export function CandMailBodyCard({
-  form, errors, proposer, onProposerChange, onChange, badgeLabel,
+  form, errors, proposer, onProposerChange, onChange, badgeLabel, origMailUrl,
 }: {
   form: MailForm;
   errors: MailErrors;
@@ -88,6 +88,7 @@ export function CandMailBodyCard({
   onProposerChange: (v: string) => void;
   onChange: (field: keyof MailForm, v: string) => void;
   badgeLabel: string;
+  origMailUrl?: string | null;
 }) {
   return (
     <div style={{ flex: 1, minWidth: 0, border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 1px 3px rgba(15,23,42,.06)", display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", overflow: "hidden" }}>
@@ -97,11 +98,23 @@ export function CandMailBodyCard({
           <div style={{ width: 12, height: 12, borderRadius: "50%", background: DOT_COLOR, flexShrink: 0 }} />
           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ink)" }}>人材側へのメール</span>
         </div>
-        {badgeLabel && (
-          <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: DOT_COLOR + "18", color: DOT_COLOR, border: `1px solid ${DOT_COLOR}44`, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {badgeLabel}
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <a
+            href={origMailUrl ?? undefined}
+            target="_blank" rel="noopener noreferrer"
+            className="btn ghost btn-xs"
+            style={{ textDecoration: "none", opacity: origMailUrl ? 1 : 0.35, pointerEvents: origMailUrl ? "auto" : "none", cursor: origMailUrl ? "pointer" : "not-allowed" }}
+            title={origMailUrl ? "元のメールを開く" : "元メールのURLがありません"}
+            aria-disabled={!origMailUrl}
+          >
+            ↗ 元メール
+          </a>
+          {badgeLabel && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: DOT_COLOR + "18", color: DOT_COLOR, border: `1px solid ${DOT_COLOR}44`, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {badgeLabel}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Fixed fields */}

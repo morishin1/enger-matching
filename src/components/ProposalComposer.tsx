@@ -268,11 +268,21 @@ export function ProposalComposer({
 
       {/* ② シンプル送信操作：1つのメインCTAで両方送信＋確認プレビュー */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
-          style={{ fontSize: 13, padding: "0 22px", height: 38 }}
-          title="クライアント宛と人材宛の Gmail を1クリックで両方開きます（送信前に内容を確認）">
-          📤 送信する（クライアント＋人材へ）
-        </button>
+        {job?.job_no != null && cand?.candidate_no != null ? (
+          <a href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
+            target="_blank" rel="noopener noreferrer"
+            className="btn-mail block"
+            style={{ fontSize: 13, padding: "0 22px", height: 38, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
+            title="メール内容を確認・編集してから送信する">
+            📤 送信する（クライアント＋人材へ）
+          </a>
+        ) : (
+          <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
+            style={{ fontSize: 13, padding: "0 22px", height: 38 }}
+            title="クライアント宛と人材宛の Gmail を1クリックで両方開きます（送信前に内容を確認）">
+            📤 送信する（クライアント＋人材へ）
+          </button>
+        )}
         {saved ? (
           savedId ? (
             <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
@@ -287,14 +297,6 @@ export function ProposalComposer({
           <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving}>{saving ? "処理中…" : "📋 ボードに記録"}</button>
         )}
         <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
-        {job?.job_no != null && cand?.candidate_no != null && (
-          <a href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
-            target="_blank" rel="noopener noreferrer"
-            className="btn ghost btn-xs" style={{ textDecoration: "none" }}
-            title="メール内容を確認・編集してからボードに記録する">
-            ✉ メールを作成
-          </a>
-        )}
         {saved && <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline", marginLeft: 4 }}>提案管理を開く</Link>}
       </div>
       {msg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{msg}</div>}
