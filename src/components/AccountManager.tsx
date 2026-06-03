@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, deleteAccount, createAgent, resetAccountPassword } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, deleteAccount, createAgent, resetAccountPassword } from "@/app/settings/account-actions";
 import type { Account, Role } from "@/lib/accounts";
-import { FUNCTIONS } from "@/lib/roles";
+import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
 
 const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "エージェント", client: "ユーザー企業", candidate: "人材", partner: "パートナー企業", freelance: "副業エージェント" };
 const ROLE_TONE: Record<Role, { bg: string; fg: string }> = {
@@ -175,6 +175,20 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
                   )}
                   <button onClick={() => { if (confirm(`${a.email} を削除しますか？`)) run(() => deleteAccount(a.id)); }} disabled={pending} title="削除" style={{ padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, cursor: "pointer", color: "#6b7280" }}>×</button>
                   </div>
+                  {(a.role === "agent" || a.role === "admin") && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <span className="muted" style={{ fontSize: 10.5 }}>部署：</span>
+                      <select value={a.department ?? ""} onChange={(e) => run(() => setAccountDepartment(a.id, e.target.value || null))} disabled={pending} title="所属部署（日報の閲覧範囲に使用）" style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 11.5 }}>
+                        <option value="">部署なし</option>
+                        {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      <span className="muted" style={{ fontSize: 10.5 }}>役職：</span>
+                      <select value={a.team_role ?? ""} onChange={(e) => run(() => setAccountTeamRole(a.id, (e.target.value || null) as any))} disabled={pending} title="チーム役職（マネージャー/リーダーは自部署の日報を閲覧・返信可）" style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 11.5 }}>
+                        <option value="">役職なし</option>
+                        {TEAM_ROLES.map((r) => <option key={r} value={r}>{TEAM_ROLE_LABEL[r]}</option>)}
+                      </select>
+                    </div>
+                  )}
                   {(a.role === "agent" || a.role === "admin") && (
                     <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
                       <span className="muted" style={{ fontSize: 10.5, marginRight: 2 }}>職能（兼務可）：</span>

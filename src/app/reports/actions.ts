@@ -4,7 +4,19 @@ import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { callLLM } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
-import { currentAccess } from "@/lib/accounts";
+import { currentAccess, listDepartmentMemberNames } from "@/lib/accounts";
+import { canManageDept } from "@/lib/roles";
+
+/** 日報への返信権限：admin、または対象著者が自部署に属するマネージャー/リーダー。 */
+async function canReplyToReport(access: Awaited<ReturnType<typeof currentAccess>>, author: string): Promise<boolean> {
+  if (!access) return true; // 認証未設定(ローカル)は許可
+  if (access.role === "admin") return true;
+  if (canManageDept(access.teamRole) && access.department) {
+    const members = await listDepartmentMemberNames(access.department);
+    return members.includes(author) || author === access.name;
+  }
+  return false;
+}
 
 type Result = { ok: boolean; error?: string };
 
@@ -164,11 +176,11 @@ export async function sendReportFeedback(author: string, period: "week" | "month
 /** 管理者：日報1件に対する個別メッセージのAI下書きを生成（保存はしない、本文のみ返却）。 */
 export async function draftReportMessage(reportId: string): Promise<{ ok: boolean; text?: string; error?: string }> {
   const access = await currentAccess();
-  if (access && access.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   const { data: r } = await admin.from("daily_reports").select("*").eq("id", reportId).maybeSingle();
   if (!r) return { ok: false, error: "日報が見つかりません" };
+  if (!(await canReplyToReport(access, (r as any).author))) return { ok: false, error: "この日報に返信する権限がありません" };
   const system = "あなたはメンバーを温かく支えるマネージャーです。日報1件に対する個別メッセージを短く書きます。①頑張りや工夫を1つ具体的に承認、②次の一歩のヒント／問いかけを1つ。日本語、3〜5行、敬意を持って、説教くさくしない。";
   const prompt = [
     `担当者: ${(r as any).author}`,
@@ -189,12 +201,12 @@ export async function draftReportMessage(reportId: string): Promise<{ ok: boolea
 /** 管理者：日報1件に対する個別メッセージを送信（notifications にレコード追加）。 */
 export async function sendReportMessage(reportId: string, message: string): Promise<Result> {
   const access = await currentAccess();
-  if (access && access.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
   if (!message?.trim()) return { ok: false, error: "メッセージが空です" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   const { data: r } = await admin.from("daily_reports").select("author, report_date").eq("id", reportId).maybeSingle();
   if (!r) return { ok: false, error: "日報が見つかりません" };
+  if (!(await canReplyToReport(access, (r as any).author))) return { ok: false, error: "この日報に返信する権限がありません" };
   const sender = access?.name?.trim() || "管理者";
   const body = `${message.trim()}\n\n— ${sender}`;
   const title = `日報メッセージ（${(r as any).report_date}）`;

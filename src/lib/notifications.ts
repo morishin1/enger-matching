@@ -20,3 +20,16 @@ export async function unreadCount(name: string | null): Promise<number> {
   const list = await listNotifications(name);
   return list.filter((n) => !n.read_at).length;
 }
+
+/** 日報への返信（kind=feedback）の未読件数。ダッシュボード/日報の「新着返信」表示に使う。 */
+export async function unreadReplyCount(name: string | null): Promise<number> {
+  if (!name || !dbConfigured) return 0;
+  try {
+    const sb = engerClient();
+    const { count, error } = await sb.from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient", name).eq("kind", "feedback").is("read_at", null);
+    if (error) return 0;
+    return count ?? 0;
+  } catch { return 0; }
+}
