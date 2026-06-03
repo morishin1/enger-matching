@@ -271,6 +271,7 @@ export function MailComposeWizard({
               onProposerChange={setProposer}
               onChange={updateClientForm}
               badgeLabel={jobBadge}
+              origMailUrl={gmailMessageUrl(job.source_mail_url) || null}
             />
             <CandMailBodyCard
               form={candForm}
@@ -279,6 +280,7 @@ export function MailComposeWizard({
               onProposerChange={setProposer}
               onChange={updateCandForm}
               badgeLabel={candBadge}
+              origMailUrl={gmailMessageUrl(cand.source_mail_url) || null}
             />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>
