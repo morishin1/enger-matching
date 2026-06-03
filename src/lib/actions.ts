@@ -384,6 +384,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   const data = ins.data; const error = ins.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
+  revalidatePath("/matching");
   bustCounts();
   return { ok: true, id: data.id, existed: false, job_action_token, cand_action_token };
 }
