@@ -62,6 +62,25 @@ export type SendInput = {
 
 export type SendResult = { ok: true; messageId: string; from: string } | { ok: false; error: string };
 
+/** 送信元アドレスからドメインを取り出す（EHLO名に使う）。 */
+function domainOf(addr: string): string {
+  const at = addr.lastIndexOf("@");
+  return at >= 0 ? addr.slice(at + 1) : addr;
+}
+
+/** transporter を生成。EHLO名(name)を送信ドメインに設定し、AWS汎用ホスト名での拒否を回避。 */
+function makeTransport(host: string, port: number, user: string, pass: string) {
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465, // 465=SSL, 587=STARTTLS
+    auth: { user, pass },
+    // EHLO で名乗るホスト名。既定だとサーバの実ホスト名(AWS EC2)になり Xserver 等で
+    // 「Client host rejected」になることがある。送信ドメインを名乗って回避する。
+    name: process.env.SMTP_HELO || domainOf(user),
+  });
+}
+
 /** 1通送信。SMTP は接続コストがあるので呼び出しごとに transporter を生成（低頻度運用のため十分）。 */
 export async function sendMail(input: SendInput): Promise<SendResult> {
   const host = process.env.SMTP_HOST;
@@ -72,12 +91,7 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
   if (!input.to?.trim()) return { ok: false, error: "宛先がありません" };
   if (!input.subject?.trim()) return { ok: false, error: "件名がありません" };
 
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465, // 465=SSL, 587=STARTTLS
-    auth: { user: creds.user, pass: creds.pass },
-  });
+  const transporter = makeTransport(host, port, creds.user, creds.pass);
 
   // 差出人の「表示名」だけログイン者の名前に差し替え可能（アドレスは配信のため箱のまま）。
   //   例) "森田 太郎 <info@enger.jp>"。fromNameOverride 未指定ならドメイン既定名。
@@ -106,7 +120,7 @@ export async function verifySmtp(sender: SenderKey): Promise<SendResult> {
   if (!host) return { ok: false, error: "SMTP_HOST が未設定です" };
   const creds = credsFor(sender);
   if (!creds) return { ok: false, error: `差出人「${sender}」の認証情報が未設定です` };
-  const transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user: creds.user, pass: creds.pass } });
+  const transporter = makeTransport(host, port, creds.user, creds.pass);
   try {
     await transporter.verify();
     return { ok: true, messageId: "verify-ok", from: creds.user };
