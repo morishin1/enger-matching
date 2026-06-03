@@ -40,6 +40,7 @@ const TOOLS: NavItem[] = [
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
   { href: "/inbox", id: "inbox", label: "受信箱", icon: "inbox" },
   { href: "/mailbox", id: "mailbox", label: "メール取込", icon: "mail" },
+  { href: "/mail-log", id: "mail-log", label: "メール送信履歴", icon: "send" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
