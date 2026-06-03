@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateContactStatus } from "@/app/inbox/actions";
+import { updateContactStatus, deleteContactMessage, deleteContactMessages } from "@/app/inbox/actions";
 
 export type ContactMsg = {
   id: string; company: string | null; name: string | null; email: string | null; phone: string | null;
@@ -69,6 +69,30 @@ function summarize(msg?: string | null, maxLen = 120): string {
   return s.length > maxLen ? s.slice(0, maxLen) + "…" : s;
 }
 
+// 「意味のない文字列か（テスト/スパムの自動生成データ）」を判定。
+//   - 日本語/空白を含まず、英数字だけが10文字以上連続する単一トークン → ランダム文字列とみなす
+//   - メールアドレスは除外
+function looksRandom(s?: string | null): boolean {
+  if (!s) return false;
+  const v = s.trim();
+  if (v.length < 10) return false;
+  if (/[ぁ-んァ-ヶ一-龠]/.test(v)) return false;       // 日本語があれば人の文章
+  if (/\s/.test(v)) return false;                       // スペースがあれば文章っぽい
+  if (/@/.test(v)) return false;                        // メールは別判定
+  if (!/^[A-Za-z0-9._-]+$/.test(v)) return false;       // 記号混じりは対象外
+  // 英大文字小文字が無秩序に混ざる（連続子音が多い）→ ランダム性が高い
+  const letters = v.replace(/[^A-Za-z]/g, "");
+  if (letters.length < 10) return false;
+  const switches = letters.split("").filter((c, i, a) => i > 0 && (/[A-Z]/.test(c) !== /[A-Z]/.test(a[i - 1]))).length;
+  return switches >= 4; // 大文字/小文字の切替が多い = 人名/単語ではない
+}
+
+/** この問い合わせがジャンク（テスト/自動生成）と思われるか。 */
+export function isJunkContact(r: { company?: string | null; name?: string | null; message?: string | null }): boolean {
+  const hits = [r.company, r.name, r.message].filter((x) => looksRandom(x)).length;
+  return hits >= 2; // 会社/氏名/本文のうち2つ以上がランダム → ジャンク
+}
+
 export function InboxClient({ rows }: { rows: ContactMsg[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -77,10 +101,28 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [active, setActive] = useState<ContactMsg | null>(null);
+  const [hideJunk, setHideJunk] = useState(true);
 
   const set = (id: string, status: "new" | "inprogress" | "done") => {
     setBusy(id);
     start(async () => { await updateContactStatus(id, status); setBusy(null); router.refresh(); });
+  };
+
+  const del = (id: string) => {
+    if (!confirm("このお問い合わせを削除しますか？（元に戻せません）")) return;
+    setBusy(id);
+    start(async () => { await deleteContactMessage(id); setBusy(null); setActive(null); router.refresh(); });
+  };
+
+  const junkIds = useMemo(() => rows.filter((r) => isJunkContact(r)).map((r) => r.id), [rows]);
+  const bulkDeleteJunk = () => {
+    if (junkIds.length === 0) return;
+    if (!confirm(`ジャンク（テスト/自動生成と思われる）${junkIds.length} 件を削除しますか？\n（元に戻せません）`)) return;
+    start(async () => {
+      const r = await deleteContactMessages(junkIds);
+      if (!r.ok) alert(r.error || "削除に失敗しました");
+      router.refresh();
+    });
   };
 
   // 集計
@@ -99,6 +141,7 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
+      if (hideJunk && isJunkContact(r)) return false;
       if (statusTab !== "all" && r.status !== statusTab) return false;
       if (purposeTab && inferPurpose(r.topic, r.message).key !== purposeTab) return false;
       if (needle) {
@@ -107,7 +150,7 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
       }
       return true;
     });
-  }, [rows, q, statusTab, purposeTab]);
+  }, [rows, q, statusTab, purposeTab, hideJunk]);
 
   if (rows.length === 0) {
     return <div className="card" style={{ fontSize: 13, color: "var(--color-ink-3)" }}>お問い合わせはまだありません。enger.jp のお問い合わせフォーム送信がここに届きます。</div>;
@@ -174,6 +217,24 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
           style={{ width: "100%", fontFamily: "inherit", fontSize: 13, padding: "10px 12px 10px 38px", borderRadius: 10, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
       </div>
 
+      {/* ジャンク（テスト/自動生成）の制御 */}
+      {junkIds.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 10, padding: "10px 14px" }}>
+          <span style={{ fontSize: 12.5, color: "#9a7b12", fontWeight: 700 }}>
+            ⚠ 意味のない内容（テスト/自動生成と思われる）が <b>{junkIds.length} 件</b> 検出されました
+          </span>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b5410", cursor: "pointer" }}>
+            <input type="checkbox" checked={hideJunk} onChange={(e) => setHideJunk(e.target.checked)} />
+            一覧から隠す
+          </label>
+          <button type="button" className="btn btn-xs" disabled={pending} onClick={bulkDeleteJunk}
+            style={{ marginLeft: "auto", background: "var(--color-danger)", color: "#fff", borderColor: "var(--color-danger)" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14, marginRight: 3, verticalAlign: "-2px" }}>delete_sweep</span>
+            ジャンクを一括削除（{junkIds.length}）
+          </button>
+        </div>
+      )}
+
       {/* カード一覧 */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {shown.length === 0 && (
@@ -212,6 +273,11 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
                 {isOld && (
                   <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0" }}>
                     ⏰ 滞留 {dAgo}日
+                  </span>
+                )}
+                {isJunkContact(r) && (
+                  <span title="会社名・氏名・本文がランダム文字列。テスト/自動生成データの可能性。" style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: "#f3f4f6", color: "#6b7280", border: "1px solid #d1d5db" }}>
+                    🗑 ジャンク疑い
                   </span>
                 )}
                 {r.topic && r.topic !== purpose.label && (
@@ -264,6 +330,9 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
                 {r.status !== "inprogress" && <button className="btn btn-xs" disabled={pending && busy === r.id} onClick={() => set(r.id, "inprogress")}>対応中に</button>}
                 {r.status !== "done" && <button className="btn ghost btn-xs" disabled={pending && busy === r.id} onClick={() => set(r.id, "done")}>完了</button>}
                 {r.status === "done" && <button className="btn ghost btn-xs" disabled={pending && busy === r.id} onClick={() => set(r.id, "new")}>戻す</button>}
+                <button className="btn ghost btn-xs" disabled={pending && busy === r.id} title="削除（元に戻せません）" onClick={() => del(r.id)} style={{ color: "var(--color-danger)" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: "-2px" }}>delete</span>
+                </button>
               </div>
             </div>
           );
@@ -272,13 +341,13 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
 
       <div className="muted" style={{ fontSize: 11.5 }}>{shown.length} 件 / 全 {rows.length} 件</div>
 
-      {active && <InquiryDetailModal r={active} onClose={() => setActive(null)} onStatus={(s) => set(active.id, s)} pending={pending && busy === active.id} />}
+      {active && <InquiryDetailModal r={active} onClose={() => setActive(null)} onStatus={(s) => set(active.id, s)} onDelete={() => del(active.id)} pending={pending && busy === active.id} />}
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────
-function InquiryDetailModal({ r, onClose, onStatus, pending }: { r: ContactMsg; onClose: () => void; onStatus: (s: "new" | "inprogress" | "done") => void; pending: boolean }) {
+function InquiryDetailModal({ r, onClose, onStatus, onDelete, pending }: { r: ContactMsg; onClose: () => void; onStatus: (s: "new" | "inprogress" | "done") => void; onDelete: () => void; pending: boolean }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
@@ -354,6 +423,9 @@ function InquiryDetailModal({ r, onClose, onStatus, pending }: { r: ContactMsg; 
             {r.status !== "inprogress" && <button type="button" className="btn ghost" disabled={pending} onClick={() => onStatus("inprogress")}>対応中に</button>}
             {r.status !== "done" && <button type="button" className="btn ghost" disabled={pending} onClick={() => onStatus("done")}>完了にする</button>}
             {r.status === "done" && <button type="button" className="btn ghost" disabled={pending} onClick={() => onStatus("new")}>新規に戻す</button>}
+            <button type="button" className="btn ghost" disabled={pending} onClick={onDelete} style={{ color: "var(--color-danger)" }} title="削除（元に戻せません）">
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px", marginRight: 4 }}>delete</span>削除
+            </button>
           </div>
         </div>
       </div>
