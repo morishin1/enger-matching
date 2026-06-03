@@ -103,6 +103,31 @@ function StageBadge({ stage }: { stage: string }) {
   );
 }
 
+// 受信者の応答タイプ（PR #130 で導入された job_action_type / cand_action_type 列）。
+const ACTION_TONE: Record<string, { fg: string; bg: string; dashed: boolean }> = {
+  "未回答":    { fg: "#94a3b8", bg: "transparent", dashed: true },
+  "話を進める": { fg: "#16a34a", bg: "#dcfce7",    dashed: false },
+  "見送り":    { fg: "#dc2626", bg: "#fee2e2",    dashed: false },
+};
+const ACTION_SIDE_LABEL: Record<"job" | "cand", string> = { job: "案", cand: "人" };
+
+function ActionChip({ type, side }: { type?: string | null; side: "job" | "cand" }) {
+  const t = type && ACTION_TONE[type] ? type : "未回答";
+  const tone = ACTION_TONE[t];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+      background: tone.bg, color: tone.fg,
+      border: `1px ${tone.dashed ? "dashed" : "solid"} ${tone.fg}55`,
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: 99, background: t === "未回答" ? "transparent" : tone.fg, border: t === "未回答" ? "1px dashed #94a3b8" : "none" }} />
+      <span>{ACTION_SIDE_LABEL[side]}</span>
+      <span style={{ fontSize: 9.5, opacity: 0.9 }}>{t}</span>
+    </span>
+  );
+}
+
 export function ProposalListView({ proposals }: { proposals: any[]; members?: string[] }) {
   const router = useRouter();
   const [busy, start] = useTransition();
@@ -266,9 +291,17 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                   </span>
                 </td>
                 <td style={td}>
-                  <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-                    <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
-                    <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                  <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+                    {/* 受信側の応答ステータス（PR #130 で導入された action_type 列を使用） */}
+                    <div style={{ display: "inline-flex", gap: 4 }}>
+                      <ActionChip type={p.job_action_type}  side="job"  />
+                      <ActionChip type={p.cand_action_type} side="cand" />
+                    </div>
+                    {/* 営業側のフォロー進捗（通知ステータス〇） */}
+                    <div style={{ display: "inline-flex", gap: 4 }}>
+                      <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
+                      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                    </div>
                   </div>
                 </td>
                 <td style={{ ...td, textAlign: "center" }}>
