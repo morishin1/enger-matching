@@ -1749,3 +1749,46 @@ export async function archiveInboxEmail(inboxId: string, archived: boolean = tru
   revalidatePath("/inbox");
   return { ok: true };
 }
+
+// ────────────────────────────────────────────────────────
+// メール送信（Xserver SMTP・差出人ドメイン選択可）
+// ────────────────────────────────────────────────────────
+export async function sendMailAction(input: {
+  sender: "enger" | "8grp"; to: string; subject: string; text: string;
+  cc?: string | null; bcc?: string | null; replyTo?: string | null;
+  relatedKind?: string | null; relatedId?: string | null;
+}): Promise<{ ok: boolean; error?: string; messageId?: string }> {
+  // 送信は社内（管理者/エージェント）のみ
+  const access = await currentAccess();
+  const role = access?.role ?? "admin";
+  if (role !== "admin" && role !== "agent") return { ok: false, error: "メール送信の権限がありません" };
+
+  const { sendMail } = await import("./mailer");
+  const res = await sendMail({
+    sender: input.sender, to: input.to, subject: input.subject, text: input.text,
+    cc: input.cc, bcc: input.bcc, replyTo: input.replyTo,
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+
+  // 送信ログを残す（列未整備でも送信自体は成功扱い）
+  try {
+    const admin = engerAdmin();
+    await admin.from("mail_sent").insert({
+      sender_key: input.sender, from_address: res.from, to_address: input.to,
+      cc_address: input.cc || null, bcc_address: input.bcc || null,
+      subject: input.subject, body: input.text, message_id: res.messageId,
+      sent_by_email: access?.email ?? null, sent_by_name: access?.name ?? null,
+      related_kind: input.relatedKind || null, related_id: input.relatedId || null,
+    });
+  } catch { /* ログ失敗は無視 */ }
+  return { ok: true, messageId: res.messageId };
+}
+
+/** SMTP 接続テスト（管理者）。設定が正しいか本文を送らず確認。 */
+export async function testSmtpAction(sender: "enger" | "8grp"): Promise<{ ok: boolean; error?: string }> {
+  const access = await currentAccess();
+  if ((access?.role ?? "admin") !== "admin") return { ok: false, error: "管理者のみ実行できます" };
+  const { verifySmtp } = await import("./mailer");
+  const r = await verifySmtp(sender);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
