@@ -305,45 +305,45 @@ export function MailComposeWizard({
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              {/* Xserver SMTP 送信（差出人ドメイン enger.jp / 8grp.co.jp を選択して送信） */}
-              <SendMailButton
-                label="📨 案件側へ送信"
-                className="btn"
-                to={clientForm.email}
-                cc={clientForm.cc}
-                subject={clientForm.subject}
-                body={clientForm.body}
-                relatedKind="proposal_job"
-                relatedId={_savedId ?? (job.job_no != null ? String(job.job_no) : undefined)}
-              />
-              <SendMailButton
-                label="📨 人材側へ送信"
-                className="btn"
-                to={candForm.email}
-                cc={candForm.cc}
-                subject={candForm.subject}
-                body={candForm.body}
-                relatedKind="proposal_cand"
-                relatedId={_savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined)}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <button type="button" className="btn ghost" onClick={() => setStep(1)}>← 編集に戻る</button>
-              {saved ? (
-                <>
-                  <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}>✓ 保存済み</span>
-                  <Link href="/proposals" className="muted" style={{ fontSize: 11.5, textDecoration: "underline" }}>提案管理を開く</Link>
-                </>
-              ) : (
-                <button type="button" className="btn brand" onClick={handleSave} disabled={saving}>
-                  {saving ? "処理中…" : "💾 保存する"}
-                </button>
-              )}
-            </div>
+          {/* メインの送信ボタンは中央に配置（基本操作なので目立たせる） */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            {/* Xserver SMTP 送信（差出人ドメイン enger.jp / 8grp.co.jp を選択して送信） */}
+            <SendMailButton
+              label="📨 案件側へ送信"
+              className="btn brand"
+              to={clientForm.email}
+              cc={clientForm.cc}
+              subject={clientForm.subject}
+              body={clientForm.body}
+              relatedKind="proposal_job"
+              relatedId={_savedId ?? (job.job_no != null ? String(job.job_no) : undefined)}
+            />
+            <SendMailButton
+              label="📨 人材側へ送信"
+              className="btn brand"
+              to={candForm.email}
+              cc={candForm.cc}
+              subject={candForm.subject}
+              body={candForm.body}
+              relatedKind="proposal_cand"
+              relatedId={_savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined)}
+            />
           </div>
-          {msg && <div style={{ fontSize: 12, color: saved && !msg.includes("既に") ? "#067647" : "var(--color-danger)", textAlign: "right" }}>{msg}</div>}
+          {/* 補助操作（編集に戻る・保存）は下段に控えめに配置 */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn ghost" onClick={() => setStep(1)}>← 編集に戻る</button>
+            {saved ? (
+              <>
+                <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}>✓ 保存済み</span>
+                <Link href="/proposals" className="muted" style={{ fontSize: 11.5, textDecoration: "underline" }}>提案管理を開く</Link>
+              </>
+            ) : (
+              <button type="button" className="btn ghost" onClick={handleSave} disabled={saving}>
+                {saving ? "処理中…" : "💾 保存する"}
+              </button>
+            )}
+          </div>
+          {msg && <div style={{ fontSize: 12, color: saved && !msg.includes("既に") ? "#067647" : "var(--color-danger)", textAlign: "center" }}>{msg}</div>}
         </>
       )}
     </div>
