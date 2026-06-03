@@ -85,8 +85,8 @@ function MailPreviewCard({ title, dotColor, email, subject, body, origMailUrl, p
       {/* Read-only fields */}
       <div style={{ padding: "12px 16px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={fieldRow}>担当者<span style={fieldVal}>{proposer || "—"}</span></div>
-        <div style={fieldRow}>宛先<span style={fieldVal}>{email || "—"}</span></div>
-        <div style={fieldRow}>件名<span style={fieldVal}>{subject || "—"}</span></div>
+        {/* <div style={fieldRow}>宛先<span style={fieldVal}>{email || "—"}</span></div>
+        <div style={fieldRow}>件名<span style={fieldVal}>{subject || "—"}</span></div> */}
       </div>
 
       {/* Body preview */}
@@ -102,26 +102,12 @@ function MailPreviewCard({ title, dotColor, email, subject, body, origMailUrl, p
   );
 }
 
-const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
-
 function validateSide(
   form: MailForm,
   setErrors: (e: MailErrors) => void,
   label: string,
 ): boolean {
   const errors: MailErrors = {};
-  if (!form.email.trim()) {
-    errors.email = `${label}の宛先を入力してください`;
-  } else if (!isValidEmail(form.email)) {
-    errors.email = `${label}の宛先に有効なメールアドレスを入力してください`;
-  }
-  if (form.cc.trim()) {
-    const ccList = form.cc.split(",").map((s) => s.trim()).filter(Boolean);
-    if (ccList.some((e) => !isValidEmail(e))) {
-      errors.cc = `${label}のCcに有効なメールアドレスをカンマ区切りで入力してください`;
-    }
-  }
-  if (!form.subject.trim()) errors.subject = `${label}の件名を入力してください`;
   if (!form.body.trim()) errors.body = `${label}の本文を入力してください`;
   setErrors(errors);
   return Object.keys(errors).length === 0;
@@ -144,7 +130,7 @@ export function MailComposeWizard({
   const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
-  const [savedId, setSavedId] = useState<string | null>(initialSavedId);
+  const [_savedId, setSavedId] = useState<string | null>(initialSavedId);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
