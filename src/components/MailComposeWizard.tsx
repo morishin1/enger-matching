@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { jobProposalMail, candidateProposalMail, gmailMessageUrl } from "@/lib/gmail";
+import { gmailMessageUrl } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
-import { PROPOSERS } from "@/lib/proposal-constants";
+import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject } from "./JobMailBodyCard";
+import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
+import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
 function StepBar({ current }: { current: 1 | 2 }) {
   const steps = ["メール作成", "確認"];
@@ -41,76 +43,10 @@ function StepBar({ current }: { current: 1 | 2 }) {
   );
 }
 
-const CARD_MAX_H = "calc(100vh - 220px)";
-
-const cardBase = {
-  flex: 1, minWidth: 0,
-  border: "1px solid var(--color-border)", borderRadius: 12,
-  background: "var(--color-surface)", boxShadow: "0 1px 3px rgba(15,23,42,.06)",
-  display: "flex", flexDirection: "column" as const,
-  height: CARD_MAX_H, overflow: "hidden" as const,
-};
-
-function CardHeader({ title, dotColor, badgeLabel }: { title: string; dotColor: string; badgeLabel?: string }) {
-  return (
-    <div style={{
-      position: "sticky", top: 0, zIndex: 1,
-      display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "12px 16px", borderBottom: "1px solid var(--color-border)",
-      background: "var(--color-surface-soft)", flexShrink: 0,
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 12, height: 12, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ink)" }}>{title}</span>
-      </div>
-      {badgeLabel && (
-        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: dotColor + "18", color: dotColor, border: `1px solid ${dotColor}44`, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {badgeLabel}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function MailBodyCard({ title, dotColor, badgeLabel, body, error, onChange, proposer, onProposerChange }: {
-  title: string; dotColor: string; badgeLabel: string;
-  body: string; error?: string; onChange: (v: string) => void;
-  proposer: string; onProposerChange: (v: string) => void;
-}) {
-  return (
-    <div style={cardBase}>
-      <CardHeader title={title} dotColor={dotColor} badgeLabel={badgeLabel} />
-      <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>
-          担当者
-          <select value={proposer} onChange={(e) => onProposerChange(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
-            <option value="">—</option>
-            {PROPOSERS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>本文</span>
-        <textarea
-          value={body}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            flex: 1, display: "block", width: "100%", boxSizing: "border-box",
-            fontFamily: "inherit", fontSize: 13, lineHeight: 1.75,
-            padding: "12px 14px", borderRadius: 8, resize: "none",
-            border: `1px solid ${error ? "var(--color-danger)" : "var(--color-border-strong)"}`,
-            background: "var(--color-surface)", color: "var(--color-ink)",
-            overflowY: "auto",
-          }}
-        />
-        {error && <div style={{ fontSize: 11, color: "var(--color-danger)", marginTop: 4, flexShrink: 0 }}>{error}</div>}
-      </div>
-    </div>
-  );
-}
-
-function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer }: {
-  title: string; dotColor: string; body: string; origMailUrl?: string | null; proposer: string;
+function MailPreviewCard({ title, dotColor, email, subject, body, origMailUrl, proposer }: {
+  title: string; dotColor: string;
+  email: string; subject: string; body: string;
+  origMailUrl?: string | null; proposer: string;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -118,9 +54,12 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer }: {
     try { await navigator.clipboard.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* noop */ }
   };
 
+  const fieldRow: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 3, fontSize: 11, color: "var(--color-ink-4)" };
+  const fieldVal: React.CSSProperties = { fontSize: 12.5, fontWeight: 500, color: "var(--color-ink)", padding: "5px 9px", borderRadius: 7, border: "1px solid var(--color-border)", background: "var(--color-surface-soft)", wordBreak: "break-all" };
+
   return (
-    <div style={cardBase}>
-      {/* Sticky header with action buttons */}
+    <div style={{ flex: 1, minWidth: 0, border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 1px 3px rgba(15,23,42,.06)", display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", overflow: "hidden" }}>
+      {/* Header with actions */}
       <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-soft)", flexShrink: 0, gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <div style={{ width: 12, height: 12, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
@@ -142,13 +81,16 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer }: {
           </a>
         </div>
       </div>
-      <div style={{ padding: "10px 16px 0", flexShrink: 0 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>
-          担当者
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface-soft)" }}>{proposer || "—"}</span>
-        </div>
+
+      {/* Read-only fields */}
+      <div style={{ padding: "12px 16px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={fieldRow}>担当者<span style={fieldVal}>{proposer || "—"}</span></div>
+        <div style={fieldRow}>宛先<span style={fieldVal}>{email || "—"}</span></div>
+        <div style={fieldRow}>件名<span style={fieldVal}>{subject || "—"}</span></div>
       </div>
-      <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+
+      {/* Body preview */}
+      <div style={{ flex: 1, minHeight: 0, padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontSize: 11, color: "var(--color-ink-4)", flexShrink: 0 }}>本文</span>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           <pre style={{ margin: 0, fontSize: 12.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "inherit", color: "var(--color-ink-2)" }}>
@@ -160,6 +102,33 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer }: {
   );
 }
 
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+
+function validateSide(
+  form: MailForm,
+  setErrors: (e: MailErrors) => void,
+  label: string,
+): boolean {
+  const errors: MailErrors = {};
+  if (!form.email.trim()) {
+    errors.email = `${label}の宛先を入力してください`;
+  } else if (!isValidEmail(form.email)) {
+    errors.email = `${label}の宛先に有効なメールアドレスを入力してください`;
+  }
+  if (form.cc.trim()) {
+    const ccList = form.cc.split(",").map((s) => s.trim()).filter(Boolean);
+    if (ccList.some((e) => !isValidEmail(e))) {
+      errors.cc = `${label}のCcに有効なメールアドレスをカンマ区切りで入力してください`;
+    }
+  }
+  if (!form.subject.trim()) errors.subject = `${label}の件名を入力してください`;
+  if (!form.body.trim()) errors.body = `${label}の本文を入力してください`;
+  setErrors(errors);
+  return Object.keys(errors).length === 0;
+}
+
+const emptyForm = (): MailForm => ({ email: "", cc: "", subject: "", body: "" });
+
 export function MailComposeWizard({
   job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null,
 }: {
@@ -167,76 +136,49 @@ export function MailComposeWizard({
   initialSaved?: boolean; initialSavedId?: string | null; initialProposer?: string | null;
 }) {
   const [step, setStep] = useState<1 | 2>(initialSaved ? 2 : 1);
-  const [sender, setSender] = useState("");
   const [proposer, setProposer] = useState(initialProposer ?? "");
-  const [clientBody, setClientBody] = useState("");
-  const [candBody, setCandBody] = useState("");
+  const [clientForm, setClientForm] = useState<MailForm>(emptyForm);
+  const [candForm, setCandForm] = useState<MailForm>(emptyForm);
+  const [clientErrors, setClientErrors] = useState<MailErrors>({});
+  const [candErrors, setCandErrors] = useState<MailErrors>({});
   const [initialized, setInitialized] = useState(false);
-  const [clientError, setClientError] = useState<string | undefined>();
-  const [candError, setCandError] = useState<string | undefined>();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
   const [savedId, setSavedId] = useState<string | null>(initialSavedId);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    try { setSender(localStorage.getItem("enger.operator") || ""); } catch { /* noop */ }
-  }, []);
-
-  const tpls = useMemo(() => {
-    const clientM = jobProposalMail({
-      jobTitle: job.title, clientName: job.client_name, contactName: job.contact_name,
-      sender,
-      candidate: {
-        name: cand.name, title: cand.title, skills: cand.skills, rate: cand.rate,
-        affiliation: cand.affiliation, exp: cand.exp,
-        skillSheetUrl: cand.skill_sheet_url ?? null,
-        ageBand: cand.age_band ?? null, avail: cand.avail ?? null, location: cand.location ?? null,
-      },
-      matchedSkills: [], score,
-      originalBody: job.detail ?? null,
-      originalMailUrl: job.source_mail_url ?? null,
+    if (initialized) return;
+    setClientForm({
+      email: job.contact_email ?? "",
+      cc: "",
+      subject: buildJobMailSubject(job),
+      body: buildJobMailContent(job, cand),
     });
-    const candM = candidateProposalMail({
-      candidateName: cand.name,
-      candidateCompany: (() => {
-        const isAff = (v?: string | null) => !!v && /(社員|フリーランス|個人事業|パートナー|下社員|社内|プロパー|PP|社下|協力会社)/.test(String(v));
-        const sc = cand.source_company; const co = cand.company;
-        if (sc && !isAff(sc)) return sc;
-        if (co && !isAff(co)) return co;
-        return null;
-      })(),
-      contactName: cand.contact_name, ageBand: cand.age_band ?? null,
-      sender,
-      job: {
-        title: job.title, client_name: job.client_name, role_label: job.role_label,
-        skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max,
-        detail: job.detail ?? null, work_location: job.work_location ?? null,
-        flow_note: job.flow_note ?? null, start_date: job.start_date ?? null,
-        remote_type: job.remote_type ?? null,
-      },
-      matchedSkills: [], score,
+    setCandForm({
+      email: cand.email || cand.contact_email || "",
+      cc: "",
+      subject: buildCandMailSubject(),
+      body: buildCandMailContent(job, cand),
     });
-    return { clientBody: clientM.body, candBody: candM.body };
-  }, [job, cand, score, sender]);
+    setInitialized(true);
+  }, [job, cand, initialized]);
 
-  useEffect(() => {
-    if (!initialized) {
-      setClientBody(tpls.clientBody);
-      setCandBody(tpls.candBody);
-      setInitialized(true);
-    }
-  }, [tpls, initialized]);
-
-  const validate = () => {
-    const ce = clientBody.trim() ? undefined : "本文を入力してください";
-    const we = candBody.trim() ? undefined : "本文を入力してください";
-    setClientError(ce);
-    setCandError(we);
-    return !ce && !we;
+  const updateClientForm = (field: keyof MailForm, v: string) => {
+    setClientForm((prev) => ({ ...prev, [field]: v }));
+    setClientErrors((prev) => ({ ...prev, [field]: undefined }));
   };
 
-  const handleNext = () => { if (validate()) setStep(2); };
+  const updateCandForm = (field: keyof MailForm, v: string) => {
+    setCandForm((prev) => ({ ...prev, [field]: v }));
+    setCandErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const handleNext = () => {
+    const clientOk = validateSide(clientForm, setClientErrors, "案件側");
+    const candOk = validateSide(candForm, setCandErrors, "人材側");
+    if (clientOk && candOk) setStep(2);
+  };
 
   const handleSave = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
@@ -267,17 +209,21 @@ export function MailComposeWizard({
       {step === 1 && (
         <>
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-            <MailBodyCard
-              title="案件側へのメール" dotColor="#ef4444" badgeLabel={jobBadge}
-              body={clientBody} error={clientError}
-              onChange={(v) => { setClientBody(v); setClientError(undefined); }}
-              proposer={proposer} onProposerChange={setProposer}
+            <JobMailBodyCard
+              form={clientForm}
+              errors={clientErrors}
+              proposer={proposer}
+              onProposerChange={setProposer}
+              onChange={updateClientForm}
+              badgeLabel={jobBadge}
             />
-            <MailBodyCard
-              title="人材側へのメール" dotColor="#3b82f6" badgeLabel={candBadge}
-              body={candBody} error={candError}
-              onChange={(v) => { setCandBody(v); setCandError(undefined); }}
-              proposer={proposer} onProposerChange={setProposer}
+            <CandMailBodyCard
+              form={candForm}
+              errors={candErrors}
+              proposer={proposer}
+              onProposerChange={setProposer}
+              onChange={updateCandForm}
+              badgeLabel={candBadge}
             />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>
@@ -290,8 +236,18 @@ export function MailComposeWizard({
       {step === 2 && (
         <>
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-            <MailPreviewCard title="案件側メール" dotColor="#ef4444" body={clientBody} origMailUrl={gmailMessageUrl(job.source_mail_url) || null} proposer={proposer} />
-            <MailPreviewCard title="人材側メール" dotColor="#3b82f6" body={candBody} origMailUrl={gmailMessageUrl(cand.source_mail_url) || null} proposer={proposer} />
+            <MailPreviewCard
+              title="案件側メール" dotColor="#ef4444"
+              email={clientForm.email} subject={clientForm.subject} body={clientForm.body}
+              origMailUrl={gmailMessageUrl(job.source_mail_url) || null}
+              proposer={proposer}
+            />
+            <MailPreviewCard
+              title="人材側メール" dotColor="#3b82f6"
+              email={candForm.email} subject={candForm.subject} body={candForm.body}
+              origMailUrl={gmailMessageUrl(cand.source_mail_url) || null}
+              proposer={proposer}
+            />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" className="btn ghost" onClick={() => setStep(1)}>← 編集に戻る</button>
