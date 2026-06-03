@@ -252,19 +252,47 @@ function ReportCard({ r, isAdmin }: { r: DailyReport; isAdmin?: boolean }) {
   );
 }
 
-/** 管理者向け：誰がいつ提出したかの提出カレンダー（直近14日）。 */
+/** 管理者向け：誰がいつ提出したか + 返信状況の提出カレンダー（直近14日）。 */
 function SubmissionCalendar({ members, reports, today }: { members: string[]; reports: DailyReport[]; today: string }) {
   const DAYS = 14;
   const days: string[] = [];
   const base = new Date(today + "T00:00:00");
   for (let i = DAYS - 1; i >= 0; i--) { const d = new Date(base); d.setDate(base.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
-  const submitted = new Set(reports.map((r) => `${r.author}|${r.report_date}`));
-  // メンバー：staff名 ∪ 日報の著者（マスタ未登録でも拾う）
+  // (author|date) → 提出・返信状況
+  type Cell = { submitted: boolean; admin: boolean; ai: boolean };
+  const cellMap = new Map<string, Cell>();
+  for (const r of reports) {
+    cellMap.set(`${r.author}|${r.report_date}`, {
+      submitted: true,
+      admin: !!r.replied_at,
+      ai: !r.replied_at && !!r.ai_replied_at, // 管理者返信があれば AI フラグは出さない（最終状態を1つで表現）
+    });
+  }
+  const getCell = (n: string, d: string): Cell => cellMap.get(`${n}|${d}`) ?? { submitted: false, admin: false, ai: false };
+  // メンバー：staff名 ∪ 日報の著者
   const names = Array.from(new Set([...members, ...reports.map((r) => r.author)].filter(Boolean)));
-  const todaySubmitted = names.filter((n) => submitted.has(`${n}|${today}`)).length;
+  const todaySubmitted = names.filter((n) => getCell(n, today).submitted).length;
+  // 直近14日の未返信件数（提出はされたが管理者/AIどちらの返信もなし）
+  const pendingReplies = days.reduce((acc, d) => acc + names.filter((n) => { const c = getCell(n, d); return c.submitted && !c.admin && !c.ai; }).length, 0);
   const wd = ["日", "月", "火", "水", "木", "金", "土"];
   const dlabel = (d: string) => { const dt = new Date(d + "T00:00:00"); return { md: `${dt.getMonth() + 1}/${dt.getDate()}`, w: wd[dt.getDay()], we: dt.getDay() === 0 || dt.getDay() === 6 }; };
-  const rate = (n: string) => days.filter((d) => submitted.has(`${n}|${d}`)).length;
+  const rate = (n: string) => days.filter((d) => getCell(n, d).submitted).length;
+  const repliedRate = (n: string) => days.filter((d) => { const c = getCell(n, d); return c.submitted && (c.admin || c.ai); }).length;
+
+  // セル表示：提出 + 返信状況を1セルで表現
+  const renderCell = (n: string, d: string) => {
+    const c = getCell(n, d);
+    const l = dlabel(d);
+    const baseStyle: React.CSSProperties = {
+      padding: "5px 6px", textAlign: "center", borderTop: "1px solid var(--color-border)",
+      background: d === today ? "var(--color-brand-25)" : l.we ? "var(--color-surface-soft)" : undefined,
+      whiteSpace: "nowrap",
+    };
+    if (!c.submitted) return <td key={d} style={baseStyle}><span style={{ color: "var(--color-ink-5)" }}>・</span></td>;
+    if (c.admin) return <td key={d} style={baseStyle} title="提出済 + 管理者から返信済"><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>💬</sup></span></td>;
+    if (c.ai)    return <td key={d} style={baseStyle} title="提出済 + AIから自動返信済"><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>🤖</sup></span></td>;
+    return <td key={d} style={baseStyle} title="提出済（返信なし）"><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span></td>;
+  };
 
   return (
     <div className="card" style={{ marginBottom: 16 }}>
@@ -272,7 +300,15 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
         <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>calendar_month</span>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>日報 提出カレンダー</h3>
         <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: todaySubmitted >= names.length && names.length ? "#dcfce7" : "#fef3c7", color: todaySubmitted >= names.length && names.length ? "#166534" : "#92400e" }}>本日 {todaySubmitted}/{names.length} 名 提出</span>
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>直近{DAYS}日 · ✓=提出</span>
+        {pendingReplies > 0 && (
+          <span title="返信していない日報の件数（直近14日）" style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0" }}>未返信 {pendingReplies}</span>
+        )}
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>💬</sup></span> 管理者返信</span>
+          <span><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>🤖</sup></span> AI返信のみ</span>
+          <span><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span> 提出のみ・未返信</span>
+          <span><span style={{ color: "var(--color-ink-5)" }}>・</span> 未提出</span>
+        </span>
       </div>
       {names.length === 0 ? (
         <div className="muted" style={{ fontSize: 13 }}>対象メンバーがいません。設定→担当者マスタで登録してください。</div>
@@ -283,15 +319,17 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
               <tr>
                 <th style={{ textAlign: "left", padding: "6px 10px", position: "sticky", left: 0, background: "var(--color-surface)", zIndex: 1 }}>メンバー</th>
                 {days.map((d) => { const l = dlabel(d); return <th key={d} style={{ padding: "4px 6px", textAlign: "center", color: d === today ? "var(--color-brand-700)" : l.we ? "var(--color-ink-4)" : "var(--color-ink-3)", fontWeight: d === today ? 800 : 600, whiteSpace: "nowrap" }}>{l.md}<br /><span style={{ fontSize: 9 }}>{l.w}</span></th>; })}
-                <th style={{ padding: "4px 8px", textAlign: "center" }}>計</th>
+                <th style={{ padding: "4px 8px", textAlign: "center" }} title="提出 / 返信済">提出 / 返信</th>
               </tr>
             </thead>
             <tbody>
               {names.map((n) => (
                 <tr key={n}>
                   <td style={{ padding: "6px 10px", fontWeight: 600, whiteSpace: "nowrap", position: "sticky", left: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)" }}>{n}</td>
-                  {days.map((d) => { const ok = submitted.has(`${n}|${d}`); const l = dlabel(d); return <td key={d} style={{ padding: "5px 6px", textAlign: "center", borderTop: "1px solid var(--color-border)", background: d === today ? "var(--color-brand-25)" : l.we ? "var(--color-surface-soft)" : undefined }}>{ok ? <span style={{ color: "#067647", fontWeight: 800 }}>✓</span> : <span style={{ color: "var(--color-ink-5)" }}>・</span>}</td>; })}
-                  <td style={{ padding: "5px 8px", textAlign: "center", borderTop: "1px solid var(--color-border)", fontWeight: 700, color: "var(--color-ink-2)" }}>{rate(n)}</td>
+                  {days.map((d) => renderCell(n, d))}
+                  <td style={{ padding: "5px 8px", textAlign: "center", borderTop: "1px solid var(--color-border)", fontWeight: 700, color: "var(--color-ink-2)", whiteSpace: "nowrap" }}>
+                    {rate(n)}<span style={{ color: "var(--color-ink-5)", margin: "0 2px" }}>/</span><span style={{ color: rate(n) > 0 && repliedRate(n) === rate(n) ? "#067647" : "var(--color-ink-3)" }}>{repliedRate(n)}</span>
+                  </td>
                 </tr>
               ))}
             </tbody>
