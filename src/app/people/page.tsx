@@ -45,41 +45,25 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
-      const like = needle ? `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%` : null;
-      const withTextSearch = (qb: any) =>
-        like ? qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}`) : qb;
-
-      // テキスト検索（or() 内に ::text cast を使わない）
-      let res: any = await withTextSearch(sb
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
+      };
+      let res: any = await withSearch(sb
         .from("candidates")
         .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" }))
         .order("candidate_no", { ascending: false })
         .limit(needle ? 1000 : 300);
       if (res.error) {
-        res = await withTextSearch(sb
+        res = await withSearch(sb
           .from("candidates")
           .select(baseCols, { count: "exact" }))
           .order("candidate_no", { ascending: false })
           .limit(needle ? 1000 : 300);
       }
-      let allData: any[] = res.data ?? [];
-
-      // candidate_no 部分一致（数値入力時のみ。or() 外の独立フィルタで cast）
-      if (like && /^\d+$/.test(needle)) {
-        let idRes: any = await sb.from("candidates").select(baseCols)
-          .filter("candidate_no::text", "ilike", like)
-          .order("candidate_no", { ascending: false }).limit(500);
-        if (idRes.error) {
-          idRes = await sb.from("candidates").select(baseCols)
-            .eq("candidate_no", parseInt(needle, 10)).limit(10);
-        }
-        if (!idRes.error && idRes.data?.length) {
-          const seen = new Set(allData.map((r: any) => r.candidate_no));
-          for (const r of idRes.data) { if (!seen.has(r.candidate_no)) allData.push(r); }
-        }
-      }
-
-      people = allData;
+      people = res.data ?? [];
       total = res.count ?? people.length;
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);

@@ -54,45 +54,29 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published";
       // 非公開も表示する場合は is_published フィルタを外す
       const withPub = (qb: any) => showAll ? qb : qb.eq("is_published", true);
-      const like = needle ? `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%` : null;
-      const withTextSearch = (qb: any) =>
-        like ? qb.or(`title.ilike.${like},client_name.ilike.${like}`) : qb;
-
-      // テキスト検索（or() 内に ::text cast を使わない）
-      let listRes: any = await withTextSearch(withPub(sb.from("jobs")
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+        return qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
+      };
+      let listRes: any = await withSearch(withPub(sb.from("jobs")
         .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })))
         .order("job_no", { ascending: false })
         .limit(needle ? 1000 : 300);
       if (listRes.error) {
-        listRes = await withTextSearch(withPub(sb.from("jobs")
+        listRes = await withSearch(withPub(sb.from("jobs")
           .select(`${baseCols}, outside_owner`, { count: "exact" })))
           .order("job_no", { ascending: false })
           .limit(needle ? 1000 : 300);
       }
       if (listRes.error) {
-        listRes = await withTextSearch(withPub(sb.from("jobs")
+        listRes = await withSearch(withPub(sb.from("jobs")
           .select(baseCols, { count: "exact" })))
           .order("job_no", { ascending: false })
           .limit(needle ? 1000 : 300);
       }
-      let allData: any[] = listRes.data ?? [];
-
-      // job_no 部分一致（数値入力時のみ。or() 外の独立フィルタで cast）
-      if (like && /^\d+$/.test(needle)) {
-        let idRes: any = await withPub(sb.from("jobs").select(baseCols))
-          .filter("job_no::text", "ilike", like)
-          .order("job_no", { ascending: false }).limit(500);
-        if (idRes.error) {
-          idRes = await withPub(sb.from("jobs").select(baseCols))
-            .eq("job_no", parseInt(needle, 10)).limit(10);
-        }
-        if (!idRes.error && idRes.data?.length) {
-          const seen = new Set(allData.map((r: any) => r.job_no));
-          for (const r of idRes.data) { if (!seen.has(r.job_no)) allData.push(r); }
-        }
-      }
-
-      jobs = allData;
+      jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
