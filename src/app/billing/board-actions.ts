@@ -25,6 +25,41 @@ export async function setBoardProjectId(engagementId: string, value: string): Pr
   return { ok: true };
 }
 
+/** 稼働 1件だけ board と同期（指定の period について）。
+ *  入力した board案件No に対し即時マッチを試み、請求書送付状況を更新する。
+ *  保存→同期をワンクリックで完結させるための一覧用ヘルパ。 */
+export async function syncOneEngagement(engagementId: string, period: string): Promise<{ ok: boolean; error?: string; matched?: number; updated?: number; status?: string | null }> {
+  if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
+  if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です" };
+  if (!/^\d{4}-\d{2}$/.test(period)) return { ok: false, error: "対象月が不正です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const eng = await admin.from("engagements").select("id, board_project_id").eq("id", engagementId).maybeSingle();
+  if (eng.error || !eng.data) return { ok: false, error: "稼働が見つかりません" };
+  const key = String((eng.data as any).board_project_id ?? "").trim();
+  if (!key) return { ok: false, error: "board案件No が未入力です" };
+
+  const inv = await fetchInvoices({ period });
+  if (!inv.ok) return { ok: false, error: `board 取得エラー：${inv.error}` };
+
+  let matched = 0, updated = 0; let lastStatus: string | null = null;
+  for (const b of inv.rows) {
+    if (billingPeriod(b) !== period) continue;
+    const pid = billingProjectId(b), pno = billingProjectNo(b);
+    if (pid !== key && pno !== key) continue;
+    matched++;
+    const sent = billingSent(b);
+    if (sent == null) continue;
+    const amount = billingAmountMan(b);
+    const patch: Record<string, any> = { engagement_id: engagementId, period, invoice_status: sent ? "送付完了" : "未", updated_at: new Date().toISOString() };
+    if (amount != null) patch.invoice_amount = amount;
+    const { error } = await admin.from("billing_tasks").upsert(patch, { onConflict: "engagement_id,period" });
+    if (!error) { updated++; lastStatus = sent ? "送付完了" : "未"; }
+  }
+  revalidatePath("/progress"); revalidatePath("/billing");
+  return { ok: true, matched, updated, status: lastStatus };
+}
+
 /**
  * board の請求ステータスを読み取り、当月(period)の請求「送付状況」を更新（読み取り専用同期）。
  *   突合: engagements.board_project_id ←→ 請求レコードの案件ID
