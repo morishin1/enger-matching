@@ -262,3 +262,28 @@ export async function boardConnectionTest(): Promise<{ ok: boolean; error?: stri
   if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
   return { ok: true, probe: await probeBoard() };
 }
+
+/** 請求レコードの生データ診断：先頭数件のフィールド名・抽出結果を返す（フィールド名特定用）。 */
+export async function boardInvoiceDebug(): Promise<{ ok: boolean; error?: string; sample?: any[]; keys?: string[] }> {
+  if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
+  if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です" };
+  const r = await boardGet("/invoices", { page: 1, per_page: 5, sort: "invoice_date", direction: "desc" });
+  if (!r.ok) return { ok: false, error: `board 取得エラー：${r.error}` };
+  const rows = asArray(r.data);
+  if (rows.length === 0) return { ok: true, sample: [], keys: [] };
+  // 各行の「ENGER が抽出した値」と「生キー一覧」を返す
+  const sample = rows.map((b) => ({
+    keys: Object.keys(b),
+    extracted: {
+      period: billingPeriod(b),
+      projectId: billingProjectId(b),
+      projectNo: billingProjectNo(b),
+      sent: billingSent(b),
+      amountMan: billingAmountMan(b),
+    },
+    // 日付・案件・ステータス系のキーだけ生値を抜粋（個人情報を避けつつ構造把握）
+    raw: Object.fromEntries(Object.entries(b).filter(([k]) =>
+      /date|project|status|no|number|amount|total|paid|sent|issue|client|customer/i.test(k))),
+  }));
+  return { ok: true, sample, keys: Object.keys(rows[0]) };
+}
