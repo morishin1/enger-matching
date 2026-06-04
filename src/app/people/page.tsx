@@ -45,13 +45,12 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
-      // 検索時は 300 件上限を超えてDB全体を ilike 検索する。スキル(JSON配列)はテキストにキャスト
       const withSearch = (qb: any) => {
         if (!needle) return qb;
         const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        // 数値だけの入力（例: "1234"）は candidate_no も拾う。
-        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${needle},candidate_no::text.ilike.${like}` : "";
-        return qb.or(`name.ilike.${like},initials.ilike.${like},source_company.ilike.${like},company.ilike.${like},affiliation.ilike.${like},title.ilike.${like},skills::text.ilike.${like},note.ilike.${like}${numOr}`);
+        // candidate_no は bigint のため ::text cast は使わず、数値入力時のみ eq で完全一致
+        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
       };
       // rank / email 列が未追加でも落ちないようフォールバック
       let res: any = await withSearch(sb
