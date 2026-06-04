@@ -128,7 +128,7 @@ function SendModal({ to, cc, subject, body, buttonHtml, relatedKind, relatedId, 
                       <Fragment key={i}>
                         <pre style={preStyle}>{i === 0 ? part : part.replace(/^\n/, "")}</pre>
                         {i < parts.length - 1 && (
-                          <div dangerouslySetInnerHTML={{ __html: buttonHtml }} />
+                          <div dangerouslySetInnerHTML={{ __html: buttonHtml ?? "" }} />
                         )}
                       </Fragment>
                     ));
