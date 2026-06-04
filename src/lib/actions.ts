@@ -1645,14 +1645,19 @@ export async function extractInboxEmail(inboxId: string): Promise<{ ok: boolean;
   if (!r.ok) return { ok: false, error: r.error };
   try { await logUsage("inbox-extract", r.model, r.usage); } catch { /* noop */ }
 
-  const parsed = parseJsonLoose<{ kind: string; summary: string; data: any }>(r.text);
+  const parsed = parseJsonLoose<{ kind: string; summary: string; data: any; confidence?: number }>(r.text);
   if (!parsed || !parsed.kind) return { ok: false, error: "AI 応答の JSON 解析に失敗しました" };
+
+  const confidence = typeof parsed.confidence === "number"
+    ? Math.max(0, Math.min(1, parsed.confidence))
+    : null;
 
   await admin.from("inbox_emails").update({
     extracted_at: new Date().toISOString(),
     extracted_kind: parsed.kind,
     extracted_data: parsed.data ?? null,
     extracted_summary: parsed.summary ?? null,
+    confidence,
   }).eq("id", inboxId);
 
   revalidatePath("/inbox");
@@ -1837,6 +1842,104 @@ export async function bulkRegisterFromGmail(input: {
   }
   bustCounts();
   return { ok: true, registered, failed };
+}
+
+// ────────────────────────────────────────────────────────
+// GAS 代替：完全自動取込（cron から定期実行）
+//   1) Gmail を「案件/人材っぽい」検索クエリで絞って同期（noreply 等は除外）
+//   2) 未抽出メールを AI 分類（並列・1通約 0.5円）
+//   3) confidence >= 閾値（既定 0.75）なら自動登録、skip/spam は自動アーカイブ
+//   4) それ以外は「未承認（要確認）」として人がレビュー
+// ────────────────────────────────────────────────────────
+const AUTO_INGEST_GMAIL_QUERY = [
+  // 包含: SES営業メールに頻出するキーワード（最低1つ含むものを取得）
+  "(案件 OR 人材 OR スキルシート OR 経歴書 OR エンジニア OR SE OR PM OR PL OR 単価 OR 月額 OR 提案 OR 募集 OR ご紹介)",
+  // 除外: 自動送信・配信系
+  "-from:noreply -from:no-reply -from:notifications -from:notification",
+  "-from:postmaster -from:mailer-daemon -from:donotreply",
+  "-subject:配信停止 -subject:newsletter -subject:メルマガ",
+  "-unsubscribe -配信解除",
+  "-category:promotions -category:social",
+].join(" ");
+
+export async function autoIngestFromGmail(opts?: {
+  query?: string; max?: number; confidenceThreshold?: number; dryRun?: boolean;
+}): Promise<{
+  ok: boolean;
+  synced?: number; extracted?: number;
+  autoJobs?: number; autoCandidates?: number;
+  needsReview?: number; archived?: number; errors?: number;
+  error?: string;
+}> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const threshold = Math.max(0, Math.min(1, opts?.confidenceThreshold
+    ?? Number(process.env.AUTO_INGEST_CONFIDENCE_THRESHOLD ?? "0.75")));
+  const max = Math.max(1, Math.min(200, opts?.max ?? Number(process.env.AUTO_INGEST_MAX_PER_RUN ?? "100")));
+  const query = opts?.query ?? `${AUTO_INGEST_GMAIL_QUERY} newer_than:1d`;
+
+  // 1) Gmail 同期（絞り込み済みクエリで取得）
+  const s = await syncInboxFromGmail({ query, max });
+  if (!s.ok) return { ok: false, error: s.error };
+  const synced = s.synced ?? 0;
+
+  // 2) 未抽出メールを取得して並列抽出
+  const r: any = await admin.from("inbox_emails")
+    .select("id")
+    .is("extracted_at", null).eq("is_archived", false)
+    .order("received_at", { ascending: false }).limit(max);
+  if (r.error) return { ok: false, error: `inbox_emails 取得失敗: ${r.error.message}` };
+  const pending: { id: string }[] = r.data ?? [];
+
+  let extracted = 0, errors = 0;
+  const POOL = 3; let idx = 0;
+  const worker = async () => {
+    while (idx < pending.length) {
+      const i = idx++;
+      try { const ex = await extractInboxEmail(pending[i].id); if (ex.ok) extracted++; else errors++; }
+      catch { errors++; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(POOL, pending.length) }, () => worker()));
+
+  if (opts?.dryRun) return { ok: true, synced, extracted, autoJobs: 0, autoCandidates: 0, needsReview: 0, archived: 0, errors };
+
+  // 3) 抽出済み・未登録・未アーカイブ なメールを confidence で振り分け
+  const q: any = await admin.from("inbox_emails")
+    .select("id, extracted_kind, confidence")
+    .not("extracted_at", "is", null)
+    .is("registered_at", null).eq("is_archived", false)
+    .limit(500);
+  if (q.error) return { ok: false, error: `振分け対象の取得失敗: ${q.error.message}` };
+
+  let autoJobs = 0, autoCandidates = 0, archived = 0, needsReview = 0;
+  for (const row of (q.data ?? []) as { id: string; extracted_kind: string | null; confidence: number | null }[]) {
+    const kind = row.extracted_kind;
+    const conf = row.confidence ?? 0;
+
+    if (kind === "skip" || kind === "spam") {
+      // 無関係/スパム → 自動アーカイブ
+      await admin.from("inbox_emails").update({ is_archived: true }).eq("id", row.id);
+      archived++;
+      continue;
+    }
+    if ((kind === "job" || kind === "candidate") && conf >= threshold) {
+      try {
+        const res = kind === "job" ? await registerInboxAsJob(row.id) : await registerInboxAsCandidate(row.id);
+        if (res.ok) {
+          await admin.from("inbox_emails").update({ auto_registered: true }).eq("id", row.id);
+          if (kind === "job") autoJobs++; else autoCandidates++;
+        } else { errors++; }
+      } catch { errors++; }
+      continue;
+    }
+    // 閾値未満／kind 不明 → 人がレビュー
+    needsReview++;
+  }
+
+  revalidatePath("/mailbox"); revalidatePath("/inbox");
+  bustCounts();
+  return { ok: true, synced, extracted, autoJobs, autoCandidates, needsReview, archived, errors };
 }
 
 // ────────────────────────────────────────────────────────

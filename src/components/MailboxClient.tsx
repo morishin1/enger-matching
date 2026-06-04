@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail } from "@/lib/actions";
+import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail } from "@/lib/actions";
 
 const fmtDateTime = (d: any) => {
   if (!d) return "—";
@@ -58,6 +58,18 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
     });
   };
 
+  const autoRun = () => {
+    if (!gmailReady) return;
+    setSyncMsg("🤖 自動取込中…（同期→AI分類→自動登録、1〜2分かかります）");
+    start(async () => {
+      const r = await autoIngestFromGmail();
+      if (!r.ok) { setSyncMsg(`自動取込失敗: ${r.error}`); return; }
+      setSyncMsg(`✓ 同期${r.synced}・AI抽出${r.extracted}・案件自動登録${r.autoJobs}・人材自動登録${r.autoCandidates}・要確認${r.needsReview}・自動アーカイブ${r.archived}${r.errors ? `（エラー${r.errors}）` : ""}`);
+      router.refresh();
+      setTimeout(() => setSyncMsg(null), 15000);
+    });
+  };
+
   const filtered = rows.filter((r) => {
     if (!q.trim()) return true;
     const n = q.trim().toLowerCase();
@@ -81,6 +93,11 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
         <button type="button" className="btn brand" disabled={!gmailReady || pending} onClick={sync}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>download</span>
           Gmail 同期
+        </button>
+        <button type="button" className="btn" disabled={!gmailReady || pending} onClick={autoRun}
+          title="Gmail を絞り込み同期→AIで案件/人材判定→自信度0.75以上は自動登録／無関係は自動アーカイブ／低自信は要確認に残す">
+          <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>auto_awesome</span>
+          🤖 今すぐ自動取込
         </button>
         {syncMsg && <span className="muted" style={{ fontSize: 12 }}>{syncMsg}</span>}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
