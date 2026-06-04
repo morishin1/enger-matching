@@ -22,7 +22,15 @@ export function BoardSync({ period, lastSyncedAt }: { period: string; lastSynced
     if (!r.ok) { setMsg({ ok: false, text: r.error ?? "同期に失敗しました" }); router.refresh(); return; }
     if ((r.mapped ?? 0) === 0) { setMsg({ ok: false, text: "board案件IDが未設定です。「🔗 自動ひもづけ」を実行するか、各稼働の請求欄に案件ID（または案件番号）を入力してください。" }); router.refresh(); return; }
     const warn = r.capHit ? "（取得上限に到達。古い請求が多い場合は取りこぼしの可能性あり）" : "";
-    setMsg({ ok: true, text: `✓ ${period} を同期：${r.matched ?? 0}件一致 / ${r.updated ?? 0}件更新（ひもづけ${r.mapped ?? 0}件・走査${r.scanned ?? 0}件）${warn}` });
+    // 診断: なぜ更新されなかったかをわかりやすく
+    const diag: string[] = [];
+    const inP = (r as any).inPeriod ?? 0;
+    const km = (r as any).keyMatched ?? 0;
+    const us = (r as any).unknownStatus ?? 0;
+    if (inP === 0) diag.push("対象月の請求が board に無し");
+    else if (km === 0) diag.push(`対象月 ${inP} 件あるが、紐付けNo と一致せず`);
+    else if (us > 0) diag.push(`ステータス不明 ${us} 件（接続テストでJSONを確認してください）`);
+    setMsg({ ok: true, text: `✓ ${period} を同期：${r.matched ?? 0}件一致 / ${r.updated ?? 0}件更新（ひもづけ${r.mapped ?? 0}件・対象月${inP}件・キー一致${km}件${warn}${diag.length ? "／" + diag.join("・") : ""}）` });
     router.refresh();
   });
 

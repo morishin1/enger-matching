@@ -131,23 +131,45 @@ export async function probeBoard(): Promise<BoardProbe> {
 
 // ---- 請求レコード(/invoices) → 突合キーの抽出（board 実レスポンス準拠） -----------------
 //   案件突合: project_id（内部ID）/ project_no（案件番号）の両方を候補にする。
-//   請求月  : invoice_date（YYYY-MM-DD）
-//   送付判定: invoice_status_name（"未請求"/"請求済" 等）+ invoice_status(1=未請求) + paid_date
+//             board のレスポンス形状は版により異なり、直接フィールドのほか
+//             "project": { id, project_no } のネスト形式もありうるので両方拾う。
+//   請求月  : invoice_date / billing_date（YYYY-MM-DD）
+//   送付判定: invoice_status_name（"未請求"/"請求済" 等）/ status_name / status / paid_date
 
-/** board の案件ID（内部ID）。 */
+/** オブジェクトを安全に取り出すヘルパ（ネストされた project などを拾うため）。 */
+function getObj(v: unknown): Record<string, unknown> | null {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+/** board の案件ID（内部ID）。直接 project_id・ネスト project.id 両対応。 */
 export function billingProjectId(b: Record<string, unknown>): string | null {
-  return b?.project_id != null ? String(b.project_id) : null;
+  if (b?.project_id != null) return String(b.project_id);
+  const proj = getObj(b?.project);
+  if (proj) {
+    if (proj.id != null) return String(proj.id);
+    if (proj.project_id != null) return String(proj.project_id);
+  }
+  return null;
 }
 
-/** board の案件番号（UI表示の番号）。 */
+/** board の案件番号（UI表示の番号）。直接 / ネスト両対応。 */
 export function billingProjectNo(b: Record<string, unknown>): string | null {
-  return b?.project_no != null ? String(b.project_no) : null;
+  if (b?.project_no != null) return String(b.project_no);
+  const proj = getObj(b?.project);
+  if (proj) {
+    for (const k of ["project_no", "no", "number"]) {
+      const v = proj[k]; if (v != null) return String(v);
+    }
+  }
+  return null;
 }
 
-/** 'YYYY-MM' を返す。invoice_date が無ければ null。 */
+/** 'YYYY-MM' を返す。invoice_date / billing_date / issue_date を候補にする。 */
 export function billingPeriod(b: Record<string, unknown>): string | null {
-  const v = b?.invoice_date;
-  if (typeof v === "string" && /^\d{4}-\d{2}/.test(v)) return v.slice(0, 7);
+  for (const k of ["invoice_date", "billing_date", "issue_date", "date"]) {
+    const v = b?.[k];
+    if (typeof v === "string" && /^\d{4}-\d{2}/.test(v)) return v.slice(0, 7);
+  }
   return null;
 }
 
@@ -230,15 +252,30 @@ export function billingAmountMan(b: Record<string, unknown>): number | null {
   return null;
 }
 
-/** 請求済/入金済 = true（送付完了扱い）、未請求 = false、判定不能 = null（更新しない）。 */
+/** 請求済/入金済 = true（送付完了扱い）、未請求 = false、判定不能 = null（更新しない）。
+ *  board の version によりフィールド形が異なるので幅広く拾う:
+ *    - paid_date / paid_at がある = 入金済
+ *    - 名前ベース: invoice_status_name / status_name / status(文字列) / invoice_status.name
+ *    - コード:    invoice_status(数値・1=未請求/2以上=請求以降)
+ *    - フラグ:    sent / is_sent / sent_at（あれば送付済扱い） */
 export function billingSent(b: Record<string, unknown>): boolean | null {
-  if (b?.paid_date) return true; // 入金済なら送付済
-  const name = b?.invoice_status_name != null ? String(b.invoice_status_name) : null;
+  if (toStr(b?.paid_date) || toStr(b?.paid_at)) return true;
+  if (toStr(b?.sent_at)) return true;
+  const sentFlag = b?.sent ?? b?.is_sent;
+  if (sentFlag === true) return true;
+  if (sentFlag === false) return false;
+  // ネスト invoice_status: { name } / status: { name } も拾う
+  const statusObj = getObj(b?.invoice_status) ?? getObj(b?.status);
+  const name = toStr(b?.invoice_status_name) || toStr(b?.status_name)
+    || (statusObj ? toStr(statusObj.name) : null)
+    || (typeof b?.status === "string" ? String(b.status) : null);
   if (name) {
-    if (/未請求|未送付|未発行|下書き|draft/.test(name)) return false;
-    if (/請求済|送付|入金|発行済/.test(name)) return true;
+    if (/未請求|未送付|未発行|下書き|draft|unsent|pending/i.test(name)) return false;
+    if (/請求済|送付|入金|発行済|sent|issued|paid/i.test(name)) return true;
   }
-  const code = b?.invoice_status; // board: 1=未請求 / 2以上=請求以降
-  if (typeof code === "number") return code >= 2 ? true : code === 1 ? false : null;
+  // 数値コード（board: 1=未請求 / 2以上=請求以降）
+  const code = typeof b?.invoice_status === "number" ? (b.invoice_status as number)
+    : (statusObj && typeof statusObj.id === "number" ? statusObj.id as number : null);
+  if (code != null) return code >= 2 ? true : code === 1 ? false : null;
   return null;
 }
