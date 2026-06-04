@@ -101,8 +101,8 @@ function BoardIdField({ e, onChanged }: { e: Eng; onChanged: () => void }) {
   };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <input value={v} disabled={pending} placeholder="board案件ID/番号" title="board の案件ID（URLの数字）または案件番号を設定。入力後 Enter または別欄をクリックで自動保存。設定後「🔄 今すぐ同期」で送付状況が反映されます。"
-        style={{ ...inp, width: 110, fontSize: 10.5, padding: "3px 6px" }}
+      <input value={v} disabled={pending} placeholder="案件No" title="board の案件No（例: 11177）または案件ID。入力後 Enter または別欄をクリックで自動保存。設定後「🔄 今すぐ同期」で送付状況が反映されます。"
+        style={{ ...inp, width: 80, fontSize: 11.5, padding: "5px 7px", textAlign: "center" }}
         onChange={(ev) => setV(ev.target.value)}
         onBlur={save}
         onKeyDown={(ev) => { if (ev.key === "Enter") { ev.currentTarget.blur(); } }} />
@@ -130,7 +130,8 @@ function InvCell({ e, period, onChanged, canManage }: { e: Eng; period: string; 
           onKeyDown={(ev) => { if (ev.key === "Enter") (ev.currentTarget as HTMLInputElement).blur(); }} />
         <button type="button" className="btn ghost btn-xs" disabled={pending} title="board側で請求書を送付するとここが自動で「送付完了」に切り替わります（🔄 今すぐ同期 を実行）。手動切替も可" onClick={() => saveBill({ invoice_status: sent ? "未" : "送付完了" })} style={{ color: sent ? "#1aa260" : "var(--color-ink-4)", fontWeight: 600 }}>{sent ? "✓送付完了" : "未送付"}</button>
       </div>
-      {canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>請求書は board で作成・送付</div>}
+      {/* board案件No は左端の「案件No」列に集約。ここでは案内のみ。 */}
+      <div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>請求書は board で作成・送付（左端の案件Noで自動同期）</div>
     </div>
   );
 }
@@ -224,6 +225,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
               <thead>
                 <tr>
+                  <th style={th}>案件No</th>
                   <th style={th}>人材 / 企業・案件</th>
                   <th style={th}>当月勤怠({period})</th>
                   <th style={th}>契約書/注文書</th>
@@ -246,7 +248,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
             <thead>
               <tr>
-                <th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th><th style={{ ...th, textAlign: "center" }}>操作</th>
+                <th style={th}>案件No</th><th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th><th style={{ ...th, textAlign: "center" }}>操作</th>
               </tr>
             </thead>
             <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
@@ -274,6 +276,8 @@ function TaskRow({ e, role, period, onChanged, done, canManage }: { e: Eng; role
     : { bg: "var(--color-surface-inset)", fg: "var(--color-ink-4)", bd: "var(--color-border)" };
   return (
     <tr style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined }}>
+      {/* 一番左に board案件No を編集可能で表示（同期はここを起点に行われる） */}
+      <td style={{ ...td, whiteSpace: "nowrap" }}>{canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{e.board_project_id ?? "—"}</span>}</td>
       <td style={td}>
         <div style={{ fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           {e.candidate_name ?? "—"}
@@ -311,6 +315,8 @@ function ContractRow({ e, role, onChanged, done, canManage }: { e: Eng; role: Ro
   const td = { padding: "7px 8px", borderBottom: "1px solid var(--color-border)", verticalAlign: "top" } as const;
   return (
     <tr style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined }}>
+      {/* 一番左に board案件No を編集可能で表示 */}
+      <td style={{ ...td, whiteSpace: "nowrap" }}>{canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{e.board_project_id ?? "—"}</span>}</td>
       <td style={td}>
         <div style={{ fontWeight: 700, fontSize: 12.5 }}>{e.candidate_name ?? "—"}{done && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}</div>
         <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
