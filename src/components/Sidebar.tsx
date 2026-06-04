@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
   { href: "/documents", id: "documents", label: "書類送付", icon: "doc" },
   { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
+  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics" },
 ];
 
@@ -73,7 +74,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics"];
+  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/kpi"];
   const allowed = new Set<string>(["/", "/progress"]); // ダッシュボード・稼働/請求/勤怠は全エージェント可
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
   if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }

@@ -1994,3 +1994,55 @@ export async function testSmtpAction(sender: "enger" | "8grp"): Promise<{ ok: bo
   const r = await verifySmtp(sender);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
+
+
+// ────────────────────────────────────────────────────────
+// KPI ダッシュボード: 週次目標の保存
+// ────────────────────────────────────────────────────────
+import type { Metric } from "./kpi";
+
+export async function saveKpiTargets(input: {
+  scope: "person" | "team";
+  ownerEmail?: string | null;
+  ownerName?: string | null;
+  teamKey?: string | null;
+  weekStart: string; // 'YYYY-MM-DD' (月曜)
+  targets: Partial<Record<Metric, number>>;
+}): Promise<{ ok: boolean; error?: string }> {
+  const access = await currentAccess();
+  if (!access) return { ok: false, error: "ログインが必要です" };
+  if (input.scope === "team" && access.role !== "admin")
+    return { ok: false, error: "チーム目標は管理者のみ設定できます" };
+  if (input.scope === "person" && access.role !== "admin" && (input.ownerEmail ?? "") !== access.email)
+    return { ok: false, error: "他人の目標は変更できません" };
+
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "DB 接続できません" }; }
+
+  const metrics = Object.entries(input.targets).filter(([, v]) => typeof v === "number" && v >= 0);
+  if (metrics.length === 0) return { ok: true };
+
+  // 1週間×1対象×対象指標の既存行を一旦削除してから入れ直す（partial-unique を回避）。
+  let del: any = admin.from("kpi_targets").delete()
+    .eq("scope", input.scope).eq("week_start", input.weekStart)
+    .in("metric", metrics.map(([m]) => m));
+  if (input.scope === "person") del = del.eq("owner_email", input.ownerEmail ?? "");
+  else                          del = del.eq("team_key", input.teamKey ?? "its");
+  const dr = await del;
+  if (dr.error) return { ok: false, error: dr.error.message };
+
+  const rows = metrics.map(([metric, target]) => ({
+    scope: input.scope,
+    owner_email: input.scope === "person" ? (input.ownerEmail ?? "") : null,
+    owner_name:  input.scope === "person" ? (input.ownerName  ?? null) : null,
+    team_key:    input.scope === "team"   ? (input.teamKey    ?? "its") : null,
+    week_start:  input.weekStart,
+    metric,
+    target: target as number,
+    updated_at: new Date().toISOString(),
+  }));
+  const ir = await admin.from("kpi_targets").insert(rows);
+  if (ir.error) return { ok: false, error: ir.error.message };
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
