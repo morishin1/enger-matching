@@ -1,0 +1,39 @@
+# GAS 代替: Gmail 自動取込を無料で定期実行する。
+#   Vercel Hobby（無料）は cron が 1日1回しか動かないため、
+#   GitHub Actions（無料枠）から本番エンドポイントを定期的に叩く。
+#
+# 必要な GitHub Secrets（Settings → Secrets and variables → Actions）:
+#   AUTO_INGEST_URL : https://<本番ドメイン>/api/cron/auto-ingest
+#   CRON_SECRET     : Vercel に設定したものと同じ値
+#
+# 注意: スケジュール実行は「デフォルトブランチ（main 等）」に置かれている時だけ動く。
+#       このファイルを main にマージして初めて定期実行が有効になる。
+
+name: auto-ingest
+
+on:
+  schedule:
+    - cron: "0 * * * *" # 毎時0分（1時間ごと）。無料枠に優しい頻度。
+  workflow_dispatch: {} # 画面から手動実行も可能
+
+concurrency:
+  group: auto-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger auto-ingest endpoint
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.AUTO_INGEST_URL }}")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "auto-ingest failed (HTTP $code)" >&2
+            exit 1
+          fi

@@ -1875,7 +1875,7 @@ export async function autoIngestFromGmail(opts?: {
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   const threshold = Math.max(0, Math.min(1, opts?.confidenceThreshold
     ?? Number(process.env.AUTO_INGEST_CONFIDENCE_THRESHOLD ?? "0.75")));
-  const max = Math.max(1, Math.min(200, opts?.max ?? Number(process.env.AUTO_INGEST_MAX_PER_RUN ?? "100")));
+  const max = Math.max(1, Math.min(200, opts?.max ?? Number(process.env.AUTO_INGEST_MAX_PER_RUN ?? "12")));
   const query = opts?.query ?? `${AUTO_INGEST_GMAIL_QUERY} newer_than:1d`;
 
   // 1) Gmail 同期（絞り込み済みクエリで取得）
@@ -1905,11 +1905,13 @@ export async function autoIngestFromGmail(opts?: {
   if (opts?.dryRun) return { ok: true, synced, extracted, autoJobs: 0, autoCandidates: 0, needsReview: 0, archived: 0, errors };
 
   // 3) 抽出済み・未登録・未アーカイブ なメールを confidence で振り分け
+  // 60秒上限に収めるため 1 回の振り分けも件数を絞る（残りは次回の起動で処理）。
   const q: any = await admin.from("inbox_emails")
     .select("id, extracted_kind, confidence")
     .not("extracted_at", "is", null)
     .is("registered_at", null).eq("is_archived", false)
-    .limit(500);
+    .order("received_at", { ascending: false })
+    .limit(Math.max(max * 2, 30));
   if (q.error) return { ok: false, error: `振分け対象の取得失敗: ${q.error.message}` };
 
   let autoJobs = 0, autoCandidates = 0, archived = 0, needsReview = 0;
