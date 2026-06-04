@@ -3,16 +3,18 @@
 // メール送信ボタン＋確認モーダル。差出人ドメイン（enger.jp / 8grp.co.jp）を選んで Xserver SMTP で送信。
 //   どこからでも使えるよう、宛先・件名・本文を props で受け取る独立部品。
 //   送信先（差出人）の選択肢は /api/mail/senders から取得（設定済みのものだけ表示）。
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, Fragment, type CSSProperties } from "react";
 import { sendMailAction } from "@/lib/actions";
+import { BUTTON_PLACEHOLDER, NOTICE_TEXT } from "./JobMailBodyCard";
 
 type Sender = { key: "enger" | "8grp"; label: string; address: string };
 
 export function SendMailButton({
-  to, cc, subject, body, relatedKind, relatedId, label = "📨 送信", className = "btn brand",
+  to, cc, subject, body, buttonHtml, relatedKind, relatedId, label = "📨 送信", className = "btn brand",
   disabled, onSent,
 }: {
   to: string; cc?: string; subject: string; body: string;
+  buttonHtml?: string;
   relatedKind?: string; relatedId?: string;
   label?: string; className?: string; disabled?: boolean;
   onSent?: () => void;
@@ -21,13 +23,27 @@ export function SendMailButton({
   return (
     <>
       <button type="button" className={className} disabled={disabled} onClick={() => setOpen(true)}>{label}</button>
-      {open && <SendModal to={to} cc={cc} subject={subject} body={body} relatedKind={relatedKind} relatedId={relatedId} onClose={() => setOpen(false)} onSent={onSent} />}
+      {open && <SendModal to={to} cc={cc} subject={subject} body={body} buttonHtml={buttonHtml} relatedKind={relatedKind} relatedId={relatedId} onClose={() => setOpen(false)} onSent={onSent} />}
     </>
   );
 }
 
-function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onSent }: {
+function buildHtmlBody(text: string, buttonHtml: string): string {
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const wrapStyle = `white-space:pre-wrap;font-family:sans-serif;font-size:14px;color:#1e293b`;
+  const parts = text.split(BUTTON_PLACEHOLDER);
+  if (parts.length === 1) {
+    return `<div style="${wrapStyle}">${escape(text)}</div>\n${buttonHtml}`;
+  }
+  return parts.map((part, i) => {
+    const div = `<div style="${wrapStyle}">${escape(part)}</div>`;
+    return i < parts.length - 1 ? `${div}\n${buttonHtml}` : div;
+  }).join("\n");
+}
+
+function SendModal({ to, cc, subject, body, buttonHtml, relatedKind, relatedId, onClose, onSent }: {
   to: string; cc?: string; subject: string; body: string;
+  buttonHtml?: string;
   relatedKind?: string; relatedId?: string;
   onClose: () => void; onSent?: () => void;
 }) {
@@ -38,7 +54,6 @@ function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onS
   const [eTo, setETo] = useState(to);
   const [eCc, setECc] = useState(cc ?? "");
   const [eSubject, setESubject] = useState(subject);
-  const [eBody, setEBody] = useState(body);
   const [msg, setMsg] = useState<{ ok?: boolean; text: string } | null>(null);
   const [done, setDone] = useState(false);
 
@@ -58,7 +73,9 @@ function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onS
     setMsg(null);
     if (!eTo.trim()) { setMsg({ ok: false, text: "宛先を入力してください" }); return; }
     start(async () => {
-      const r = await sendMailAction({ sender, to: eTo, cc: eCc || null, subject: eSubject, text: eBody, relatedKind: relatedKind || null, relatedId: relatedId || null });
+      const cleanText = body.replace(BUTTON_PLACEHOLDER, NOTICE_TEXT);
+      const html = buttonHtml ? buildHtmlBody(body, buttonHtml) : null;
+      const r = await sendMailAction({ sender, to: eTo, cc: eCc || null, subject: eSubject, text: cleanText, html, relatedKind: relatedKind || null, relatedId: relatedId || null });
       if (!r.ok) { setMsg({ ok: false, text: r.error || "送信に失敗しました" }); return; }
       setDone(true);
       setMsg({ ok: true, text: "✓ 送信しました" });
@@ -100,7 +117,24 @@ function SendModal({ to, cc, subject, body, relatedKind, relatedId, onClose, onS
               <label style={lbl}>宛先（To）<input value={eTo} onChange={(e) => setETo(e.target.value)} placeholder="to@example.com（カンマ区切りで複数可）" style={inp} /></label>
               <label style={lbl}>CC（任意）<input value={eCc} onChange={(e) => setECc(e.target.value)} placeholder="cc@example.com" style={inp} /></label>
               <label style={lbl}>件名<input value={eSubject} onChange={(e) => setESubject(e.target.value)} style={inp} /></label>
-              <label style={lbl}>本文<textarea value={eBody} onChange={(e) => setEBody(e.target.value)} rows={12} style={{ ...inp, resize: "vertical", minHeight: 220, lineHeight: 1.7 }} /></label>
+              <div style={lbl}>
+                <span>本文</span>
+                <div style={{ border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface-soft)", padding: "12px 14px", fontSize: 13, lineHeight: 1.75, overflowY: "auto", maxHeight: 340 }}>
+                  {(() => {
+                    const preStyle: CSSProperties = { margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, lineHeight: 1.75, color: "var(--color-ink-2)" };
+                    const parts = body.split(BUTTON_PLACEHOLDER);
+                    if (parts.length === 1) return <pre style={preStyle}>{body}</pre>;
+                    return parts.map((part, i) => (
+                      <Fragment key={i}>
+                        <pre style={preStyle}>{i === 0 ? part : part.replace(/^\n/, "")}</pre>
+                        {i < parts.length - 1 && (
+                          <div dangerouslySetInnerHTML={{ __html: buttonHtml ?? "" }} />
+                        )}
+                      </Fragment>
+                    ));
+                  })()}
+                </div>
+              </div>
             </>
           )}
           {msg && (

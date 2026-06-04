@@ -22,7 +22,7 @@ export type SenderKey = "enger" | "8grp";
 
 export type SenderProfile = { key: SenderKey; label: string; address: string; fromName: string };
 
-/** 設定済みの差出人プロファイル一覧（env が揃っているものだけ返す）。 */
+/** 設定済みの差出人プロファイル一覧（env が揃っているものだけ返す）。SMTP_FAKE=true なら dev 用ダミーを返す。 */
 export function availableSenders(): SenderProfile[] {
   const list: SenderProfile[] = [];
   if (process.env.SMTP_ENGER_USER) {
@@ -31,11 +31,14 @@ export function availableSenders(): SenderProfile[] {
   if (process.env.SMTP_8GRP_USER) {
     list.push({ key: "8grp", label: "株式会社エイト（8grp.co.jp）", address: process.env.SMTP_8GRP_USER, fromName: process.env.SMTP_8GRP_FROM_NAME || "株式会社エイト" });
   }
+  if (list.length === 0 && process.env.SMTP_FAKE === "true") {
+    list.push({ key: "enger", label: "ENGER（enger.jp）[DEV]", address: "dev@enger.jp", fromName: "ENGER" });
+  }
   return list;
 }
 
 export function smtpConfigured(): boolean {
-  return Boolean(process.env.SMTP_HOST && (process.env.SMTP_ENGER_USER || process.env.SMTP_8GRP_USER));
+  return Boolean(process.env.SMTP_HOST && (process.env.SMTP_ENGER_USER || process.env.SMTP_8GRP_USER)) || process.env.SMTP_FAKE === "true";
 }
 
 function credsFor(sender: SenderKey): { user: string; pass: string; fromName: string } | null {
@@ -54,6 +57,7 @@ export type SendInput = {
   to: string;                   // 宛先（カンマ区切り可）
   subject: string;
   text: string;                 // プレーン本文
+  html?: string | null;         // HTML本文（ボタン付きメールなど）
   cc?: string | null;
   bcc?: string | null;
   replyTo?: string | null;      // 返信先（ログイン者のメールを入れると返信が本人に届く）
@@ -83,6 +87,10 @@ function makeTransport(host: string, port: number, user: string, pass: string) {
 
 /** 1通送信。SMTP は接続コストがあるので呼び出しごとに transporter を生成（低頻度運用のため十分）。 */
 export async function sendMail(input: SendInput): Promise<SendResult> {
+  if (process.env.SMTP_FAKE === "true") {
+    console.log("[SMTP_FAKE] mail skipped:", { to: input.to, subject: input.subject });
+    return { ok: true, messageId: `fake-${Date.now()}`, from: "dev@enger.jp" };
+  }
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 465);
   if (!host) return { ok: false, error: "SMTP_HOST が未設定です（Vercel 環境変数）" };
@@ -106,6 +114,7 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
       replyTo: input.replyTo?.trim() || creds.user,
       subject: input.subject,
       text: input.text,
+      html: input.html || undefined,
     });
     return { ok: true, messageId: info.messageId, from };
   } catch (e) {
