@@ -31,7 +31,7 @@ export type BoardResult<T> =
   | { ok: false; error: string; status: number };
 
 /** board へ GET。429 は指数バックオフで最大3回再試行。 */
-async function boardGet<T = unknown>(path: string, params: Record<string, string | number> = {}): Promise<BoardResult<T>> {
+export async function boardGet<T = unknown>(path: string, params: Record<string, string | number> = {}): Promise<BoardResult<T>> {
   if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）", status: 0 };
   const url = new URL(path.startsWith("http") ? path : BASE + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
@@ -58,7 +58,7 @@ async function boardGet<T = unknown>(path: string, params: Record<string, string
 }
 
 /** レスポンスが配列でもラップ済み({data:[]}等)でも配列に正規化。 */
-function asArray(body: unknown): Record<string, unknown>[] {
+export function asArray(body: unknown): Record<string, unknown>[] {
   if (Array.isArray(body)) return body as Record<string, unknown>[];
   const b = body as Record<string, unknown> | null;
   for (const key of ["data", "invoices", "billings", "items", "results"]) {
@@ -156,8 +156,16 @@ export type ProjectFetch =
   | { ok: true; rows: Record<string, unknown>[]; scanned: number; capHit: boolean }
   | { ok: false; error: string; status: number };
 
-/** board /projects をページングで取得（自動ひもづけの突合元）。 */
-export async function fetchProjects(): Promise<ProjectFetch> {
+// board /projects は件数が多くページング取得に時間がかかるため、モジュール内に短時間キャッシュ。
+//   検索・自動ひもづけ・同期で繰り返し呼ばれるので、5分キャッシュで2回目以降を高速化する。
+let _projectsCache: { rows: Record<string, unknown>[]; scanned: number; capHit: boolean; at: number } | null = null;
+const PROJECTS_TTL_MS = 5 * 60 * 1000;
+
+/** board /projects をページングで取得（自動ひもづけの突合元）。5分キャッシュ。force で再取得。 */
+export async function fetchProjects(opts?: { force?: boolean }): Promise<ProjectFetch> {
+  if (!opts?.force && _projectsCache && Date.now() - _projectsCache.at < PROJECTS_TTL_MS) {
+    return { ok: true, rows: _projectsCache.rows, scanned: _projectsCache.scanned, capHit: _projectsCache.capHit };
+  }
   const PER = 100, CAP = 50;
   const all: Record<string, unknown>[] = [];
   let scanned = 0, capHit = false, effectivePer = 0;
@@ -171,13 +179,29 @@ export async function fetchProjects(): Promise<ProjectFetch> {
     if (rows.length === 0) break;
     if (page > 1 && effectivePer > 0 && rows.length < effectivePer) break;
     if (page === CAP) { capHit = true; break; }
-    await sleep(350);
+    await sleep(200);
   }
+  _projectsCache = { rows: all, scanned, capHit, at: Date.now() };
   return { ok: true, rows: all, scanned, capHit };
 }
 
+/** 値から表示用の文字列を取り出す。オブジェクトなら name/company_name 等のキーを再帰的に探す。 */
+function toStr(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v.trim() || null;
+  if (typeof v === "number") return String(v);
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    for (const k of ["name", "company_name", "client_name", "customer_name", "title", "label"]) {
+      const s = toStr(o[k]);
+      if (s) return s;
+    }
+  }
+  return null;
+}
+
 function firstStr(p: Record<string, unknown>, keys: string[]): string | null {
-  for (const k of keys) { const v = p?.[k]; if (v != null && String(v).trim()) return String(v); }
+  for (const k of keys) { const s = toStr(p?.[k]); if (s) return s; }
   return null;
 }
 
