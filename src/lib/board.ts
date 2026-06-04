@@ -161,16 +161,20 @@ export type ProjectFetch =
 let _projectsCache: { rows: Record<string, unknown>[]; scanned: number; capHit: boolean; at: number } | null = null;
 const PROJECTS_TTL_MS = 5 * 60 * 1000;
 
-/** board /projects をページングで取得（自動ひもづけの突合元）。5分キャッシュ。force で再取得。 */
-export async function fetchProjects(opts?: { force?: boolean }): Promise<ProjectFetch> {
+/** board /projects をページングで取得（自動ひもづけの突合元）。5分キャッシュ。
+ *   稼働化される案件は直近のものがほとんどなので、既定は「新しい順に最大10ページ(=1000件)」で打ち切り高速化。
+ *   maxPages を増やせばさらに遡れる。force で再取得。 */
+export async function fetchProjects(opts?: { force?: boolean; maxPages?: number }): Promise<ProjectFetch> {
+  const CAP = Math.max(1, Math.min(50, opts?.maxPages ?? 10)); // 既定10ページ（約1000件）に短縮
   if (!opts?.force && _projectsCache && Date.now() - _projectsCache.at < PROJECTS_TTL_MS) {
     return { ok: true, rows: _projectsCache.rows, scanned: _projectsCache.scanned, capHit: _projectsCache.capHit };
   }
-  const PER = 100, CAP = 50;
+  const PER = 100;
   const all: Record<string, unknown>[] = [];
   let scanned = 0, capHit = false, effectivePer = 0;
   for (let page = 1; page <= CAP; page++) {
-    const r = await boardGet("/projects", { page, per_page: PER });
+    // 新しい案件から取得（id 降順）。直近の案件が先に揃うので少ないページで足りる。
+    const r = await boardGet("/projects", { page, per_page: PER, sort: "id", direction: "desc" });
     if (!r.ok) return page === 1 ? r : { ok: true, rows: all, scanned, capHit };
     const rows = asArray(r.data);
     if (page === 1) effectivePer = rows.length;
