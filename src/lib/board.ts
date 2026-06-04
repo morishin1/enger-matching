@@ -77,34 +77,66 @@ export type InvoiceFetch =
  *   - 降順が効かない場合はページ上限(CAP)まで取得（古い順なら対象月は後方のため上限に注意）。
  */
 export async function fetchInvoices(opts?: { period?: string }): Promise<InvoiceFetch> {
-  const PER = 100, CAP = 50;
-  const periodStart = opts?.period && /^\d{4}-\d{2}$/.test(opts.period) ? `${opts.period}-01` : null;
-  const all: Record<string, unknown>[] = [];
-  let scanned = 0, capHit = false, descending = false, detected = false, effectivePer = 0;
+  const PER = 100, CAP = 60;
+  const period = opts?.period && /^\d{4}-\d{2}$/.test(opts.period) ? opts.period : null;
+  const periodStart = period ? `${period}-01` : null;
+  // 対象月の末日（YYYY-MM-末日）。board の invoice_date 絞り込みクエリに使う。
+  const periodEnd = period ? `${period}-${String(new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()).padStart(2, "0")}` : null;
 
+  // ① 対象月で直接フィルタを試す（board の invoice_date 範囲クエリ）。
+  //    board は sort=invoice_date が効かず古い順で返るため、全件ページングは2016年から走って当月に届かない。
+  //    日付範囲で絞れれば一発で対象月だけ取れる。複数のパラメータ名を試行。
+  if (period) {
+    const filterVariants: Record<string, string>[] = [
+      { "invoice_date_from": periodStart!, "invoice_date_to": periodEnd! },
+      { "invoice_date_gteq": periodStart!, "invoice_date_lteq": periodEnd! },
+      { "from": periodStart!, "to": periodEnd! },
+      { "invoice_date": period }, // YYYY-MM 部分一致を受ける実装もある
+    ];
+    for (const params of filterVariants) {
+      const all: Record<string, unknown>[] = [];
+      let scanned = 0, ok = true;
+      for (let page = 1; page <= CAP; page++) {
+        const r = await boardGet("/invoices", { page, per_page: PER, ...params });
+        if (!r.ok) { ok = false; break; }
+        const rows = asArray(r.data);
+        scanned += rows.length;
+        all.push(...rows);
+        if (rows.length < PER) break;
+        if (page === CAP) break;
+        await sleep(250);
+      }
+      if (!ok) continue;
+      // フィルタが効いたか検証：取得分のうち対象月が一定割合あれば採用
+      const inPeriod = all.filter((b) => billingPeriod(b) === period).length;
+      if (all.length > 0 && inPeriod > 0 && inPeriod >= all.length * 0.5) {
+        return { ok: true, rows: all, scanned, capHit: false, descending: true };
+      }
+      // フィルタが無視され全期間が返ってきた場合は次の方式へ（inPeriod 少 = 効いていない）
+    }
+  }
+
+  // ② フォールバック：id 降順（=新しい順）で全件ページング。対象月に届いたら以降は打ち切り。
+  const all: Record<string, unknown>[] = [];
+  let scanned = 0, capHit = false, effectivePer = 0, reachedOlder = false;
   for (let page = 1; page <= CAP; page++) {
-    const r = await boardGet("/invoices", { page, per_page: PER, sort: "invoice_date", direction: "desc" });
-    if (!r.ok) return page === 1 ? r : { ok: true, rows: all, scanned, capHit, descending };
+    const r = await boardGet("/invoices", { page, per_page: PER, sort: "id", direction: "desc" });
+    if (!r.ok) return page === 1 ? r : { ok: true, rows: all, scanned, capHit, descending: true };
     const rows = asArray(r.data);
     if (page === 1) effectivePer = rows.length;
     scanned += rows.length;
     all.push(...rows);
-
-    if (!detected && rows.length >= 2) {
-      const first = String(rows[0]?.invoice_date ?? ""), last = String(rows[rows.length - 1]?.invoice_date ?? "");
-      descending = first >= last; detected = true;
-    }
     if (rows.length === 0) break;
     if (page > 1 && effectivePer > 0 && rows.length < effectivePer) break; // 最終ページ
     if (page === CAP) { capHit = true; break; }
-    // 降順が効いていれば、ページ最大(最新)日が対象月より前になった時点で以降は不要
-    if (descending && periodStart) {
-      const maxOnPage = rows.reduce((m, x) => { const d = String(x?.invoice_date ?? ""); return d > m ? d : m; }, "");
-      if (maxOnPage && maxOnPage < periodStart) break;
+    // 対象月より古い請求が出始めたら、もう1ページだけ見て打ち切り（id順≒日付順前提）
+    if (periodStart) {
+      const anyOlder = rows.some((x) => { const d = billingPeriod(x); return d != null && d < periodStart.slice(0, 7); });
+      if (anyOlder) { if (reachedOlder) break; reachedOlder = true; }
     }
-    await sleep(350);
+    await sleep(250);
   }
-  return { ok: true, rows: all, scanned, capHit, descending };
+  return { ok: true, rows: all, scanned, capHit, descending: true };
 }
 
 // ---- 接続テスト（プレビューで実レスポンスの形を確認するためのデバッグ用） --------------
