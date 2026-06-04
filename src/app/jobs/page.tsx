@@ -77,18 +77,20 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       }
       let allData: any[] = listRes.data ?? [];
 
-      // job_no 部分一致（数値入力時のみ。or() 外の独立フィルタで cast）
-      if (like && /^\d+$/.test(needle)) {
-        let idRes: any = await withPub(sb.from("jobs").select(baseCols))
-          .filter("job_no::text", "ilike", like)
-          .order("job_no", { ascending: false }).limit(500);
-        if (idRes.error) {
-          idRes = await withPub(sb.from("jobs").select(baseCols))
-            .eq("job_no", parseInt(needle, 10)).limit(10);
-        }
-        if (!idRes.error && idRes.data?.length) {
-          const seen = new Set(allData.map((r: any) => r.job_no));
-          for (const r of idRes.data) { if (!seen.has(r.job_no)) allData.push(r); }
+      // job_no 部分一致（数値入力時のみ）
+      // ::text cast は PostgREST の or()/filter() で不安定なため使わない。
+      // 代わりに直近 1000 件を取得してクライアント側でフィルタ + 古い ID は eq で保険。
+      if (/^\d+$/.test(needle)) {
+        const parsedNo = parseInt(needle, 10);
+        const [recentRes, exactRes] = await Promise.all([
+          withPub(sb.from("jobs").select(baseCols))
+            .order("job_no", { ascending: false }).limit(1000),
+          withPub(sb.from("jobs").select(baseCols))
+            .eq("job_no", parsedNo).limit(1),
+        ]);
+        const seen = new Set(allData.map((r: any) => r.job_no));
+        for (const r of [...(recentRes.data ?? []), ...(exactRes.data ?? [])]) {
+          if (r.job_no != null && !seen.has(r.job_no)) { seen.add(r.job_no); allData.push(r); }
         }
       }
 
