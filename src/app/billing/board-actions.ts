@@ -95,7 +95,7 @@ export async function syncOneEngagement(engagementId: string, period: string): P
  *   突合: engagements.board_project_id ←→ 請求レコードの案件ID
  *   反映: 請求済/送付済 → invoice_status='送付完了' / 未請求 → '未'（判定不能はスキップ）
  */
-export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; error?: string; matched?: number; updated?: number; period?: string; scanned?: number; capHit?: boolean; mapped?: number }> {
+export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; error?: string; matched?: number; updated?: number; period?: string; scanned?: number; capHit?: boolean; mapped?: number; inPeriod?: number; keyMatched?: number; unknownStatus?: number }> {
   if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
   if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
   if (!/^\d{4}-\d{2}$/.test(period)) return { ok: false, error: "対象月が不正です" };
@@ -119,14 +119,20 @@ export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; 
   if (!inv.ok) return { ok: false, error: `board 取得エラー：${inv.error}` };
 
   let matched = 0, updated = 0;
+  // 診断カウンタ：なぜ更新されないのかを見える化
+  let inPeriod = 0;     // 当月の請求件数
+  let keyMatched = 0;   // 紐付け済み案件にマッチした件数
+  let unknownStatus = 0; // ステータス不明でスキップ
   for (const b of inv.rows) {
     if (billingPeriod(b) !== period) continue;
+    inPeriod++;
     // 案件ID または 案件番号 のどちらでも突合（ユーザーが入力した値に合わせる）
     const pid = billingProjectId(b), pno = billingProjectNo(b);
     const engIds = (pid && byKey.get(pid)) || (pno && byKey.get(pno));
     if (!engIds) continue;
+    keyMatched++;
     const sent = billingSent(b);
-    if (sent == null) continue; // 不明ステータスは更新しない（安全側）
+    if (sent == null) { unknownStatus++; continue; } // 不明ステータスは更新しない（安全側）
     matched++;
     const amount = billingAmountMan(b);
     for (const engId of engIds) {
@@ -142,7 +148,7 @@ export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; 
     { onConflict: "key" },
   );
   revalidatePath("/progress"); revalidatePath("/billing");
-  return { ok: true, matched, updated, period, mapped: byKey.size, scanned: inv.scanned, capHit: inv.capHit };
+  return { ok: true, matched, updated, period, mapped: byKey.size, scanned: inv.scanned, capHit: inv.capHit, inPeriod, keyMatched, unknownStatus };
 }
 
 // ---- 自動ひもづけ ----------------------------------------------------------------
