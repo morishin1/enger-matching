@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { boardConfigured, fetchInvoices, fetchProjects, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, billingAmountMan, projectId, projectNo, projectName, projectClientName, type BoardProbe } from "@/lib/board";
+import { boardConfigured, boardGet, asArray, fetchInvoices, fetchProjects, probeBoard, billingProjectId, billingProjectNo, billingPeriod, billingSent, billingAmountMan, projectId, projectNo, projectName, projectClientName, type BoardProbe } from "@/lib/board";
 
 type Access = Awaited<ReturnType<typeof currentAccess>>;
 function canManage(access: Access): boolean {
@@ -12,19 +12,32 @@ function canManage(access: Access): boolean {
   return role === "admin" || isBackoffice;
 }
 
-/** 案件No（または案件ID）から board の案件を1件引く。新規追加時の自動補完に使う。 */
+/** 案件No（または案件ID）から board の案件を1件引く。新規追加時の自動補完に使う。
+ *  高速化：まず board に番号/IDで直接クエリ → 取れなければキャッシュ済み全件から照合。 */
 export async function lookupBoardProject(noOrId: string): Promise<{ ok: boolean; error?: string; project?: { id: string; no: string | null; name: string; client: string } }> {
   if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
   if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
   const key = String(noOrId ?? "").trim();
   if (!key) return { ok: false, error: "案件Noを入力してください" };
+  const toProj = (row: Record<string, unknown>) => ({ id: projectId(row) ?? key, no: projectNo(row), name: projectName(row) ?? "", client: projectClientName(row) ?? "" });
+
+  // ① board へ直接クエリ（案件番号 / フリーワード）。全件取得を避けて高速化。
+  for (const params of [{ project_no: key }, { q: key }, { keyword: key }] as Record<string, string>[]) {
+    try {
+      const r = await boardGet("/projects", { page: 1, per_page: 20, ...params });
+      if (r.ok) {
+        const rows = asArray(r.data);
+        const hit = rows.find((row) => projectNo(row) === key || projectId(row) === key) ?? (rows.length === 1 ? rows[0] : null);
+        if (hit) return { ok: true, project: toProj(hit) };
+      }
+    } catch { /* 次の方法へ */ }
+  }
+
+  // ② フォールバック：キャッシュ済み全件から照合（5分キャッシュなので2回目以降は速い）
   const pr = await fetchProjects();
   if (!pr.ok) return { ok: false, error: `board 案件取得エラー：${pr.error}` };
   for (const row of pr.rows) {
-    const id = projectId(row), no = projectNo(row);
-    if (id === key || no === key) {
-      return { ok: true, project: { id: id ?? key, no, name: projectName(row) ?? "", client: projectClientName(row) ?? "" } };
-    }
+    if (projectId(row) === key || projectNo(row) === key) return { ok: true, project: toProj(row) };
   }
   return { ok: false, error: `board に案件No「${key}」が見つかりませんでした` };
 }
