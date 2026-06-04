@@ -1754,6 +1754,92 @@ export async function archiveInboxEmail(inboxId: string, archived: boolean = tru
 }
 
 // ────────────────────────────────────────────────────────
+// Gmail → AI 一括取込（/jobs・/people の「✨ Gmailから取込」ボタン用）
+//   1) Gmail を同期して inbox_emails に未取得分を保存
+//   2) 未抽出メールに対し Claude Haiku で kind 判定＋構造化（並列）
+//   3) 指定 kind（job or candidate）に該当する結果のみ返す
+//   register は `bulkRegisterFromGmail` で別途行う（プレビュー→確認→登録の2段階）
+// ────────────────────────────────────────────────────────
+export type BulkPreviewItem = {
+  inbox_id: string;
+  gmail_message_id: string | null;
+  subject: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  received_at: string | null;
+  summary: string | null;
+  data: any;
+};
+
+export async function bulkPreviewFromGmail(opts: {
+  kind: "jobs" | "candidates"; max?: number; sync?: boolean;
+}): Promise<{ ok: boolean; items?: BulkPreviewItem[]; synced?: number; extracted?: number; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const targetKind = opts.kind === "jobs" ? "job" : "candidate";
+  const max = Math.max(1, Math.min(50, opts.max ?? 30));
+
+  // 1) Gmail 同期（任意）。すでに同期済の場合は無料。
+  let synced = 0;
+  if (opts.sync !== false) {
+    const s = await syncInboxFromGmail({ max });
+    if (!s.ok) return { ok: false, error: s.error };
+    synced = s.synced ?? 0;
+  }
+
+  // 2) 未抽出メールを取得（古い順だとAIコストがかさむ恐れがあるので新しい順）
+  const r: any = await admin.from("inbox_emails")
+    .select("id, gmail_message_id, subject, from_email, from_name, received_at, extracted_at, extracted_kind, extracted_data, extracted_summary, is_archived")
+    .is("extracted_at", null).eq("is_archived", false)
+    .order("received_at", { ascending: false }).limit(max);
+  if (r.error) return { ok: false, error: `inbox_emails 取得失敗: ${r.error.message}` };
+  const pending: any[] = r.data ?? [];
+
+  // 3) 並列抽出（同時3本・Haiku 想定）
+  let extracted = 0;
+  const POOL = 3; let idx = 0;
+  const worker = async () => {
+    while (idx < pending.length) {
+      const i = idx++;
+      try { const ex = await extractInboxEmail(pending[i].id); if (ex.ok) extracted++; }
+      catch { /* 1通失敗しても続行 */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(POOL, pending.length) }, () => worker()));
+
+  // 4) 指定 kind に該当する抽出済みメール（未登録）を取得して返す
+  const q: any = await admin.from("inbox_emails")
+    .select("id, gmail_message_id, subject, from_email, from_name, received_at, extracted_kind, extracted_data, extracted_summary")
+    .eq("extracted_kind", targetKind).eq("is_archived", false).is("registered_at", null)
+    .order("received_at", { ascending: false }).limit(100);
+  if (q.error) return { ok: false, error: `抽出結果の取得に失敗: ${q.error.message}` };
+
+  const items: BulkPreviewItem[] = (q.data ?? []).map((row: any) => ({
+    inbox_id: row.id, gmail_message_id: row.gmail_message_id,
+    subject: row.subject, from_email: row.from_email, from_name: row.from_name,
+    received_at: row.received_at, summary: row.extracted_summary, data: row.extracted_data ?? {},
+  }));
+  return { ok: true, items, synced, extracted };
+}
+
+export async function bulkRegisterFromGmail(input: {
+  kind: "jobs" | "candidates"; items: { inbox_id: string; override?: any }[];
+}): Promise<{ ok: boolean; registered?: number; failed?: number; error?: string }> {
+  if (!Array.isArray(input.items) || input.items.length === 0) return { ok: false, error: "登録対象がありません" };
+  let registered = 0, failed = 0;
+  for (const it of input.items) {
+    try {
+      const res = input.kind === "jobs"
+        ? await registerInboxAsJob(it.inbox_id, it.override as Partial<JobInput> | undefined)
+        : await registerInboxAsCandidate(it.inbox_id, it.override as Partial<CandidateInput> | undefined);
+      if (res.ok) registered++; else failed++;
+    } catch { failed++; }
+  }
+  bustCounts();
+  return { ok: true, registered, failed };
+}
+
+// ────────────────────────────────────────────────────────
 // メール送信（Xserver SMTP・差出人ドメイン選択可）
 // ────────────────────────────────────────────────────────
 export async function sendMailAction(input: {

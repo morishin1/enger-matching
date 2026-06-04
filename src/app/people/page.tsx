@@ -1,4 +1,4 @@
-import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, ExportButton } from "@/components/CsvTools";
+import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, CandidateGmailBulkButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -86,6 +86,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
           {!scope.isTenant && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
           <CandidateNewButton />
+          {!scope.isTenant && <CandidateGmailBulkButton />}
           {!scope.isTenant && <CandidateBulkExtractButton />}
           {!scope.isTenant && <CandidateImportButton />}
         </div>

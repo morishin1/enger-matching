@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
 import { gmailMessageUrl } from "@/lib/gmail";
-import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate } from "@/lib/actions";
+import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, bulkPreviewFromGmail, bulkRegisterFromGmail, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate, type BulkPreviewItem } from "@/lib/actions";
 import { Icons } from "./icons";
 
 const salaryShort = (lo: number | null, hi: number | null) => lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -803,3 +803,143 @@ export function CandidateNewButton() { return <NewEntryButton kind="candidates" 
 export function JobNewButton() { return <NewEntryButton kind="jobs" />; }
 export function CandidateBulkExtractButton() { return <BulkExtractButton kind="candidates" />; }
 export function JobBulkExtractButton() { return <BulkExtractButton kind="jobs" />; }
+
+// ---- Gmail から AI 一括取込（新方式・CSV不要） ------------------------------
+// Gmail を直接同期 → AIで kind 判定／構造化 → 該当する案件/人材だけプレビュー → 一括登録
+function GmailBulkImportButton({ kind }: { kind: "candidates" | "jobs" }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState<BulkPreviewItem[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [meta, setMeta] = useState<{ synced: number; extracted: number } | null>(null);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const noun = kind === "jobs" ? "案件" : "人材";
+
+  const close = () => { if (!loading && !pending) { setOpen(false); setItems([]); setPicked(new Set()); setMeta(null); setMsg(null); } };
+
+  const fetchPreview = async (sync: boolean) => {
+    setLoading(true); setMsg(null);
+    try {
+      const res = await bulkPreviewFromGmail({ kind, max: 30, sync });
+      if (!res.ok) { setMsg({ ok: false, text: res.error || "取得に失敗しました" }); return; }
+      setItems(res.items ?? []);
+      setPicked(new Set((res.items ?? []).map((x) => x.inbox_id)));
+      setMeta({ synced: res.synced ?? 0, extracted: res.extracted ?? 0 });
+      if ((res.items ?? []).length === 0) {
+        setMsg({ ok: true, text: `該当する${noun}メールはありませんでした（Gmail新着 ${res.synced ?? 0}件・AI抽出 ${res.extracted ?? 0}件）` });
+      }
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "取得に失敗しました" });
+    } finally { setLoading(false); }
+  };
+
+  const toggle = (id: string) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const register = () => {
+    const targets = items.filter((x) => picked.has(x.inbox_id));
+    if (targets.length === 0) { setMsg({ ok: false, text: "登録する行を選択してください" }); return; }
+    setMsg(null);
+    start(async () => {
+      const res = await bulkRegisterFromGmail({ kind, items: targets.map((t) => ({ inbox_id: t.inbox_id })) });
+      if (!res.ok) { setMsg({ ok: false, text: res.error || "登録に失敗しました" }); return; }
+      setMsg({ ok: true, text: `${res.registered ?? 0} 件を登録しました${res.failed ? `（失敗 ${res.failed} 件）` : ""}` });
+      router.refresh();
+      // 登録済みは一覧から取り除く
+      const doneIds = new Set(targets.map((t) => t.inbox_id));
+      setItems((prev) => prev.filter((x) => !doneIds.has(x.inbox_id)));
+      setPicked(new Set());
+      setTimeout(() => { if (res.failed === 0 || res.failed == null) close(); }, 1500);
+    });
+  };
+
+  return (
+    <>
+      <button className="btn" onClick={() => { setOpen(true); fetchPreview(true); }} title={`Gmail を同期して AI で${noun}を自動抽出 → プレビュー → 一括登録`}>
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>auto_awesome</span>
+        <span>Gmailから取込（AI）</span>
+      </button>
+      {open && (
+        <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 820, maxHeight: "90vh", display: "flex", flexDirection: "column", gap: 0, padding: 0 }}>
+            <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Gmail から{noun}を一括取込（AI）</h3>
+                <button className="btn ghost btn-xs" onClick={close} disabled={loading || pending}>閉じる</button>
+              </div>
+              <div className="muted" style={{ fontSize: 11.5 }}>
+                Gmail を同期して未抽出メールを Claude Haiku で判定し、{noun}に該当するもののみ表示します。AIコストは <b>抽出時のみ</b>（1通約 0.7円）。
+              </div>
+              {meta && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11 }}>
+                  <span className="pill" style={{ background: "var(--color-surface-soft)", borderColor: "transparent" }}>Gmail同期 {meta.synced} 件</span>
+                  <span className="pill" style={{ background: "var(--color-surface-soft)", borderColor: "transparent" }}>AI抽出 {meta.extracted} 件</span>
+                  <span className="pill" style={{ background: "#e7f3ea", color: "#1aa260", borderColor: "transparent" }}>{noun}該当 {items.length} 件</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10, flex: 1, minHeight: 0 }}>
+              {loading && <div className="muted" style={{ fontSize: 12 }}>⏳ Gmail 同期 → AI で抽出中…（30件目処・数十秒）</div>}
+
+              {!loading && items.length === 0 && !msg && (
+                <div className="muted" style={{ fontSize: 12.5 }}>未抽出のメールはありません。新規メールが届いたら再度お試しください。</div>
+              )}
+
+              {items.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                  <span style={{ fontWeight: 700 }}>抽出結果（{picked.size}/{items.length} 件を登録）</span>
+                  <button className="btn ghost btn-xs" onClick={() => setPicked(new Set(items.map((x) => x.inbox_id)))}>全選択</button>
+                  <button className="btn ghost btn-xs" onClick={() => setPicked(new Set())}>全解除</button>
+                  <button className="btn ghost btn-xs" onClick={() => fetchPreview(true)} disabled={loading} style={{ marginLeft: "auto" }}>🔄 再同期</button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {items.map((x) => {
+                  const on = picked.has(x.inbox_id);
+                  const d = x.data ?? {};
+                  const skills: string[] = Array.isArray(d.skills) ? d.skills : [];
+                  const head = kind === "jobs" ? (d.title || x.subject || "(無題)") : (d.name || x.from_name || "(氏名未抽出)");
+                  const sub = kind === "jobs"
+                    ? [d.client_name, (d.salary_min || d.salary_max) ? `¥${d.salary_min ?? ""}〜${d.salary_max ?? ""}万` : null, d.work_location].filter(Boolean).join(" / ")
+                    : [d.company, d.title, d.rate, d.exp].filter(Boolean).join(" / ");
+                  const dt = x.received_at ? new Date(x.received_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+                  return (
+                    <label key={x.inbox_id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", border: `1px solid ${on ? "var(--color-brand-200)" : "var(--color-border)"}`, borderRadius: 10, background: on ? "var(--color-brand-25)" : "var(--color-surface)", cursor: "pointer" }}>
+                      <input type="checkbox" checked={on} onChange={() => toggle(x.inbox_id)} style={{ marginTop: 3 }} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{head}</span>
+                          {sub && <span className="muted" style={{ fontSize: 11 }}>{sub}</span>}
+                        </div>
+                        {x.summary && <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>{x.summary}</div>}
+                        {skills.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{skills.slice(0, 10).map((s) => <span key={s} className="tag" style={{ fontSize: 10 }}>{s}</span>)}</div>}
+                        <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>
+                          {dt} · {x.from_name || x.from_email || "(差出人不明)"} · 件名: {x.subject || "—"}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--color-border)", padding: "12px 16px", display: "flex", gap: 8, justifyContent: "flex-end", background: "var(--color-surface)" }}>
+              <button className="btn ghost" onClick={close} disabled={loading || pending}>キャンセル</button>
+              <button className="btn brand" onClick={register} disabled={pending || loading || picked.size === 0}>
+                {pending ? "登録中…" : `選択した ${picked.size} 件を登録`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function CandidateGmailBulkButton() { return <GmailBulkImportButton kind="candidates" />; }
+export function JobGmailBulkButton() { return <GmailBulkImportButton kind="jobs" />; }

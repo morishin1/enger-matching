@@ -3,6 +3,7 @@ import { leadKpi } from "@/lib/quality";
 import { currentAccess } from "@/lib/accounts";
 import { currentPeriod } from "@/lib/billing";
 import { Icons } from "@/components/icons";
+import { GripBoard } from "@/components/GripBoard";
 
 export const dynamic = "force-dynamic";
 
