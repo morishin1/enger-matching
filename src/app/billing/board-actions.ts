@@ -72,22 +72,24 @@ export async function syncOneEngagement(engagementId: string, period: string): P
   const inv = await fetchInvoices({ period });
   if (!inv.ok) return { ok: false, error: `board 取得エラー：${inv.error}` };
 
-  let matched = 0, updated = 0; let lastStatus: string | null = null;
+  // 複数請求書があっても「1件でも請求済なら送付完了」に集約
+  let matched = 0; let anySent = false; let amount: number | null = null;
   for (const b of inv.rows) {
     if (billingPeriod(b) !== period) continue;
     const pid = billingProjectId(b), pno = billingProjectNo(b);
     if (pid !== key && pno !== key) continue;
-    matched++;
     const sent = billingSent(b);
     if (sent == null) continue;
-    const amount = billingAmountMan(b);
-    const patch: Record<string, any> = { engagement_id: engagementId, period, invoice_status: sent ? "送付完了" : "未", updated_at: new Date().toISOString() };
-    if (amount != null) patch.invoice_amount = amount;
-    const { error } = await admin.from("billing_tasks").upsert(patch, { onConflict: "engagement_id,period" });
-    if (!error) { updated++; lastStatus = sent ? "送付完了" : "未"; }
+    matched++;
+    if (sent) { anySent = true; amount = billingAmountMan(b) ?? amount; }
+    else if (amount == null) amount = billingAmountMan(b);
   }
+  if (matched === 0) { revalidatePath("/progress"); return { ok: true, matched: 0, updated: 0, status: null }; }
+  const patch: Record<string, any> = { engagement_id: engagementId, period, invoice_status: anySent ? "送付完了" : "未", updated_at: new Date().toISOString() };
+  if (amount != null) patch.invoice_amount = amount;
+  const { error } = await admin.from("billing_tasks").upsert(patch, { onConflict: "engagement_id,period" });
   revalidatePath("/progress"); revalidatePath("/billing");
-  return { ok: true, matched, updated, status: lastStatus };
+  return { ok: error ? false : true, error: error?.message, matched, updated: error ? 0 : 1, status: anySent ? "送付完了" : "未" };
 }
 
 /**
@@ -123,24 +125,37 @@ export async function syncBoardInvoices(period: string): Promise<{ ok: boolean; 
   let inPeriod = 0;     // 当月の請求件数
   let keyMatched = 0;   // 紐付け済み案件にマッチした件数
   let unknownStatus = 0; // ステータス不明でスキップ
+
+  // 稼働(engagement)ごとに「送付済か」を集約する。
+  //   1案件に複数の請求書（請求済＋未請求の下書き等）がある場合、
+  //   1件でも「請求済/送付済」があれば送付完了とみなす（後勝ち上書きでの取りこぼし防止）。
+  const agg = new Map<string, { sent: boolean; amount: number | null }>();
   for (const b of inv.rows) {
     if (billingPeriod(b) !== period) continue;
     inPeriod++;
-    // 案件ID または 案件番号 のどちらでも突合（ユーザーが入力した値に合わせる）
     const pid = billingProjectId(b), pno = billingProjectNo(b);
     const engIds = (pid && byKey.get(pid)) || (pno && byKey.get(pno));
     if (!engIds) continue;
     keyMatched++;
     const sent = billingSent(b);
-    if (sent == null) { unknownStatus++; continue; } // 不明ステータスは更新しない（安全側）
+    if (sent == null) { unknownStatus++; continue; }
     matched++;
     const amount = billingAmountMan(b);
     for (const engId of engIds) {
-      const patch: Record<string, any> = { engagement_id: engId, period, invoice_status: sent ? "送付完了" : "未", updated_at: new Date().toISOString() };
-      if (amount != null) patch.invoice_amount = amount;
-      const { error } = await admin.from("billing_tasks").upsert(patch, { onConflict: "engagement_id,period" });
-      if (!error) updated++;
+      const prev = agg.get(engId);
+      agg.set(engId, {
+        sent: (prev?.sent ?? false) || sent,                 // 1件でも送付済なら送付済
+        amount: sent ? (amount ?? prev?.amount ?? null) : (prev?.amount ?? amount ?? null), // 送付済の金額を優先
+      });
     }
+  }
+
+  // 集約結果を billing_tasks に1稼働1行で書き込む
+  for (const [engId, v] of agg) {
+    const patch: Record<string, any> = { engagement_id: engId, period, invoice_status: v.sent ? "送付完了" : "未", updated_at: new Date().toISOString() };
+    if (v.amount != null) patch.invoice_amount = v.amount;
+    const { error } = await admin.from("billing_tasks").upsert(patch, { onConflict: "engagement_id,period" });
+    if (!error) updated++;
   }
 
   await admin.from("app_settings").upsert(
