@@ -21,27 +21,27 @@ type NavItem = { href: string; id: string; label: string; icon: keyof typeof Ico
 //   ⑧ パイプライン／分析（全体の俯瞰と振り返り）
 const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
-  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
+  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
   { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
-  { href: "/people", id: "people", label: "人材", icon: "people", count: "people" },
-  { href: "/engineers", id: "engineers", label: "LP登録", icon: "ai", count: "engineers" },
+  { href: "/people", id: "people", label: "人材", icon: "people", count: "people", children: [
+    { href: "/engineers", id: "engineers", label: "LP登録（フリーランス）", count: "engineers" },
+  ] },
   { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
-  { href: "/documents", id: "documents", label: "書類送付", icon: "doc" },
-  { href: "/pipeline", id: "pipeline", label: "パイプライン", icon: "pipeline" },
-  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
-  { href: "/analytics", id: "analytics", label: "分析", icon: "analytics" },
+  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
+  { href: "/analytics", id: "analytics", label: "分析", icon: "analytics", children: [
+    { href: "/pipeline", id: "pipeline", label: "パイプライン" },
+    { href: "/documents", id: "documents", label: "書類送付" },
+  ] },
 ];
 
 const TOOLS: NavItem[] = [
-  // 承認は日報の上に。承認待ちの未対応件数（pending合計）を NEW バッジで表示
+  // 承認は最上段。承認待ちの未対応件数（pending合計）を NEW バッジで表示
   { href: "/settings/approvals", id: "approvals", label: "新規登録（承認）", icon: "person_add", count: "approvalsPending", hot: true },
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
-  { href: "/inbox", id: "inbox", label: "受信箱", icon: "inbox" },
-  { href: "/mailbox", id: "mailbox", label: "メール取込", icon: "mail" },
-  { href: "/mail-log", id: "mail-log", label: "メール送信履歴", icon: "send" },
+  { href: "/mail", id: "mail", label: "メール", icon: "mail" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
@@ -74,14 +74,25 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/kpi"];
-  const allowed = new Set<string>(["/", "/progress"]); // ダッシュボード・稼働/請求/勤怠は全エージェント可
+  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi"];
+  // ダッシュボード・稼働・分析・書類は全エージェント可（分析ページは金額系を admin 限定で隠す）
+  const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents"]);
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
   if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }
 
+  // エージェントは許可された項目・子のみ。親が不可でも許可された子があれば親ごと表示。
+  const filterForAgent = (items: NavItem[]): NavItem[] => {
+    const out: NavItem[] = [];
+    for (const n of items) {
+      const kids = (n.children ?? []).filter((c) => allowed.has(c.href));
+      if (allowed.has(n.href) || kids.length > 0) out.push({ ...n, children: kids });
+    }
+    return out;
+  };
+
   const nav = isClient ? CLIENT_NAV
     : isTenant ? TENANT_NAV
-    : role === "agent" ? NAV.filter((n) => allowed.has(n.href))
+    : role === "agent" ? filterForAgent(NAV)
     : NAV; // admin は全部
   const tools = (isClient || isTenant) ? []
     : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定は admin のみ、承認はエージェントも可
