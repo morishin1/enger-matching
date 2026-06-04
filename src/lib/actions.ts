@@ -1758,6 +1758,7 @@ export async function archiveInboxEmail(inboxId: string, archived: boolean = tru
 // ────────────────────────────────────────────────────────
 export async function sendMailAction(input: {
   sender: "enger" | "8grp"; to: string; subject: string; text: string;
+  html?: string | null;
   cc?: string | null; bcc?: string | null; replyTo?: string | null;
   relatedKind?: string | null; relatedId?: string | null;
 }): Promise<{ ok: boolean; error?: string; messageId?: string }> {
@@ -1775,6 +1776,7 @@ export async function sendMailAction(input: {
   const { sendMail } = await import("./mailer");
   const res = await sendMail({
     sender: input.sender, to: input.to, subject: input.subject, text: input.text,
+    html: input.html || null,
     cc: input.cc, bcc: input.bcc, replyTo, fromNameOverride: senderName,
   });
   if (!res.ok) return { ok: false, error: res.error };

@@ -6,6 +6,9 @@ import { reSubject } from "@/lib/gmail";
 export type MailForm = { email: string; cc: string; subject: string; body: string };
 export type MailErrors = { email?: string; cc?: string; subject?: string; body?: string };
 
+export const BUTTON_PLACEHOLDER = "<<RESPONSE_BUTTONS>>";
+export const NOTICE_TEXT = "こちらは料金は発生しません。\n進捗があり次第、担当者よりご連絡させていただきます。";
+
 const SIGNATURE = `∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞
 株式会社エイト
 ITS事業部
@@ -53,10 +56,7 @@ ${job.contact_name ? `${job.contact_name} 様` : "ご担当者 様"}
 ◆ご紹介する要員
 ${remark}${skillSheet}
 ────────────────────────────────────
-■話を進める時のお願い
-話を進めるのをご希望の際は、本メール内の
-「話を進める」ボタンよりご回答くださいますようお願いいたします。
-何卒よろしくお願い申し上げます。
+${BUTTON_PLACEHOLDER}
 ${SIGNATURE}`;
 }
 
@@ -148,21 +148,87 @@ export function JobMailBodyCard({
         </label> */}
       </div>
 
-      {/* Body textarea — fills remaining space */}
-      <div style={{ flex: 1, minHeight: 0, padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--color-ink-4)", flexShrink: 0 }}>本文</span>
-        <textarea
-          value={form.body}
-          onChange={(e) => onChange("body", e.target.value)}
-          style={{
-            flex: 1, display: "block", width: "100%", boxSizing: "border-box",
+      {/* Body — splits at BUTTON_PLACEHOLDER: editable above, chip in middle, read-only signature below */}
+      <div style={{ flex: 1, minHeight: 0, padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 4, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>本文</span>
+          {!form.body.includes(BUTTON_PLACEHOLDER) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#b45309" }}>⚠ 返信ボタンが削除されています</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const cleaned = form.body
+                    .replace(/^.*<<[A-Z_].*$/gm, "")
+                    .replace(/^.*[A-Z_]+>>.*$/gm, "")
+                    .replace(/\n{3,}/g, "\n\n");
+                  const sig = cleaned.indexOf("∞∞∞");
+                  const restored = sig >= 0
+                    ? cleaned.slice(0, sig) + BUTTON_PLACEHOLDER + "\n" + cleaned.slice(sig)
+                    : cleaned + "\n" + BUTTON_PLACEHOLDER;
+                  onChange("body", restored);
+                }}
+                style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, border: "1px solid #d97706", background: "#fffbeb", color: "#b45309", cursor: "pointer" }}
+              >
+                復元
+              </button>
+            </div>
+          )}
+        </div>
+        {(() => {
+          const parts = form.body.split(BUTTON_PLACEHOLDER);
+          const before = parts[0] ?? form.body;
+          const after = parts[1] ?? "";
+          const hasPlaceholder = parts.length === 2;
+          const ar = (el: HTMLTextAreaElement | null) => {
+            if (!el) return;
+            el.style.height = "auto";
+            el.style.height = el.scrollHeight + "px";
+          };
+          const taStyle: React.CSSProperties = {
+            display: "block", width: "100%", boxSizing: "border-box",
             fontFamily: "inherit", fontSize: 13, lineHeight: 1.75,
-            padding: "12px 14px", borderRadius: 8, resize: "none",
+            padding: "10px 14px", border: "none", outline: "none",
+            resize: "none", overflowY: "hidden", background: "transparent",
+            color: "var(--color-ink)",
+          };
+          const outer: React.CSSProperties = {
+            flex: 1, minHeight: 0, overflowY: "auto", borderRadius: 8,
             border: `1px solid ${errors.body ? "var(--color-danger)" : "var(--color-border-strong)"}`,
-            background: "var(--color-surface)", color: "var(--color-ink)",
-            overflowY: "auto", minHeight: 0,
-          }}
-        />
+            background: "var(--color-surface)",
+          };
+          if (!hasPlaceholder) {
+            return (
+              <div style={outer}>
+                <textarea
+                  ref={ar}
+                  value={form.body}
+                  onChange={(e) => { ar(e.currentTarget); onChange("body", e.target.value); }}
+                  style={taStyle}
+                />
+              </div>
+            );
+          }
+          return (
+            <div style={outer}>
+              <textarea
+                ref={ar}
+                value={before}
+                onChange={(e) => { ar(e.currentTarget); onChange("body", e.target.value + BUTTON_PLACEHOLDER + after); }}
+                style={taStyle}
+              />
+              <div style={{ padding: "6px 14px", borderTop: "1px dashed #e2e8f0", borderBottom: "1px dashed #e2e8f0", background: "#f8fafc", fontSize: 12, color: "#475569", textAlign: "center" }}>
+                📨 返信ボタン（確認画面で表示）
+              </div>
+              <textarea
+                ref={ar}
+                value={after.replace(/^\n/, "")}
+                onChange={(e) => { ar(e.currentTarget); onChange("body", before + BUTTON_PLACEHOLDER + "\n" + e.target.value); }}
+                style={{ ...taStyle, fontSize: 12, color: "var(--color-ink-3)" }}
+              />
+            </div>
+          );
+        })()}
         {errors.body && <div style={errText}>{errors.body}</div>}
       </div>
     </div>

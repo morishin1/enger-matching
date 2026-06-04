@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
 import { SendMailButton } from "./SendMailButton";
-import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject } from "./JobMailBodyCard";
+import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
@@ -33,7 +33,10 @@ function buildButtonHtml(siteUrl: string, token: string): string {
       </a>
     </td>
   </tr>
-</table>`;
+</table>
+<div style="font-size:11px;color:#1e293b;width:fit-content;max-width:100%;">
+こちらは料金は発生しません。<br>進捗があり次第、担当者よりご連絡させていただきます。
+</div>`;
 }
 
 function StepBar({ current }: { current: 1 | 2 }) {
@@ -133,17 +136,21 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer, buttonH
       <div style={{ flex: 1, minHeight: 0, padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontSize: 11, color: "var(--color-ink-4)", flexShrink: 0 }}>本文</span>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-          <pre style={{ margin: 0, fontSize: 12.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "inherit", color: "var(--color-ink-2)" }}>
-            {body || "（本文なし）"}
-          </pre>
-          {buttonHtml && (
-            <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ display: "inline-block", padding: "8px 18px", background: "#16a34a", color: "#fff", fontWeight: 700, fontSize: 13, borderRadius: 7 }}>話を進める</span>
-                <span style={{ display: "inline-block", padding: "8px 18px", background: "#dc2626", color: "#fff", fontWeight: 700, fontSize: 13, borderRadius: 7 }}>見送り</span>
-              </div>
-            </div>
-          )}
+          {(() => {
+            const preStyle: CSSProperties = { margin: 0, fontSize: 12.5, lineHeight: 1.8, whiteSpace: "pre-wrap", fontFamily: "inherit", color: "var(--color-ink-2)" };
+            const parts = body.split(BUTTON_PLACEHOLDER);
+            if (parts.length === 1) {
+              return <pre style={preStyle}>{body || "（本文なし）"}</pre>;
+            }
+            return parts.map((part, i) => (
+              <Fragment key={i}>
+                <pre style={preStyle}>{i === 0 ? part : part.replace(/^\n/, "")}</pre>
+                {i < parts.length - 1 && (
+                  <div dangerouslySetInnerHTML={{ __html: buttonHtml! }} />
+                )}
+              </Fragment>
+            ));
+          })()}
         </div>
       </div>
     </div>
@@ -315,6 +322,7 @@ export function MailComposeWizard({
               cc={clientForm.cc}
               subject={clientForm.subject}
               body={clientForm.body}
+              buttonHtml={jobButtonHtml ?? undefined}
               relatedKind="proposal_job"
               relatedId={_savedId ?? (job.job_no != null ? String(job.job_no) : undefined)}
             />
@@ -325,6 +333,7 @@ export function MailComposeWizard({
               cc={candForm.cc}
               subject={candForm.subject}
               body={candForm.body}
+              buttonHtml={candButtonHtml ?? undefined}
               relatedKind="proposal_cand"
               relatedId={_savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined)}
             />
