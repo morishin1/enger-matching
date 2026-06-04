@@ -48,8 +48,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const withSearch = (qb: any) => {
         if (!needle) return qb;
         const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        // candidate_no は bigint のため ::text cast は使わず、数値入力時のみ eq で完全一致
-        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+        // candidate_no は bigint のため非数値入力では cast しない。数値入力時は部分一致で拾う
+        const numOr = /^\d+$/.test(needle) ? `,candidate_no::text.ilike.${like}` : "";
         return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
       };
       // rank / email 列が未追加でも落ちないようフォールバック

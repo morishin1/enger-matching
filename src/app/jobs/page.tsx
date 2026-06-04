@@ -58,8 +58,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const withSearch = (qb: any) => {
         if (!needle) return qb;
         const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        // job_no は bigint のため ::text cast は or() 内で使わず、数値入力時のみ eq で完全一致
-        const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+        // job_no は bigint のため非数値入力では cast しない。数値入力時は部分一致で拾う
+        const numOr = /^\d+$/.test(needle) ? `,job_no::text.ilike.${like}` : "";
         return qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
       };
       // 追加列(email-columns / sales-roles 未実行)でも落ちないよう段階フォールバック
