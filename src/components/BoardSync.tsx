@@ -33,7 +33,8 @@ export function BoardSync({ period, lastSyncedAt }: { period: string; lastSynced
     if (!r.ok) { setMsg({ ok: false, text: r.error ?? "自動ひもづけに失敗しました" }); router.refresh(); return; }
     const amb = r.ambiguous ? `／曖昧 ${r.ambiguous}件（手動）` : "";
     const nc = (r as any).noClient ? `／企業名不一致 ${(r as any).noClient}件` : "";
-    setMsg({ ok: true, text: `✓ 自動ひもづけ：${r.linked ?? 0}/${r.targets ?? 0}件 紐づけ（board案件${r.projects ?? 0}件 走査${amb}${nc}）` });
+    const rn = (r as any).renamed ? `／会社名をboardに統一 ${(r as any).renamed}件` : "";
+    setMsg({ ok: true, text: `✓ 自動ひもづけ：${r.linked ?? 0}/${r.targets ?? 0}件 紐づけ（board案件${r.projects ?? 0}件 走査${amb}${nc}${rn}）` });
     router.refresh();
   });
 

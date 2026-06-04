@@ -12,6 +12,23 @@ function canManage(access: Access): boolean {
   return role === "admin" || isBackoffice;
 }
 
+/** 案件No（または案件ID）から board の案件を1件引く。新規追加時の自動補完に使う。 */
+export async function lookupBoardProject(noOrId: string): Promise<{ ok: boolean; error?: string; project?: { id: string; no: string | null; name: string; client: string } }> {
+  if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
+  if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
+  const key = String(noOrId ?? "").trim();
+  if (!key) return { ok: false, error: "案件Noを入力してください" };
+  const pr = await fetchProjects();
+  if (!pr.ok) return { ok: false, error: `board 案件取得エラー：${pr.error}` };
+  for (const row of pr.rows) {
+    const id = projectId(row), no = projectNo(row);
+    if (id === key || no === key) {
+      return { ok: true, project: { id: id ?? key, no, name: projectName(row) ?? "", client: projectClientName(row) ?? "" } };
+    }
+  }
+  return { ok: false, error: `board に案件No「${key}」が見つかりませんでした` };
+}
+
 /** 稼働に board 案件ID を手動ひもづけ（管理者・バックオフィスのみ）。 */
 export async function setBoardProjectId(engagementId: string, value: string): Promise<{ ok: boolean; error?: string }> {
   if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
@@ -140,7 +157,7 @@ function normalizeText(s: string): string {
  *    1) 完全一致（正規化後）
  *    2) 部分一致（ENGER企業名 ⊂ board顧客名 または その逆）
  */
-export async function autoLinkBoardProjects(): Promise<{ ok: boolean; error?: string; linked?: number; skipped?: number; targets?: number; projects?: number; ambiguous?: number; noClient?: number }> {
+export async function autoLinkBoardProjects(): Promise<{ ok: boolean; error?: string; linked?: number; skipped?: number; targets?: number; projects?: number; ambiguous?: number; noClient?: number; renamed?: number }> {
   if (!canManage(await currentAccess())) return { ok: false, error: "権限がありません" };
   if (!boardConfigured()) return { ok: false, error: "BOARD_API_KEY / BOARD_API_TOKEN が未設定です（Vercel環境変数）" };
   let admin: ReturnType<typeof engerAdmin>;
@@ -184,7 +201,7 @@ export async function autoLinkBoardProjects(): Promise<{ ok: boolean; error?: st
     return allProjects.filter((p) => p.clientKey.includes(key) || key.includes(p.clientKey));
   };
 
-  let linked = 0, skipped = 0, ambiguous = 0, noClient = 0;
+  let linked = 0, skipped = 0, ambiguous = 0, noClient = 0, renamed = 0;
   for (const e of targets) {
     const candidates = findCandidates(String(e.company));
     if (!candidates || candidates.length === 0) { noClient++; skipped++; continue; }
@@ -204,13 +221,19 @@ export async function autoLinkBoardProjects(): Promise<{ ok: boolean; error?: st
       else { ambiguous++; skipped++; continue; } // 0件 or 複数 → 安全側でスキップ
     }
     const idVal = chosen.no ?? chosen.id;
-    const upd = await admin.from("engagements").update({ board_project_id: idVal }).eq("id", e.id);
-    if (!upd.error) linked++;
+    // 案件Noを紐付け。会社名が board と異なる場合は board の顧客名に強制統一する
+    //   （表記揺れを board 側に寄せて、以降の突合・表示を一貫させる）。
+    const patch: Record<string, any> = { board_project_id: idVal };
+    if (chosen.client && normalizeCompany(chosen.client) !== normalizeCompany(String(e.company))) {
+      patch.company = chosen.client;
+    }
+    const upd = await admin.from("engagements").update(patch).eq("id", e.id);
+    if (!upd.error) { linked++; if (patch.company) renamed++; }
     else skipped++;
   }
 
   revalidatePath("/progress");
-  return { ok: true, linked, skipped, targets: targets.length, projects: pr.rows.length, ambiguous, noClient };
+  return { ok: true, linked, skipped, targets: targets.length, projects: pr.rows.length, ambiguous, noClient, renamed };
 }
 
 /** 接続テスト：候補エンドポイントを当たって実レスポンスの形を返す（管理者・バックオフィスのみ）。 */
