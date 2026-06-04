@@ -81,20 +81,24 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer, buttonH
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const parts = body.split(BUTTON_PLACEHOLDER);
+    const plainText = parts.join("").replace(/\n{3,}/g, "\n\n").trim();
     try {
       if (buttonHtml && typeof (window as any).ClipboardItem !== "undefined") {
-        const escaped = body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const htmlContent = `<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${escaped}</div>\n${buttonHtml}`;
+        const htmlContent = parts.length === 2
+          ? `<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(parts[0])}</div>\n${buttonHtml}\n<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(parts[1].replace(/^\n/, ""))}</div>`
+          : `<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body)}</div>\n${buttonHtml}`;
         await navigator.clipboard.write([new (window as any).ClipboardItem({
           "text/html": new Blob([htmlContent], { type: "text/html" }),
-          "text/plain": new Blob([body], { type: "text/plain" }),
+          "text/plain": new Blob([plainText], { type: "text/plain" }),
         })]);
       } else {
-        await navigator.clipboard.writeText(body);
+        await navigator.clipboard.writeText(plainText);
       }
       setCopied(true); setTimeout(() => setCopied(false), 2000);
     } catch {
-      try { await navigator.clipboard.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* noop */ }
+      try { await navigator.clipboard.writeText(plainText); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* noop */ }
     }
   };
 
