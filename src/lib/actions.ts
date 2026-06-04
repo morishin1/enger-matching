@@ -571,6 +571,7 @@ export type EngagementInput = {
   settle_min?: number | string | null; settle_max?: number | string | null; work_hours?: number | string | null;
   contract_status?: string | null; po_status?: string | null;
   renewal_due?: string | null; renewal_status?: string | null;
+  board_project_id?: string | null; // board の案件ID または 案件No（最初から紐付けて自動同期を効かせる）
 };
 
 /** 稼働の新規追加・一括取込は 管理者 / バックオフィス（職能）のみ許可。 */
@@ -602,6 +603,7 @@ function cleanEngagementRow(r: EngagementInput): Record<string, any> {
   if (r.po_status !== undefined) row.po_status = _str(r.po_status);
   if (r.renewal_due !== undefined) row.renewal_due = _date(r.renewal_due);
   if (r.renewal_status !== undefined) row.renewal_status = _str(r.renewal_status);
+  if (r.board_project_id !== undefined) row.board_project_id = _str(r.board_project_id);
   row.status = _str(r.status) ?? "予定";
   return row;
 }

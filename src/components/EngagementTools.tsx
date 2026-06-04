@@ -20,6 +20,7 @@ const COL: Record<string, keyof EngagementInput> = {
   "当月稼働": "work_hours", "稼働時間": "work_hours",
   "契約書": "contract_status", "注文書": "po_status",
   "更新期限": "renewal_due", "更新ステータス": "renewal_status",
+  "board案件ID": "board_project_id", "board案件No": "board_project_id", "boardID": "board_project_id",
 };
 
 const EXPORT_HEADERS = [
@@ -28,9 +29,10 @@ const EXPORT_HEADERS = [
   { key: "status", label: "ステータス" }, { key: "start_date", label: "開始日" }, { key: "end_date", label: "満了日" },
   { key: "settle_min", label: "清算下限" }, { key: "settle_max", label: "清算上限" }, { key: "work_hours", label: "当月稼働" },
   { key: "contract_status", label: "契約書" }, { key: "po_status", label: "注文書" }, { key: "renewal_due", label: "更新期限" }, { key: "renewal_status", label: "更新ステータス" },
+  { key: "board_project_id", label: "board案件No" },
 ];
 
-const TEMPLATE = ["案件名", "企業", "氏名", "月額(万)", "原価(万)", "所属区分", "ステータス", "開始日", "満了日", "清算下限", "清算上限", "当月稼働", "契約書", "注文書", "更新期限", "更新ステータス"];
+const TEMPLATE = ["案件名", "企業", "氏名", "月額(万)", "原価(万)", "所属区分", "ステータス", "開始日", "満了日", "清算下限", "清算上限", "当月稼働", "契約書", "注文書", "更新期限", "更新ステータス", "board案件No"];
 
 const STATUSES = ["予定", "稼働中", "終了"];
 const AFFILIATIONS = ["PP", "BP", "FL"];
@@ -127,6 +129,10 @@ function NewEngagementForm({ onDone }: { onDone: (ok: boolean) => void }) {
           <div><L>ステータス</L><select style={inp} value={f.status ?? "予定"} onChange={(e) => set("status", e.target.value)}>{STATUSES.map((s) => <option key={s}>{s}</option>)}</select></div>
           <div><L>開始日</L><input style={inp} type="date" value={f.start_date ?? ""} onChange={(e) => set("start_date", e.target.value)} /></div>
           <div><L>満了日</L><input style={inp} type="date" value={f.end_date ?? ""} onChange={(e) => set("end_date", e.target.value)} /></div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <L>board案件No（任意・最初に紐付けると請求書送付状況が自動同期されます）</L>
+            <input style={inp} value={(f as any).board_project_id ?? ""} onChange={(e) => set("board_project_id" as any, e.target.value)} placeholder="例: 11177（board の案件No を入力）" />
+          </div>
         </div>
         {err && <div style={{ color: "var(--color-danger)", fontSize: 12 }}>{err}</div>}
         <div style={{ display: "flex", gap: 8 }}>
