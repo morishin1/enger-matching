@@ -1,0 +1,43 @@
+# PR と main への push で型チェック＋ビルドを実行。
+# red の PR はマージしない運用を想定（README の「共同開発のルール」参照）。
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        # Supabase 等の実値は CI では不要だが、ビルド時に参照されると失敗するので
+        # 占位値を設定してビルドを通す（ランタイムでは dbConfigured で分岐）。
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        run: npx next build

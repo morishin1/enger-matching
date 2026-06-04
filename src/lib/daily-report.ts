@@ -6,9 +6,11 @@ export type DailyReport = {
   self_check: Record<string, string> | null; good: string | null; problem: string | null; cause: string | null;
   next_action: string | null; mood: string | null; outputs: number | null; contacts: number | null;
   metrics: any; ai_comment: string | null;
+  replied_at?: string | null; replied_by?: string | null; reply_text?: string | null;
+  ai_replied_at?: string | null;
 };
 
-const ACTIVE = ["未対応", "提案中", "面談調整", "クロージング中", "面談合格"];
+const ACTIVE = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const weekAgoStr = () => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
@@ -34,13 +36,35 @@ export async function getActuals(name: string | null): Promise<Actuals> {
   } catch { return empty; }
 }
 
-/** 日報一覧（新しい順）。 */
-export async function listReports(opts?: { author?: string; limit?: number }): Promise<DailyReport[]> {
+export type ReportIssue = { author: string; date: string; problem: string; cause: string | null; next_action: string | null; mood: string | null };
+
+/** 直近の日報から「課題（problem）あり / 不調」を抽出してアラート用に返す。 */
+export async function getReportIssues(days = 2): Promise<ReportIssue[]> {
+  if (!dbConfigured) return [];
+  try {
+    const sb = engerClient();
+    const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    const { data, error } = await sb.from("daily_reports")
+      .select("author, report_date, problem, cause, next_action, mood")
+      .gte("report_date", since).order("report_date", { ascending: false }).limit(100);
+    if (error || !data) return [];
+    return (data as any[])
+      .filter((r) => (r.problem && String(r.problem).trim()) || /不調|しんどい|悪|😟|😞|😣|⚠/.test(String(r.mood ?? "")))
+      .map((r) => ({ author: r.author, date: r.report_date, problem: String(r.problem ?? "").trim(), cause: r.cause ?? null, next_action: r.next_action ?? null, mood: r.mood ?? null }));
+  } catch { return []; }
+}
+
+/** 日報一覧（新しい順）。author 単一指定 or authors 複数指定（部署メンバー）で絞り込み可。 */
+export async function listReports(opts?: { author?: string; authors?: string[]; limit?: number }): Promise<DailyReport[]> {
   if (!dbConfigured) return [];
   try {
     const sb = engerClient();
     let q = sb.from("daily_reports").select("*").order("report_date", { ascending: false }).limit(opts?.limit ?? 60);
     if (opts?.author) q = q.eq("author", opts.author);
+    else if (opts?.authors) {
+      if (opts.authors.length === 0) return [];
+      q = q.in("author", opts.authors);
+    }
     const { data, error } = await q;
     if (error || !data) return [];
     return data as DailyReport[];

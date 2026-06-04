@@ -16,8 +16,19 @@ import { resolveAccess, canAccess } from "@/lib/accounts";
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 公開パス（ログイン画面・新規登録・API・認証）
-  if (pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/api/")) return NextResponse.next();
+  // 公開パス（ログイン画面・新規登録・パスワード再設定・API・認証）
+  // ※ パスワードを忘れた未ログインユーザーがアクセスするため /forgot-password と /reset-password も公開必須。
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/agent") ||           // 副業エージェント募集の公開LP
+    pathname.startsWith("/terms") ||           // 利用規約（公開）
+    pathname.startsWith("/privacy") ||         // プライバシーポリシー（公開）
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/reset-password") ||
+    pathname.startsWith("/respond") ||           // メール回答リンク（トークン認証）
+    pathname.startsWith("/api/")
+  ) return NextResponse.next();
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -26,6 +37,11 @@ export async function proxy(req: NextRequest) {
   if (!url || !anon) return NextResponse.next();
 
   const res = NextResponse.next();
+  // res に書かれた更新後の認証 cookie を、リダイレクト応答にも引き継ぐためのヘルパ。
+  //   getUser() は必要に応じて access_token を refresh し、Set-Cookie を res に書く。
+  //   リダイレクトする場合に res をそのまま捨てると refresh が失われ、次のリクエストで
+  //   セッションが切れる（=「別タブで再ログインが必要」）症状の原因になる。
+  const carry = (next: NextResponse) => { for (const c of res.cookies.getAll()) next.cookies.set(c.name, c.value, c); return next; };
   try {
     const supabase = authProxyClient(req, res);
     const { data: { user } } = await supabase.auth.getUser();
@@ -36,23 +52,23 @@ export async function proxy(req: NextRequest) {
         const login = req.nextUrl.clone();
         login.pathname = "/login";
         login.search = `?err=${encodeURIComponent(!access ? "アクセス権限がありません" : access.status === "pending" ? "承認待ちです" : "無効化されています")}`;
-        return NextResponse.redirect(login);
+        return carry(NextResponse.redirect(login));
       }
       // ロール別ルート制限。許可外は自分のホームへ。
-      if (!canAccess(access.role, pathname)) {
+      if (!canAccess(access.role, pathname, access.functions)) {
         const home = req.nextUrl.clone();
         home.pathname = "/";
         home.search = "";
-        return NextResponse.redirect(home);
+        return carry(NextResponse.redirect(home));
       }
-      return res; // OK
+      return res; // OK（refresh された cookie が乗っている）
     }
   } catch { /* セッション取得失敗 → 未ログイン扱いで /login へ */ }
 
   // 未ログイン → ログイン画面へ
   const login = req.nextUrl.clone();
   login.pathname = "/login";
-  login.search = `?redirect=${encodeURIComponent(pathname)}`;
+  login.search = `?redirect=${encodeURIComponent(`${pathname}${req.nextUrl.search}`)}`;
   return NextResponse.redirect(login);
 }
 

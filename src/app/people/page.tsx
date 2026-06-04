@@ -1,13 +1,11 @@
-import { Icons } from "@/components/icons";
-import { CandidateImportButton, ExportButton } from "@/components/CsvTools";
+import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
-import { KpiTag } from "@/components/KpiTag";
+import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { getMatchingStats, pct } from "@/lib/stats";
+import { getEntityDelta } from "@/lib/import-stats";
+import { getViewerScope, maskCandidates } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
-
-const num = (n?: number) => (n == null ? "—" : n.toLocaleString("ja-JP"));
 
 const EXPORT_HEADERS = [
   { key: "kanriNo", label: "管理NO" }, { key: "name", label: "氏名" }, { key: "title", label: "職種" },
@@ -15,47 +13,58 @@ const EXPORT_HEADERS = [
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage() {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const { q: initialQuery } = await searchParams;
+  const scope = await getViewerScope();
   let people: any[] = [];
   let total = 0;
   let dbError: string | null = null;
-  const stats = await getMatchingStats();
 
-  if (dbConfigured) {
+  const needle = (initialQuery ?? "").trim();
+  // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
+  if (scope.isTenant) {
+    if (dbConfigured && scope.ownerKey) {
+      try {
+        const sb = engerClient();
+        const cols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at, owner_company, shared";
+        const ownedRes: any = await sb.from("candidates").select(cols).eq("owner_company", scope.ownerKey).order("candidate_no", { ascending: false }).limit(1000);
+        const sharedRes: any = await sb.from("candidates").select(cols).eq("shared", true).order("candidate_no", { ascending: false }).limit(1000);
+        if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
+        else {
+          const map = new Map<number, any>();
+          for (const r of [...(ownedRes.data ?? []), ...(sharedRes.data ?? [])]) if (r.candidate_no != null) map.set(r.candidate_no, r);
+          const rows = [...map.values()].filter((r) => r.owner_company === scope.ownerKey || r.shared === true);
+          people = maskCandidates(rows, scope.ownerKey, scope.meetingDone);
+          total = people.length;
+        }
+      } catch (e) { dbError = e instanceof Error ? e.message : String(e); }
+    } else if (!scope.ownerKey) {
+      dbError = "会社情報が未設定です。管理者にお問い合わせください。";
+    }
+  } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
-      // rank / email 列が未追加でも落ちないようフォールバック
-      let res: any = await sb
+      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
+      };
+      let res: any = await withSearch(sb
         .from("candidates")
-        .select(`${baseCols}, rank, email, contact_email, source_mail_url`, { count: "exact" })
-        .order("candidate_no", { ascending: true })
-        .limit(300);
+        .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" }))
+        .order("candidate_no", { ascending: false })
+        .limit(needle ? 1000 : 300);
       if (res.error) {
-        res = await sb
+        res = await withSearch(sb
           .from("candidates")
-          .select(baseCols, { count: "exact" })
-          .order("candidate_no", { ascending: true })
-          .limit(300);
+          .select(baseCols, { count: "exact" }))
+          .order("candidate_no", { ascending: false })
+          .limit(needle ? 1000 : 300);
       }
       people = res.data ?? [];
       total = res.count ?? people.length;
-
-      // 「決まりやすい順」：提案可・スキル有・単価帯(B)・鮮度・注力 で並べる（AI不使用）
-      const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
-      const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
-      const rankScore = (r: string | null) => r === "B" ? 15 : r === "A" ? 10 : r === "C" ? 5 : 0;
-      const scoreOf = (p: any) => {
-        const reasons: string[] = [];
-        if ((p.status ?? "").includes("提案")) reasons.push("提案可ステータス");
-        if (p.skills?.length) reasons.push("スキル登録あり");
-        if (p.rank) reasons.push(`ランク${p.rank}`);
-        if (days(p.created_at) <= 3) reasons.push("新着");
-        if (p.saved || p.is_focus) reasons.push("注力人材");
-        const score = Math.round(((p.status ?? "").includes("提案") ? 25 : 0) + ((p.skills?.length) ? 20 : 0) + rankScore(p.rank ?? null) + freshScore(p.created_at) + ((p.saved || p.is_focus) ? 10 : 0));
-        return { score, reasons: reasons.slice(0, 3) };
-      };
-      people = people.map((p: any) => { const r = scoreOf(p); return { ...p, _score: r.score, _reasons: r.reasons }; }).sort((a: any, b: any) => b._score - a._score);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -64,20 +73,7 @@ export default async function PeoplePage() {
   }
 
   const exportRows = people.map((p) => ({ ...p, kanriNo: `P-${String(p.candidate_no ?? 0).padStart(5, "0")}`, skillsCsv: (p.skills ?? []).join(" / ") }));
-
-  const cTotal = stats?.cand_total ?? total;
-  const proposable = stats?.cand_proposable;
-  const usableRate = stats && cTotal ? (((stats.cand_proposable ?? 0) / cTotal) * 100) : undefined;
-  const profilePct = stats ? pct(stats.cand_profile_full, stats.cand_total) : undefined;
-
-  // 重要データ充足（マッチング・仮説立案の前提）。表示中の人材に対する欠落件数。
-  const miss = {
-    skills: people.filter((p) => !(p.skills && p.skills.length)).length,
-    rate: people.filter((p) => !p.rate && !p.salary_min && !p.salary_max).length,
-    affiliation: people.filter((p) => !p.affiliation).length,
-    title: people.filter((p) => !p.title).length,
-  };
-  const missTotal = miss.skills + miss.rate + miss.affiliation + miss.title;
+  const growth = scope.isTenant ? { total: people.length, last7: 0 } as any : await getEntityDelta("candidates");
 
   return (
     <div className="page">
@@ -85,68 +81,26 @@ export default async function PeoplePage() {
         <div style={{ maxWidth: 820 }}>
           <div className="meta">People · 人材マスタ（実データ）</div>
           <h1>人材</h1>
-          <div className="sub">
-            登録人材 <b style={{ color: "var(--color-ink)" }}>{total.toLocaleString("ja-JP")} 名</b>。
-            CSVで人材をアップロードすると、案件とのマッチング母数になります（<b className="mono">enger.candidates</b>）。
-          </div>
+          <EntityGrowthLine unit="名" delta={growth} />
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
-          <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />
-          <CandidateImportButton />
+          {!scope.isTenant && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
+          <CandidateNewButton />
+          {!scope.isTenant && <CandidateBulkExtractButton />}
+          {!scope.isTenant && <CandidateImportButton />}
         </div>
       </div>
 
-      {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
-
-      <div className="kpi-grid">
-        <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.check /></div><KpiTag kind="pri" /></div>
-          <div>
-            <div className="val tnum">{num(proposable)}<span className="unit">名</span></div>
-            <div className="label">提案可能人材（有効プール）</div>
-            <div className="note">
-              {stats ? `登録${num(stats.cand_total)} → スキル${num(stats.cand_skills)} → 提案可${num(stats.cand_proposable)}` : "ステータス=提案可"}
-              {usableRate != null && `　使えるのは${usableRate.toFixed(1)}%`}
-            </div>
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="top"><div className="ico-box"><Icons.people /></div><KpiTag kind="fix" /></div>
-          <div><div className="val tnum">{profilePct == null ? "—" : profilePct}<span className="unit">%</span></div><div className="label">プロフィール充足率</div><div className="note">スキル・希望条件が揃った割合</div></div>
-        </div>
-        <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.bolt /></div><KpiTag kind="todo" /></div>
-          <div><div className="val tnum">{num(stats?.cand_stale)}<span className="unit">名</span></div><div className="label">鮮度切れ人材</div><div className="note">30日以上 情報更新なし・NG判定候補</div></div>
-        </div>
-        <div className="kpi accent">
-          <div className="top"><div className="ico-box"><Icons.star /></div><KpiTag kind="check" /></div>
-          <div><div className="val tnum">{num(stats?.cand_dupes)}<span className="unit">件</span></div><div className="label">重複疑い</div><div className="note">名寄せで検出した同一人物の疑い</div></div>
-        </div>
-      </div>
-
-      {/* 重要データの充足（マッチング・仮説立案の前提） */}
-      {people.length > 0 && (
-        <div className="card" style={{ borderColor: missTotal > 0 ? "var(--color-warn, #e0a317)" : "var(--color-border)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>📋 重要データの充足（マッチング・仮説立案の前提）</h3>
-            <span className="muted" style={{ fontSize: 11 }}>表示中 {people.length} 名中の未入力</span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 10, fontSize: 13 }}>
-            <span>スキル 未入力 <b style={{ color: miss.skills ? "#b42318" : "#067647" }}>{miss.skills}</b></span>
-            <span>単価 未入力 <b style={{ color: miss.rate ? "#b45309" : "#067647" }}>{miss.rate}</b></span>
-            <span>所属区分 未入力 <b style={{ color: miss.affiliation ? "#b45309" : "#067647" }}>{miss.affiliation}</b></span>
-            <span>職種 未入力 <b style={{ color: miss.title ? "#b45309" : "#067647" }}>{miss.title}</b></span>
-          </div>
-          <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ スキルはマッチングの主軸、単価・所属区分は粗利・歩留まり仮説の土台です。CSV取込または人材詳細で補完してください。</div>
+      {scope.isTenant && (
+        <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>
+          <b>パートナー表示</b>：自社で登録した人材と、共有された人材のみ表示しています。<b>他社の人材は氏名・連絡先を伏せた匿名表示（イニシャル＋スキル＋単価）</b>です。
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>人材 おすすめランキング</h3>
-        <div className="muted" style={{ fontSize: 11.5 }}>決まりやすい順に1位〜表示・行クリックで詳細・検索/絞り込み可</div>
-      </div>
+      {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
-      <EntityTable kind="people" rows={people} total={total} />
+      <EntityTable kind="people" rows={people} total={total} initialQuery={initialQuery} partner={scope.isTenant} meetingDone={scope.meetingDone}
+        agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
     </div>
   );
 }

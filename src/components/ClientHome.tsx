@@ -1,8 +1,9 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { Icons } from "@/components/icons";
+import { MeetingGateBanner } from "./MeetingGateBanner";
 
 /** ユーザー企業(client)向けの自社ポータル。自社の案件と提案状況のみ表示。 */
-export async function ClientHome({ companyName, displayName }: { companyName: string | null; displayName?: string | null }) {
+export async function ClientHome({ companyName, displayName, needGate = false }: { companyName: string | null; displayName?: string | null; needGate?: boolean }) {
   let jobs: any[] = [];
   let proposals: any[] = [];
   let note: string | null = null;
@@ -59,6 +60,8 @@ export async function ClientHome({ companyName, displayName }: { companyName: st
           <a href="/portal/candidates" style={{ background: "rgba(255,255,255,.18)", color: "#fff", fontWeight: 700, fontSize: 13, padding: "9px 16px", borderRadius: 9, textDecoration: "none", border: "1px solid rgba(255,255,255,.35)" }}>おすすめ人材を見る →</a>
         </div>
       </div>
+
+      {needGate && <div style={{ marginTop: 16 }}><MeetingGateBanner title="ご利用前に担当との面談をお願いしています" description="自社案件・自社情報の管理は本ポータルで先にご利用いただけますが、おすすめ人材・選考管理など人材情報を含む詳細機能は、担当エージェントとの面談後に解放されます。" /></div>}
 
       {note && (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginTop: 16 }}>{note}</div>

@@ -60,7 +60,7 @@ export function EngagementsView({ rows, role = "admin" }: { rows: any[]; role?: 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e.job_title ?? "—"}</div>
-                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{e.company ?? ""}{e.candidate_name ? ` / ${e.candidate_name}` : ""}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{e.company ?? ""}{e.candidate_name ? <> / <a href={`/billing?name=${encodeURIComponent(e.candidate_name)}`} title="請求・勤怠を見る" style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>{e.candidate_name}</a></> : ""}</div>
               </div>
               <span style={{ padding: "3px 9px", borderRadius: 99, background: tone.bg, color: tone.fg, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{e.status}</span>
             </div>

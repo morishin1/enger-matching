@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { saveReport, coachReport, sendReportFeedback } from "@/app/reports/actions";
+import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
 
 function ManagerReview({ reports }: { reports: DailyReport[] }) {
@@ -103,7 +103,7 @@ function ReportForm({ author, today, actuals }: { author: string; today: string;
         author, report_date: today, did, self_check: checks, good: f.good, problem: f.problem, cause: f.cause,
         next_action, mood: f.mood, outputs: f.outputs === "" ? null : Number(f.outputs), contacts: f.contacts === "" ? null : Number(f.contacts), metrics: actuals,
       });
-      setMsg(r.ok ? "✓ 日報を保存しました" : `エラー：${r.error}`);
+      setMsg(r.ok ? "✓ 日報を保存しました（AIからの一言が「お知らせ」に届きます）" : `エラー：${r.error}`);
       if (r.ok) router.refresh();
     });
   };
@@ -162,16 +162,43 @@ function ReportForm({ author, today, actuals }: { author: string; today: string;
   );
 }
 
-function ReportCard({ r }: { r: DailyReport }) {
+function ReportCard({ r, canReply }: { r: DailyReport; canReply?: boolean }) {
+  const isAdmin = canReply; // 返信UI（バッジ・返信欄）の表示可否。管理者＝マネージャー/リーダーも返信可。
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [msgText, setMsgText] = useState("");
+  const [msgBusy, setMsgBusy] = useState<"draft" | "send" | null>(null);
+  const [msgInfo, setMsgInfo] = useState<{ ok: boolean; text: string } | null>(null);
   const m = r.metrics ?? {};
   const sc = r.self_check ?? {};
   const coach = () => start(async () => { await coachReport(r.id); router.refresh(); });
+  const draftMessage = async () => {
+    setMsgBusy("draft"); setMsgInfo(null);
+    const res = await draftReportMessage(r.id);
+    setMsgBusy(null);
+    if (res.ok && res.text) { setMsgText(res.text); setMsgInfo({ ok: true, text: "AI下書きを生成しました（編集してから送信できます）" }); }
+    else setMsgInfo({ ok: false, text: res.error || "生成に失敗しました" });
+  };
+  const sendMessage = async () => {
+    if (!msgText.trim()) { setMsgInfo({ ok: false, text: "メッセージが空です" }); return; }
+    setMsgBusy("send"); setMsgInfo(null);
+    const res = await sendReportMessage(r.id, msgText);
+    setMsgBusy(null);
+    if (res.ok) { setMsgInfo({ ok: true, text: `✓ ${r.author}さんへ送信しました（お知らせに届きました）` }); setMsgText(""); router.refresh(); }
+    else setMsgInfo({ ok: false, text: res.error || "送信に失敗しました" });
+  };
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <b style={{ fontSize: 13.5 }}>{r.author}</b>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <b style={{ fontSize: 13.5 }}>{r.author}</b>
+          {isAdmin && (r.replied_at
+            ? <span title={`${r.replied_by ?? "管理者"} が ${new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に返信済`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", whiteSpace: "nowrap" }}>✓ 管理者返信済</span>
+            : r.ai_replied_at
+              ? <span title={`提出時にAIが自動で一言を送信済（${new Date(r.ai_replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}）。必要なら下から個別メッセージを追送できます。`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "var(--color-brand-25)", color: "var(--color-brand-700)", border: "1px solid var(--color-brand-100)", whiteSpace: "nowrap" }}>🤖 AI返信済</span>
+              : <span title="まだ返信がありません" style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0", whiteSpace: "nowrap" }}>未返信</span>
+          )}
+        </div>
         <span className="muted mono" style={{ fontSize: 11 }}>{r.report_date} {r.mood ?? ""}</span>
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)" }}>
@@ -192,25 +219,152 @@ function ReportCard({ r }: { r: DailyReport }) {
       {r.ai_comment ? (
         <div style={{ fontSize: 12, color: "var(--color-ink-2)", background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", borderRadius: 8, padding: "8px 10px", whiteSpace: "pre-wrap" }}>🤖 {r.ai_comment}</div>
       ) : (
-        <button className="btn ghost btn-xs" disabled={pending} onClick={coach} style={{ alignSelf: "flex-start" }}>{pending ? "生成中…" : "🤖 AIから一言（任意）"}</button>
+        <button className="btn ghost btn-xs" disabled={pending} onClick={coach} style={{ alignSelf: "flex-start" }} title="AIがこの日報への所感を生成し、このカードにメモ表示します（本人には届きません）">{pending ? "生成中…" : "🤖 AIから一言（メモ・本人には届きません）"}</button>
+      )}
+
+      {isAdmin && (
+        <div style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          {/* 既に送った返信があれば表示（誰がいつ何を送ったか） */}
+          {r.replied_at && r.reply_text && (
+            <div style={{ fontSize: 12, color: "var(--color-ink-2)", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "8px 10px" }}>
+              <div style={{ fontSize: 10.5, color: "#067647", fontWeight: 700, marginBottom: 3 }}>✓ 送信済み（{r.replied_by ?? "管理者"} · {new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}）</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{r.reply_text}</div>
+            </div>
+          )}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)" }}>💬 {r.author}さんへ個別メッセージ{r.replied_at ? "（再送・追記）" : ""}</div>
+          <textarea
+            value={msgText}
+            onChange={(e) => setMsgText(e.target.value)}
+            placeholder="メッセージを直接入力。または「✨ AIで下書き」→編集→「送信」で本人のお知らせに届きます"
+            rows={3}
+            style={{ fontSize: 12.5, padding: 8, border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", resize: "vertical", fontFamily: "var(--font-sans)" }}
+          />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" className="btn ghost btn-xs" disabled={!!msgBusy} onClick={draftMessage} title="AIが下書きを作成します。この時点では送信されません（編集できます）">{msgBusy === "draft" ? "生成中…" : "✨ AIで下書き"}</button>
+            <button type="button" className="btn brand btn-xs" disabled={!!msgBusy || !msgText.trim()} onClick={sendMessage} title="本人の「お知らせ」に通知が届きます">{msgBusy === "send" ? "送信中…" : "📨 本人へ送信"}</button>
+            {msgInfo && <span style={{ fontSize: 11, color: msgInfo.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msgInfo.text}</span>}
+          </div>
+          <div className="muted" style={{ fontSize: 10 }}>
+            ℹ 日報提出時に <b>AIの一言が自動で本人に届きます</b>（🤖 AI返信済）。ここからは <b>管理者個人のコメントを追送</b>できます。✨ AIで下書き＝下書きのみ（未送信）／📨 本人へ送信＝相手のお知らせに反映。
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports, isAdmin = false }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean }) {
+/** 管理者向け：誰がいつ提出したか + 返信状況の提出カレンダー（直近14日）。 */
+function SubmissionCalendar({ members, reports, today }: { members: string[]; reports: DailyReport[]; today: string }) {
+  const DAYS = 14;
+  const days: string[] = [];
+  const base = new Date(today + "T00:00:00");
+  for (let i = DAYS - 1; i >= 0; i--) { const d = new Date(base); d.setDate(base.getDate() - i); days.push(d.toISOString().slice(0, 10)); }
+  // (author|date) → 提出・返信状況
+  type Cell = { submitted: boolean; admin: boolean; ai: boolean };
+  const cellMap = new Map<string, Cell>();
+  for (const r of reports) {
+    cellMap.set(`${r.author}|${r.report_date}`, {
+      submitted: true,
+      admin: !!r.replied_at,
+      ai: !r.replied_at && !!r.ai_replied_at, // 管理者返信があれば AI フラグは出さない（最終状態を1つで表現）
+    });
+  }
+  const getCell = (n: string, d: string): Cell => cellMap.get(`${n}|${d}`) ?? { submitted: false, admin: false, ai: false };
+  // メンバー：staff名 ∪ 日報の著者
+  const names = Array.from(new Set([...members, ...reports.map((r) => r.author)].filter(Boolean)));
+  const todaySubmitted = names.filter((n) => getCell(n, today).submitted).length;
+  // 直近14日の未返信件数（提出はされたが管理者/AIどちらの返信もなし）
+  const pendingReplies = days.reduce((acc, d) => acc + names.filter((n) => { const c = getCell(n, d); return c.submitted && !c.admin && !c.ai; }).length, 0);
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  const dlabel = (d: string) => { const dt = new Date(d + "T00:00:00"); return { md: `${dt.getMonth() + 1}/${dt.getDate()}`, w: wd[dt.getDay()], we: dt.getDay() === 0 || dt.getDay() === 6 }; };
+  const rate = (n: string) => days.filter((d) => getCell(n, d).submitted).length;
+  const repliedRate = (n: string) => days.filter((d) => { const c = getCell(n, d); return c.submitted && (c.admin || c.ai); }).length;
+
+  // セル表示：提出 + 返信状況を1セルで表現
+  const renderCell = (n: string, d: string) => {
+    const c = getCell(n, d);
+    const l = dlabel(d);
+    const baseStyle: React.CSSProperties = {
+      padding: "5px 6px", textAlign: "center", borderTop: "1px solid var(--color-border)",
+      background: d === today ? "var(--color-brand-25)" : l.we ? "var(--color-surface-soft)" : undefined,
+      whiteSpace: "nowrap",
+    };
+    if (!c.submitted) return <td key={d} style={baseStyle}><span style={{ color: "var(--color-ink-5)" }}>・</span></td>;
+    if (c.admin) return <td key={d} style={baseStyle} title="提出済 + 管理者から返信済"><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>💬</sup></span></td>;
+    if (c.ai)    return <td key={d} style={baseStyle} title="提出済 + AIから自動返信済"><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>🤖</sup></span></td>;
+    return <td key={d} style={baseStyle} title="提出済（返信なし）"><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span></td>;
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>calendar_month</span>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>日報 提出カレンダー</h3>
+        <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: todaySubmitted >= names.length && names.length ? "#dcfce7" : "#fef3c7", color: todaySubmitted >= names.length && names.length ? "#166534" : "#92400e" }}>本日 {todaySubmitted}/{names.length} 名 提出</span>
+        {pendingReplies > 0 && (
+          <span title="返信していない日報の件数（直近14日）" style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0" }}>未返信 {pendingReplies}</span>
+        )}
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>💬</sup></span> 管理者返信</span>
+          <span><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>🤖</sup></span> AI返信のみ</span>
+          <span><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span> 提出のみ・未返信</span>
+          <span><span style={{ color: "var(--color-ink-5)" }}>・</span> 未提出</span>
+        </span>
+      </div>
+      {names.length === 0 ? (
+        <div className="muted" style={{ fontSize: 13 }}>対象メンバーがいません。設定→担当者マスタで登録してください。</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: 600 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "6px 10px", position: "sticky", left: 0, background: "var(--color-surface)", zIndex: 1 }}>メンバー</th>
+                {days.map((d) => { const l = dlabel(d); return <th key={d} style={{ padding: "4px 6px", textAlign: "center", color: d === today ? "var(--color-brand-700)" : l.we ? "var(--color-ink-4)" : "var(--color-ink-3)", fontWeight: d === today ? 800 : 600, whiteSpace: "nowrap" }}>{l.md}<br /><span style={{ fontSize: 9 }}>{l.w}</span></th>; })}
+                <th style={{ padding: "4px 8px", textAlign: "center" }} title="提出 / 返信済">提出 / 返信</th>
+              </tr>
+            </thead>
+            <tbody>
+              {names.map((n) => (
+                <tr key={n}>
+                  <td style={{ padding: "6px 10px", fontWeight: 600, whiteSpace: "nowrap", position: "sticky", left: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)" }}>{n}</td>
+                  {days.map((d) => renderCell(n, d))}
+                  <td style={{ padding: "5px 8px", textAlign: "center", borderTop: "1px solid var(--color-border)", fontWeight: 700, color: "var(--color-ink-2)", whiteSpace: "nowrap" }}>
+                    {rate(n)}<span style={{ color: "var(--color-ink-5)", margin: "0 2px" }}>/</span><span style={{ color: rate(n) > 0 && repliedRate(n) === rate(n) ? "#067647" : "var(--color-ink-3)" }}>{repliedRate(n)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, members = [] }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; members?: string[] }) {
   const [q, setQ] = useState("");
   const todays = reports.find((r) => r.author === author && r.report_date === today);
   const filtered = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
+  const canManage = isAdmin || canReply; // 提出カレンダー＋返信UI を出す
   return (
     <>
-      {isAdmin && <ManagerReview reports={reports} />}
-      {todays ? (
-        <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
-          ✓ 本日（{today}）の日報は提出済みです。もう一度フォームから保存すると上書き更新されます。
-        </div>
-      ) : null}
-      <ReportForm author={author} today={today} actuals={actuals} />
+      {canManage && (
+        <>
+          <SubmissionCalendar members={members} reports={reports} today={today} />
+          <ManagerReview reports={reports} />
+        </>
+      )}
+      {/* 管理者以外（マネージャー/リーダー/メンバー）は自分の日報も提出できる */}
+      {!isAdmin && (
+        <>
+          {todays ? (
+            <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>
+              ✓ 本日（{today}）の日報は提出済みです。もう一度フォームから保存すると上書き更新されます。
+            </div>
+          ) : null}
+          <ReportForm author={author} today={today} actuals={actuals} />
+        </>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px", gap: 10, flexWrap: "wrap" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>これまでの日報</h3>
@@ -223,7 +377,7 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30 }}>まだ日報がありません。</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-          {filtered.map((r) => <ReportCard key={r.id} r={r} />)}
+          {filtered.map((r) => <ReportCard key={r.id} r={r} canReply={canManage} />)}
         </div>
       )}
     </>

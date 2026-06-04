@@ -16,7 +16,7 @@ export type PortalTalent = {
   requested: boolean;
 };
 
-export function PortalTalentList({ talent }: { talent: PortalTalent[] }) {
+export function PortalTalentList({ talent, meetingDone = true }: { talent: PortalTalent[]; meetingDone?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [done, setDone] = useState<Record<string, boolean>>({});
@@ -58,6 +58,11 @@ export function PortalTalentList({ talent }: { talent: PortalTalent[] }) {
             <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
               {requested ? (
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--color-brand-700)", textAlign: "center", padding: "8px 0" }}>✓ 担当より折り返しご連絡します</div>
+              ) : !meetingDone ? (
+                <div title="担当エージェントとの初回面談後に解放されます" style={{ fontSize: 11.5, fontWeight: 700, color: "#9a7b12", textAlign: "center", padding: "8px 0", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 8, display: "inline-flex", justifyContent: "center", alignItems: "center", gap: 4, width: "100%" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>lock</span>
+                  面談後に解放
+                </div>
               ) : (
                 <button className="btn brand" style={{ width: "100%", justifyContent: "center" }} disabled={pending && busy === t.ref} onClick={() => request(t)}>
                   {pending && busy === t.ref ? "送信中…" : "話を聞きたい"}

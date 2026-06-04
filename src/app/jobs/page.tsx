@@ -1,15 +1,13 @@
-import { Icons } from "@/components/icons";
-import { ExportButton, JobImportButton } from "@/components/CsvTools";
+import { ExportButton, JobImportButton, JobNewButton, JobBulkExtractButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
-import { KpiTag } from "@/components/KpiTag";
+import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { getMatchingStats, pct } from "@/lib/stats";
 import { getStaff } from "@/lib/staff";
+import { getEntityDelta } from "@/lib/import-stats";
+import { getViewerScope, maskJobs } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
-
-const num = (n?: number) => (n == null ? "—" : n.toLocaleString("ja-JP"));
 
 const JOB_EXPORT_HEADERS = [
   { key: "job_no", label: "案件番号" }, { key: "title", label: "案件名" }, { key: "client_name", label: "クライアント" },
@@ -20,66 +18,66 @@ const JOB_EXPORT_HEADERS = [
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
-  const { client } = await searchParams;
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string }> }) {
+  const { client, show, q } = await searchParams;
+  const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
+  const needle = (q ?? client ?? "").trim();
+  const scope = await getViewerScope();
   let jobs: any[] = [];
   let total = 0;
   let dbError: string | null = null;
-  const stats = await getMatchingStats();
 
-  if (dbConfigured) {
+  // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
+  if (scope.isTenant) {
+    if (dbConfigured && scope.ownerKey) {
+      try {
+        const sb = engerClient();
+        const cols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published, owner_company, shared";
+        const ownedRes: any = await sb.from("jobs").select(cols).eq("owner_company", scope.ownerKey).order("job_no", { ascending: false }).limit(1000);
+        const sharedRes: any = await sb.from("jobs").select(cols).eq("shared", true).eq("is_published", true).order("job_no", { ascending: false }).limit(1000);
+        if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
+        else {
+          const map = new Map<number, any>();
+          for (const r of [...(ownedRes.data ?? []), ...(sharedRes.data ?? [])]) if (r.job_no != null) map.set(r.job_no, r);
+          // 二重の安全網：app側でも「自社 or 共有」に限定してから匿名化
+          const rows = [...map.values()].filter((r) => r.owner_company === scope.ownerKey || r.shared === true);
+          jobs = maskJobs(rows, scope.ownerKey, scope.meetingDone);
+          total = jobs.length;
+        }
+      } catch (e) { dbError = e instanceof Error ? e.message : String(e); }
+    } else if (!scope.ownerKey) {
+      dbError = "会社情報が未設定です。管理者にお問い合わせください。";
+    }
+  } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, created_at";
-      // 追加列(email-columns / sales-roles 未実行)でも落ちないよう段階フォールバック
-      let listRes: any = await sb.from("jobs")
-        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })
-        .eq("is_published", true)
+      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published";
+      // 非公開も表示する場合は is_published フィルタを外す
+      const withPub = (qb: any) => showAll ? qb : qb.eq("is_published", true);
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+        return qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
+      };
+      let listRes: any = await withSearch(withPub(sb.from("jobs")
+        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })))
         .order("job_no", { ascending: false })
-        .limit(300);
+        .limit(needle ? 1000 : 300);
       if (listRes.error) {
-        listRes = await sb.from("jobs")
-          .select(`${baseCols}, outside_owner`, { count: "exact" })
-          .eq("is_published", true)
+        listRes = await withSearch(withPub(sb.from("jobs")
+          .select(`${baseCols}, outside_owner`, { count: "exact" })))
           .order("job_no", { ascending: false })
-          .limit(300);
+          .limit(needle ? 1000 : 300);
       }
       if (listRes.error) {
-        listRes = await sb.from("jobs")
-          .select(baseCols, { count: "exact" })
-          .eq("is_published", true)
+        listRes = await withSearch(withPub(sb.from("jobs")
+          .select(baseCols, { count: "exact" })))
           .order("job_no", { ascending: false })
-          .limit(300);
+          .limit(needle ? 1000 : 300);
       }
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
-
-      // 「決まりやすい順」：企業の決定率(分析データ) + 注力 + 鮮度 + スキル有 + 単価帯 で並べる（AI不使用）
-      try {
-        const pr = await sb.from("proposals").select("company, stage").limit(3000);
-        const stat: Record<string, { won: number; total: number }> = {};
-        for (const p of (pr.data ?? []) as any[]) {
-          const c = (p.company || "").trim(); if (!c) continue;
-          stat[c] ??= { won: 0, total: 0 }; stat[c].total++;
-          if (["稼働", "稼働決定", "面談合格"].includes(p.stage)) stat[c].won++;
-        }
-        const days = (d: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
-        const freshScore = (d: string | null) => { const n = days(d); return n <= 1 ? 20 : n <= 3 ? 14 : n <= 14 ? 8 : 2; };
-        const bandScore = (j: any) => { const v = j.salary_max ?? j.salary_min ?? 0; return v >= 90 ? 8 : v >= 70 ? 10 : v > 0 ? 5 : 0; };
-        const scoreOf = (j: any) => {
-          const s = stat[(j.client_name || "").trim()];
-          const closeRate = s && s.total ? s.won / s.total : 0;
-          const reasons: string[] = [];
-          if (closeRate >= 0.25 && s && s.total >= 2) reasons.push(`この企業の成約率 ${Math.round(closeRate * 100)}%`);
-          if (j.is_focus) reasons.push("注力案件");
-          if (days(j.created_at) <= 3) reasons.push("新着");
-          if (j.skills?.length) reasons.push("スキル要件が明確");
-          const v = j.salary_max ?? j.salary_min ?? 0; if (v >= 70 && v < 90) reasons.push("動きやすい単価帯");
-          const score = Math.round(closeRate * 40 + (j.is_focus ? 20 : 0) + freshScore(j.created_at) + ((j.skills?.length) ? 10 : 0) + bandScore(j));
-          return { score, reasons: reasons.slice(0, 3) };
-        };
-        jobs = jobs.map((j: any) => { const r = scoreOf(j); return { ...j, _score: r.score, _reasons: r.reasons }; }).sort((a: any, b: any) => b._score - a._score);
-      } catch { /* 並べ替え失敗時は元の順 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -87,14 +85,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     dbError = "Supabase の環境変数が未設定です（.env.local / Vercel env）";
   }
 
-  const jTotal = stats?.jobs_total ?? total;
-  const proposable = stats?.jobs_proposable;
-  const unmatched = stats ? Math.max(jTotal - (stats.jobs_proposable ?? 0), 0) : undefined;
-  const detailPct = stats ? pct(stats.jobs_detail_full, stats.jobs_total) : undefined;
-
-  // 企業掲載の承認待ち案件
+  // 企業掲載の承認待ち案件（社内のみ。パートナーには見せない）
   let pendingClientJobs: PendingJob[] = [];
-  if (dbConfigured) {
+  if (dbConfigured && !scope.isTenant) {
     try {
       const sb = engerClient();
       const { data } = await sb.from("jobs")
@@ -105,19 +98,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     } catch { /* 列未追加なら無視 */ }
   }
 
-  // エンド担当の選択肢（アウトサイド、無ければ全担当者）
-  const staff = await getStaff();
-  const outsideNames = staff.rows.filter((s) => s.position === "outside").map((s) => s.name);
-  const ownerOptions = outsideNames.length ? outsideNames : staff.rows.map((s) => s.name);
-
-  // 重要データ充足（仮説立案の前提）。表示中の案件に対する欠落件数。
-  const miss = {
-    owner: jobs.filter((j) => !j.outside_owner).length,
-    salary: jobs.filter((j) => !j.salary_min && !j.salary_max).length,
-    skills: jobs.filter((j) => !(j.skills && j.skills.length)).length,
-    client: jobs.filter((j) => !j.client_name).length,
-  };
-  const missTotal = miss.owner + miss.salary + miss.skills + miss.client;
+  // エンド担当の選択肢（アウトサイド、無ければ全担当者）。パートナーには社内担当者名を渡さない。
+  const staff = scope.isTenant ? { rows: [] as any[] } : await getStaff();
+  const outsideNames = staff.rows.filter((s: any) => s.position === "outside").map((s: any) => s.name);
+  const ownerOptions = outsideNames.length ? outsideNames : staff.rows.map((s: any) => s.name);
+  const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
 
   return (
     <div className="page">
@@ -125,15 +110,32 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Jobs · 案件マスタ（実データ）</div>
           <h1>案件</h1>
-          <div className="sub">
-            中央 Supabase <b className="mono">enger.jobs</b> から取得した実案件です。CSVで取り込んだ案件がここに一覧表示され、マッチングの母数になります。
-          </div>
+          <EntityGrowthLine unit="件" delta={growth} />
         </div>
         <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
-          <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />
-          <JobImportButton />
+          {!scope.isTenant && (
+            <a href={showAll ? "/jobs" : "/jobs?show=all"} className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }}
+              title={showAll ? "公開中の案件のみ表示" : "非公開（過去インポートで一覧に出ていない案件）も含めて表示"}>
+              {showAll ? "公開中のみ表示" : "非公開も表示"}
+            </a>
+          )}
+          {!scope.isTenant && <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />}
+          <JobNewButton />
+          {!scope.isTenant && <JobBulkExtractButton />}
+          {!scope.isTenant && <JobImportButton />}
         </div>
       </div>
+
+      {scope.isTenant && (
+        <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>
+          <b>パートナー表示</b>：自社で登録した案件と、共有された案件のみ表示しています。<b>他社の案件はクライアント名・連絡先を伏せた匿名表示</b>です。
+        </div>
+      )}
+      {!scope.isTenant && showAll && (
+        <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 12.5 }}>
+          <b>非公開を含めて表示中。</b> 公開フラグ（is_published）が立っていない案件も表示しています。手動登録で同名案件が「重複」になる場合、ここに隠れた既存案件が原因です。該当案件を開いて編集・再公開できます。
+        </div>
+      )}
 
       {dbError && (
         <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}>
@@ -141,50 +143,10 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         </div>
       )}
 
-      <div className="kpi-grid">
-        <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.matching /></div><KpiTag kind="pri" /></div>
-          <div><div className="val tnum">{num(proposable)}<span className="unit">件</span></div><div className="label">提案可能案件（有効案件）</div><div className="note">募集中 × マッチ候補1名以上</div></div>
-        </div>
-        <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.bolt /></div><KpiTag kind="todo" /></div>
-          <div><div className="val tnum">{num(unmatched)}<span className="unit">件</span></div><div className="label">未マッチ案件</div><div className="note">マッチ候補ゼロ・人材プール拡充で解消</div></div>
-        </div>
-        <div className="kpi">
-          <div className="top"><div className="ico-box"><Icons.check /></div><KpiTag kind="fix" /></div>
-          <div><div className="val tnum">{detailPct == null ? "—" : detailPct}<span className="unit">%</span></div><div className="label">要件詳細の充足率</div><div className="note">リモート頻度・希望業務まで入力済</div></div>
-        </div>
-        <div className="kpi accent">
-          <div className="top"><div className="ico-box"><Icons.jobs /></div><KpiTag kind="flow" /></div>
-          <div><div className="val tnum">{stats ? "+" + num(stats.jobs_new7) : "—"}<span className="unit">件</span></div><div className="label">新着案件（直近7日）</div><div className="note">流入が止まっていないかの監視</div></div>
-        </div>
-      </div>
+      {!scope.isTenant && <PendingClientJobs jobs={pendingClientJobs} />}
 
-      {/* 重要データの充足（仮説立案に必須） */}
-      {jobs.length > 0 && (
-        <div className="card" style={{ borderColor: missTotal > 0 ? "var(--color-warn, #e0a317)" : "var(--color-border)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>📋 重要データの充足（仮説立案の前提）</h3>
-            <span className="muted" style={{ fontSize: 11 }}>表示中 {jobs.length} 件中の未入力</span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 10, fontSize: 13 }}>
-            <span>エンド担当 未設定 <b style={{ color: miss.owner ? "#b42318" : "#067647" }}>{miss.owner}</b></span>
-            <span>単価 未入力 <b style={{ color: miss.salary ? "#b45309" : "#067647" }}>{miss.salary}</b></span>
-            <span>スキル 未入力 <b style={{ color: miss.skills ? "#b45309" : "#067647" }}>{miss.skills}</b></span>
-            <span>クライアント 未入力 <b style={{ color: miss.client ? "#b45309" : "#067647" }}>{miss.client}</b></span>
-          </div>
-          <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ これらは分析・仮説立案の土台になる必須項目です。下の一覧でエンド担当（赤背景＝未設定）を埋めてください。単価/スキルはCSV取込または案件詳細で補完します。</div>
-        </div>
-      )}
-
-      <PendingClientJobs jobs={pendingClientJobs} />
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>案件 おすすめランキング</h3>
-        <div className="muted" style={{ fontSize: 11.5 }}>決まりやすい順に1位〜表示・行クリックで詳細・検索/絞り込み可</div>
-      </div>
-
-      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={client} outsideOptions={ownerOptions} />
+      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={needle || undefined} outsideOptions={ownerOptions} partner={scope.isTenant} meetingDone={scope.meetingDone}
+        agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
     </div>
   );
 }

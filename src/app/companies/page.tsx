@@ -1,5 +1,6 @@
-import { Icons } from "@/components/icons";
 import { CompaniesView } from "@/components/CompaniesView";
+import { CompanyCsv } from "@/components/CompanyCsv";
+import { CompanyFollowups, type FollowupRow } from "@/components/CompanyFollowups";
 import { getCompanyOverview } from "@/lib/companies";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
@@ -13,18 +14,30 @@ export default async function CompaniesPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const { data } = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
-      registered = data ?? [];
+      let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at");
+      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
+      registered = res.data ?? [];
     } catch { /* companies-extend.sql 未実行などは無視 */ }
   }
+
+  // 3ヶ月以上ご無沙汰の企業（最終接触＝直近案件/打合せ/連絡記録のうち最新が90日超 or 未接触）
+  const since90 = Date.now() - 90 * 86400000;
+  const regByName = new Map(registered.map((r) => [r.name, r]));
+  const names = new Set<string>([...companies.map((c) => c.name), ...registered.map((r) => r.name)]);
+  const followups: FollowupRow[] = [...names].map((name) => {
+    const c = companies.find((x) => x.name === name);
+    const reg = regByName.get(name);
+    const ts = [c?.last_meeting_at, c?.last_job_at, reg?.last_contacted_at].filter(Boolean).map((d) => new Date(d as string).getTime());
+    const t = ts.length ? Math.max(...ts) : 0;
+    return { name, t, owner: reg?.owner_staff || "", contactName: reg?.contact_name || "", contactEmail: reg?.contact_email || "", tier: reg?.tier || c?.tier || "C" };
+  }).filter((f) => f.t === 0 || f.t < since90)
+    .sort((a, b) => a.t - b.t)
+    .slice(0, 60)
+    .map((f) => ({ name: f.name, owner: f.owner, contactName: f.contactName, contactEmail: f.contactEmail, tier: f.tier, lastISO: f.t ? new Date(f.t).toISOString() : null, days: f.t ? Math.floor((Date.now() - f.t) / 86400000) : null }));
   const needSetup = dbConfigured && companies.length === 0 && registered.length === 0;
 
   const total = companies.length;
-  const tierA = companies.filter((c) => c.tier === "A").length;
   const activeTotal = companies.reduce((a, c) => a + (c.active_jobs ?? 0), 0);
-  const focusTotal = companies.reduce((a, c) => a + (c.focus_jobs ?? 0), 0);
-  const dormant = companies.filter((c) => c.status === "休眠").length;
-  const newCount = companies.filter((c) => c.status === "新規").length;
 
   return (
     <div className="page">
@@ -34,9 +47,10 @@ export default async function CompaniesPage() {
           <h1>企業管理</h1>
           <div className="sub">
             取引先 <b style={{ color: "var(--color-ink)" }}>{total.toLocaleString("ja-JP")} 社</b> · 進行中案件 <b style={{ color: "var(--color-ink)" }}>{activeTotal.toLocaleString("ja-JP")} 件</b>。
-            実在案件のクライアント名から自動集約し、案件数でA/B/Cを推定しています。
+            案件・人材データから自動集約。企業マスタは案件/人材が無くても残ります。
           </div>
         </div>
+        <div style={{ flexShrink: 0 }}><CompanyCsv registered={registered} /></div>
       </div>
 
       {needSetup && (
@@ -45,24 +59,7 @@ export default async function CompaniesPage() {
         </div>
       )}
 
-      <div className="kpi-grid">
-        <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.company /></div><div className="chip flat">{tierA}社 / A</div></div>
-          <div><div className="val tnum">{total.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">取引先 全数</div><div className="note">{newCount} 新規 · {dormant} 休眠</div></div>
-        </div>
-        <div className="kpi">
-          <div className="top"><div className="ico-box"><Icons.jobs /></div><div className="chip">募集中</div></div>
-          <div><div className="val tnum">{activeTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">進行中案件</div><div className="note">{total} 社合計</div></div>
-        </div>
-        <div className="kpi accent">
-          <div className="top"><div className="ico-box"><Icons.star /></div><div className="chip">♥</div></div>
-          <div><div className="val tnum">{focusTotal.toLocaleString("ja-JP")}<span className="unit">件</span></div><div className="label">注力案件</div><div className="note">企業横断</div></div>
-        </div>
-        <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip">休眠</div></div>
-          <div><div className="val tnum">{dormant.toLocaleString("ja-JP")}<span className="unit">社</span></div><div className="label">休眠（90日超）</div><div className="note">再アプローチ候補</div></div>
-        </div>
-      </div>
+      {followups.length > 0 && <CompanyFollowups items={followups} />}
 
       {!needSetup && <CompaniesView companies={companies} registered={registered} />}
     </div>

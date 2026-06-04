@@ -3,11 +3,50 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
+import { callLLM, parseJsonLoose } from "@/lib/llm";
+import { logUsage } from "@/lib/ai-usage";
 import type { Verdict } from "@/lib/client-feedback";
 
 type Result = { ok: boolean; error?: string };
 
-export const CONTRACT_TYPES = ["SES", "紹介", "派遣"] as const;
+type CompanyDraft = { mission?: string; culture?: string; ideal_persona?: string; appeal?: string };
+
+/** 会社サイトURLから AI で企業プロフィール（Mission等）を下書き生成。client のみ。 */
+export async function draftCompanyProfileFromUrl(url: string): Promise<{ ok: boolean; error?: string; draft?: CompanyDraft }> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  const u = (url || "").trim();
+  if (!/^https?:\/\/.+/i.test(u)) return { ok: false, error: "URL の形式が正しくありません（https://… で入力）" };
+
+  // サイト本文を取得（サーバー側）。HTMLをざっくりテキスト化して上限まで。
+  let text = "";
+  try {
+    const res = await fetch(u, { headers: { "User-Agent": "ENGER-bot/1.0" }, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return { ok: false, error: `サイト取得に失敗しました (HTTP ${res.status})` };
+    const html = await res.text();
+    text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ").replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 6000);
+  } catch (e: any) {
+    return { ok: false, error: "サイトの取得に失敗しました。URL をご確認ください。" };
+  }
+  if (text.length < 80) return { ok: false, error: "サイト本文を十分に取得できませんでした。別ページのURLをお試しください。" };
+
+  const system = "あなたは採用広報の編集者です。企業サイトの本文から、エンジニア採用向けに以下を日本語で簡潔に抽出・要約します。誇張や創作はせず、本文から読み取れる範囲で。JSONのみ出力：{\"mission\":\"事業の目的・ミッション(2-3文)\",\"culture\":\"カルチャー・働き方・価値観(2-3文)\",\"ideal_persona\":\"求める人物像(2-3文)\",\"appeal\":\"自社の魅力・強み(1-2文)\"}。読み取れない項目は空文字。";
+  const res = await callLLM({ system, prompt: `企業サイト本文：\n${text}`, maxTokens: 700, temperature: 0.4 });
+  if (!res.ok) return { ok: false, error: res.error || "AI生成に失敗しました" };
+  await logUsage("company", res.model, res.usage);
+  const draft = parseJsonLoose<CompanyDraft>(res.text);
+  if (!draft) return { ok: false, error: "AIの応答を解析できませんでした。再度お試しください。" };
+  return { ok: true, draft: { mission: draft.mission ?? "", culture: draft.culture ?? "", ideal_persona: draft.ideal_persona ?? "", appeal: draft.appeal ?? "" } };
+}
+
+// 注意: "use server" ファイルは async 関数のみ export 可。定数は内部に留める（クライアントは独自定義を使用）。
+const CONTRACT_TYPES = ["SES", "紹介", "派遣"] as const;
 
 /** 企業が自社案件を掲載（下書き→審査中）。client のみ。承認後に公開される。 */
 export async function createClientJob(input: {
@@ -84,6 +123,43 @@ export async function expressTalentInterest(input: { kind: "candidate" | "profil
     // 既に申込済み（unique制約違反）はエラー扱いしない
     if (error && !/duplicate|unique/i.test(error.message)) return { ok: false, error: error.message };
     revalidatePath("/portal/candidates");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** 企業が自社プロフィール（Mission等）を保存。client のみ・自社のみ。 */
+export async function saveCompanyProfile(input: { mission?: string; culture?: string; ideal_persona?: string; appeal?: string; website?: string }): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  if (!access.companyName) return { ok: false, error: "会社名が未設定です。管理者にご連絡ください。" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("company_profiles").upsert({
+      company: access.companyName,
+      mission: input.mission?.trim() || null,
+      culture: input.culture?.trim() || null,
+      ideal_persona: input.ideal_persona?.trim() || null,
+      appeal: input.appeal?.trim() || null,
+      website: input.website?.trim() || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "company" });
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/portal/company");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** 営業/管理者：企業からの人材リクエストの対応状況を更新（new/contacted/closed）。 */
+export async function updateTalentRequestStatus(id: string, status: "new" | "contacted" | "closed"): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません" };
+  if (!["new", "contacted", "closed"].includes(status)) return { ok: false, error: "不正なステータスです" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("talent_interest").update({ status }).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }

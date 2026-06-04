@@ -1,9 +1,9 @@
-import { StaffManager } from "@/components/StaffManager";
 import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
-import { getStaff } from "@/lib/staff";
+import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
+import { loadFocusCriteria } from "@/lib/focus";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +22,10 @@ async function getQuality(): Promise<{ rules: Rule[]; available: boolean; ngCoun
 }
 
 export default async function SettingsPage() {
-  const staff = await getStaff();
   const accounts = await listAccounts();
   const usage = await getUsageStats();
   const quality = await getQuality();
+  const focusCriteria = await loadFocusCriteria();
   const maxDaily = Math.max(0.0001, ...usage.daily.map((d) => d.usd));
 
   return (
@@ -34,12 +34,12 @@ export default async function SettingsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Settings · 設定</div>
           <h1>設定</h1>
-          <div className="sub">担当者マスタの管理と、AI機能の使用量・概算コストを確認できます。</div>
+          <div className="sub">アカウント・権限、注力の定義、品質ルール、AI使用量を管理します。提案者・クロージング担当の選択肢は「アカウント・権限管理」の社内メンバー（管理者・エージェント）から自動で作られます。</div>
         </div>
       </div>
 
       {/* AI使用量 */}
-      <div className="card">
+      <div className="card" id="ai-usage" style={{ scrollMarginTop: 80 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🤖 AI使用量・概算コスト</h3>
           <span className="muted" style={{ fontSize: 11 }}>直近30日 / 概算（¥{YEN_PER_USD}/$ 換算）</span>
@@ -84,11 +84,11 @@ export default async function SettingsPage() {
         )}
       </div>
 
-      <QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} />
+      <div id="focus" style={{ scrollMarginTop: 80 }}><FocusCriteriaEditor initial={focusCriteria} /></div>
 
-      <AccountManager accounts={accounts} />
+      <div id="quality" style={{ scrollMarginTop: 80 }}><QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} /></div>
 
-      <StaffManager rows={staff.rows} fromTable={staff.fromTable} />
+      <div id="accounts" style={{ scrollMarginTop: 80 }}><AccountManager accounts={accounts} /></div>
     </div>
   );
 }

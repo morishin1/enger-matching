@@ -34,3 +34,33 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
 
   redirect(redirectTo.startsWith("/") ? redirectTo : "/");
 }
+
+export type ResetState = { ok?: boolean; error?: string } | null;
+
+/** パスワード再設定メールを送信。存在の有無は明かさず常に成功扱い（列挙防止）。 */
+export async function requestPasswordReset(_prev: ResetState, formData: FormData): Promise<ResetState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "メールアドレスの形式が正しくありません" };
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://dx.enger.jp").replace(/\/$/, "");
+  try {
+    const supabase = await authServerClient();
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${site}/api/auth/callback?next=/reset-password` });
+  } catch { /* エラー内容も明かさない */ }
+  return { ok: true };
+}
+
+/** メールのリンクから入った状態で新しいパスワードを設定。 */
+export async function updatePassword(_prev: ResetState, formData: FormData): Promise<ResetState> {
+  const pw = String(formData.get("password") ?? "");
+  const pw2 = String(formData.get("password2") ?? "");
+  if (pw.length < 8) return { error: "パスワードは8文字以上で入力してください" };
+  if (pw !== pw2) return { error: "確認用パスワードが一致しません" };
+  try {
+    const supabase = await authServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "リンクの有効期限が切れています。お手数ですが、もう一度「パスワードを忘れた方」からやり直してください。" };
+    const { error } = await supabase.auth.updateUser({ password: pw });
+    if (error) return { error: error.message };
+    return { ok: true };
+  } catch (e: any) { return { error: String(e?.message ?? e) }; }
+}

@@ -83,3 +83,56 @@ async function fetchCompanies(): Promise<CompanyRow[] | null> {
 
 // 案件集計は重いので 5 分キャッシュ
 export const getCompanyOverview = unstable_cache(fetchCompanies, ["company-overview"], { revalidate: 300 });
+
+// ===== 取引構造（エンド/SI＝案件元 × パートナーSES＝人材元）=====
+
+export type CompanyMatrixRow = { name: string; jobs: number; cands: number; type: "エンド/SI" | "パートナー" | "両取引" };
+export type CompanyMatrix = {
+  endCount: number; partnerCount: number; bothCount: number; totalJobs: number; totalCands: number;
+  rows: CompanyMatrixRow[];
+  reco: { text: string; tone: string };
+};
+
+/** 企業名の名寄せキー（株式会社等の法人格・空白・記号を除去）。 */
+const compKey = (s: string) => String(s || "").toLowerCase()
+  .replace(/(株式会社|有限会社|合同会社|合資会社|\(株\)|（株）|㈱|inc\.?|co\.?,?\s*ltd\.?|ltd\.?|corp\.?|corporation)/g, "")
+  .replace(/[\s　()（）・,，、。.\-－_/／]/g, "");
+
+async function fetchCompanyMatrix(): Promise<CompanyMatrix | null> {
+  if (!dbConfigured) return null;
+  try {
+    const sb = engerClient();
+    const page = async (table: string, cols: string, filter?: (q: any) => any) => {
+      let all: any[] = []; for (let from = 0; ; from += 1000) { let q = sb.from(table).select(cols).range(from, from + 999); if (filter) q = filter(q); const { data, error } = await q; if (error || !data) break; all = all.concat(data); if (data.length < 1000) break; } return all;
+    };
+    const jobsRows = await page("jobs", "client_name", (q) => q.eq("is_published", true));
+    const candRows = await page("candidates", "company, source_company");
+
+    const jobMap = new Map<string, { name: string; n: number }>();
+    const candMap = new Map<string, { name: string; n: number }>();
+    for (const r of jobsRows) { const nm = String(r.client_name || "").trim(); if (!nm) continue; const k = compKey(nm); const e = jobMap.get(k) ?? { name: nm, n: 0 }; e.n++; jobMap.set(k, e); }
+    for (const r of candRows) { const nm = String(r.company || r.source_company || "").trim(); if (!nm) continue; const k = compKey(nm); const e = candMap.get(k) ?? { name: nm, n: 0 }; e.n++; candMap.set(k, e); }
+
+    const keys = new Set([...jobMap.keys(), ...candMap.keys()]);
+    const rows: CompanyMatrixRow[] = [...keys].map((k) => {
+      const jobs = jobMap.get(k)?.n ?? 0, cands = candMap.get(k)?.n ?? 0;
+      const name = jobMap.get(k)?.name || candMap.get(k)?.name || k;
+      const type: CompanyMatrixRow["type"] = jobs > 0 && cands > 0 ? "両取引" : jobs > 0 ? "エンド/SI" : "パートナー";
+      return { name, jobs, cands, type };
+    }).sort((a, b) => (b.jobs + b.cands) - (a.jobs + a.cands));
+
+    const totalJobs = rows.reduce((a, r) => a + r.jobs, 0);
+    const totalCands = rows.reduce((a, r) => a + r.cands, 0);
+    const endCount = rows.filter((r) => r.jobs > 0).length;
+    const partnerCount = rows.filter((r) => r.cands > 0).length;
+    const bothCount = rows.filter((r) => r.jobs > 0 && r.cands > 0).length;
+
+    let reco = { text: "案件（エンド/SI）と人材（パートナー）のバランスは良好です。", tone: "#1aa260" };
+    if (totalJobs < totalCands * 0.7) reco = { text: `案件が不足気味（案件 ${totalJobs} ＜ 人材 ${totalCands}）。直案件を持つ エンド/SI企業の開拓 を強化しましょう。`, tone: "#d23f57" };
+    else if (totalCands < totalJobs * 0.7) reco = { text: `人材が不足気味（人材 ${totalCands} ＜ 案件 ${totalJobs}）。人材を送ってくる パートナー(SES)企業の開拓 を強化しましょう。`, tone: "#d98a2b" };
+
+    return { endCount, partnerCount, bothCount, totalJobs, totalCands, rows: rows.slice(0, 100), reco };
+  } catch { return null; }
+}
+
+export const getCompanyMatrix = unstable_cache(fetchCompanyMatrix, ["company-matrix"], { revalidate: 300 });

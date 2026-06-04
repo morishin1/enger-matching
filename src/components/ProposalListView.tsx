@@ -1,0 +1,329 @@
+"use client";
+
+// 提案管理のリスト型ビュー（過去に作った見やすい型を再現）。
+//   - 上部に ステージ別 KPI カード（クリックで絞り込み）
+//   - 人材/案件/クライアントの検索
+//   - ステージ・担当者での絞り込み
+//   - テーブル（行クリックで詳細モーダル）
+// カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { ProposalDetailModal } from "./ProposalDetailModal";
+import { NotifyChip } from "./NotifyDot";
+import { deleteProposal } from "@/lib/actions";
+import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
+
+const STAGES = [...PROPOSAL_STAGES];
+const STAGE_TONE: Record<string, string> = {
+  返信待ち: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
+};
+const normStage = (s: string | null | undefined) => (s && (STAGES as readonly string[]).includes(s) ? s : "返信待ち");
+const fmtDate = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`; };
+const fmtDateTime = (d: any) => {
+  if (!d) return "—";
+  const t = new Date(d);
+  if (isNaN(t.getTime())) return "—";
+  return `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+};
+const daysAgo = (d: any) => {
+  if (!d) return 0;
+  const t = new Date(d).getTime();
+  if (isNaN(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+};
+
+// 安定カラー（同じ名前は同じ色）— 提案者・CLの見分け用
+const PALETTE = ["#0b5cab", "#7c3aed", "#1aa260", "#d97706", "#dc2626", "#0891b2", "#db2777", "#65a30d", "#475569", "#ea580c", "#4338ca", "#0d9488"];
+function hashColor(name?: string | null): string {
+  if (!name) return "#9aa7b4";
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+
+// ネクストアクション判定。ステージ × 通知ステータス × 滞留日数から「今何をすべきか」を返す。
+type NextAction = { text: string; urgency: "high" | "medium" | "low" | "ok"; icon: string };
+function nextActionFor(p: any): NextAction {
+  const stage = normStage(p.stage);
+  const jobPending = !p.job_notify_status || p.job_notify_status === "pending";
+  const candPending = !p.cand_notify_status || p.cand_notify_status === "pending";
+  const stageDays = daysAgo(p.stage_updated_at || p.updated_at || p.created_at);
+  const caller = p.caller_status || "";
+
+  if (stage === "面談合格") return { text: "稼働化へ（契約・条件確認）", urgency: "high", icon: "rocket_launch" };
+  if (stage === "クロージング中") return { text: "条件・最終決裁の詰め", urgency: "high", icon: "handshake" };
+
+  if (stage === "面談調整") {
+    if (p.meeting_date && p.meeting_status !== "実施済") return { text: `面談 ${String(p.meeting_date).slice(5)} 当日対応`, urgency: "medium", icon: "event_available" };
+    return { text: "面談日程の確定", urgency: "high", icon: "event" };
+  }
+
+  if (stage === "提案中") {
+    if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "schedule_send" };
+    if (stageDays >= 3) return { text: `状況確認・フォロー`, urgency: "medium", icon: "schedule_send" };
+    return { text: "返信待ち（必要に応じてフォロー）", urgency: "low", icon: "schedule" };
+  }
+
+  // 返信待ち
+  if (caller === "未架電" || !caller) {
+    if (jobPending && candPending) return { text: "案件・人材へ初回コンタクト", urgency: "high", icon: "call" };
+    if (jobPending) return { text: "クライアントへ確認連絡", urgency: "medium", icon: "business" };
+    if (candPending) return { text: "候補者へ意思確認", urgency: "medium", icon: "person" };
+  }
+  if (jobPending) return { text: "クライアントへフォロー", urgency: "medium", icon: "business" };
+  if (candPending) return { text: "候補者へフォロー", urgency: "medium", icon: "person" };
+  if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "priority_high" };
+  return { text: "フォロー検討", urgency: "low", icon: "schedule" };
+}
+
+const URGENCY_TONE: Record<NextAction["urgency"], { fg: string; bg: string; bd: string }> = {
+  high:   { fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf" },
+  medium: { fg: "#b45309", bg: "#fff6e0", bd: "#fde9b0" },
+  low:    { fg: "#0b5cab", bg: "#eaf4fd", bd: "#bfd9f5" },
+  ok:     { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc" },
+};
+
+function PersonTag({ role, name }: { role: "P" | "CL"; name?: string | null }) {
+  const v = name?.trim();
+  if (!v) return <span className="muted" style={{ fontSize: 10.5 }}>{role === "P" ? "提案 未割当" : "CL 未割当"}</span>;
+  const col = hashColor(v);
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: `${col}1a`, color: col, border: `1px solid ${col}55`, whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 9, opacity: 0.75 }}>{role}</span>{v}
+    </span>
+  );
+}
+
+function StageBadge({ stage }: { stage: string }) {
+  const tone = STAGE_TONE[stage] ?? "#6b7280";
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99, background: `${tone}14`, color: tone }}>
+      <span style={{ width: 6, height: 6, borderRadius: 99, background: tone }} />{stage}
+    </span>
+  );
+}
+
+// 受信者の応答タイプ（PR #130 で導入された job_action_type / cand_action_type 列）。
+const ACTION_TONE: Record<string, { fg: string; bg: string; dashed: boolean }> = {
+  "未回答":    { fg: "#94a3b8", bg: "transparent", dashed: true },
+  "話を進める": { fg: "#16a34a", bg: "#dcfce7",    dashed: false },
+  "見送り":    { fg: "#dc2626", bg: "#fee2e2",    dashed: false },
+};
+const ACTION_SIDE_LABEL: Record<"job" | "cand", string> = { job: "案", cand: "人" };
+
+function ActionChip({ type, side }: { type?: string | null; side: "job" | "cand" }) {
+  const t = type && ACTION_TONE[type] ? type : "未回答";
+  const tone = ACTION_TONE[t];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
+      background: tone.bg, color: tone.fg,
+      border: `1px ${tone.dashed ? "dashed" : "solid"} ${tone.fg}55`,
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: 99, background: t === "未回答" ? "transparent" : tone.fg, border: t === "未回答" ? "1px dashed #94a3b8" : "none" }} />
+      <span>{ACTION_SIDE_LABEL[side]}</span>
+      <span style={{ fontSize: 9.5, opacity: 0.9 }}>{t}</span>
+    </span>
+  );
+}
+
+export function ProposalListView({ proposals }: { proposals: any[]; members?: string[] }) {
+  const router = useRouter();
+  const [busy, start] = useTransition();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [stageFilter, setStageFilter] = useState<string>("");
+  const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [pendingOnly, setPendingOnly] = useState(false);
+  const [active, setActive] = useState<any | null>(null);
+  const isPending = (v: any) => v == null || v === "pending";
+
+  const handleDelete = (p: any) => {
+    if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
+    setBusyId(p.id);
+    start(async () => {
+      const r = await deleteProposal(p.id);
+      setBusyId(null);
+      if (!r.ok) { alert(("error" in r ? r.error : null) || "削除に失敗しました"); return; }
+      router.refresh();
+    });
+  };
+  const pendingCount = useMemo(() => proposals.filter((p) => isPending(p.job_notify_status) || isPending(p.cand_notify_status)).length, [proposals]);
+
+  // ステージ別件数（KPI）
+  const counts = useMemo(() => {
+    const m: Record<string, number> = Object.fromEntries(STAGES.map((s) => [s, 0]));
+    for (const p of proposals) m[normStage(p.stage)] = (m[normStage(p.stage)] ?? 0) + 1;
+    return m;
+  }, [proposals]);
+
+  // 担当者の選択肢（提案者・パートナー・クロージングをまとめて）
+  const owners = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of proposals) { for (const k of [p.proposer, p.partner, p.closer, p.company_owner]) if (k) set.add(k); }
+    return [...set].sort();
+  }, [proposals]);
+
+  const rows = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return proposals
+      .filter((p) => !stageFilter || normStage(p.stage) === stageFilter)
+      .filter((p) => !ownerFilter || [p.proposer, p.partner, p.closer, p.company_owner].includes(ownerFilter))
+      .filter((p) => !pendingOnly || isPending(p.job_notify_status) || isPending(p.cand_notify_status))
+      .filter((p) => {
+        if (!needle) return true;
+        return [p.candidate_name, p.c_init, p.job_title, p.company, p.client_contact].some((v) => String(v ?? "").toLowerCase().includes(needle));
+      })
+      .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+  }, [proposals, q, stageFilter, ownerFilter, pendingOnly]);
+
+  const th: React.CSSProperties = { textAlign: "left", padding: "10px 12px", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, whiteSpace: "nowrap" };
+  const td: React.CSSProperties = { padding: "10px 12px", fontSize: 12.5, verticalAlign: "middle" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* KPI カード（ステージ別・クリックで絞り込み） */}
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(140px, 1fr))`, gap: 10, overflowX: "auto" }}>
+        {STAGES.map((s) => {
+          const tone = STAGE_TONE[s] ?? "#6b7280";
+          const on = stageFilter === s;
+          return (
+            <button key={s} type="button" onClick={() => setStageFilter(on ? "" : s)} title={on ? "絞り込み解除" : `「${s}」で絞り込み`}
+              className="card" style={{ textAlign: "left", padding: 14, cursor: "pointer", border: on ? `2px solid ${tone}` : "1px solid var(--color-border)", background: on ? `${tone}0d` : "var(--color-surface)", fontFamily: "inherit" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: tone }}>
+                <span style={{ width: 8, height: 8, borderRadius: 99, background: tone }} />{s}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 6 }}>
+                <span className="tnum" style={{ fontSize: 26, fontWeight: 800, lineHeight: 1 }}>{counts[s] ?? 0}</span>
+                <span className="muted" style={{ fontSize: 11 }}>件</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 検索 + フィルタ */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: "1 1 320px", minWidth: 240 }}>
+          <span className="material-symbols-outlined" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 18, color: "var(--color-ink-4)" }}>search</span>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="人材名・案件名・クライアントで検索…"
+            style={{ width: "100%", fontFamily: "inherit", fontSize: 13, padding: "10px 12px 10px 38px", borderRadius: 10, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+        </div>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }}>
+          ステータス
+          <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+            <option value="">すべて</option>
+            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }}>
+          担当者
+          <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+            <option value="">すべて</option>
+            {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <button type="button" onClick={() => setPendingOnly((v) => !v)} aria-pressed={pendingOnly}
+          title="未処理（赤ドット）の提案だけを表示"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 8,
+            border: "1px solid " + (pendingOnly ? "#dc2626" : "var(--color-border-strong)"),
+            background: pendingOnly ? "#dc2626" : "var(--color-surface)", color: pendingOnly ? "#fff" : "var(--color-ink-2)", cursor: "pointer" }}>
+          <span style={{ width: 8, height: 8, borderRadius: 99, background: pendingOnly ? "#fff" : "#dc2626" }} />
+          未処理のみ <span style={{ opacity: 0.85 }}>({pendingCount})</span>
+        </button>
+      </div>
+
+      {/* テーブル */}
+      <div className="card" style={{ padding: 0, overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <th style={th}>提案日時</th>
+              <th style={th}>人材</th>
+              <th style={th}>案件</th>
+              <th style={th}>提案者 / CL</th>
+              <th style={th}>更新日</th>
+              <th style={th}>ステータス</th>
+              <th style={th}>ネクストアクション</th>
+              <th style={th}>通知</th>
+              <th style={{ ...th, textAlign: "center" }}>詳細</th>
+              <th style={{ ...th, textAlign: "center" }}>削除</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={10} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
+            )}
+            {rows.map((p) => {
+              const na = nextActionFor(p);
+              const naTone = URGENCY_TONE[na.urgency];
+              const closerName = p.closer ?? p.company_owner;
+              return (
+              <tr key={p.id} onClick={() => setActive(p)} style={{ borderBottom: "1px solid var(--color-border)", cursor: "pointer", opacity: busyId === p.id ? 0.5 : 1 }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-soft)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDateTime(p.created_at)}</td>
+                <td style={td}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{p.candidate_name ?? "—"}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style={td}>
+                  <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.job_title ?? "—"}</div>
+                  <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.company ?? ""}</div>
+                </td>
+                <td style={td}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                    <PersonTag role="P" name={p.proposer} />
+                    <PersonTag role="CL" name={closerName === "未割当" ? null : closerName} />
+                  </div>
+                </td>
+                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
+                <td style={td}><StageBadge stage={normStage(p.stage)} /></td>
+                <td style={td}>
+                  <span title={`緊急度: ${na.urgency}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
+                    {na.text}
+                  </span>
+                </td>
+                <td style={td}>
+                  <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+                    {/* 受信側の応答ステータス（PR #130 で導入された action_type 列を使用） */}
+                    <div style={{ display: "inline-flex", gap: 4 }}>
+                      <ActionChip type={p.job_action_type}  side="job"  />
+                      <ActionChip type={p.cand_action_type} side="cand" />
+                    </div>
+                    {/* 営業側のフォロー進捗（通知ステータス〇） */}
+                    <div style={{ display: "inline-flex", gap: 4 }}>
+                      <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
+                      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                    </div>
+                  </div>
+                </td>
+                <td style={{ ...td, textAlign: "center" }}>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setActive(p); }} className="btn ghost btn-xs" aria-label="詳細を開く" title="詳細を開く">
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-brand-700)" }}>mail</span>
+                  </button>
+                </td>
+                <td style={{ ...td, textAlign: "center" }}>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(p); }} className="btn ghost btn-xs" aria-label="提案を削除" title="提案を削除（元に戻せません）" disabled={busy && busyId === p.id}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-danger)" }}>delete</span>
+                  </button>
+                </td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="muted" style={{ fontSize: 11.5 }}>{rows.length} 件を表示中{stageFilter || ownerFilter || q ? "（絞り込み適用中）" : ""}</div>
+
+      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} />}
+    </div>
+  );
+}

@@ -10,10 +10,13 @@ export default async function EngineersPage() {
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">ENGER · エンジャー登録（LP連携）</div>
-          <h1>エンジャー登録</h1>
+          <div className="meta">ENGER · LP登録（各ランディングページ経由）</div>
+          <h1>LP登録</h1>
           <div className="sub">
-            <b>enger.jp</b>（GitHub連携）で本人が登録したエンジニアです。中央 Supabase <b className="mono">public.profiles</b> を共有しており、LP側で登録されると自動でここに表示されます。スキル・想定単価は GitHub 解析に基づく参考値です。
+            各LP（<b>enger.jp</b> / <b>無限道場</b> など）から中央 Supabase <b className="mono">public.profiles</b> へ登録され自動表示されます。
+            各バッジは <b>「LP名 · 登録方式」</b> を表示（例：エンジャーLP · GitHub / 無限道場LP · Google）。各行の「✦ マッチング」で候補者として取り込み、マッチング画面で案件を探せます。
+            <br />
+            <span className="muted" style={{ fontSize: 11.5 }}>※ 正確な判別には profiles に <code>signup_source</code> / <code>signup_method</code> 列の保存を推奨（未実装でもヒューリスティックで判定）。</span>
           </div>
         </div>
       </div>

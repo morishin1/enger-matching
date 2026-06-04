@@ -253,6 +253,12 @@ button { font-family: inherit; }
 .col-menu-item.disabled { color: var(--color-ink-4); cursor: default; }
 .bulk-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--color-ink); color: #fff; font-size: 13px; }
 .bulk-bar b { font-size: 15px; }
+/* 濃色バー上のゴーストボタンが黒文字で見えない問題を解消（白文字＋半透明枠） */
+.bulk-bar .btn.ghost { color: #fff; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.10); }
+.bulk-bar .btn.ghost:hover { background: rgba(255,255,255,.22); }
+/* 一覧テーブルを縦に詰めて多く表示 */
+.tbl-compact thead th { padding: 8px 14px; }
+.tbl-compact tbody td { padding: 7px 14px; }
 .tbl tbody tr.row-sel td { background: var(--color-brand-25); }
 .tbl-foot { padding: 12px 16px; font-size: 11.5px; border-top: 1px solid var(--color-border); }
 .rank-badge { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 99px; font: 700 12px var(--font-display); background: var(--color-brand-50); color: var(--color-brand-700); }
@@ -333,4 +339,18 @@ button { font-family: inherit; }
   .kpi-grid { grid-template-columns: 1fr; }
   .page-head h1 { font-size: 21px; }
   .crumbs { font-size: 12px; }
+  /* スマホ：横長テーブルは横スクロールで崩さない（#28） */
+  .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tbl-scroll .tbl { min-width: 600px; }
+  .page { padding-left: 14px; padding-right: 14px; }
+  .duo-grid, .kpi-grid { gap: 12px; }
 }
+
+/* 通知ステータスの未処理ドットの脈動。やってないと光って「早くやって」と促す。 */
+@keyframes engerNotifyPulse {
+  0%   { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0);    }
+}
+.enger-notify-pulse { animation: engerNotifyPulse 1.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .enger-notify-pulse { animation: none; } }

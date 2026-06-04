@@ -27,6 +27,7 @@ function makeIcon(name: string, defaultFill = false) {
 // キー → Material Symbol 名（既存の呼び出し名は維持）
 export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   dashboard: makeIcon("dashboard"),
+  person_add: makeIcon("person_add"),
   matching: makeIcon("compare_arrows"),
   jobs: makeIcon("work"),
   people: makeIcon("groups"),
@@ -60,4 +61,5 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   engineers: makeIcon("badge"),
   loc: makeIcon("location_on"),
   clock: makeIcon("schedule"),
+  doc: makeIcon("description"),
 };

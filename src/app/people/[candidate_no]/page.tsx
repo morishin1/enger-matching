@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { MailButton } from "@/components/MailButton";
+import { EditCandidateButton } from "@/components/EditEntryButton";
+import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject } from "@/lib/gmail";
+import { getViewerScope } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +19,10 @@ const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
   ) : null;
 
 export default async function SkillSheetPage({ params }: { params: Promise<{ candidate_no: string }> }) {
+  // 個別詳細ページは社内(admin/agent)のみ。テナント隔離ロールは一覧ドロワーの匿名表示のみ。
+  const scope = await getViewerScope();
+  if (scope.isTenant) redirect("/people");
+
   const { candidate_no } = await params;
   const no = Number(candidate_no);
   let c: any = null;
@@ -23,8 +31,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "candidate_no, name, initials, title, affiliation, source_company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
-      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank`).eq("candidate_no", no).maybeSingle();
+      const base = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
+      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
     } catch (e) {
@@ -61,11 +69,14 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <div>
           <div className="meta">Skill Sheet · スキルシート</div>
           <h1>{c.name} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></h1>
-          <div className="sub">{[c.title, c.affiliation ?? c.source_company].filter(Boolean).join(" · ") || "—"}</div>
+          <div className="sub">{(() => { const co = c.source_company || c.company; const com = co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation); return [c.title, com].filter(Boolean).join(" · ") || "—"; })()}</div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
           <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
+          <EditCandidateButton candidate={c} />
+          <DeleteEntityButton kind="candidates" idValue={c.candidate_no} label={c.name ?? undefined} />
           <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>
       </div>

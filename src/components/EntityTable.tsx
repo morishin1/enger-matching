@@ -8,7 +8,10 @@ import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { AffiliationSelect } from "./AffiliationSelect";
-import { bulkSetFocus } from "@/lib/actions";
+import { EditCandidateButton, EditJobButton } from "./EditEntryButton";
+import { DeleteEntityButton } from "./DeleteEntityButton";
+import { MeetingGateBanner } from "./MeetingGateBanner";
+import { bulkSetFocus, bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -84,60 +87,108 @@ type Col = {
 
 export type EntityKind = "jobs" | "people";
 
+// 上位3スキルをタグ表示（マッチ要因が一目で分かるよう、既定の .tag.brand スタイルで表示）
+function SkillTags({ skills }: { skills?: unknown }) {
+  const ss = Array.isArray(skills) ? (skills as string[]) : [];
+  const top = ss.slice(0, 3);
+  const more = ss.length - top.length;
+  if (ss.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      {top.map((s) => <span key={s} className="tag brand">{s}</span>)}
+      {more > 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{more}</span>}
+    </div>
+  );
+}
+
 const JOB_COLS: Col[] = [
   { key: "id", label: "案件ID", width: 84, render: (j) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</span> },
+  { key: "created", label: "掲載日", width: 96, defaultHidden: true, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (j) => freshnessLabel(j.created_at), filterFixed: FRESH_OPTIONS, render: (j) => <Fresh d={j.created_at} /> },
   {
     key: "title", label: "案件名", always: true,
-    search: (j) => `${j.title ?? ""} ${(j.skills ?? []).join(" ")}`,
-    render: (j) => <div className="pri" style={{ lineHeight: 1.4 }}>{j.title}</div>,
+    search: (j) => `${j.job_no ?? ""} ${j.title ?? ""}`,
+    render: (j) => (
+      // 行クリックは常にドロワーで詳細を開く動線に統一。案件ページへの遷移はドロワー内ボタンから。
+      <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
+        <span>{j.title}</span>
+        {j.is_published === false && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
+      </div>
+    ),
   },
+  { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
   { key: "client", label: "クライアント名", search: (j) => j.client_name ?? "", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
-  { key: "flow", label: "商流制限", width: 110, filterLabel: "商流", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
-  { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag" style={{ fontSize: 10.5 }}>{j.role_label}</span> : <span className="muted">—</span>) },
+  { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterLabel: "リモート", filter: (j) => remoteLabel(j.remote_type), render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span> },
-  { key: "created", label: "作成日", width: 100, num: true, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
+  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterLabel: "商流", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (j) => salaryBand(j.salary_max ?? j.salary_min ?? null) },
 ];
 
 const PEOPLE_COLS: Col[] = [
   { key: "id", label: "人材ID", width: 84, render: (p) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</span> },
+  { key: "created", label: "登録日", width: 96, defaultHidden: true, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterLabel: "ステータス", filter: (p) => freshnessLabel(p.created_at), filterFixed: FRESH_OPTIONS, render: (p) => <Fresh d={p.created_at} /> },
   {
     key: "name", label: "氏名", always: true,
-    search: (p) => `${p.name ?? ""} ${(p.skills ?? []).join(" ")}`,
-    render: (p) => (
-      <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none" }}>
+    search: (p) => `${p.candidate_no ?? ""} ${p.name ?? ""}`,
+    render: (p) => {
+      // サブ行は区分(affiliation)のみ。会社名は独立の「会社」列で表示（見つけやすさ重視）。
+      // 行クリックは常にドロワーで詳細を開く動線に統一（人材ページへの遷移はドロワー内ボタンから）。
+      const sub = p.affiliation || "";
+      return (
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
-          <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
+          <div style={{ minWidth: 0 }}>
+            <div className="pri" style={{ color: "var(--color-brand-700)" }}>{p.name}</div>
+            {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
+          </div>
         </div>
-      </Link>
-    ),
+      );
+    },
   },
-  { key: "client", label: "クライアント名", search: (p) => p.source_company ?? "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.source_company ?? "—"}</span> },
-  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
+  // 会社名（所属）。該当人材を会社で見つけやすくするため独立カラムで表示。
+  {
+    key: "company", label: "会社", width: 168,
+    search: (p) => `${p.source_company ?? ""} ${p.company ?? ""}`,
+    render: (p) => {
+      const co = p.source_company || p.company;
+      return co
+        ? <span style={{ fontSize: 12, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }} title={co}>{co}</span>
+        : <span className="muted" style={{ fontSize: 12 }}>—</span>;
+    },
+  },
+  // マッチングの主要因。上位3スキル＋残数をタグ表示（既定の .tag.brand）。
+  { key: "skills", label: "スキル", render: (p) => <SkillTags skills={p.skills} /> },
+  { key: "exp", label: "経験", width: 76, render: (p) => <span style={{ fontSize: 12 }}>{p.exp ? (/^\d+$/.test(String(p.exp).trim()) ? `${String(p.exp).trim()}年` : p.exp) : "—"}</span> },
+  { key: "avail", label: "稼働開始", width: 112, render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.avail ?? "—"}</span> },
   { key: "title", label: "職種", filterLabel: "職種", filter: (p) => p.title || "", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
   { key: "remote", label: "リモート", width: 110, filterLabel: "リモート", filter: (p) => p.remote_pref || "", render: (p) => <span className="pill open">{p.remote_pref ?? "—"}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
-  { key: "created", label: "登録日", width: 100, num: true, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
+  {
+    key: "skill_sheet", label: "スキルシート", width: 120,
+    filterLabel: "スキルシート", filter: (p) => (p.skill_sheet_url ? "あり" : "なし"), filterFixed: [{ value: "あり", label: "あり" }, { value: "なし", label: "なし" }],
+    render: (p) => p.skill_sheet_url
+      ? <a href={p.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
+      : <span className="muted" style={{ fontSize: 12 }}>—</span>,
+  },
+  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 
-export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string; outsideOptions?: string[] }) {
+export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, partner = false, meetingDone = true, agentContact }: { kind: EntityKind; rows: any[]; total: number; initialQuery?: string; outsideOptions?: string[]; partner?: boolean; meetingDone?: boolean; agentContact?: { line?: string; email?: string; phone?: string } }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const cols = useMemo(() => {
     if (kind !== "jobs") return PEOPLE_COLS;
     const ownerCol: Col = {
-      key: "outside_owner", label: "エンド担当", width: 124,
+      key: "outside_owner", label: "エンド担当", width: 124, defaultHidden: true,
       filterLabel: "エンド担当", filter: (j) => j.outside_owner || "未設定",
       render: (j) => <OutsideOwnerSelect jobNo={j.job_no} value={j.outside_owner ?? null} options={outsideOptions ?? []} />,
     };
-    // 「クライアント名」の直後に挿入
-    const idx = JOB_COLS.findIndex((c) => c.key === "client");
+    // 「単価」の直後に挿入（先頭の並びを崩さない）
+    const idx = JOB_COLS.findIndex((c) => c.key === "salary");
     const out = [...JOB_COLS];
     out.splice(idx + 1, 0, ownerCol);
     return out;
@@ -147,10 +198,25 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
   const revalidate = kind === "jobs" ? "/jobs" : "/people";
 
   const [q, setQ] = useState(initialQuery ?? "");
+  // 300件のクライアント側フィルタだけでは古い案件/人材が拾えないので、入力をURL(?q=)に反映して
+  // サーバ側でDB全体を ilike 検索する。デバウンスして連打しないように。
+  useEffect(() => {
+    const cur = (initialQuery ?? "").trim();
+    const next = q.trim();
+    if (cur === next) return;
+    const h = setTimeout(() => {
+      const url = next ? `${revalidate}?q=${encodeURIComponent(next)}` : revalidate;
+      router.replace(url, { scroll: false });
+    }, 350);
+    return () => clearTimeout(h);
+  }, [q, initialQuery, revalidate, router]);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [hidden, setHidden] = useState<Set<string>>(() => new Set(cols.filter((c) => c.defaultHidden).map((c) => c.key)));
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [colMenu, setColMenu] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const colMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -187,10 +253,27 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     });
   }, [rows, q, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ページング（描画負荷を抑える：既定20件/ページ・件数選択可）
-  const [pageSize, setPageSize] = useState(20);
+  // ページング（描画負荷を抑える：既定50件/ページ・件数選択可）
+  const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(0);
   const [detail, setDetail] = useState<any | null>(null);
+  // 右からスライドインする詳細ドロワー。mount後に1フレーム置いて開く＝translateで滑らせる。
+  const [drawerIn, setDrawerIn] = useState(false);
+  useEffect(() => {
+    if (!detail) { setDrawerIn(false); return; }
+    const id = requestAnimationFrame(() => setDrawerIn(true));
+    return () => cancelAnimationFrame(id);
+  }, [detail]);
+  const closeDetail = () => { setDrawerIn(false); setTimeout(() => setDetail(null), 260); };
+  // 開いている間は背面スクロールを止め、Escで閉じる
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeDetail(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [detail]);
   useEffect(() => { setPage(0); }, [q, filters, pageSize]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
@@ -217,10 +300,28 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
     });
   };
 
+  const doDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setDeleting(true);
+    const res = kind === "jobs" ? await bulkDeleteJobs(ids) : await bulkDeleteCandidates(ids);
+    setDeleting(false);
+    setDeleteConfirm(false);
+    if (res.ok) {
+      setDeleteMsg({ ok: true, text: `${ids.length} 件を削除しました` });
+      setSelected(new Set());
+      router.refresh();
+    } else {
+      setDeleteMsg({ ok: false, text: res.error ?? "削除に失敗しました" });
+    }
+    setTimeout(() => setDeleteMsg(null), 4000);
+  };
+
   // 行のメール(元メールへ飛ぶ) + マッチングリンク
+  //   source_mail_url があれば該当メールへ直リンク。無ければ Gmail 検索（会社名＋案件名/氏名＋所属で絞り込み）。
   const mailFor = (r: any) => kind === "jobs"
-    ? { url: r.source_mail_url, search: r.client_name || r.title, to: r.contact_email }
-    : { url: r.source_mail_url, search: r.name || r.source_company, to: r.email ?? r.contact_email };
+    ? { url: r.source_mail_url, search: [r.client_name, r.title].filter(Boolean).join(" ") || r.title, to: r.contact_email }
+    : { url: r.source_mail_url, search: [r.name, r.source_company].filter(Boolean).join(" ") || r.name, to: r.email ?? r.contact_email };
   const matchHref = (r: any) => kind === "jobs" ? `/matching?job=${r.job_no}` : `/matching?person=${r.candidate_no}`;
   const titleOf = (r: any) => kind === "jobs" ? (r.title ?? `案件#${r.job_no}`) : (r.name ?? `人材#${r.candidate_no}`);
   const rankBadge = (n: number) => n === 1 ? "🥇" : n === 2 ? "🥈" : n === 3 ? "🥉" : `${n}`;
@@ -241,7 +342,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
       <div className="tbl-toolbar">
         <div className="tbl-search">
           <Icons.search />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={kind === "jobs" ? "案件名・クライアント・スキルで検索…" : "氏名・スキル・クライアントで検索…"} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={kind === "jobs" ? "案件名・案件No・クライアント名で検索…" : "氏名・人材No・会社名で検索…"} />
         </div>
         {filterCols.map((c) => (
           <label key={c.key} className="tbl-filter">
@@ -279,13 +380,19 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
               <span style={{ fontWeight: 700 }}>♥</span><span>注力に一括登録</span>
             </button>
             <button type="button" className="btn ghost" onClick={() => doBulk(false)} disabled={pending}>注力を解除</button>
+            {!partner && (
+              <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
+                style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
+                削除
+              </button>
+            )}
             <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
           </div>
         </div>
       )}
 
       <div className="tbl-scroll" style={{ overflowX: "auto" }}>
-        <table className="tbl">
+        <table className="tbl tbl-compact">
           <thead>
             <tr>
               <th style={{ width: 32 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="全選択" /></th>
@@ -322,12 +429,12 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <Link href={matchHref(r)} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+                        <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
                     </td>
                     <td>
-                      <FocusHeart key={`${id}-${r.is_focus ? 1 : 0}`} table={table} idField={idField as "job_no" | "candidate_no"} idValue={id} initial={!!r.is_focus} revalidate={revalidate} />
+                      <FocusHeart key={`${id}-${r.is_focus ? 1 : 0}`} table={table} idField={idField as "job_no" | "candidate_no"} idValue={id} initial={!!r.is_focus} revalidate={revalidate} row={r} />
                     </td>
                   </tr>
                 );
@@ -356,29 +463,154 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions }:
         </span>
       </div>
 
-      {/* 詳細モーダル */}
+      {/* 詳細ドロワー（右からスライドイン。案件詳細／人材詳細ページと同じデザインベース） */}
       {detail && (
-        <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div onClick={closeDetail} style={{ position: "fixed", inset: 0, zIndex: 300, background: `rgba(15,23,42,${drawerIn ? 0.45 : 0})`, transition: "background .26s ease" }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            role="dialog" aria-modal="true"
+            style={{
+              position: "absolute", top: 0, right: 0, height: "100%",
+              width: "min(680px, 94vw)", maxWidth: "94vw",
+              borderRadius: 0, borderTop: 0, borderRight: 0, borderBottom: 0,
+              overflowY: "auto", display: "flex", flexDirection: "column", gap: 12,
+              boxShadow: "-12px 0 32px rgba(15,23,42,.18)",
+              transform: drawerIn ? "translateX(0)" : "translateX(100%)",
+              transition: "transform .26s cubic-bezier(.22,.61,.36,1)",
+            }}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{titleOf(detail)}</h3>
+              <div style={{ minWidth: 0 }}>
+                <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600 }}>
+                  {kind === "jobs" ? "JOB · 案件詳細" : "SKILL SHEET · スキルシート"}
+                </div>
+                <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <span>{titleOf(detail)}</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>
+                    {kind === "jobs" ? `No.${String(detail.job_no ?? 0).padStart(5, "0")}` : `P-${String(detail.candidate_no ?? 0).padStart(5, "0")}`}
+                  </span>
+                </h3>
+                <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+                  {kind === "jobs"
+                    ? [detail.client_name, detail.role_label, remoteLabel(detail.remote_type), salaryLabel(detail.salary_min, detail.salary_max)].filter(Boolean).join(" · ") || "—"
+                    : (() => { const co = detail.source_company || detail.company; const com = co && detail.affiliation ? `${co}（${detail.affiliation}）` : (co || detail.affiliation); return [detail.title, com].filter(Boolean).join(" · ") || "—"; })()}
+                </div>
                 {detail._reasons?.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>{detail._reasons.map((rs: string) => <span key={rs} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{rs}</span>)}</div>}
               </div>
-              <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
+              <button className="btn ghost btn-xs" onClick={closeDetail}>閉じる</button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1px", background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
-              {[...visibleCols, ...cols.filter((c) => c.filterOnly)].map((c) => (
-                <div key={c.key} style={{ background: "var(--color-surface)", padding: "9px 11px" }}>
-                  <div style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 600 }}>{c.label}</div>
-                  <div style={{ fontSize: 13, marginTop: 2 }}>{c.render ? c.render(detail) : "—"}</div>
+
+            {/* 面談前ゲート案内（partner/freelance で未面談時） */}
+            {partner && !meetingDone && <MeetingGateBanner />}
+
+            {/* アクションバー（詳細ページと同等の動線） */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
+              </Link>
+              {/* テナント隔離ロールには個別詳細ページへの動線を出さない（漏洩防止） */}
+              {!partner && (kind === "jobs"
+                ? <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>
+                : <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>)}
+              {kind === "people" && detail.skill_sheet_url && !detail._anon && (
+                <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
+              )}
+              {/* パートナーの匿名(他社)行は メール・編集・削除を出さない（漏洩/誤操作防止） */}
+              {!(partner && detail._anon) && (
+                <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label={kind === "jobs" ? "窓口にメール" : "メールで紹介"} block />
+              )}
+              {!(partner && detail._anon) && (kind === "jobs"
+                ? <EditJobButton job={detail} />
+                : <EditCandidateButton candidate={detail} />)}
+              {!(partner && detail._anon) && (
+                <DeleteEntityButton kind={kind === "jobs" ? "jobs" : "candidates"} idValue={kind === "jobs" ? detail.job_no : detail.candidate_no} label={titleOf(detail)} />
+              )}
+            </div>
+
+            {/* スキル */}
+            {Array.isArray(detail.skills) && detail.skills.length > 0 && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {(detail.skills as string[]).map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
                 </div>
-              ))}
+              </div>
+            )}
+
+            {/* プロフィール／案件情報（ラベル + 値 の行レイアウト） */}
+            <div className="card" style={{ padding: 12 }}>
+              <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>
+                {kind === "jobs" ? "案件情報" : "プロフィール"}
+              </div>
+              {(kind === "jobs"
+                ? [
+                    ["案件名", detail.title],
+                    ["クライアント", detail.client_name],
+                    ["募集職種", detail.role_label],
+                    ["必要スキル", (detail.skills ?? []).join(" / ") || null],
+                    ["単価", salaryLabel(detail.salary_min, detail.salary_max)],
+                    ["リモート可否", remoteLabel(detail.remote_type)],
+                    ["商流", detail.flow_note],
+                    ["勤務地", detail.work_location],
+                    ["開始希望", detail.start_date],
+                    ["ステータス", detail.status],
+                    ["窓口メール", detail.contact_email],
+                  ]
+                : [
+                    ["ステータス", detail.status],
+                    ["ランク", detail.rank],
+                    ["経験", detail.exp],
+                    ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : null)],
+                    ["稼働開始", detail.avail],
+                    ["勤務地", detail.location],
+                    ["リモート希望", detail.remote_pref],
+                    ["所属", detail.affiliation ?? detail.source_company],
+                    ["連絡先", detail.email ?? detail.contact_email],
+                  ]
+              ).map(([label, value]) => value ? (
+                <div key={label as string} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
+                  <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+                  <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value as React.ReactNode}</div>
+                </div>
+              ) : null)}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
-              {kind === "people" && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} />
+
+            {kind === "jobs" && detail.detail && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>案件詳細</div>
+                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", maxHeight: 240, overflow: "auto" }}>{detail.detail}</div>
+              </div>
+            )}
+            {kind === "people" && detail.note && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>備考</div>
+                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)" }}>{detail.note}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {deleteMsg && (
+        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: deleteMsg.ok ? "#1aa260" : "var(--color-danger)", color: "#fff", padding: "10px 20px", borderRadius: 99, fontSize: 13, fontWeight: 600, boxShadow: "0 4px 16px rgba(0,0,0,.18)", whiteSpace: "nowrap" }}>
+          {deleteMsg.text}
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div onClick={() => setDeleteConfirm(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 14, padding: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>{kind === "jobs" ? "案件" : "人材"}を削除しますか？</div>
+            <div style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7 }}>
+              <b style={{ color: "var(--color-danger)" }}>{selected.size} 件</b>を削除します。この操作は元に戻せません。
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(false)} disabled={deleting}>キャンセル</button>
+              <button type="button" className="btn" onClick={doDelete} disabled={deleting}
+                style={{ background: "var(--color-danger)", borderColor: "var(--color-danger)", color: "#fff" }}>
+                {deleting ? "削除中…" : "削除する"}
+              </button>
             </div>
           </div>
         </div>

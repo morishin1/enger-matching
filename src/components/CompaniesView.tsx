@@ -32,6 +32,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("target");
   const [modal, setModal] = useState<Merged | "new" | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   const regMap = useMemo(() => new Map(registered.map((r) => [r.name, r])), [registered]);
 
@@ -65,6 +66,9 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   }, [merged, tier, act, search, sort]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
+  const PAGE = 20;
+  const visible = useMemo(() => (showAll ? filtered : filtered.slice(0, PAGE)), [filtered, showAll]);
+
   return (
     <>
       <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>
@@ -95,7 +99,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
           { id: "new", label: "🆕 新規フォロー", tone: "#7a5cc4", n: actCounts.new },
           { id: "recover", label: "💔 失注リカバリ", tone: "#d23f57", n: actCounts.recover },
         ].map((a) => (
-          <button key={a.id} onClick={() => setAct(a.id)} style={{ padding: "5px 11px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+          <button key={a.id} onClick={() => { setAct(a.id); setShowAll(false); }} style={{ padding: "5px 11px", borderRadius: 99, fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
             border: `1px solid ${act === a.id ? a.tone : "var(--color-border)"}`, background: act === a.id ? `${a.tone}1a` : "var(--color-surface)", color: act === a.id ? a.tone : "var(--color-ink-3)" }}>
             {a.label} <span className="tnum" style={{ marginLeft: 3 }}>{a.n}</span>
           </button>
@@ -105,7 +109,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
           {[{ id: "ALL", label: "全て" }, { id: "A", label: "A · 主要" }, { id: "B", label: "B · 拡大" }, { id: "C", label: "C · 維持" }].map((t) => (
-            <button key={t.id} onClick={() => setTier(t.id)} style={{ padding: "6px 14px", borderRadius: 99, border: 0, background: tier === t.id ? "var(--color-surface)" : "transparent", color: tier === t.id ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: tier === t.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
+            <button key={t.id} onClick={() => { setTier(t.id); setShowAll(false); }} style={{ padding: "6px 14px", borderRadius: 99, border: 0, background: tier === t.id ? "var(--color-surface)" : "transparent", color: tier === t.id ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: tier === t.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
               {t.label} <span style={{ color: "var(--color-ink-4)", fontFamily: "var(--font-mono)", marginLeft: 4, fontWeight: 500 }} className="tnum">{counts[t.id as keyof typeof counts]}</span>
             </button>
           ))}
@@ -122,7 +126,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
         {filtered.length === 0 ? (
           <div className="card" style={{ gridColumn: "1 / -1", textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>該当する企業がありません。</div>
-        ) : filtered.map((c) => {
+        ) : visible.map((c) => {
           const color = colorOf(c.name); const ts = tierStyle(c.tier);
           return (
             <button key={c.name} onClick={() => setModal(c)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 20, display: "flex", flexDirection: "column", gap: 14, borderRadius: 16 }}>
@@ -166,6 +170,15 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
           );
         })}
       </div>
+
+      {filtered.length > PAGE && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 10, marginTop: 2 }}>
+          <span className="muted" style={{ fontSize: 11.5 }}>{Math.min(visible.length, filtered.length)} / {filtered.length} 社</span>
+          <button className="btn ghost btn-sm" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? "上位20社だけ表示" : `残り ${filtered.length - PAGE} 社を表示`}
+          </button>
+        </div>
+      )}
 
       {modal && <CompanyModal data={modal === "new" ? null : modal} onClose={() => setModal(null)} />}
     </>

@@ -4,8 +4,11 @@ import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
 import { FocusList } from "@/components/FocusList";
+import { JumpToMatching } from "@/components/JumpToMatching";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { rankCandidates, rankJobs, type Job } from "@/lib/match";
+import { rankCandidates, rankJobs, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
+import { PartnerMatching } from "@/components/PartnerMatching";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +16,92 @@ const remoteLabel = (r: string | null | undefined) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社必須" : (r || "—");
 const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
+
+const ageDays = (d: any) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
+
+const verdictStyle = (v: Verdict): { bg: string; fg: string; bd: string } => {
+  if (v === "提案推奨") return { bg: "#e7f3ea", fg: "#067647", bd: "#bfe3cc" };
+  if (v === "条件付き提案推奨") return { bg: "#fff6e0", fg: "#9a7b12", bd: "#fde9b0" };
+  if (v === "条件付き提案検討") return { bg: "#fef0c7", fg: "#b45309", bd: "#fcd97a" };
+  return { bg: "#fdecef", fg: "#b42318", bd: "#f7c5cf" };
+};
+
+/** マッチ理由を 🔴重要 / 🟡注意 / 🟢参考 の3段階で表示。 */
+function NotesPanel({ sel }: { sel: MatchResult }) {
+  const red = sel.notes.filter((n) => n.level === "red");
+  const yel = sel.notes.filter((n) => n.level === "yellow");
+  const grn = sel.notes.filter((n) => n.level === "green");
+  const Bar = ({ label, color, score, max }: { label: string; color: string; score: number; max: number }) => (
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(64px,90px) 1fr 56px", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{label}</span>
+      <div style={{ height: 6, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+        <div style={{ width: `${score}%`, height: "100%", background: color, borderRadius: 99 }} />
+      </div>
+      <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-3)", textAlign: "right" }}>{Math.round(score)}/{max}</span>
+    </div>
+  );
+  const b = sel.breakdown;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-4)" }}>📊 内訳</div>
+        <Bar label="スキル" color="#0095D9" score={b.skill * 0.8} max={80} />
+        <Bar label="単価" color="#1aa260" score={b.salary * 0.08} max={8} />
+        <Bar label="勤務形態" color="#0F2440" score={b.remote * 0.05} max={5} />
+        <Bar label="稼働時期" color="#9a7b12" score={b.timing * 0.04} max={4} />
+        <Bar label="年齢" color="#7c3aed" score={b.age * 0.03} max={3} />
+        {b.bonus > 0 && <div style={{ fontSize: 11, color: "#067647" }}>＋ ボーナス {b.bonus}（PP/マージン/業界経験）</div>}
+      </div>
+      {red.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#b42318", marginBottom: 3 }}>🔴 重要</div>
+          {red.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#b42318", lineHeight: 1.6 }}>{n.text}</div>)}
+        </div>
+      )}
+      {yel.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#b45309", marginBottom: 3 }}>🟡 注意</div>
+          {yel.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#9a7b12", lineHeight: 1.6 }}>{n.text}</div>)}
+        </div>
+      )}
+      {grn.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#067647", marginBottom: 3 }}>🟢 参考</div>
+          {grn.map((n, i) => <div key={i} style={{ fontSize: 12, color: "#067647", lineHeight: 1.6 }}>{n.text}</div>)}
+        </div>
+      )}
+      {red.length + yel.length + grn.length === 0 && <span className="muted" style={{ fontSize: 12 }}>—</span>}
+    </div>
+  );
+}
+const isProper = (a: any) => /\bPP\b|プロパー|自社/i.test(String(a || ""));
+
+/**
+ * 注力マッチングの対象を選定（定義）：
+ *   ① ♡お気に入り(is_focus)  ② プロパー(PP)  ③ 最近(30日内)登録 かつ 決まりやすい(スキル有 or 提案可)
+ *   注力スコアで並べ、上限60件に絞る（母数=300のような無意味な数を避ける）。
+ */
+function curateFocus(kind: "jobs" | "cands", rows: any[]): any[] {
+  const seen = new Set<number>(); const out: any[] = [];
+  for (const r of rows) {
+    const id = kind === "jobs" ? r.job_no : r.candidate_no;
+    if (id == null || seen.has(id)) continue;
+    const d = ageDays(r.created_at);
+    const likely = !!(r.skills?.length) || String(r.status || "").includes("提案");
+    const pp = kind === "cands" && isProper(r.affiliation);
+    const qualifies = !!r.is_focus || pp || (d <= 30 && likely);
+    if (!qualifies) continue;
+    seen.add(id);
+    let s = 0; const why: string[] = [];
+    if (r.is_focus) { s += 100; why.push("♡注力"); }
+    if (pp) { s += 50; why.push("プロパー"); }
+    if (d <= 7) { s += 30; why.push("新着"); } else if (d <= 30) { s += 15; why.push("最近登録"); }
+    if (String(r.status || "").includes("提案")) s += 10;
+    if (r.skills?.length) s += 10;
+    out.push({ ...r, _focusScore: s, _focusWhy: why.slice(0, 2) });
+  }
+  return out.sort((a, b) => b._focusScore - a._focusScore || ageDays(a.created_at) - ageDays(b.created_at)).slice(0, 60);
+}
 
 function Stars({ score }: { score: number }) {
   const n = Math.max(0, Math.min(5, Math.round(score / 20)));
@@ -23,13 +112,88 @@ function Stars({ score }: { score: number }) {
   );
 }
 
+/**
+ * 企業マスタ (enger.companies) の contact_name / contact_email を、対象アイテムへ後付けする。
+ *   items: 案件 or 候補者の配列
+ *   companyKey: 突合キー（案件は "client_name"、候補者は "source_company"）
+ * 既に contact_name / contact_email が入っているアイテムは上書きしない。
+ */
+async function attachCompanyContact(sb: any, items: any[], companyKey: "client_name" | "source_company") {
+  if (!items || items.length === 0) return;
+  const names = Array.from(new Set(items.map((it) => it?.[companyKey]).filter(Boolean))) as string[];
+  if (names.length === 0) return;
+  try {
+    const r: any = await sb.from("companies").select("name, contact_name, contact_email").in("name", names).limit(2000);
+    if (r.error || !Array.isArray(r.data)) return;
+    const cnMap: Record<string, string> = {};
+    const ceMap: Record<string, string> = {};
+    for (const c of r.data) {
+      if (c.name && c.contact_name && !cnMap[c.name]) cnMap[c.name] = c.contact_name;
+      if (c.name && c.contact_email && !ceMap[c.name]) ceMap[c.name] = c.contact_email;
+    }
+    for (const it of items) {
+      const k = it?.[companyKey];
+      if (!k) continue;
+      if (!it.contact_name && cnMap[k]) it.contact_name = cnMap[k];
+      if (!it.contact_email && ceMap[k]) it.contact_email = ceMap[k];
+    }
+  } catch { /* noop */ }
+}
+
+/** パートナー企業向け：自社(owner_company)＋共有(shared)のみ取得して匿名化。
+ *  既存マッチング画面のクエリは内部メールアドレス等を多数返すため、パートナーは別ビューで分離。 */
+async function loadTenantData(company: string, meetingDone: boolean = true) {
+  const sb = engerClient();
+  const J = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, work_location, start_date, is_published, owner_company, shared";
+  const C = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, avail, location, owner_company, shared";
+  const fetchJobs = async () => {
+    const o: any = await sb.from("jobs").select(J).eq("owner_company", company).order("job_no", { ascending: false }).limit(500);
+    const s: any = await sb.from("jobs").select(J).eq("shared", true).eq("is_published", true).order("job_no", { ascending: false }).limit(500);
+    if (o.error || s.error) return null;
+    const map = new Map<number, any>();
+    for (const r of [...(o.data ?? []), ...(s.data ?? [])]) if (r.job_no != null && (r.owner_company === company || r.shared === true)) map.set(r.job_no, r);
+    return [...map.values()];
+  };
+  const fetchCands = async () => {
+    const o: any = await sb.from("candidates").select(C).eq("owner_company", company).order("candidate_no", { ascending: false }).limit(500);
+    const s: any = await sb.from("candidates").select(C).eq("shared", true).order("candidate_no", { ascending: false }).limit(500);
+    if (o.error || s.error) return null;
+    const map = new Map<number, any>();
+    for (const r of [...(o.data ?? []), ...(s.data ?? [])]) if (r.candidate_no != null && (r.owner_company === company || r.shared === true)) map.set(r.candidate_no, r);
+    return [...map.values()];
+  };
+  const [jobs, cands] = await Promise.all([fetchJobs(), fetchCands()]);
+  return { jobs: jobs ? maskJobs(jobs, company, meetingDone) : null, cands: cands ? maskCandidates(cands, company, meetingDone) : null };
+}
+
 export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
   const sp = await searchParams;
-  const tab = sp.tab === "focus" ? "focus" : "auto";
+  // パートナー企業はテナント隔離のため別画面（自社＋共有のみ・他社匿名・提案/メール無効）
+  const scope = await getViewerScope();
+  if (scope.isTenant) {
+    if (!scope.ownerKey) {
+      return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>会社情報が未設定です。管理者にお問い合わせください。</div></div>;
+    }
+    if (!dbConfigured) {
+      return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>DB未接続のためマッチングを利用できません。</div></div>;
+    }
+    const data = await loadTenantData(scope.ownerKey, scope.meetingDone);
+    if (!data.jobs || !data.cands) {
+      return <div className="page"><div className="card" style={{ color: "var(--color-danger)" }}>テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）。安全のため一覧を表示しません。</div></div>;
+    }
+    return (
+      <div className="page">
+        <div className="page-head"><div><div className="meta">Matching · 自分×共有</div><h1>マッチング</h1></div></div>
+        <PartnerMatching jobs={data.jobs} candidates={data.cands} />
+      </div>
+    );
+  }
+  // 既定は自動マッチング（auto）。URL で tab=focus が明示された時のみ注力マッチング。
+  const tab: "auto" | "focus" =
+    sp.tab === "focus" ? "focus" : "auto";
   const personNo = sp.person ? Number(sp.person) : null;
 
   let dbError: string | null = null;
-  let focusJobCount = 0, focusPeopleCount = 0;
 
   // 人材→案件モード用
   let person: any = null;
@@ -40,26 +204,39 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let job: any = null;
   let ranked: any[] = [];
 
-  // 注力(ウォッチリスト)モード用 — ハートを付けた案件・人材の一覧（未マッチング）
-  let focusJobs: any[] = [];
+  // 注力(ウォッチリスト)モード用
+  let focusJobs: any[] = [];   // ♥お気に入り（手動・is_focus）
   let focusCands: any[] = [];
+  let recoJobs: any[] = [];    // 自動おすすめ（プロパー/新着で決まりやすい・is_focus以外）
+  let recoCands: any[] = [];
+
+  // 提案済み判定（ペア＝job_id×candidate_id）。画面を移動しても「提案済み」を維持し、他ペアに波及させない。
+  const proposedJobIds = new Set<string>();   // この人材が既に提案済みの案件id（人材→案件モード）
+  const proposedCandIds = new Set<string>();  // この案件で既に提案済みの人材id（案件→人材モード）
+  const proposalIdByJob = new Map<string, string>();   // job_id → proposal_id
+  const proposalIdByCand = new Map<string, string>();  // candidate_id → proposal_id
 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const [fj, fp] = await Promise.all([
-        sb.from("jobs").select("job_no", { count: "exact", head: true }).eq("is_focus", true),
-        sb.from("candidates").select("candidate_no", { count: "exact", head: true }).eq("is_focus", true),
-      ]);
-      focusJobCount = fj.count ?? 0; focusPeopleCount = fp.count ?? 0;
-
-      const CAND_BASE = "candidate_no, name, initials, title, affiliation, source_company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus";
-      const JOB_BASE = "job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url";
+      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary`;
+      const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date";
 
       if (personNo) {
         // ---- 人材 → 案件（逆マッチング）----
-        const pr: any = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email`).eq("candidate_no", personNo).maybeSingle();
+        let pr: any = await sb.from("candidates").select(CAND_RICH).eq("candidate_no", personNo).maybeSingle();
+        if (pr.error) pr = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", personNo).maybeSingle();
         person = pr.error ? (await sb.from("candidates").select(CAND_BASE).eq("candidate_no", personNo).maybeSingle()).data : pr.data;
+        // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+        if (person) await attachCompanyContact(sb, [person], "source_company");
+        // 第2優先：旧データで contact_email が無い場合、同じ source_company の他候補から流用
+        if (person && !person.contact_email && !person.email && person.source_company) {
+          try {
+            const fr = await sb.from("candidates").select("contact_email").eq("source_company", person.source_company).not("contact_email", "is", null).limit(1).maybeSingle();
+            if (fr.data?.contact_email) person.contact_email = fr.data.contact_email;
+          } catch { /* noop */ }
+        }
 
         if (person?.skills?.length) {
           const buildJ = (cols: string) => {
@@ -67,34 +244,131 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             if (tab === "focus") q = q.eq("is_focus", true);
             return q.limit(tab === "focus" ? 500 : 200);
           };
-          let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
+          let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
+          if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
-          rankedJobs = rankJobs(person as any, (jr.data ?? []) as Job[], 10);
+          // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+          const jobList = (jr.data ?? []) as any[];
+          await attachCompanyContact(sb, jobList, "client_name");
+          // 第2優先：旧データで contact_email が無い案件は同じ client_name の他案件から流用（同社の窓口メールは共通）
+          const jobNeed = jobList.filter((j) => !j.contact_email && j.client_name);
+          if (jobNeed.length > 0) {
+            const clients = Array.from(new Set(jobNeed.map((j) => j.client_name))) as string[];
+            try {
+              const jf: any = await sb.from("jobs").select("client_name, contact_email").in("client_name", clients).not("contact_email", "is", null).limit(2000);
+              if (!jf.error && Array.isArray(jf.data)) {
+                const m: Record<string, string> = {};
+                for (const r of jf.data) if (r.client_name && r.contact_email && !m[r.client_name]) m[r.client_name] = r.contact_email;
+                for (const j of jobNeed) if (m[j.client_name]) j.contact_email = m[j.client_name];
+              }
+            } catch { /* noop */ }
+          }
+          rankedJobs = rankJobs(person as any, jobList as Job[], 10);
+        }
+        // この人材が既に提案済みの案件（提案済み表示用）
+        if (person?.id) {
+          try { const { data } = await sb.from("proposals").select("id, job_id").eq("candidate_id", person.id); for (const r of (data ?? []) as any[]) { if (r.job_id) { proposedJobIds.add(r.job_id); proposalIdByJob.set(r.job_id, r.id); } } } catch { /* proposals未整備でも続行 */ }
         }
       } else if (tab === "focus") {
-        // ---- 注力マッチング = ハートを付けた案件・人材の一覧（未マッチング・ウォッチリスト）----
-        const [fjl, fcl] = await Promise.all([
-          sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).order("job_no", { ascending: false }).limit(300),
-          sb.from("candidates").select(CAND_BASE).eq("is_focus", true).order("candidate_no", { ascending: true }).limit(300),
+        // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
+        const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
+        const JOB_F = `${JOB_BASE}, status, created_at`;
+        const CAND_F = `${CAND_BASE}, created_at`;
+        const safe = async (q: any, fb: any) => { const r = await q; return r.error ? ((await fb)?.data ?? []) : (r.data ?? []); };
+        const [hjJobs, recJobs, hfCands, ppCands, recCands] = await Promise.all([
+          safe(sb.from("jobs").select(JOB_F).eq("is_published", true).eq("is_focus", true).limit(200), sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).limit(200)),
+          safe(sb.from("jobs").select(JOB_F).eq("is_published", true).gte("created_at", since30).limit(300), Promise.resolve({ data: [] })),
+          safe(sb.from("candidates").select(CAND_F).eq("is_focus", true).limit(200), sb.from("candidates").select(CAND_BASE).eq("is_focus", true).limit(200)),
+          safe(sb.from("candidates").select(CAND_F).or("affiliation.eq.PP,affiliation.ilike.%プロパー%").limit(300), Promise.resolve({ data: [] })),
+          safe(sb.from("candidates").select(CAND_F).gte("created_at", since30).limit(400), Promise.resolve({ data: [] })),
         ]);
-        focusJobs = fjl.data ?? [];
-        focusCands = fcl.data ?? [];
+        // ♥お気に入り（手動）：ハートが点灯し、外すと件数が減る
+        focusJobs = (hjJobs as any[]).slice(0, 100);
+        focusCands = (hfCands as any[]).slice(0, 100);
+        // 自動おすすめ：プロパー・新着で決まりやすい。is_focus は注力側に出すので除外
+        recoJobs = curateFocus("jobs", recJobs).filter((j) => !j.is_focus).slice(0, 40);
+        recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
         const buildList = (cols: string) =>
           sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(80);
-        let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name`);
+        let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
+        if (jlRes.error) jlRes = await buildList(`${JOB_BASE}, contact_email, contact_name`);
         if (jlRes.error) jlRes = await buildList(JOB_BASE);
         jobList = jlRes.data ?? [];
 
-        const jobNo = sp.job ? Number(sp.job) : jobList[0]?.job_no;
-        job = jobList.find((j) => j.job_no === jobNo) ?? jobList[0] ?? null;
+        const reqJobNo = sp.job ? Number(sp.job) : null;
+        if (reqJobNo) {
+          // 指定された job_no が jobList(最新80件)に無いとき jobList[0] にフォールバックして
+          // 異なる案件の結果が表示される不具合があったため、必ず個別取得する。
+          job = jobList.find((j) => j.job_no === reqJobNo) ?? null;
+          if (!job) {
+            let jr: any = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name, source_mail_url`).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.error) jr = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name`).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.error) jr = await sb.from("jobs").select(JOB_BASE).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.data) {
+              job = jr.data;
+              // ドロップダウン用に jobList の先頭に挿入（重複しないように）
+              if (!jobList.find((j) => j.job_no === job.job_no)) jobList = [job, ...jobList];
+            }
+          }
+        }
+        if (!job) job = jobList[0] ?? null;
+        // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+        if (job) await attachCompanyContact(sb, [job], "client_name");
+        // 第2優先：旧データで contact_email が無い案件は同じ client_name の他案件から流用
+        if (job && !job.contact_email && job.client_name) {
+          try {
+            const jf: any = await sb.from("jobs").select("contact_email").eq("client_name", job.client_name).not("contact_email", "is", null).limit(1).maybeSingle();
+            if (jf.data?.contact_email) job.contact_email = jf.data.contact_email;
+          } catch { /* noop */ }
+        }
 
         if (job?.skills?.length) {
           const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
-          let cr: any = await buildC(`${CAND_BASE}, email, contact_email`);
+          let cr: any = await buildC(CAND_RICH);
+          if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
+          if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
-          ranked = rankCandidates(job as Job, cr.data ?? [], 10);
+          // 旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
+          const candList = (cr.data ?? []) as any[];
+          // 指定された candidate_no が skills-overlap で取得できていない場合は個別に取得して追加
+          const reqCandNo = sp.cand ? Number(sp.cand) : null;
+          if (reqCandNo && !candList.find((c) => c.candidate_no === reqCandNo)) {
+            let xr: any = await sb.from("candidates").select(CAND_RICH).eq("candidate_no", reqCandNo).maybeSingle();
+            if (xr.error) xr = await sb.from("candidates").select(`${CAND_BASE}, email, contact_email, skill_sheet_url`).eq("candidate_no", reqCandNo).maybeSingle();
+            if (xr.error) xr = await sb.from("candidates").select(CAND_BASE).eq("candidate_no", reqCandNo).maybeSingle();
+            if (xr.data) candList.push(xr.data);
+          }
+          // 第1優先：企業マスタから contact_name / contact_email を引いて付与
+          await attachCompanyContact(sb, candList, "source_company");
+          // 第2優先：旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
+          const need = candList.filter((c) => !c.contact_email && !c.email && c.source_company);
+          if (need.length > 0) {
+            const companies = Array.from(new Set(need.map((c) => c.source_company))) as string[];
+            try {
+              const fr: any = await sb.from("candidates").select("source_company, contact_email").in("source_company", companies).not("contact_email", "is", null).limit(2000);
+              if (!fr.error && Array.isArray(fr.data)) {
+                const m: Record<string, string> = {};
+                for (const r of fr.data) if (r.source_company && r.contact_email && !m[r.source_company]) m[r.source_company] = r.contact_email;
+                for (const c of need) if (m[c.source_company]) c.contact_email = m[c.source_company];
+              }
+            } catch { /* noop */ }
+          }
+          ranked = rankCandidates(job as Job, candList, 10);
+          // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
+          const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
+          if (reqCandNo2 && !ranked.find((r: any) => r.candidate.candidate_no === reqCandNo2)) {
+            const tgt = candList.find((c) => c.candidate_no === reqCandNo2);
+            if (tgt) {
+              const single = rankCandidates(job as Job, [tgt], 1);
+              if (single.length) ranked = [single[0], ...ranked];
+            }
+          }
+        }
+        // この案件で既に提案済みの人材（提案済み表示用）
+        if (job?.id) {
+          try { const { data } = await sb.from("proposals").select("id, candidate_id").eq("job_id", job.id); for (const r of (data ?? []) as any[]) { if (r.candidate_id) { proposedCandIds.add(r.candidate_id); proposalIdByCand.set(r.candidate_id, r.id); } } } catch { /* proposals未整備でも続行 */ }
         }
       }
     } catch (e) {
@@ -141,7 +415,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     <Link key={j.job_no} href={linkFor(j.job_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
                       <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+                          <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>No.{String(j.job_no).padStart(5, "0")}</span>
+                          {proposedJobIds.has(j.id) && (
+                            <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
+                          )}
+                        </div>
                         <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {salaryLabel(j.salary_min, j.salary_max)}</div>
                       </div>
                       <div style={{ textAlign: "right" }}><div style={{ fontSize: 9, color: "var(--color-ink-4)" }}>相性</div><Stars score={r.score} /></div>
@@ -157,11 +437,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                     <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 人材</span>
-                    <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} />
+                    <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} row={person} />
                   </div>
                   <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
                   <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                     {person.title && <span className="tag">{person.title}</span>}
+                    {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
                     {person.affiliation && <span className="tag">{person.affiliation}</span>}
                     <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
                     <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
@@ -180,27 +461,31 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 const skillPct = j.skills?.length ? Math.round((sel.matchedSkills.length / j.skills.length) * 100) : 0;
                 return (
                   <div className="card flush">
-                    <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                       <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（要件スキル {skillPct}%）</div>
-                      <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
+                        <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                      </div>
                     </div>
                     <div style={{ padding: 20 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title}</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
-                      <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
-                        {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
-                        {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
-                      </div>
-
-                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💡 マッチ理由</div>
-                      <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
-                        {sel.reasons.length ? sel.reasons.map((r: string, i: number) => <div key={i}>{r}</div>) : <span className="muted">—</span>}
+                      {/* 左：スキル評価／右：マッチ理由（3段階） */}
+                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }}>
+                        <div>
+                          <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                            {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
+                            {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
+                          </div>
+                        </div>
+                        <NotesPanel sel={sel} />
                       </div>
                     </div>
                     <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                      <ProposalComposer job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} />
+                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null} />
                     </div>
                   </div>
                 );
@@ -216,7 +501,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (tab === "focus") {
     const Tabs = (
       <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: `★ ${focusJobs.length}案件 × ${focusCands.length}人材` }].map((t) => {
+        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: "★ ♡・プロパー・新着" }].map((t) => {
           const active = t.id === (tab as string);
           return (
             <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
@@ -230,34 +515,42 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       <div className="page">
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
-            <div className="meta">Matching · 注力（ウォッチリスト）</div>
+            <div className="meta">Matching · 注力（優先対応）</div>
             <h1>注力マッチング</h1>
-            <div className="sub">ハート <span style={{ color: "#e0567f" }}>♥</span> を付けた案件・人材の一覧です（未マッチング）。各カードの「マッチング」から自動マッチングに進めます。</div>
+            <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
+        <JumpToMatching />
         {Tabs}
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
+        {/* 注力（♥お気に入り・手動）：ハートを外すと即座に件数・行が減る */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-          {/* 注力案件 */}
-          <div className="card flush">
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>注力案件</div><span className="tag brand">{focusJobs.length}件</span>
-            </div>
-            {focusJobs.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>案件一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
-            ) : <FocusList kind="jobs" items={focusJobs} />}
-          </div>
-          {/* 注力人材 */}
-          <div className="card flush">
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>注力人材</div><span className="tag brand">{focusCands.length}名</span>
-            </div>
-            {focusCands.length === 0 ? (
-              <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>人材一覧で <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</div>
-            ) : <FocusList kind="people" items={focusCands} />}
-          </div>
+          <FocusList kind="jobs" items={focusJobs} unit="件" removeOnUnheart
+            headerTitle={<><span style={{ color: "#e0567f" }}>♥</span> 注力案件</>}
+            emptyText={<>案件一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</>} />
+          <FocusList kind="people" items={focusCands} unit="名" removeOnUnheart
+            headerTitle={<><span style={{ color: "#e0567f" }}>♥</span> 注力人材</>}
+            emptyText={<>人材一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</>} />
         </div>
+
+        {/* 自動おすすめ（プロパー・新着で決まりやすい・is_focus以外） */}
+        {(recoJobs.length > 0 || recoCands.length > 0) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start", marginTop: 16 }}>
+            <div className="card flush">
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>💡 自動おすすめ案件</div><span className="tag">{recoJobs.length}件</span>
+              </div>
+              {recoJobs.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>新着の決まりやすい案件はありません</div> : <FocusList kind="jobs" items={recoJobs} />}
+            </div>
+            <div className="card flush">
+              <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>💡 自動おすすめ人材</div><span className="tag">{recoCands.length}名</span>
+              </div>
+              {recoCands.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>プロパー・新着の決まりやすい人材はありません</div> : <FocusList kind="people" items={recoCands} />}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -287,9 +580,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         </form>
       </div>
 
+      <JumpToMatching />
+
       {/* タブ */}
       <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: `★ ${focusJobCount}案件 × ${focusPeopleCount}人材` }].map((t) => {
+        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: "★ ♡・プロパー・新着" }].map((t) => {
           const active = t.id === (tab as string);
           return (
             <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
@@ -304,7 +599,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {job && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
-          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked}
+          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds}
             jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type }} />
 
           {/* 右: 詳細パネル */}
@@ -314,9 +609,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                   <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
-                  <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} />
+                  <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} row={job} />
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
                 <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                   <span>{job.client_name ?? "—"}</span>
                   {job.role_label && <span className="tag">{job.role_label}</span>}
@@ -339,52 +634,51 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               const skillPct = job.skills?.length ? Math.round((sel.matchedSkills.length / job.skills.length) * 100) : 0;
               return (
                 <div className="card flush">
-                  <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（必須スキル {skillPct}%）</div>
-                    <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
+                      <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                    </div>
                   </div>
                   <div style={{ padding: 20 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company, c.age_band, c.affiliation, c.rate, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, c.title].filter(Boolean).join(" / ")}</div>
+                        <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                          <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
+                          {c.exp != null && String(c.exp).trim() !== "" && <span>経験年数 <b style={{ color: "var(--color-ink)" }}>{/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp}</b></span>}
+                        </div>
                       </div>
-                      <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} /></div>
+                      <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} row={c} /></div>
                     </div>
 
-                    {/* スキル評価 */}
-                    <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
-                    {job.skills?.length ? (
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
-                        {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
-                        {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
-                      </div>
-                    ) : <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>スキル評価データがありません</div>}
+                    {/* 左：スキル評価/商流・単価／右：注意点 (スクロール量を減らすため2カラム) */}
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
+                        {job.skills?.length ? (
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
+                            {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
+                            {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
+                          </div>
+                        ) : <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>スキル評価データがありません</div>}
 
-                    {/* 商流・利益 */}
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流・単価</div>
-                    <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9, marginBottom: 16 }}>
-                      <div>商流：{job.flow_note && job.flow_note !== "不明" ? job.flow_note : "確認中"}</div>
-                      <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}
-                        {" "}<span style={{ color: sel.reasons.some((r: string) => r.includes("予算内")) ? "var(--color-success)" : "var(--color-warn)" }}>
-                          {sel.reasons.some((r: string) => r.includes("予算内")) ? "（予算内 ✓）" : "（要調整）"}
-                        </span>
+                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流・単価</div>
+                        <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
+                          <div>商流：{job.flow_note && job.flow_note !== "不明" ? job.flow_note : "確認中"}</div>
+                          <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
+                        </div>
                       </div>
-                    </div>
-
-                    {/* 注意点 */}
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>⚠️ 注意点</div>
-                    <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.8 }}>
-                      {sel.missingSkills.length > 0 && <div>不足スキル：{sel.missingSkills.join("・")}</div>}
-                      {!sel.reasons.some((r: string) => r.includes("予算内")) && <div>希望単価が案件予算と乖離の可能性</div>}
-                      {sel.missingSkills.length === 0 && sel.reasons.some((r: string) => r.includes("予算内")) && <div className="muted">特筆すべき懸念はありません</div>}
+                      <NotesPanel sel={sel} />
                     </div>
                   </div>
 
                   {/* アクション: 返信メール（テンプレ/コピペ/AI生成） */}
                   <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
-                    <ProposalComposer job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} />
+                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null} />
                   </div>
                 </div>
               );

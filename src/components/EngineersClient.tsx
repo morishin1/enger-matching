@@ -1,10 +1,87 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Engineer, EngineerAction, Scout, Application } from "@/lib/engineers";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage } from "@/app/engineers/actions";
-import { APPLICATION_STAGES } from "@/lib/engineers";
+import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate } from "@/app/engineers/actions";
+import { gmailComposeUrl, reSubject } from "@/lib/gmail";
+import { StageBar } from "./StageBar";
+import { Icons } from "./icons";
+import { MailButton } from "./MailButton";
+
+// ---------- 一覧表示用ヘルパ（人材一覧 EntityTable と同じ rule） ----------
+const FRESH_OPTIONS = [
+  { value: "新着", label: "新着" },
+  { value: "3日以内", label: "3日以内" },
+  { value: "4〜14日前", label: "4〜14日前" },
+  { value: "それ以前", label: "それ以前" },
+];
+function freshnessLabel(d: string | null): string {
+  if (!d) return "それ以前";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "それ以前";
+  const days = Math.floor((Date.now() - dt.getTime()) / 86400000);
+  if (days <= 0) return "新着";
+  if (days <= 3) return "3日以内";
+  if (days <= 14) return "4〜14日前";
+  return "それ以前";
+}
+function Fresh({ d }: { d: string | null }) {
+  const label = freshnessLabel(d);
+  const tone = label === "新着" ? "new" : label === "3日以内" ? "soon" : label === "4〜14日前" ? "mid" : "old";
+  return <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>;
+}
+const shortId = (id: string) => `E-${(id || "").replace(/-/g, "").slice(0, 5).toUpperCase()}`;
+
+/** 登録元バッジ。EngineerSource (key/label/method/color) を表示。将来のLP/方式追加に備え汎用化。 */
+const PALETTE: Record<EngineerSource["color"], { bg: string; fg: string; bd: string }> = {
+  warn:    { bg: "#fff6e0", fg: "#9a7b12", bd: "#fde9b0" },
+  brand:   { bg: "var(--color-brand-50)", fg: "var(--color-brand-700,#0b5cab)", bd: "var(--color-brand-100,#cfe1f7)" },
+  accent:  { bg: "#e7f7ee", fg: "#067647", bd: "#bfe3cc" },
+  danger:  { bg: "#fdecef", fg: "#d23f57", bd: "#f7c5cf" },
+  neutral: { bg: "var(--color-surface-inset)", fg: "var(--color-ink-3)", bd: "var(--color-border)" },
+};
+function SourceBadge({ source }: { source: EngineerSource }) {
+  const p = PALETTE[source.color] ?? PALETTE.neutral;
+  return (
+    <span
+      title={`登録元: ${source.label}${source.method ? ` / ${source.method}` : ""}`}
+      style={{
+        display: "inline-flex", alignItems: "center", padding: "1px 7px", borderRadius: 99,
+        fontSize: 10, fontWeight: 700, letterSpacing: ".02em", whiteSpace: "nowrap", gap: 4,
+        background: p.bg, color: p.fg, border: `1px solid ${p.bd}`,
+      }}
+    >
+      <span>{source.label}</span>
+      {source.method && <span style={{ opacity: .8, fontWeight: 600 }}>· {source.method}</span>}
+    </span>
+  );
+}
+
+/** #14: 応募エンジニアを案件側へ紹介する人材紹介メールの Gmail 下書きを開く */
+function openIntroMail(e: Engineer, jobTitle: string) {
+  const skills = (e.skills ?? []).map((s) => s.name).join(" / ") || "—";
+  const payLabel = e.estimated_pay_low && e.estimated_pay_high ? `¥${e.estimated_pay_low}〜${e.estimated_pay_high}万` : (e.estimated_pay_mid ? `¥${e.estimated_pay_mid}万` : "応相談");
+  const name = e.display_name || e.github_login || "ご紹介人材";
+  const body = [
+    `ご担当者 様`, ``,
+    `お世話になっております。エンジャー事務局でございます。`,
+    `ご案内の「${jobTitle}」につきまして、ご応募いただいた人材をご紹介申し上げます。`, ``,
+    `■ サマリ`,
+    `${name}／${e.primary_language ?? "—"}／想定単価 ${payLabel}`, ``,
+    `── ご紹介人材 ────────────`,
+    `氏名：${name}`,
+    `主要言語：${e.primary_language ?? "—"}`,
+    `スキル：${skills}`,
+    e.skill_sheet_url ? `スキルシート：${e.skill_sheet_url}` : "",
+    e.portfolio_url ? `ポートフォリオ：${e.portfolio_url}` : "",
+    e.github_login ? `GitHub：https://github.com/${e.github_login}` : "",
+    `────────────────────`, ``,
+    `ご面談のご希望などございましたらご返信ください。`,
+    `何卒よろしくお願いいたします。`,
+  ].filter((l) => l !== "").join("\n");
+  window.open(gmailComposeUrl({ to: null, subject: reSubject(jobTitle), body }), "_blank", "noopener");
+}
 
 const pay = (e: Engineer) => {
   const lo = e.estimated_pay_low, hi = e.estimated_pay_high, mid = e.estimated_pay_mid;
@@ -21,6 +98,27 @@ const ACTION_COLOR: Record<string, string> = {
   "面談実施": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
 };
 const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+// 登録日時（年月日＋時刻）
+const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+// 連絡先の有無アイコン群
+function ContactIcons({ e }: { e: { email?: string | null; phone?: string | null; contact_line?: string | null } }) {
+  const items: { ic: string; label: string; on: boolean; href?: string }[] = [
+    { ic: "mail", label: e.email || "メールなし", on: !!e.email, href: e.email ? `mailto:${e.email}` : undefined },
+    { ic: "call", label: e.phone || "電話なし", on: !!e.phone, href: e.phone ? `tel:${e.phone}` : undefined },
+    { ic: "chat", label: e.contact_line || "メッセージなし", on: !!e.contact_line },
+  ];
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      {items.map((it, i) => it.on ? (
+        it.href
+          ? <a key={i} href={it.href} title={it.label} onClick={(ev) => ev.stopPropagation()} className="material-symbols-outlined" style={{ fontSize: 17, color: "#0b5cab", textDecoration: "none" }}>{it.ic}</a>
+          : <span key={i} title={it.label} className="material-symbols-outlined" style={{ fontSize: 17, color: "#0b5cab" }}>{it.ic}</span>
+      ) : (
+        <span key={i} title={it.label} className="material-symbols-outlined" style={{ fontSize: 17, color: "var(--color-ink-5)", opacity: .4 }}>{it.ic}</span>
+      ))}
+    </span>
+  );
+}
 
 const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
   sent: { label: "送信済み", color: "#0b5cab" },
@@ -30,14 +128,63 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
 };
 
 export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]> }) {
+  const router = useRouter();
   const [q, setQ] = useState("");
+  const [filters, setFilters] = useState<{ status: string; lang: string; source: string; sheet: string }>({ status: "", lang: "", source: "", sheet: "" });
   const [detail, setDetail] = useState<Engineer | null>(null);
+  const [matchingBusy, setMatchingBusy] = useState<string | null>(null);
+  const [matchingMsg, setMatchingMsg] = useState<string | null>(null);
+  const goMatching = (e: Engineer) => {
+    setMatchingBusy(e.id); setMatchingMsg(null);
+    convertEngineerToCandidate(e.id).then((res) => {
+      setMatchingBusy(null);
+      if (res.ok && res.candidate_no) router.push(`/matching?person=${res.candidate_no}`);
+      else setMatchingMsg(res.error || "マッチングへ進めませんでした");
+    });
+  };
+
+  // フィルタ選択肢（データから動的生成）
+  const langOptions = useMemo(() => Array.from(new Set(engineers.map((e) => e.primary_language).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, "ja")), [engineers]);
+  const sourceOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of engineers) {
+      const key = e.source.key + "|" + (e.source.method || "");
+      const label = `${e.source.label}${e.source.method ? ` · ${e.source.method}` : ""}`;
+      if (!m.has(key)) m.set(key, label);
+    }
+    return Array.from(m.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "ja"));
+  }, [engineers]);
 
   const filtered = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    if (!t) return engineers;
-    return engineers.filter((e) => [e.display_name, e.github_login, e.primary_language, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase().includes(t));
-  }, [q, engineers]);
+    const needle = q.trim().toLowerCase();
+    return engineers.filter((e) => {
+      if (needle) {
+        const hay = [e.display_name, e.github_login, e.name, e.primary_language, e.email, e.phone, e.contact_line, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
+      if (filters.lang && (e.primary_language || "") !== filters.lang) return false;
+      if (filters.source && (e.source.key + "|" + (e.source.method || "")) !== filters.source) return false;
+      if (filters.sheet === "あり" && !e.skill_sheet_url) return false;
+      if (filters.sheet === "なし" && e.skill_sheet_url) return false;
+      return true;
+    });
+  }, [q, filters, engineers]);
+
+  // ページング
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [q, filters, pageSize]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const buildPages = (cur1: number, count: number) => {
+    const win = [1, 2, cur1 - 1, cur1, cur1 + 1, count - 1, count].filter((n) => n >= 1 && n <= count);
+    const uniq = [...new Set(win)].sort((a, b) => a - b);
+    const out: (number | "…")[] = []; let prev = 0;
+    for (const n of uniq) { if (n - prev > 1) out.push("…"); out.push(n); prev = n; }
+    return out;
+  };
 
   if (engineers.length === 0) {
     return <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40, fontSize: 13 }}>まだ enger.jp 経由で登録したエンジニアがいません。</div>;
@@ -45,47 +192,150 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
 
   return (
     <>
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <div className="tbl-search" style={{ width: 260, flex: "0 0 260px" }}><input placeholder="氏名・スキル・言語で検索…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-        <span className="muted" style={{ fontSize: 11.5 }}>{filtered.length} 名</span>
-      </div>
+      <div className="card flush">
+        <div className="tbl-toolbar">
+          <div className="tbl-search">
+            <Icons.search />
+            <input placeholder="氏名・スキル・言語で検索…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <label className="tbl-filter"><span>ステータス</span>
+            <select value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+              <option value="">すべて</option>
+              {FRESH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="tbl-filter"><span>主要言語</span>
+            <select value={filters.lang} onChange={(e) => setFilters((f) => ({ ...f, lang: e.target.value }))}>
+              <option value="">すべて</option>
+              {langOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+          <label className="tbl-filter"><span>登録元</span>
+            <select value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}>
+              <option value="">すべて</option>
+              {sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="tbl-filter"><span>スキルシート</span>
+            <select value={filters.sheet} onChange={(e) => setFilters((f) => ({ ...f, sheet: e.target.value }))}>
+              <option value="">すべて</option>
+              <option value="あり">あり</option>
+              <option value="なし">なし</option>
+            </select>
+          </label>
+          {matchingMsg && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-danger)" }}>{matchingMsg}</span>}
+        </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-        {filtered.map((e) => {
-          const log = actions[e.id] ?? [];
-          const sc = scouts[e.id] ?? [];
-          const ap = applications[e.id] ?? [];
-          return (
-          <button key={e.id} onClick={() => setDetail(e)} className="card" style={{ textAlign: "left", cursor: "pointer", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 42, height: 42, borderRadius: 99, flex: "0 0 42px" }} /> : <div className="ava" style={{ width: 42, height: 42, flex: "0 0 42px" }}>{(e.display_name ?? e.github_login ?? "?").slice(0, 2)}</div>}
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.display_name || e.github_login || "—"}</div>
-                <div className="muted" style={{ fontSize: 11 }}>{e.github_login ? `@${e.github_login}` : ""} · {e.primary_language ?? "—"}</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-              {skillNames(e).slice(0, 6).map((s) => <span key={s} className="tag" style={{ fontSize: 10.5, background: "var(--color-brand-25)", color: "var(--color-brand-700,#0b5cab)" }}>{s}</span>)}
-            </div>
-            <div style={{ display: "flex", gap: 14, fontSize: 11.5, color: "var(--color-ink-3)", borderTop: "1px solid var(--color-border)", paddingTop: 8, alignItems: "center" }}>
-              <span>想定単価 <b style={{ color: "var(--color-ink)" }}>{pay(e)}</b></span>
-              <span>★{e.total_stars}</span>
-              <span>repo {e.total_repos}</span>
-              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 5 }}>
-                {ap.length > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募 {ap.length}</span>
-                )}
-                {sc.length > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカウト {sc.length}</span>
-                )}
-                {log.length > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応 {log.length}</span>
-                )}
-              </span>
-            </div>
-          </button>
-        );})}
+        <div className="tbl-scroll" style={{ overflowX: "auto" }}>
+          <table className="tbl tbl-compact">
+            <thead>
+              <tr>
+                <th style={{ width: 96 }}>人材ID</th>
+                <th style={{ width: 104 }}>ステータス</th>
+                <th>氏名</th>
+                <th>スキル</th>
+                <th style={{ width: 110 }}>主要言語</th>
+                <th style={{ width: 110 }} className="num">単価</th>
+                <th style={{ width: 100 }} className="num">GitHub</th>
+                <th style={{ width: 120 }}>スキルシート</th>
+                <th style={{ width: 160 }}>登録元</th>
+                <th style={{ width: 132 }}>登録日時</th>
+                <th style={{ width: 96 }}>連絡先</th>
+                <th style={{ width: 80 }}>履歴</th>
+                <th style={{ width: 200 }}>アクション</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr><td colSpan={13} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+              ) : pageRows.map((e) => {
+                const log = actions[e.id] ?? [];
+                const sc = scouts[e.id] ?? [];
+                const ap = applications[e.id] ?? [];
+                const name = e.display_name || e.github_login || e.name || "—";
+                const sub = e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "");
+                return (
+                  <tr key={e.id} className="clickable"
+                    onClick={(ev) => { if ((ev.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setDetail(e); }}
+                    title="クリックで詳細">
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>{shortId(e.id)}</span></td>
+                    <td><Fresh d={e.created_at} /></td>
+                    <td>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: 99, flex: "0 0 32px" }} /> : <div className="ava" style={{ flex: "0 0 32px" }}>{name.slice(0, 2)}</div>}
+                        <div style={{ minWidth: 0 }}>
+                          <div className="pri" style={{ color: "var(--color-brand-700)" }}>{name}</div>
+                          {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {skillNames(e).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          {skillNames(e).slice(0, 3).map((s) => <span key={s} className="tag brand">{s}</span>)}
+                          {skillNames(e).length > 3 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{skillNames(e).length - 3}</span>}
+                        </div>
+                      )}
+                    </td>
+                    <td><span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{e.primary_language ?? "—"}</span></td>
+                    <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
+                    <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
+                    <td>
+                      {e.skill_sheet_url
+                        ? <a href={e.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
+                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                    </td>
+                    <td><SourceBadge source={e.source} /></td>
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
+                    <td><ContactIcons e={e} /></td>
+                    <td>
+                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                        {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
+                        {sc.length > 0 && <span title="スカウト" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカ{sc.length}</span>}
+                        {log.length > 0 && <span title="対応" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応{log.length}</span>}
+                        {ap.length + sc.length + log.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button
+                          type="button"
+                          className="btn btn-xs"
+                          disabled={matchingBusy === e.id}
+                          onClick={(ev) => { ev.stopPropagation(); goMatching(e); }}
+                          title="このエンジニアを候補者として取り込み、マッチング画面で案件探し"
+                          style={{ background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
+                          <span>{matchingBusy === e.id ? "準備中…" : "マッチング"}</span>
+                        </button>
+                        <MailButton to={e.email} search={[name, e.github_login].filter(Boolean).join(" ")} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="tbl-foot muted" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ whiteSpace: "nowrap" }}>{filtered.length.toLocaleString("ja-JP")} 名</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+            <button type="button" className="pg-btn" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} aria-label="前へ">‹</button>
+            {buildPages(safePage + 1, pageCount).map((p, idx) => p === "…"
+              ? <span key={`e${idx}`} style={{ padding: "0 4px", color: "var(--color-ink-4)" }}>…</span>
+              : <button key={p} type="button" className={"pg-btn" + (p === safePage + 1 ? " active" : "")} onClick={() => setPage(p - 1)}>{p}</button>)}
+            <button type="button" className="pg-btn" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} aria-label="次へ">›</button>
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            件数：
+            <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{ fontFamily: "inherit", fontSize: 12, padding: "4px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+              {[20, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </span>
+        </div>
       </div>
 
       {detail && (
@@ -139,10 +389,14 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? "?").slice(0, 2)}</div>}
+            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? detail.name ?? "?").slice(0, 2)}</div>}
             <div>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login}</h3>
-              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : ""} · {detail.primary_language ?? "—"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login || detail.name || "—"}</h3>
+                <SourceBadge source={detail.source} />
+              </div>
+              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : (detail.name ? `@${detail.name}` : "")} · {detail.primary_language ?? "—"}</div>
+              {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>
           <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
@@ -160,7 +414,16 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             ))}
           </div>
         </div>
-        {detail.email && <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>連絡先：<a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a></div>}
+        {/* 連絡先（メール・電話・メッセージ）と登録日時 */}
+        <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>連絡先・登録情報</div>
+          <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "4px 10px", fontSize: 12.5 }}>
+            <span className="muted">登録日時</span><span className="mono">{fmtDateTime(detail.created_at)}</span>
+            <span className="muted">メール</span><span>{detail.email ? <a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a> : <span className="muted">—</span>}</span>
+            <span className="muted">電話</span><span>{detail.phone ? <a href={`tel:${detail.phone}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.phone}</a> : <span className="muted">—</span>}</span>
+            <span className="muted">メッセージ</span><span>{detail.contact_line ? detail.contact_line : <span className="muted">—</span>}</span>
+          </div>
+        </div>
 
         {(detail.portfolio_url || detail.skill_sheet_url) && (
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
@@ -174,8 +437,21 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>スキルシート{detail.skill_sheet_name ? `（${detail.skill_sheet_name}）` : ""}
               </a>
             )}
+            {detail.qiita_id && (
+              <a href={`https://qiita.com/${detail.qiita_id}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>article</span>Qiita
+              </a>
+            )}
           </div>
         )}
+
+        {detail.bio && <div style={{ fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.7, whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: "8px 11px", borderRadius: 8 }}>{detail.bio}</div>}
+
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-4)" }}>
+          <span>想定単価レンジ：{detail.estimated_pay_low ?? "—"}〜{detail.estimated_pay_high ?? "—"}万</span>
+          <span>登録日：{detail.created_at ? new Date(detail.created_at).toLocaleDateString("ja-JP") : "—"}</span>
+          {detail.last_login_at && <span>最終ログイン：{new Date(detail.last_login_at).toLocaleDateString("ja-JP")}</span>}
+        </div>
 
         {/* 応募（エンジニアからの応募） */}
         {appLog.length > 0 && (
@@ -184,15 +460,14 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {appLog.map((a) => {
                 const stg = a.stage || "応募";
-                const tone = stg === "稼働" ? "#067647" : stg === "面談合格" ? "#0b5cab" : stg === "見送り" ? "#b42318" : "#475467";
                 return (
-                  <div key={a.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 99, background: tone, flex: "0 0 auto" }} />
-                    <span style={{ color: "var(--color-ink-2)", minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
-                    <select value={stg} disabled={pending} onChange={(e) => changeStage(a.id, e.target.value)} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: tone, fontWeight: 700 }}>
-                      {APPLICATION_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <span className="muted" style={{ fontSize: 10.5, width: "100%", textAlign: "right" }}>{fmtDate(a.created_at)}</span>
+                  <div key={a.id} style={{ fontSize: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ color: "var(--color-ink-2)", fontWeight: 600, minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
+                      <button type="button" onClick={() => openIntroMail(detail, a.job_title || a.job_no || "ご案件")} title="案件側へ人材紹介メールをGmailで作成" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, cursor: "pointer" }}>📧 紹介メール</button>
+                      <span className="muted" style={{ fontSize: 10.5 }}>{fmtDate(a.created_at)}</span>
+                    </div>
+                    <StageBar current={stg} disabled={pending} onChange={(next) => changeStage(a.id, next)} />
                   </div>
                 );
               })}
