@@ -45,43 +45,25 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
-      const like = needle ? `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%` : null;
-      const withTextSearch = (qb: any) =>
-        like ? qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}`) : qb;
-
-      // テキスト検索（or() 内に ::text cast を使わない）
-      let res: any = await withTextSearch(sb
+      const withSearch = (qb: any) => {
+        if (!needle) return qb;
+        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
+      };
+      let res: any = await withSearch(sb
         .from("candidates")
         .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" }))
         .order("candidate_no", { ascending: false })
         .limit(needle ? 1000 : 300);
       if (res.error) {
-        res = await withTextSearch(sb
+        res = await withSearch(sb
           .from("candidates")
           .select(baseCols, { count: "exact" }))
           .order("candidate_no", { ascending: false })
           .limit(needle ? 1000 : 300);
       }
-      let allData: any[] = res.data ?? [];
-
-      // candidate_no 部分一致（数値入力時のみ）
-      // ::text cast は PostgREST の or()/filter() で不安定なため使わない。
-      // 代わりに直近 1000 件を取得してクライアント側でフィルタ + 古い ID は eq で保険。
-      if (/^\d+$/.test(needle)) {
-        const parsedNo = parseInt(needle, 10);
-        const [recentRes, exactRes] = await Promise.all([
-          sb.from("candidates").select(baseCols)
-            .order("candidate_no", { ascending: false }).limit(1000),
-          sb.from("candidates").select(baseCols)
-            .eq("candidate_no", parsedNo).limit(1),
-        ]);
-        const seen = new Set(allData.map((r: any) => r.candidate_no));
-        for (const r of [...(recentRes.data ?? []), ...(exactRes.data ?? [])]) {
-          if (r.candidate_no != null && !seen.has(r.candidate_no)) { seen.add(r.candidate_no); allData.push(r); }
-        }
-      }
-
-      people = allData;
+      people = res.data ?? [];
       total = res.count ?? people.length;
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
