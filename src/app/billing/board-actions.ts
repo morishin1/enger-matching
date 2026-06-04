@@ -185,7 +185,8 @@ export async function autoLinkBoardProjects(): Promise<{ ok: boolean; error?: st
   const targets = (eng.data ?? []).filter((e: any) => e.company);
   if (targets.length === 0) return { ok: true, linked: 0, skipped: 0, targets: 0, projects: 0, ambiguous: 0, noClient: 0 };
 
-  const pr = await fetchProjects();
+  // 自動ひもづけは網羅性重視で多めに遡る（最大50ページ）。検索(lookup)は直近10ページ＋番号直クエリで高速。
+  const pr = await fetchProjects({ maxPages: 50 });
   if (!pr.ok) return { ok: false, error: `board 案件取得エラー：${pr.error}` };
 
   // 正規化済みの企業名でグルーピング
