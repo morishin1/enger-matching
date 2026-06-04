@@ -187,8 +187,11 @@ export function CandMailBodyCard({
           const hasPlaceholder = parts.length === 2;
           const ar = (el: HTMLTextAreaElement | null) => {
             if (!el) return;
+            const container = el.parentElement;
+            const savedScroll = container?.scrollTop ?? 0;
             el.style.height = "auto";
             el.style.height = el.scrollHeight + "px";
+            if (container) container.scrollTop = savedScroll;
           };
           const taStyle: React.CSSProperties = {
             display: "block", width: "100%", boxSizing: "border-box",
