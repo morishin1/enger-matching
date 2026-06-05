@@ -55,42 +55,38 @@ export default async function ProposalsPage() {
         needSetup = true;
       } else {
         const all = res.data ?? [];
-        // 案件名 → /matching?job=<job_no>&cand=<candidate_no> のリンク用に job_id → job_no と candidate_id → candidate_no を解決
+        // 補助情報を 4 クエリ並列で取得（旧: 逐次 4 往復 → 新: 1 往復ぶんに短縮）。
+        //   ① job_id → job_no/source_mail_url
+        //   ② candidate_id → candidate_no/source_mail_url
+        //   ③ job_title → outside_owner（営業担当）
+        //   ④ company name → owner（営業担当）
+        const jobIds   = Array.from(new Set(all.map((p: any) => p.job_id).filter(Boolean))) as string[];
+        const candIds  = Array.from(new Set(all.map((p: any) => p.candidate_id).filter(Boolean))) as string[];
+        const titles   = Array.from(new Set(all.map((p: any) => p.job_title).filter(Boolean))) as string[];
+        const compNms  = Array.from(new Set(all.map((p: any) => p.company).filter(Boolean))) as string[];
+
+        const nq = (rows: any[] | null) => rows ?? [];
+        const [jn, cn, jr, cr] = await Promise.all([
+          jobIds.length  ? sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
+          candIds.length ? sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds).limit(2000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
+          titles.length  ? sb.from("jobs").select("title, outside_owner").in("title", titles).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
+          compNms.length ? sb.from("companies").select("name, owner").in("name", compNms).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
+        ]);
+
         try {
-          const jobIds = Array.from(new Set(all.map((p: any) => p.job_id).filter(Boolean)));
-          if (jobIds.length) {
-            const jn: any = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds as string[]).limit(2000);
-            if (!jn.error) {
-              const m: Record<string, { job_no: number; url: string | null }> = {};
-              for (const j of (jn.data ?? [])) if (j.id != null) m[j.id] = { job_no: j.job_no, url: j.source_mail_url ?? null };
-              for (const p of all) if (p.job_id && m[p.job_id] != null) { p.job_no = m[p.job_id].job_no; p.job_source_mail_url = m[p.job_id].url; }
-            }
-          }
-          const candIds = Array.from(new Set(all.map((p: any) => p.candidate_id).filter(Boolean)));
-          if (candIds.length) {
-            const cn: any = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds as string[]).limit(2000);
-            if (!cn.error) {
-              const m: Record<string, { candidate_no: number; url: string | null }> = {};
-              for (const c of (cn.data ?? [])) if (c.id != null) m[c.id] = { candidate_no: c.candidate_no, url: c.source_mail_url ?? null };
-              for (const p of all) if (p.candidate_id && m[p.candidate_id] != null) { p.candidate_no = m[p.candidate_id].candidate_no; p.cand_source_mail_url = m[p.candidate_id].url; }
-            }
-          }
-        } catch { /* 解決失敗時はリンク無し（フォールバック） */ }
-        // 企業担当（案件の outside_owner / 企業マスタ owner）を解決し、各提案に company_owner として付与
-        try {
-          const titles = Array.from(new Set(all.map((p: any) => p.job_title).filter(Boolean)));
-          const names = Array.from(new Set(all.map((p: any) => p.company).filter(Boolean)));
+          const mJ: Record<string, { job_no: number; url: string | null }> = {};
+          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, url: j.source_mail_url ?? null };
+          const mC: Record<string, { candidate_no: number; url: string | null }> = {};
+          for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, url: c.source_mail_url ?? null };
           const ownerByTitle: Record<string, string> = {};
+          for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
-          if (titles.length) {
-            let jr: any = await sb.from("jobs").select("title, outside_owner").in("title", titles as string[]).limit(1000);
-            if (!jr.error) for (const j of (jr.data ?? [])) if (j.outside_owner) ownerByTitle[j.title] = j.outside_owner;
+          for (const c of cr as any[]) if (c?.owner) ownerByCompany[c.name] = c.owner;
+          for (const p of all) {
+            if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; }
+            if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; }
+            p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
           }
-          if (names.length) {
-            const cr: any = await sb.from("companies").select("name, owner").in("name", names as string[]).limit(1000);
-            if (!cr.error) for (const c of (cr.data ?? [])) if (c.owner) ownerByCompany[c.name] = c.owner;
-          }
-          for (const p of all) p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
         } catch { /* 列未整備でも続行 */ }
         // 稼働化済(稼働/旧稼働決定)・見送り・失注 はボードから除外
         proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));

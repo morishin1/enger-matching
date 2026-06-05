@@ -163,40 +163,46 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
   if (!dbConfigured) return [];
   try {
     const sb = engerAdmin();
-    const existing = await sb.from("app_users").select("email").limit(50000);
-    const existingEmails = new Set<string>((existing.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase()).filter(Boolean));
     const pub = publicAdmin();
     const sel = "id, display_name, email, name, phone, contact_line, signup_source, signup_method, created_at, role";
+    // 先に profiles を取得（候補は最大500件）。app_users 全件取得を避け、
+    // 候補の email だけで .in() 存在チェックに切り替える（50000件取得→数十件 in クエリ）。
     let r: any = await pub.from("profiles").select(sel)
       .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student,email.not.is.null")
       .order("created_at", { ascending: false }).limit(500);
     if (r.error) {
-      // 連絡先列が無い環境向けフォールバック
       r = await pub.from("profiles").select("id, display_name, email, name, signup_source, signup_method, created_at, role")
         .or("github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student,email.not.is.null")
         .order("created_at", { ascending: false }).limit(500);
     }
+    if (r.error || !r.data) return [];
+    const candidateEmails = Array.from(new Set(
+      (r.data as any[]).map((p) => String(p.email ?? "").toLowerCase()).filter(Boolean)
+    ));
+    let existingEmails = new Set<string>();
+    if (candidateEmails.length > 0) {
+      const ex: any = await sb.from("app_users").select("email").in("email", candidateEmails);
+      if (!ex.error) existingEmails = new Set<string>((ex.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase()).filter(Boolean));
+    }
     const accounts: Account[] = [];
     const profileEmails = new Set<string>();
-    if (!r.error && r.data) {
-      for (const p of r.data as any[]) {
-        const em = String(p.email ?? "").toLowerCase();
-        if (!em || existingEmails.has(em)) continue; // 既に app_users 済みは除外
-        profileEmails.add(em);
-        accounts.push({
-          id: `profile:${p.id}`,                  // 仮想ID（プレフィックスで判別）
-          email: em,
-          name: p.display_name ?? p.name ?? null,
-          role: "candidate" as Role,              // LP登録者は人材として扱う
-          status: "pending" as AccountStatus,
-          company_name: null,
-          position: null,
-          functions: null,
-          note: [p.signup_source ? `登録元: ${p.signup_source}` : "", p.signup_method ? `方式: ${p.signup_method}` : "", p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
-          created_at: p.created_at ?? new Date().toISOString(),
-          approved_at: null,
-        } as Account);
-      }
+    for (const p of r.data as any[]) {
+      const em = String(p.email ?? "").toLowerCase();
+      if (!em || existingEmails.has(em)) continue;
+      profileEmails.add(em);
+      accounts.push({
+        id: `profile:${p.id}`,
+        email: em,
+        name: p.display_name ?? p.name ?? null,
+        role: "candidate" as Role,
+        status: "pending" as AccountStatus,
+        company_name: null,
+        position: null,
+        functions: null,
+        note: [p.signup_source ? `登録元: ${p.signup_source}` : "", p.signup_method ? `方式: ${p.signup_method}` : "", p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
+        created_at: p.created_at ?? new Date().toISOString(),
+        approved_at: null,
+      } as Account);
     }
     // フォールバック: auth.users に居るが profiles にも app_users にも無い人（enger.jp 側で profiles を作っていない場合）
     //   → こちらも「LP登録 (Auth)」として承認待ち人材に拾う
