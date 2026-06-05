@@ -12,8 +12,9 @@ import { FreelanceHome } from "@/components/FreelanceHome";
 import { TalentRequests } from "@/components/TalentRequests";
 import { RecentActivity } from "@/components/RecentActivity";
 import { DashboardInbox } from "@/components/DashboardInbox";
+import { TeamProgress } from "@/components/TeamProgress";
 import { currentAccess } from "@/lib/accounts";
-import { hasSalesFunction } from "@/lib/roles";
+import { hasSalesFunction, canManageDept } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
 import { getCompanyMatrix } from "@/lib/companies";
 
@@ -45,6 +46,8 @@ export default async function DashboardPage() {
   }
   // 営業・管理者 → 企業からの人材リクエスト ＋ 経営/営業ダッシュボード
   const isAdmin = access?.role !== "agent"; // admin（または認証未設定のローカル）
+  // マネージャー/リーダー：自部署メンバーの進捗を見せる
+  const isManager = !isAdmin && canManageDept(access?.teamRole) && !!access?.department;
   const talentRequests = await listTalentRequests();
   const matrix = isAdmin ? await getCompanyMatrix() : null;
   return (
@@ -57,6 +60,16 @@ export default async function DashboardPage() {
       {talentRequests.length > 0 && (
         <div className="page" style={{ paddingBottom: 0 }}>
           <TalentRequests rows={talentRequests} />
+        </div>
+      )}
+      {/* メンバー進捗：admin は全社、manager/leader は自部署。一般メンバーには出さない（自分の進捗は AgentDashboard 内の「あなたのKPI」を参照）。 */}
+      {(isAdmin || isManager) && (
+        <div className="page" style={{ paddingBottom: 0 }}>
+          <TeamProgress
+            scope={isAdmin ? "all" : "department"}
+            departmentName={isAdmin ? null : access?.department ?? null}
+            myName={access?.name ?? null}
+          />
         </div>
       )}
       {isAdmin && (
