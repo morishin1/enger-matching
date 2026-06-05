@@ -3,6 +3,7 @@ import { EntityTable } from "@/components/EntityTable";
 import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
+import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
@@ -201,7 +202,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <h1>案件</h1>
           <EntityGrowthLine unit="件" delta={growth} />
         </div>
-        <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+          {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで人材を探す" hint="案件×人材のマッチング画面へ" />}
           {!scope.isTenant && (
             <a href={showAll ? "/jobs" : "/jobs?show=all"} className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }}
               title={showAll ? "公開中の案件のみ表示" : "非公開（過去インポートで一覧に出ていない案件）も含めて表示"}>

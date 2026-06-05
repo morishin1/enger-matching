@@ -9,6 +9,7 @@ import { gmailConfigured } from "@/lib/gmail-api";
 import { MailboxClient } from "@/components/MailboxClient";
 import { MailLogClient } from "@/components/MailLogClient";
 import { InboxClient, type ContactMsg } from "@/components/InboxClient";
+import { NextStepLink } from "@/components/NextStepLink";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -108,12 +109,15 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="page">
-      <div className="page-head">
+      <div className="page-head" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Mail · メール</div>
           <h1>メール</h1>
           <div className="sub">{cur.desc}</div>
         </div>
+        {tab === "import" && (
+          <NextStepLink href="/jobs" label="案件を確認" hint="取込・登録された案件一覧へ" />
+        )}
       </div>
 
       {/* タブ */}

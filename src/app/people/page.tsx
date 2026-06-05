@@ -2,6 +2,7 @@ import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, 
 import { EntityTable } from "@/components/EntityTable";
 import { PeopleTable } from "@/components/PeopleTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
+import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
@@ -206,7 +207,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           <h1>人材</h1>
           <EntityGrowthLine unit="名" delta={growth} />
         </div>
-        <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+          {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで案件を探す" hint="人材×案件のマッチング画面へ" />}
           {!scope.isTenant && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
           <CandidateNewButton />
           {!scope.isTenant && <CandidateGmailBulkButton />}

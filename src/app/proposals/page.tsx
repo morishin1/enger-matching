@@ -4,6 +4,7 @@ import { ProposalsTabs } from "@/components/ProposalsTabs";
 import { LostAnalytics } from "@/components/LostAnalytics";
 import { NewProposalButton } from "@/components/NewProposalButton";
 import { ProposalStartStats } from "@/components/ProposalStartStats";
+import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
@@ -153,7 +154,8 @@ export default async function ProposalsPage() {
           <h1>提案管理</h1>
           <div className="sub"><b>返信待ち → 提案中 → 面談調整 → クロージング中 → 面談合格</b> のカンバン。「返信待ち」は提案メール送信済みで先方の反応待ちのキューです。提案は<b>2人1組（提案者＋パートナー）</b>で進め、クロージング担当は2人のうちどちらかをカードで選べます。面談合格の「稼働化」で<b>稼働管理</b>へ移ります。</div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+          <NextStepLink href="/progress" label="稼働管理を見る" hint="面談合格→稼働化したエンゲージメントへ" />
           <NewProposalButton />
         </div>
       </div>

@@ -5,6 +5,7 @@ import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
 import { FocusList } from "@/components/FocusList";
 import { JumpToMatching } from "@/components/JumpToMatching";
+import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, type Job, type MatchResult, type Verdict } from "@/lib/match";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
@@ -566,12 +567,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="page">
-      <div className="page-head">
+      <div className="page-head" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Matching · 案件 × 人材（自動スコアリング）</div>
           <h1>マッチング</h1>
           <div className="sub">案件を選ぶと、スキル一致を主軸（単価・職種・リモートで補正）に候補をランキング表示します。</div>
         </div>
+        <NextStepLink href="/proposals" label="提案管理を見る" hint="マッチングからの提案を一覧で管理" />
         <form style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
           <input type="hidden" name="tab" value={tab} />
           <select name="job" defaultValue={job?.job_no ?? ""} style={{ fontFamily: "inherit", fontSize: 12, padding: "8px 12px", borderRadius: 99, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-ink)", maxWidth: 340 }}>

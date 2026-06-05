@@ -10,19 +10,11 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
 type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
 
-// 営業フローに沿った並び：
-//   ① ダッシュボード（毎日のホーム）
-//   ② 打合せ記録（クライアント/SESと商談・面談 → ここから案件/人材を獲得）
-//   ③ 取り込んだ情報（企業 → 案件 → 人材 → LP登録）
-//   ④ マッチング（案件×人材を当てる）
-//   ⑤ 提案管理（提案→面談調整→クロージング→面談合格）
-//   ⑥ 稼働管理（稼働化したペアの管理）
-//   ⑦ 書類送付（契約書類）
-//   ⑧ パイプライン／分析（全体の俯瞰と振り返り）
+// 営業フローに沿った並び（取込→マスタ→マッチング→提案→稼働の順）。
+// Gmail取込が業務の起点なので、サイドバー先頭に「メール取込」を置く。
 const NAV: NavItem[] = [
-  { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
-  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
-  { href: "/companies", id: "companies", label: "企業管理", icon: "company", count: "companies" },
+  { href: "/mail", id: "mail", label: "メール取込", icon: "mail" },
+  { href: "/companies", id: "companies", label: "企業", icon: "company", count: "companies" },
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
   { href: "/people", id: "people", label: "人材", icon: "people", count: "people", children: [
     { href: "/engineers", id: "engineers", label: "LP登録（フリーランス）", count: "engineers" },
@@ -30,18 +22,23 @@ const NAV: NavItem[] = [
   { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
-  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
+];
+
+// 振り返り・分析（時間軸での見直しに使う画面）。
+const ANALYSIS: NavItem[] = [
+  { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
+  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics", children: [
     { href: "/pipeline", id: "pipeline", label: "パイプライン" },
     { href: "/documents", id: "documents", label: "書類送付" },
   ] },
 ];
 
+// その他（補助ツール）。
 const TOOLS: NavItem[] = [
-  // 承認は最上段。承認待ちの未対応件数（pending合計）を NEW バッジで表示
   { href: "/settings/approvals", id: "approvals", label: "新規登録（承認）", icon: "person_add", count: "approvalsPending", hot: true },
+  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
-  { href: "/mail", id: "mail", label: "メール", icon: "mail" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
   { href: "/settings", id: "settings", label: "設定", icon: "settings" },
@@ -77,7 +74,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi"];
+  const SALES_HREFS = ["/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi"];
   // ダッシュボード・稼働・分析・書類は全エージェント可（分析ページは金額系を admin 限定で隠す）
   const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents"]);
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
@@ -97,6 +94,9 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
     : isTenant ? TENANT_NAV
     : role === "agent" ? filterForAgent(NAV)
     : NAV; // admin は全部
+  const analysis = (isClient || isTenant) ? []
+    : role === "agent" ? filterForAgent(ANALYSIS)
+    : ANALYSIS;
   const tools = (isClient || isTenant) ? []
     : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定は admin のみ、承認はエージェントも可
     : TOOLS; // admin は設定・承認含む全部
@@ -127,69 +127,61 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
         )}
       </div>
 
-      <div className="nav-group-label">{isClient ? "メニュー" : "業務"}</div>
-      <div className="nav">
-        {nav.map((n) => {
-          const Ico = Icons[n.icon];
-          const badge = n.count ? fmt(counts?.[n.count]) : null;
-          const hasChildren = (n.children?.length ?? 0) > 0;
-          const childOnPath = n.children?.some((c) => pathname.startsWith(c.href)) ?? false;
-          const parentActive = isActive(n.href) || childOnPath;
-          // 折りたたみ: 子がアクティブ階層なら自動展開、ユーザー操作の状態が優先
-          const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
-          return (
-            <Fragment key={n.id}>
-              <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
-                style={{ position: "relative" }}>
-                <span className="ico">{Ico && <Ico />}</span>
-                <span>{n.label}</span>
-                {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
-                {hasChildren && (
-                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(n.id); }}
-                    aria-label={isOpen ? "閉じる" : "開く"}
-                    title={isOpen ? "閉じる" : "開く"}
-                    style={{ marginLeft: badge != null ? 4 : "auto", background: "transparent", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 4 }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>chevron_right</span>
-                  </button>
-                )}
-              </Link>
-              {isOpen && n.children?.map((c) => {
-                const total = c.count ? fmt(counts?.[c.count]) : null;
-                const newN = c.newCount ? counts?.[c.newCount] : undefined;
-                const subActive = pathname.startsWith(c.href);
-                return (
-                  <Link key={c.id} href={c.href} className={"nav-item nav-sub " + (subActive ? "active" : "")}
-                    style={{ paddingLeft: 38, fontSize: 12.5 }}>
-                    <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
-                    {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
-                    {newN != null && newN > 0 && (
-                      <span className="badge hot" style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${newN} 件`}>NEW</span>
-                    )}
-                  </Link>
-                );
-              })}
-            </Fragment>
-          );
-        })}
-      </div>
-
-      {tools.length > 0 && (
-        <>
-          <div className="nav-group-label">ツール</div>
-          <div className="nav">
-            {tools.map((n) => {
-              const Ico = Icons[n.icon];
-              return (
-                <Link key={n.id} href={n.href} className={"nav-item " + (isActive(n.href) ? "active" : "")}>
-                  <span className="ico">{Ico && <Ico />}</span>
-                  <span>{n.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </>
-      )}
+      {renderGroup(isClient ? "メニュー" : "取込・マッチング業務", nav)}
+      {analysis.length > 0 && renderGroup("振り返り・分析", analysis)}
+      {tools.length > 0 && renderGroup("その他", tools)}
 
     </aside>
   );
+
+  // 1グループ（ラベル＋メニュー一覧）をレンダリング。NAV/ANALYSIS/TOOLSで共通利用。
+  function renderGroup(label: string, items: NavItem[]) {
+    return (
+      <Fragment key={label}>
+        <div className="nav-group-label">{label}</div>
+        <div className="nav">
+          {items.map((n) => {
+            const Ico = Icons[n.icon];
+            const badge = n.count ? fmt(counts?.[n.count]) : null;
+            const hasChildren = (n.children?.length ?? 0) > 0;
+            const childOnPath = n.children?.some((c) => pathname.startsWith(c.href)) ?? false;
+            const parentActive = isActive(n.href) || childOnPath;
+            const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
+            return (
+              <Fragment key={n.id}>
+                <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
+                  style={{ position: "relative" }}>
+                  <span className="ico">{Ico && <Ico />}</span>
+                  <span>{n.label}</span>
+                  {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                  {hasChildren && (
+                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(n.id); }}
+                      aria-label={isOpen ? "閉じる" : "開く"} title={isOpen ? "閉じる" : "開く"}
+                      style={{ marginLeft: badge != null ? 4 : "auto", background: "transparent", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 4 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>chevron_right</span>
+                    </button>
+                  )}
+                </Link>
+                {isOpen && n.children?.map((c) => {
+                  const total = c.count ? fmt(counts?.[c.count]) : null;
+                  const newN = c.newCount ? counts?.[c.newCount] : undefined;
+                  const subActive = pathname.startsWith(c.href);
+                  return (
+                    <Link key={c.id} href={c.href} className={"nav-item nav-sub " + (subActive ? "active" : "")}
+                      style={{ paddingLeft: 38, fontSize: 12.5 }}>
+                      <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
+                      {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
+                      {newN != null && newN > 0 && (
+                        <span className="badge hot" style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${newN} 件`}>NEW</span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </div>
+      </Fragment>
+    );
+  }
 }
