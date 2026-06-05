@@ -104,24 +104,27 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   return (
     <aside className={"side" + (open ? " open" : "")}>
       <div className="side-brand">
-        {logoOk ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src="/enger-logo.png"
-            alt="ENGER"
-            className="brand-logo"
-            onError={() => setLogoOk(false)}
-            style={{ height: 30, width: "auto", objectFit: "contain" }}
-          />
-        ) : (
-          <>
-            <div className="logo">E</div>
-            <div className="wm">
-              ENGER
-              <small>{isClient ? "business" : "Matching"}</small>
-            </div>
-          </>
-        )}
+        {/* ロゴクリックで dx.enger.jp（ENGER business トップ）へ戻る */}
+        <a href="https://dx.enger.jp" title="dx.enger.jp トップへ" style={{ display: "inline-flex", alignItems: "center", gap: 8, textDecoration: "none", color: "inherit" }}>
+          {logoOk ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src="/enger-logo.png"
+              alt="ENGER"
+              className="brand-logo"
+              onError={() => setLogoOk(false)}
+              style={{ height: 30, width: "auto", objectFit: "contain" }}
+            />
+          ) : (
+            <>
+              <div className="logo">E</div>
+              <div className="wm">
+                ENGER
+                <small>{isClient ? "business" : "Matching"}</small>
+              </div>
+            </>
+          )}
+        </a>
         {isClient && (
           <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".04em", color: "var(--color-brand-700)", background: "var(--color-brand-50)", border: "1px solid var(--color-brand-100)", padding: "2px 8px", borderRadius: 6, alignSelf: "center" }}>business</span>
         )}
