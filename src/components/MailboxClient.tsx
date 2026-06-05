@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail } from "@/lib/actions";
+import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail, backfillInboxSourceMailUrls } from "@/lib/actions";
 
 const fmtDateTime = (d: any) => {
   if (!d) return "—";
@@ -70,6 +70,17 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
     });
   };
 
+  const repairLinks = () => {
+    setSyncMsg("🔗 元メールリンクを補修中…");
+    start(async () => {
+      const r = await backfillInboxSourceMailUrls();
+      if (!r.ok) { setSyncMsg(`補修失敗: ${r.error}`); return; }
+      setSyncMsg(`✓ 元メールリンク補修: 案件${r.jobsFixed}件・人材${r.candidatesFixed}件を修正（対象${r.scanned}件を確認）`);
+      router.refresh();
+      setTimeout(() => setSyncMsg(null), 12000);
+    });
+  };
+
   const filtered = rows.filter((r) => {
     if (!q.trim()) return true;
     const n = q.trim().toLowerCase();
@@ -98,6 +109,11 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
           title="Gmail を絞り込み同期→AIで案件/人材判定→自信度0.75以上は自動登録／無関係は自動アーカイブ／低自信は要確認に残す">
           <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>auto_awesome</span>
           🤖 今すぐ自動取込
+        </button>
+        <button type="button" className="btn ghost" disabled={pending} onClick={repairLinks}
+          title="取込メール由来の案件/人材で「元メール」が開けない・別アカウントで開くものを、正しい受信アカウントの原本URLに一括張り替え">
+          <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>link</span>
+          元メールリンク補修
         </button>
         {syncMsg && <span className="muted" style={{ fontSize: 12 }}>{syncMsg}</span>}
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>

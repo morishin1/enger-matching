@@ -8,6 +8,7 @@ import { canSeeMargin } from "./engagement-access";
 import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
 import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
+import { gmailMessageUrl } from "./gmail";
 
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
 const bustCounts = () => revalidateTag("sidebar-counts", "max");
@@ -1684,7 +1685,8 @@ export async function registerInboxAsJob(inboxId: string, override?: Partial<Job
     detail: override?.detail ?? d.detail ?? row.body?.slice(0, 1500) ?? null,
     contact_email: row.from_email ?? null,
     contact_name: row.from_name ?? null,
-    source_mail_url: `https://mail.google.com/mail/u/0/#all/${row.gmail_message_id}`,
+    // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
+    source_mail_url: gmailMessageUrl(row.gmail_message_id),
   };
   const res = await upsertJobManual(input);
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "案件作成に失敗しました" };
@@ -1719,7 +1721,8 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
     skill_sheet_url: override?.skill_sheet_url ?? d.skill_sheet_url ?? null,
     note: row.body?.slice(0, 1500) ?? null,
     contact_email: row.from_email ?? null,
-    source_mail_url: `https://mail.google.com/mail/u/0/#all/${row.gmail_message_id}`,
+    // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
+    source_mail_url: gmailMessageUrl(row.gmail_message_id),
   };
   const res = await upsertCandidateManual(input);
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "人材作成に失敗しました" };
@@ -1735,6 +1738,56 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
 
   revalidatePath("/inbox"); revalidatePath("/people"); bustCounts();
   return { ok: true, candidate_no: (res as any).candidate_no };
+}
+
+// ────────────────────────────────────────────────────────
+// Gmail取込: 既存登録済みレコードの「元メールURL」を補完・修正する。
+//   ・URL が空のもの → inbox_emails.gmail_message_id から正しい authuser 付き URL を付与
+//   ・旧フォーマット(/u/0/ 固定)のもの → authuser 付きに張り替え（別アカウントで開けない不具合を解消）
+//   ・手動で http(s) URL を入れたものは尊重して触らない
+// ────────────────────────────────────────────────────────
+export async function backfillInboxSourceMailUrls(): Promise<{
+  ok: boolean; jobsFixed?: number; candidatesFixed?: number; scanned?: number; error?: string;
+}> {
+  const access = await currentAccess();
+  if ((access?.role ?? "admin") !== "admin") return { ok: false, error: "管理者のみ実行できます" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+
+  // 登録済み（jobs/candidates に紐づく）かつ gmail_message_id を持つ取込メールを取得
+  const r: any = await admin.from("inbox_emails")
+    .select("gmail_message_id, registered_job_no, registered_candidate_no")
+    .not("gmail_message_id", "is", null)
+    .or("registered_job_no.not.is.null,registered_candidate_no.not.is.null")
+    .limit(5000);
+  if (r.error) return { ok: false, error: r.error.message };
+  const rows: any[] = r.data ?? [];
+
+  // 既存 URL が「空 or /u/0/ 旧形式」なら張り替える、という判定
+  const needsFix = (cur: string | null | undefined) =>
+    !cur || /\/mail\/u\/\d+\/#/.test(String(cur));
+
+  let jobsFixed = 0, candidatesFixed = 0;
+  for (const row of rows) {
+    const url = gmailMessageUrl(row.gmail_message_id);
+    if (!url) continue;
+    if (row.registered_job_no != null) {
+      const cur: any = await admin.from("jobs").select("job_no, source_mail_url").eq("job_no", row.registered_job_no).maybeSingle();
+      if (cur.data && needsFix(cur.data.source_mail_url)) {
+        const up = await admin.from("jobs").update({ source_mail_url: url }).eq("job_no", row.registered_job_no);
+        if (!up.error) jobsFixed++;
+      }
+    }
+    if (row.registered_candidate_no != null) {
+      const cur: any = await admin.from("candidates").select("candidate_no, source_mail_url").eq("candidate_no", row.registered_candidate_no).maybeSingle();
+      if (cur.data && needsFix(cur.data.source_mail_url)) {
+        const up = await admin.from("candidates").update({ source_mail_url: url }).eq("candidate_no", row.registered_candidate_no);
+        if (!up.error) candidatesFixed++;
+      }
+    }
+  }
+  revalidatePath("/jobs"); revalidatePath("/people"); revalidatePath("/matching");
+  return { ok: true, jobsFixed, candidatesFixed, scanned: rows.length };
 }
 
 export async function skipInboxEmail(inboxId: string, reason?: string): Promise<{ ok: boolean; error?: string }> {
