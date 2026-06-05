@@ -342,9 +342,7 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
 }
 
 export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, members = [] }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; members?: string[] }) {
-  const [q, setQ] = useState("");
   const todays = reports.find((r) => r.author === author && r.report_date === today);
-  const filtered = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
   const canManage = isAdmin || canReply; // 提出カレンダー＋返信UI を出す
   return (
     <>
@@ -366,18 +364,102 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
         </>
       )}
 
+      <ReportArchive reports={reports} author={author} canManage={canManage} />
+    </>
+  );
+}
+
+/** 「これまでの日報」一覧。
+ *   - 管理者/マネージャー：担当者ごとにアコーディオンで折りたたみ。未返信のある人は自動で開く。
+ *   - 本人のみ：月ごとにアコーディオン。今月を自動で開く。
+ *   - 「未返信のみ」トグル・氏名絞り込みつき。
+ */
+function ReportArchive({ reports, author, canManage }: { reports: DailyReport[]; author: string; canManage: boolean }) {
+  const [q, setQ] = useState("");
+  const [onlyUnreplied, setOnlyUnreplied] = useState(false);
+
+  const needsReply = (r: DailyReport) => !r.replied_at; // 管理者本人が返信していないもの＝「まだ見ていない」
+  const base = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
+  const filtered = onlyUnreplied && canManage ? base.filter(needsReply) : base;
+
+  // グルーピング
+  const groups = new Map<string, { key: string; label: string; sub: string; items: DailyReport[]; unreplied: number; latest: string }>();
+  const monthLabel = (d: string) => { const dt = new Date(d + "T00:00:00"); return `${dt.getFullYear()}年${dt.getMonth() + 1}月`; };
+  for (const r of filtered) {
+    const key = canManage ? (r.author || "（未設定）") : (r.report_date?.slice(0, 7) || "----");
+    const g = groups.get(key) ?? { key, label: canManage ? key : monthLabel(r.report_date), sub: "", items: [], unreplied: 0, latest: "" };
+    g.items.push(r);
+    if (needsReply(r)) g.unreplied++;
+    if (r.report_date > g.latest) g.latest = r.report_date;
+    groups.set(key, g);
+  }
+  const groupList = [...groups.values()].sort((a, b) => (canManage ? (b.unreplied - a.unreplied) || b.latest.localeCompare(a.latest) : b.key.localeCompare(a.key)));
+
+  // 開閉状態。未指定の場合のデフォルト：管理者=未返信のある人を開く / 本人=最新グループを開く
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const isOpen = (g: { key: string; unreplied: number }, idx: number) =>
+    open[g.key] ?? (canManage ? g.unreplied > 0 : idx === 0);
+  const toggle = (k: string, cur: boolean) => setOpen((o) => ({ ...o, [k]: !cur }));
+  const setAll = (v: boolean) => setOpen(Object.fromEntries(groupList.map((g) => [g.key, v])));
+
+  const totalUnreplied = base.filter(needsReply).length;
+
+  return (
+    <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px", gap: 10, flexWrap: "wrap" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>これまでの日報</h3>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {canManage && (
+            <button type="button" onClick={() => setOnlyUnreplied((v) => !v)} title="あなたがまだ返信していない日報だけを表示"
+              style={{ cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 99,
+                border: `1px solid ${onlyUnreplied ? "#d97706" : "var(--color-border-strong)"}`,
+                background: onlyUnreplied ? "#fff6e0" : "var(--color-surface)", color: onlyUnreplied ? "#92400e" : "var(--color-ink-2)" }}>
+              {onlyUnreplied ? "● " : "○ "}未返信のみ{totalUnreplied > 0 && <span style={{ marginLeft: 4 }}>({totalUnreplied})</span>}
+            </button>
+          )}
+          {groupList.length > 1 && (
+            <span style={{ display: "inline-flex", gap: 4 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setAll(true)}>すべて開く</button>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setAll(false)}>すべて閉じる</button>
+            </span>
+          )}
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="氏名で絞り込み…" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 10px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
           <span className="muted" style={{ fontSize: 11 }}>{filtered.length} 件</span>
         </span>
       </div>
-      {filtered.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30 }}>まだ日報がありません。</div>
+
+      {groupList.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30 }}>
+          {onlyUnreplied ? "未返信の日報はありません 🎉" : "まだ日報がありません。"}
+        </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-          {filtered.map((r) => <ReportCard key={r.id} r={r} canReply={canManage} />)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {groupList.map((g, idx) => {
+            const o = isOpen(g, idx);
+            return (
+              <div key={g.key} className="card" style={{ padding: 0, overflow: "hidden" }}>
+                <button type="button" onClick={() => toggle(g.key, o)}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", background: o ? "var(--color-surface-soft)" : "var(--color-surface)", border: 0, borderBottom: o ? "1px solid var(--color-border)" : 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--color-ink-4)", transition: "transform .15s", transform: o ? "rotate(90deg)" : "none" }}>chevron_right</span>
+                  <b style={{ fontSize: 13.5 }}>{g.label}</b>
+                  <span className="muted" style={{ fontSize: 11 }}>{g.items.length}件{!canManage ? "" : ` ・ 最新 ${g.latest}`}</span>
+                  {canManage && g.unreplied > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: "#fff6e0", color: "#92400e", border: "1px solid #fde9b0" }}>未返信 {g.unreplied}</span>
+                  )}
+                  {canManage && g.unreplied === 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>✓ 返信済</span>
+                  )}
+                </button>
+                {o && (
+                  <div style={{ padding: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+                      {g.items.sort((a, b) => b.report_date.localeCompare(a.report_date)).map((r) => <ReportCard key={r.id} r={r} canReply={canManage} />)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </>

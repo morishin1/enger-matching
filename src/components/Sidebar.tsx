@@ -28,6 +28,7 @@ const NAV: NavItem[] = [
 // 振り返り・分析（時間軸での見直しに使う画面）。
 const ANALYSIS: NavItem[] = [
   { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
+  { href: "/funnel", id: "funnel", label: "ファネル（転換率）", icon: "analytics" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics", children: [
     { href: "/pipeline", id: "pipeline", label: "パイプライン" },
     { href: "/documents", id: "documents", label: "書類送付" },
@@ -74,7 +75,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi"];
+  const SALES_HREFS = ["/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi", "/funnel"];
   // ダッシュボード・稼働・分析・書類は全エージェント可（分析ページは金額系を admin 限定で隠す）
   const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents"]);
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
