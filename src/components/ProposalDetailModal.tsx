@@ -43,6 +43,32 @@ function SelField({ label, value, options, onChange }: { label: string; value: s
   );
 }
 
+// 元メール本文の整形（プレーンテキストを軽く整える）
+function cleanMailBody(s: string | null | undefined): string {
+  if (!s) return "";
+  return String(s).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** 元メール本文の1カラム（案件 or 人材）。本文をスクロール表示し、Gmail原本リンクも置く。 */
+function MailColumn({ title, side, body, url, accent }: { title: string; side: "job" | "cand"; body: string | null | undefined; url: string | null; accent: string }) {
+  const text = cleanMailBody(body);
+  const open = gmailMessageUrl(url);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minWidth: 0, border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden", background: "var(--color-surface)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderBottom: "1px solid var(--color-border)", background: `${accent}0d` }}>
+        <span style={{ width: 8, height: 8, borderRadius: 99, background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: accent }}>{title}</span>
+        <a href={open ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
+          style={{ marginLeft: "auto", textDecoration: "none", opacity: open ? 1 : 0.35, pointerEvents: open ? "auto" : "none", cursor: open ? "pointer" : "not-allowed" }}
+          title={open ? "Gmailで原本を開く" : "元メールURLがありません"} aria-disabled={!open}>↗ 原本</a>
+      </div>
+      <div style={{ padding: "10px 12px", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--color-ink-2)", maxHeight: 280, overflowY: "auto", fontFamily: "inherit" }}>
+        {text || <span className="muted" style={{ fontSize: 11.5 }}>本文の取り込みがありません（「↗ 原本」からGmailで確認できます）。</span>}
+      </div>
+    </div>
+  );
+}
+
 export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -61,11 +87,14 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
   const needsLostNote = lostReason === "E3: その他";
   const lostReady = !!lostReason && (!needsLostNote || lostNote.trim().length > 0);
 
+  // 右ドロワーのスライドイン（マウント直後に true へ）
+  const [shown, setShown] = useState(false);
   // Esc で閉じる
   useEffect(() => {
+    const t = setTimeout(() => setShown(true), 0);
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", h); };
   }, [onClose]);
 
   // ステータス更新ドロップダウン
@@ -124,8 +153,8 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
   const matchPct = p.score != null ? Math.round(Number(p.score)) : null;
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,36,64,.45)", display: "grid", placeItems: "center", padding: 20, overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(960px, 96vw)", maxHeight: "92vh", overflowY: "auto", padding: 0, background: "var(--color-surface)" }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: shown ? "rgba(15,36,64,.4)" : "transparent", transition: "background .18s ease-out" }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "min(880px, 96vw)", maxHeight: "100vh", overflowY: "auto", padding: 0, background: "var(--color-surface)", borderRadius: 0, boxShadow: "-14px 0 34px rgba(15,23,42,.2)", transform: shown ? "translateX(0)" : "translateX(100%)", transition: "transform .24s cubic-bezier(.2,.7,.2,1)" }} role="dialog" aria-modal="true">
         {/* ヘッダ */}
         <div style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)", padding: "16px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
@@ -164,6 +193,19 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* 元メール比較（案件 × 人材を横並びで突き合わせ） */}
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 17, color: "var(--color-ink-3)" }}>compare_arrows</span>
+              <div className="muted" style={{ fontSize: 11.5 }}>元メール比較（案件 × 人材）</div>
+              <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>Gmailを開かずその場で突き合わせ</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <MailColumn title="案件の元メール" side="job" body={p.job_detail} url={p.job_source_mail_url} accent="#0095D9" />
+              <MailColumn title="人材の元メール" side="cand" body={p.cand_detail} url={p.cand_source_mail_url} accent="#067647" />
             </div>
           </div>
 

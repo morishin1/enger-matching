@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
 import { NotifyDot } from "./NotifyDot";
+import { ProposalDetailModal } from "./ProposalDetailModal";
 
 const dvDate = (d: any) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : `${t.getMonth() + 1}/${t.getDate()}`; };
 const dvDateTime = (d: any) => {
@@ -78,7 +79,7 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, onDragStart, onDragEnd, isDragging, density = "normal" }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, onDragStart, onDragEnd, isDragging, density = "normal", onOpen }: any) {
   const [open, setOpen] = useState(false);
   const compact = density === "compact" && !open;
   const [caller, setCaller] = useState(p.caller_status ?? "");
@@ -121,12 +122,12 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       onDragStart={(e) => { if (busy) { e.preventDefault(); return; } e.dataTransfer.setData("text/proposal-id", p.id); e.dataTransfer.effectAllowed = "move"; onDragStart?.(p.id); }}
       onDragEnd={() => onDragEnd?.()}
       onClick={(e) => {
-        // カードのどこをクリックしても編集パネルを開閉トグル（リンク/ボタン/入力は除外、ドラッグ時は発火しない）
+        // カードのどこをクリックしても共通ドロワーを開く（リンク/ボタン/入力は除外、ドラッグ時は発火しない）
         if (busy) return;
         if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return;
-        setOpen((v) => !v);
+        onOpen?.();
       }}
-      title={open ? "クリックで閉じる" : "クリックで編集"}
+      title="クリックで詳細・編集ドロワーを開く"
       style={{
         padding: compact ? 8 : 12,
         opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
@@ -233,7 +234,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx <= 0 || busy} onClick={() => onMove(p.id, STAGES[stageIdx - 1])} title="前へ">←</button>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
         {p.stage === "面談合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
-        <button type="button" className="btn ghost btn-xs" onClick={() => setOpen((v) => !v)} style={{ marginLeft: "auto" }}>{open ? "閉じる" : "編集"}</button>
+        <button type="button" className="btn ghost btn-xs" onClick={() => onOpen?.()} style={{ marginLeft: "auto" }} title="詳細・編集ドロワーを開く">編集</button>
         <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy} title="この提案を削除（記録ミスの取り消し）" onClick={() => { if (confirm(`「${p.candidate_name ?? "この人材"} × ${p.job_title ?? "案件"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) onDelete(p.id); }}>🗑</button>
       </div>
       )}
@@ -315,6 +316,8 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   const [busyId, setBusyId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
+  // 行/カードクリックで開く共通ドロワーの対象（リストと同じ ProposalDetailModal を使う）
+  const [active, setActive] = useState<any | null>(null);
   // 表示密度（コンパクト=1行サマリ、ノーマル=詳細）。localStorage に永続化。
   const [density, setDensity] = useState<"normal" | "compact">("normal");
   useEffect(() => {
@@ -448,6 +451,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
                 isDragging={draggingId === p.id}
                 onDragStart={(id: string) => setDraggingId(id)}
                 onDragEnd={() => { setDraggingId(null); setOverStage(null); }}
+                onOpen={() => setActive(p)}
                 onMove={onMove} onLose={onLose} onEngage={onEngage} onSave={onSave} onDelete={onDelete} />
             ))}
             </div>
@@ -455,6 +459,8 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
         );
       })}
       </div>
+
+      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} />}
     </div>
   );
 }
