@@ -32,7 +32,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     if (dbConfigured && scope.ownerKey) {
       try {
         const sb = engerClient();
-        const cols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published, owner_company, shared";
+        const cols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published, owner_company, shared";
         const ownedRes: any = await sb.from("jobs").select(cols).eq("owner_company", scope.ownerKey).order("job_no", { ascending: false }).limit(1000);
         const sharedRes: any = await sb.from("jobs").select(cols).eq("shared", true).eq("is_published", true).order("job_no", { ascending: false }).limit(1000);
         if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
@@ -51,7 +51,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, status, detail, created_at, is_published";
+      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published";
       // 非公開も表示する場合は is_published フィルタを外す
       const withPub = (qb: any) => showAll ? qb : qb.eq("is_published", true);
       const withSearch = (qb: any) => {

@@ -10,13 +10,14 @@ export type Job = {
   skills?: string[] | null; salary_min?: number | null; salary_max?: number | null;
   remote_type?: string | null; start_date?: string | null;
   client_name?: string | null; detail?: string | null; flow_note?: string | null;
+  work_location?: string | null;
 };
 export type Candidate = {
   candidate_no?: number; id?: string; name: string; title?: string | null;
   skills?: string[] | null; salary_min?: number | null; salary_max?: number | null;
   remote_pref?: string | null; status?: string | null; exp?: string | null; rate?: string | null; rate_num?: number | null;
   avail?: string | null; affiliation?: string | null; age_band?: string | null; nationality?: string | null;
-  note?: string | null; company?: string | null;
+  note?: string | null; company?: string | null; location?: string | null;
 };
 
 export type Note = { level: "red" | "yellow" | "green"; text: string };
