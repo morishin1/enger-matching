@@ -164,6 +164,11 @@ export function JobsTable({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [colMenu]);
 
+  // ページ・フィルタ・検索が変わったら選択をリセット（別ページに移っても選択が残り、操作バーが出っぱなしになるのを防ぐ）。
+  // クライアント単独の再描画（行の選択操作など）では navKey は不変なので、同一ページ内の選択は維持される。
+  const navKey = `${page}|${query}|${JSON.stringify(filters)}`;
+  useEffect(() => { setSelected(new Set()); }, [navKey]);
+
   const visibleCols = cols.filter((c) => !c.filterOnly && !hidden.has(c.key));
   const ctx = useMemo(() => ({ outsideOptions }), [outsideOptions]);
 
