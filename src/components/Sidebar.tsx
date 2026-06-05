@@ -10,9 +10,10 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
 type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
 
-// 営業フローに沿った並び（取込→マスタ→マッチング→提案→稼働の順）。
-// Gmail取込が業務の起点なので、サイドバー先頭に「メール取込」を置く。
+// 営業フローに沿った並び（ダッシュボード→取込→マスタ→マッチング→提案→稼働の順）。
+// ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
 const NAV: NavItem[] = [
+  { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
   { href: "/mail", id: "mail", label: "メール取込", icon: "mail" },
   { href: "/companies", id: "companies", label: "企業", icon: "company", count: "companies" },
   { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
@@ -26,7 +27,6 @@ const NAV: NavItem[] = [
 
 // 振り返り・分析（時間軸での見直しに使う画面）。
 const ANALYSIS: NavItem[] = [
-  { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
   { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
   { href: "/analytics", id: "analytics", label: "分析", icon: "analytics", children: [
     { href: "/pipeline", id: "pipeline", label: "パイプライン" },

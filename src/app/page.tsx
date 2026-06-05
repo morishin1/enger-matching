@@ -11,6 +11,7 @@ import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { TalentRequests } from "@/components/TalentRequests";
 import { RecentActivity } from "@/components/RecentActivity";
+import { DashboardInbox } from "@/components/DashboardInbox";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
@@ -52,6 +53,7 @@ export default async function DashboardPage() {
       <div className="page" style={{ paddingBottom: 0 }}>
         <RecentActivity />
       </div>
+      <DashboardInbox />
       {talentRequests.length > 0 && (
         <div className="page" style={{ paddingBottom: 0 }}>
           <TalentRequests rows={talentRequests} />

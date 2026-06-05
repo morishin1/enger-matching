@@ -1,14 +1,13 @@
-// メールハブ（/mail）。受信箱(問合せ)・Gmail取込・送信履歴を 1 ページ 3 タブに統合。
-//   各タブはアクティブ時のみデータ取得（既存の3コンポーネントを再利用）。
-//     ?tab=inbox  … enger.jp お問い合わせ（contact_messages）
-//     ?tab=import … Gmail 取込（inbox_emails）+ AI抽出 → 案件/人材登録
+// メールハブ（/mail）。Gmail取込・送信履歴を 1 ページ 2 タブに統合。
+//   各タブはアクティブ時のみデータ取得（既存の2コンポーネントを再利用）。
+//     ?tab=import … Gmail 取込（inbox_emails）+ AI抽出 → 案件/人材登録（既定表示）
 //     ?tab=sent   … 送信履歴（mail_sent）
+//   ※ enger.jp お問い合わせ（contact_messages）はダッシュボードに集約済み。
 
 import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
 import { gmailConfigured } from "@/lib/gmail-api";
 import { MailboxClient } from "@/components/MailboxClient";
 import { MailLogClient } from "@/components/MailLogClient";
-import { InboxClient, type ContactMsg } from "@/components/InboxClient";
 import { NextStepLink } from "@/components/NextStepLink";
 import Link from "next/link";
 
@@ -27,9 +26,8 @@ function GmailIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-type Tab = "inbox" | "import" | "sent";
+type Tab = "import" | "sent";
 const TABS: { key: Tab; label: string; icon: string; desc: string }[] = [
-  { key: "inbox",  label: "お問い合わせ", icon: "inbox",       desc: "enger.jp のお問い合わせフォームから届いた連絡。対応状況を管理。" },
   { key: "import", label: "Gmail 取込",   icon: "mail",        desc: "Gmail を同期し、AI抽出で案件/人材として登録。自動取込も可能。" },
   { key: "sent",   label: "送信履歴",     icon: "send",        desc: "ENGER から送信したメールの記録（誰が・いつ・誰に・何を）。" },
 ];
@@ -45,14 +43,13 @@ function PipeStat({ label, n, tone }: { label: string; n: number; tone: string }
 
 export default async function MailPage({ searchParams }: { searchParams: Promise<{ tab?: string; filter?: string; q?: string; sender?: string }> }) {
   const sp = await searchParams;
-  const tab: Tab = (["inbox", "import", "sent"] as const).includes(sp.tab as any) ? (sp.tab as Tab) : "inbox";
+  const tab: Tab = (["import", "sent"] as const).includes(sp.tab as any) ? (sp.tab as Tab) : "import";
 
   let dbError: string | null = null;
   let needSetup = false;
   let pipelineCounts: { total: number; unprocessed: number; extracted: number; registered: number; archived: number } | null = null;
 
   // ── データ取得（アクティブタブのみ）──
-  let contactRows: ContactMsg[] = [];
   let importRows: any[] = [];
   let sentRows: any[] = [];
   const importFilter = sp.filter ?? "unprocessed";
@@ -82,13 +79,7 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
         archived: cArchived.count ?? 0,
       };
 
-      if (tab === "inbox") {
-        const { data, error } = await sb.from("contact_messages")
-          .select("id, company, name, email, phone, topic, role, message, source, status, created_at")
-          .order("created_at", { ascending: false }).limit(300);
-        if (error) dbError = error.message;
-        contactRows = (data ?? []) as ContactMsg[];
-      } else if (tab === "import") {
+      if (tab === "import") {
         let qb: any = sb.from("inbox_emails")
           .select("id, gmail_message_id, subject, from_email, from_name, body, has_attachment, attachment_names, received_at, synced_at, extracted_at, extracted_kind, extracted_summary, extracted_data, registered_at, registered_job_no, registered_candidate_no, is_archived")
           .order("received_at", { ascending: false }).limit(500);
@@ -171,7 +162,6 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
         </div>
       )}
 
-      {tab === "inbox" && <InboxClient rows={contactRows} />}
       {tab === "import" && !needSetup && pipelineCounts && (
         <div className="card" style={{ padding: "12px 14px", marginBottom: 12, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14, background: "var(--color-surface-soft)" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
