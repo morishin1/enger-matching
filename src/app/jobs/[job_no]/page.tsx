@@ -83,8 +83,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         <Row label="必要スキル" value={(j.skills ?? []).join(" / ") || "—"} />
         <Row label="単価" value={salaryLabel(j.salary_min, j.salary_max)} />
         <Row label="リモート可否" value={remoteLabel(j.remote_type)} />
+        <Row label="勤務地" value={j.work_location ?? "不明"} />
         <Row label="商流" value={j.flow_note} />
-        <Row label="勤務地" value={j.work_location} />
         <Row label="開始希望" value={j.start_date} />
         <Row label="ステータス" value={j.status} />
         <Row label="窓口担当者" value={j.contact_name} />

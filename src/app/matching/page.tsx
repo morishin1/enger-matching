@@ -445,6 +445,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
                     {person.affiliation && <span className="tag">{person.affiliation}</span>}
                     <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
+                    <span className="tag">{person.location ?? "勤務地不明"}</span>
                     <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
                   </div>
                 </div>
@@ -470,7 +471,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     </div>
                     <div style={{ padding: 20 }}>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), j.work_location, salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
                       {/* 左：スキル評価／右：マッチ理由（3段階） */}
                       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }}>
@@ -616,6 +617,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <span>{job.client_name ?? "—"}</span>
                   {job.role_label && <span className="tag">{job.role_label}</span>}
                   <span className="tag">{remoteLabel(job.remote_type)}</span>
+                  {job.work_location && <span className="tag">{job.work_location}</span>}
                   {job.flow_note && job.flow_note !== "不明" && <span className="tag">{job.flow_note}</span>}
                   <b style={{ color: "var(--color-ink)" }}>{salaryLabel(job.salary_min, job.salary_max)}</b>
                 </div>
@@ -646,7 +648,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, remoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
                         <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
                           {c.exp != null && String(c.exp).trim() !== "" && <span>経験年数 <b style={{ color: "var(--color-ink)" }}>{/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp}</b></span>}
