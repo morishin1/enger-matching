@@ -320,6 +320,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
   const scored = candidates
     .map((c) => ({ candidate: c, ...scoreMatch(job, c) }))
+    .filter((r) => !r.excluded)
     .sort((a, b) => b.score - a.score);
   return collapseSamePeople(scored).slice(0, limit);
 }
@@ -328,6 +329,7 @@ export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
 export function rankJobs(candidate: Candidate, jobs: Job[], limit = 30) {
   return jobs
     .map((j) => ({ job: j, ...scoreMatch(j, candidate) }))
+    .filter((r) => !r.excluded)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
