@@ -311,7 +311,8 @@ export async function AdminOverview() {
       </div>
 
       {/* 詳細導線 */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <Link href="/funnel" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>🔁 ファネル（転換率）→</Link>
         <Link href="/insights" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>📊 詳細インサイト（成長ボード・コスト・取引構造） →</Link>
       </div>
     </div>
