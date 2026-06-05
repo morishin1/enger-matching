@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
-import { SendMailButton } from "./SendMailButton";
+import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
@@ -326,28 +326,32 @@ export function MailComposeWizard({
           </div>
           {/* メインの送信ボタンは中央に配置（基本操作なので目立たせる） */}
           <div style={{ display: "flex", justifyContent: "center", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            {/* Xserver SMTP 送信（差出人ドメイン enger.jp / 8grp.co.jp を選択して送信） */}
-            <SendMailButton
-              label="📨 案件側へ送信"
+            {/* Xserver SMTP 送信：1つのモーダルで案件側・人材側の2通をまとめて送信 */}
+            <SendBothMailsButton
+              label="📨 メールを送信"
               className="btn brand"
-              to={clientForm.email}
-              cc={clientForm.cc}
-              subject={clientForm.subject}
-              body={clientForm.body}
-              buttonHtml={jobButtonHtml ?? undefined}
-              relatedKind="proposal_job"
-              relatedId={_savedId ?? (job.job_no != null ? String(job.job_no) : undefined)}
-            />
-            <SendMailButton
-              label="📨 人材側へ送信"
-              className="btn brand"
-              to={candForm.email}
-              cc={candForm.cc}
-              subject={candForm.subject}
-              body={candForm.body}
-              buttonHtml={candButtonHtml ?? undefined}
-              relatedKind="proposal_cand"
-              relatedId={_savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined)}
+              jobSide={{
+                label: "案件側メール",
+                dotColor: "#ef4444",
+                to: clientForm.email,
+                cc: clientForm.cc,
+                subject: clientForm.subject,
+                body: clientForm.body,
+                buttonHtml: jobButtonHtml ?? undefined,
+                relatedKind: "proposal_job",
+                relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
+              }}
+              candSide={{
+                label: "人材側メール",
+                dotColor: "#3b82f6",
+                to: candForm.email,
+                cc: candForm.cc,
+                subject: candForm.subject,
+                body: candForm.body,
+                buttonHtml: candButtonHtml ?? undefined,
+                relatedKind: "proposal_cand",
+                relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
+              }}
             />
           </div>
           {/* 補助操作（編集に戻る・保存）は下段に控えめに配置 */}
