@@ -1,5 +1,7 @@
 import { ReportsClient } from "@/components/ReportsClient";
+import { MyDailyScorecard } from "@/components/MyDailyScorecard";
 import { getActuals, listReports } from "@/lib/daily-report";
+import { getMyScorecard } from "@/lib/me-scorecard";
 import { currentAccess, listDepartmentMemberNames } from "@/lib/accounts";
 import { getStaff } from "@/lib/staff";
 import { unreadReplyCount } from "@/lib/notifications";
@@ -32,11 +34,12 @@ export default async function ReportsPage() {
     reportsPromise = listReports({ author, limit: 120 });
   }
 
-  const [actuals, reports, staff, replyUnread] = await Promise.all([
+  const [actuals, reports, staff, replyUnread, scorecard] = await Promise.all([
     getActuals(author),
     reportsPromise,
     getStaff(),
     unreadReplyCount(author),
+    getMyScorecard(author || null, access?.email ?? null),
   ]);
 
   // メンバー一覧（カレンダー用）：admin=全staff、manager=自部署メンバー、それ以外=自分
@@ -69,6 +72,7 @@ export default async function ReportsPage() {
         </div>
       )}
 
+      {author && <MyDailyScorecard s={scorecard} />}
       <ReportsClient author={author} today={today} actuals={actuals} reports={reports} isAdmin={isAdmin} canReply={canReply} members={members} />
     </div>
   );

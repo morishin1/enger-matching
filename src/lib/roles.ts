@@ -47,7 +47,7 @@ const TENANT_ALLOWED = ["/", "/jobs", "/people", "/matching"];
 export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/companies", "/meetings", "/pipeline"];
 
 /** マネージャー/リーダーにも開放する settings 配下の例外ルート。 */
-const MANAGER_SETTINGS_ALLOWED = ["/settings/team-kgi"];
+const MANAGER_SETTINGS_ALLOWED = ["/settings/team-kgi", "/settings/person-kgi"];
 
 /** 指定ロール（＋職能・チーム役職）が pathname にアクセスできるか。 */
 export function canAccess(role: Role, pathname: string, functions?: string[] | null, teamRole?: string | null): boolean {

@@ -43,6 +43,7 @@ export default async function SettingsPage() {
       <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <span style={{ fontSize: 12.5, fontWeight: 700 }}>🧭 主要設定：</span>
         <Link href="/settings/team-kgi" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>🎯 チームKGI設定</Link>
+        <Link href="/settings/person-kgi" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>🏁 個人KGI設定</Link>
         <Link href="/settings/approvals" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>👥 アカウント・権限</Link>
       </div>
 
