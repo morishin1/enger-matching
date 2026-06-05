@@ -1,6 +1,8 @@
 // 提案メモの一覧取得API。詳細モーダルが開いた時にクライアントから呼ぶ。
 // 書込は server action (addProposalMemo / deleteProposalMemo) を使う。
-import { engerClient, dbConfigured } from "@/lib/supabase";
+//   proposal_memos は RLS 有効・SELECTポリシー無しのため anon では 0 件になる。
+//   内部スタッフ用APIなので service role で読む（無ければ anon フォールバック）。
+import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +14,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   if (!id) return json({ ok: false, error: "提案ID が必要です" }, 400);
   try {
-    const sb = engerClient();
+    let sb: ReturnType<typeof engerClient>;
+    try { sb = engerAdmin(); } catch { sb = engerClient(); }
     const r: any = await sb.from("proposal_memos")
       .select("id, category, body, created_at, created_by_email, created_by_name")
       .eq("proposal_id", id).order("created_at", { ascending: false }).limit(200);
