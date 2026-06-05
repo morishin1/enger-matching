@@ -8,7 +8,7 @@ import { setBoardProjectId } from "@/app/billing/board-actions";
 import { BoardSync } from "./BoardSync";
 import { EngagementTools } from "./EngagementTools";
 import { RateHistoryButton } from "./RateHistory";
-import { EngagementRowActions } from "./EngagementRowActions";
+import { EngagementDrawer } from "./EngagementDrawer";
 import { AFFILIATIONS, affiliationShort } from "@/lib/affiliation";
 import type { Role } from "@/lib/roles";
 
@@ -156,7 +156,22 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
   const [view, setView] = useState<"list" | "card" | "graph">("list");
   const [q, setQ] = useState("");
   const [showDone, setShowDone] = useState(false);
+  // 行クリックで開く編集ドロワーの対象
+  const [drawerEng, setDrawerEng] = useState<Eng | null>(null);
+  const openDrawer = (e: Eng) => setDrawerEng(e);
   const onChanged = () => router.refresh();
+
+  // 行クリックを「インタラクティブ要素(入力/ボタン/リンク)以外」に限定するためのガード
+  const onRowClick = (e: Eng) => (ev: React.MouseEvent<HTMLTableRowElement>) => {
+    let el: HTMLElement | null = ev.target as HTMLElement;
+    while (el && el !== ev.currentTarget) {
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON" || tag === "A" || tag === "LABEL" || tag === "OPTION") return;
+      if (el.getAttribute && el.getAttribute("data-row-stop") === "1") return;
+      el = el.parentElement;
+    }
+    openDrawer(e);
+  };
 
   const setMonth = (delta: number) => {
     // YYYY-MM を文字列演算で算出。Date経由だと toISOString() の UTC 変換で
@@ -233,7 +248,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
                   <th style={th}>状態</th>
                 </tr>
               </thead>
-              <tbody>{visible.map((e) => <TaskRow key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
+              <tbody>{visible.map((e) => <TaskRow key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} onRowClick={onRowClick(e)} />)}</tbody>
             </table>
           </div>
         )
@@ -251,7 +266,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
                 <th style={th}>案件No</th><th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th><th style={{ ...th, textAlign: "center" }}>操作</th>
               </tr>
             </thead>
-            <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}</tbody>
+            <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} onRowClick={onRowClick(e)} />)}</tbody>
           </table>
         </div>
       ) : (
@@ -259,12 +274,21 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
           {visible.map((e) => <Card key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} />)}
         </div>
       )}
+
+      {drawerEng && (
+        <EngagementDrawer
+          e={drawerEng}
+          canSeeCost={!drawerEng._maskMargin}
+          canManage={canManage}
+          onClose={() => setDrawerEng(null)}
+        />
+      )}
     </>
   );
 }
 
 /** 月初業務タブ用：勤怠・契約書/注文書・請求書だけのスリムな行。 */
-function TaskRow({ e, role, period, onChanged, done, canManage }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean }) {
+function TaskRow({ e, role, period, onChanged, done, canManage, onRowClick }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean; onRowClick?: (ev: React.MouseEvent<HTMLTableRowElement>) => void }) {
   const [pending, start] = useTransition();
   const tone = TONE[e.status] ?? TONE["予定"];
   const save = (patch: Record<string, any>) => start(async () => { await updateEngagementFields(e.id, patch); onChanged(); });
@@ -275,7 +299,11 @@ function TaskRow({ e, role, period, onChanged, done, canManage }: { e: Eng; role
     : aff === "FL" ? { bg: "#eef2ff", fg: "#3730a3", bd: "#c7d2fe" }
     : { bg: "var(--color-surface-inset)", fg: "var(--color-ink-4)", bd: "var(--color-border)" };
   return (
-    <tr style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined }}>
+    <tr onClick={onRowClick}
+      title="クリックで編集ドロワーを開く"
+      style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined, cursor: "pointer" }}
+      onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--color-brand-25, #f5fbff)")}
+      onMouseLeave={(ev) => (ev.currentTarget.style.background = done ? "var(--color-surface-soft)" : "")}>
       {/* 一番左に board案件No を編集可能で表示（同期はここを起点に行われる） */}
       <td style={{ ...td, whiteSpace: "nowrap" }}>{canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{e.board_project_id ?? "—"}</span>}</td>
       <td style={td}>
@@ -303,7 +331,7 @@ function TaskRow({ e, role, period, onChanged, done, canManage }: { e: Eng; role
 }
 
 /** 契約管理タブ用：月額・原価・粗利・満了日に絞った行（勤怠/請求は除外）。 */
-function ContractRow({ e, role, onChanged, done, canManage }: { e: Eng; role: Role; onChanged: () => void; done?: boolean; canManage: boolean }) {
+function ContractRow({ e, role, onChanged, done, canManage, onRowClick }: { e: Eng; role: Role; onChanged: () => void; done?: boolean; canManage: boolean; onRowClick?: (ev: React.MouseEvent<HTMLTableRowElement>) => void }) {
   const [pending, start] = useTransition();
   const isAdmin = role === "admin";
   const masked = e._maskMargin;
@@ -314,7 +342,11 @@ function ContractRow({ e, role, onChanged, done, canManage }: { e: Eng; role: Ro
   const setStatus = (s: string) => start(async () => { await updateEngagementStatus(e.id, s); onChanged(); });
   const td = { padding: "7px 8px", borderBottom: "1px solid var(--color-border)", verticalAlign: "top" } as const;
   return (
-    <tr style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined }}>
+    <tr onClick={onRowClick}
+      title="クリックで編集ドロワーを開く"
+      style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined, cursor: "pointer" }}
+      onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--color-brand-25, #f5fbff)")}
+      onMouseLeave={(ev) => (ev.currentTarget.style.background = done ? "var(--color-surface-soft)" : "")}>
       {/* 一番左に board案件No を編集可能で表示 */}
       <td style={{ ...td, whiteSpace: "nowrap" }}>{canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{e.board_project_id ?? "—"}</span>}</td>
       <td style={td}>
@@ -331,7 +363,9 @@ function ContractRow({ e, role, onChanged, done, canManage }: { e: Eng; role: Ro
         </select>
       </td>
       <td style={td}><input type="date" defaultValue={dateVal(e.end_date)} style={{ ...inp, width: 124 }} disabled={pending} onBlur={(ev) => { if (ev.target.value !== dateVal(e.end_date)) save({ end_date: ev.target.value || null }); }} /></td>
-      <td style={{ ...td, textAlign: "center" }}><EngagementRowActions e={e} canManage={canManage} canSeeCost={!masked} /></td>
+      <td style={{ ...td, textAlign: "center" }} title="クリックでドロワーを開いて編集／削除">
+        <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-ink-4)" }}>chevron_right</span>
+      </td>
     </tr>
   );
 }
