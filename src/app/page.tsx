@@ -1,9 +1,6 @@
 import { ClientHome } from "@/components/ClientHome";
 import { AgentDashboard } from "@/components/AgentDashboard";
-import { AdminGrowthBoard } from "@/components/AdminGrowthBoard";
-import { CostReport } from "@/components/CostReport";
-import { ReportIssues } from "@/components/ReportIssues";
-import { CompanyStructure } from "@/components/CompanyStructure";
+import { AdminOverview } from "@/components/AdminOverview";
 import { WorkHome } from "@/components/WorkHome";
 import { TalentHome } from "@/components/TalentHome";
 import { ReplyAlertBanner } from "@/components/ReplyAlertBanner";
@@ -16,7 +13,6 @@ import { TeamProgress } from "@/components/TeamProgress";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction, canManageDept } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
-import { getCompanyMatrix } from "@/lib/companies";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +45,23 @@ export default async function DashboardPage() {
   // マネージャー/リーダー：自部署メンバーの進捗を見せる
   const isManager = !isAdmin && canManageDept(access?.teamRole) && !!access?.department;
   const talentRequests = await listTalentRequests();
-  const matrix = isAdmin ? await getCompanyMatrix() : null;
+
+  // 管理者：1画面ダッシュボード（AdminOverview）に集約。詳細は /insights へ。
+  if (isAdmin) {
+    return (
+      <>
+        <ReplyAlertBanner name={access?.name ?? null} />
+        <AdminOverview />
+        {talentRequests.length > 0 && (
+          <div className="page" style={{ paddingTop: 0 }}>
+            <TalentRequests rows={talentRequests} />
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // 営業メンバー（agent）：従来構成。マネージャー/リーダーには自部署のメンバー進捗を出す。
   return (
     <>
       <ReplyAlertBanner name={access?.name ?? null} />
@@ -62,30 +74,12 @@ export default async function DashboardPage() {
           <TalentRequests rows={talentRequests} />
         </div>
       )}
-      {/* メンバー進捗：admin は全社、manager/leader は自部署。一般メンバーには出さない（自分の進捗は AgentDashboard 内の「あなたのKPI」を参照）。 */}
-      {(isAdmin || isManager) && (
+      {isManager && (
         <div className="page" style={{ paddingBottom: 0 }}>
-          <TeamProgress
-            scope={isAdmin ? "all" : "department"}
-            departmentName={isAdmin ? null : access?.department ?? null}
-            myName={access?.name ?? null}
-          />
+          <TeamProgress scope="department" departmentName={access?.department ?? null} myName={access?.name ?? null} />
         </div>
       )}
-      {isAdmin && (
-        <div className="page" style={{ paddingBottom: 0 }}>
-          <AdminGrowthBoard />
-          <ReportIssues />
-          {matrix && (matrix.endCount > 0 || matrix.partnerCount > 0) && (
-            <>
-              <div className="meta" style={{ marginTop: 4 }}>取引構造 · エンド/SI × パートナーSES</div>
-              <CompanyStructure matrix={matrix} />
-            </>
-          )}
-          <CostReport />
-        </div>
-      )}
-      <AgentDashboard role={access?.role === "agent" ? "agent" : "admin"} myName={access?.name ?? null} position={access?.position ?? null} />
+      <AgentDashboard role="agent" myName={access?.name ?? null} position={access?.position ?? null} />
     </>
   );
 }
