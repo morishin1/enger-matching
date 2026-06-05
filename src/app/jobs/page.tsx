@@ -1,5 +1,6 @@
 import { ExportButton, JobImportButton, JobNewButton, JobBulkExtractButton, JobGmailBulkButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
+import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -18,13 +19,70 @@ const JOB_EXPORT_HEADERS = [
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string }> }) {
-  const { client, show, q } = await searchParams;
+const PAGE_SIZE = 20;
+
+// リモート（固定の選択肢）。表示は日本語、値は DB の remote_type 生値。
+const REMOTE_OPTIONS = [
+  { value: "full_remote", label: "フルリモート" },
+  { value: "partial_remote", label: "一部リモート" },
+  { value: "onsite", label: "出社" },
+];
+// ステータス（鮮度：作成日からの経過日数）
+const FRESH_OPTIONS = [
+  { value: "新着", label: "新着" },
+  { value: "3日以内", label: "3日以内" },
+  { value: "4〜14日前", label: "4〜14日前" },
+  { value: "それ以前", label: "それ以前" },
+];
+// 単価ランク帯: A=90万〜 / B=70〜89万 / C=〜69万
+const RANK_OPTIONS = [
+  { value: "A", label: "A（90万円〜）" },
+  { value: "B", label: "B（70〜89万円）" },
+  { value: "C", label: "C（〜69万円）" },
+];
+
+// 鮮度ラベル → created_at の範囲（クライアント側の freshnessLabel と同じ境界）
+const freshRange = (label: string): { gte?: string; lt?: string } | null => {
+  const now = Date.now(), day = 86400000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  switch (label) {
+    case "新着": return { gte: iso(now - day) };
+    case "3日以内": return { gte: iso(now - 4 * day), lt: iso(now - day) };
+    case "4〜14日前": return { gte: iso(now - 15 * day), lt: iso(now - 4 * day) };
+    case "それ以前": return { lt: iso(now - 15 * day) };
+    default: return null;
+  }
+};
+
+// ランク帯 → salary_max（無ければ salary_min）に対する PostgREST or 条件
+const rankOr = (band: string): string | null => {
+  switch (band) {
+    case "A": return "salary_max.gte.90,and(salary_max.is.null,salary_min.gte.90)";
+    case "B": return "and(salary_max.gte.70,salary_max.lt.90),and(salary_max.is.null,salary_min.gte.70,salary_min.lt.90)";
+    case "C": return "salary_max.lt.70,and(salary_max.is.null,salary_min.lt.70)";
+    default: return null;
+  }
+};
+
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_rank?: string; f_outside_owner?: string }> }) {
+  const sp = await searchParams;
+  const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
   const needle = (q ?? client ?? "").trim();
+  const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
+  // サーバ側フィルタ（URL の f_* と対応）
+  const fStatus = sp.f_status ?? "";
+  const fRole = sp.f_role ?? "";
+  const fRemote = sp.f_remote ?? "";
+  const fFlow = sp.f_flow ?? "";
+  const fRank = sp.f_rank ?? "";
+  const fOwner = sp.f_outside_owner ?? "";
   const scope = await getViewerScope();
   let jobs: any[] = [];
   let total = 0;
+  let pageCount = 1;
+  let roleOptionVals: string[] = [];
+  let flowOptionVals: string[] = [];
   let dbError: string | null = null;
 
   // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
@@ -52,32 +110,52 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     try {
       const sb = engerClient();
       const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published";
-      // 非公開も表示する場合は is_published フィルタを外す
-      const withPub = (qb: any) => showAll ? qb : qb.eq("is_published", true);
-      const withSearch = (qb: any) => {
-        if (!needle) return qb;
-        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
-        return qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const fresh = fStatus ? freshRange(fStatus) : null;
+      const rOr = fRank ? rankOr(fRank) : null;
+
+      // 検索＋フィルタを 1 本のクエリに集約（outside_owner フィルタだけは列の有無に依存するため別関数）
+      const buildBase = (selectCols: string) => {
+        let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
+        if (!showAll) qb = qb.eq("is_published", true);
+        if (needle) {
+          const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+          const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+          qb = qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
+        }
+        if (fRole) qb = qb.eq("role_label", fRole);
+        if (fRemote) qb = qb.eq("remote_type", fRemote);
+        if (fFlow) qb = fFlow === "不明" ? qb.or("flow_note.is.null,flow_note.eq.") : qb.eq("flow_note", fFlow);
+        if (rOr) qb = qb.or(rOr);
+        if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
+        if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
+        return qb;
       };
-      let listRes: any = await withSearch(withPub(sb.from("jobs")
-        .select(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, { count: "exact" })))
-        .order("job_no", { ascending: false })
-        .limit(needle ? 1000 : 300);
-      if (listRes.error) {
-        listRes = await withSearch(withPub(sb.from("jobs")
-          .select(`${baseCols}, outside_owner`, { count: "exact" })))
-          .order("job_no", { ascending: false })
-          .limit(needle ? 1000 : 300);
-      }
-      if (listRes.error) {
-        listRes = await withSearch(withPub(sb.from("jobs")
-          .select(baseCols, { count: "exact" })))
-          .order("job_no", { ascending: false })
-          .limit(needle ? 1000 : 300);
-      }
+      const withOwner = (qb: any) =>
+        fOwner ? (fOwner === "未設定" ? qb.is("outside_owner", null) : qb.eq("outside_owner", fOwner)) : qb;
+      const order = (qb: any) => qb.order("job_no", { ascending: false }).range(from, to);
+
+      let listRes: any = await order(withOwner(buildBase(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
+      if (listRes.error) listRes = await order(withOwner(buildBase(`${baseCols}, outside_owner`)));
+      if (listRes.error) listRes = await order(buildBase(baseCols)); // outside_owner 列が無い環境では担当フィルタは無効
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
+      pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+      // フィルタ用の選択肢（職種・商流の distinct）。一覧の絞り込みとは独立に全体から収集。
+      try {
+        let oq: any = sb.from("jobs").select("role_label, flow_note");
+        if (!showAll) oq = oq.eq("is_published", true);
+        const optRes: any = await oq.limit(5000);
+        const roleSet = new Set<string>(), flowSet = new Set<string>();
+        for (const r of optRes.data ?? []) {
+          if (r.role_label) roleSet.add(r.role_label);
+          if (r.flow_note) flowSet.add(r.flow_note);
+        }
+        roleOptionVals = [...roleSet].sort((a, b) => a.localeCompare(b, "ja"));
+        flowOptionVals = [...flowSet].sort((a, b) => a.localeCompare(b, "ja"));
+      } catch { /* 列が無ければ動的選択肢なしで継続 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -103,6 +181,17 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const outsideNames = staff.rows.filter((s: any) => s.position === "outside").map((s: any) => s.name);
   const ownerOptions = outsideNames.length ? outsideNames : staff.rows.map((s: any) => s.name);
   const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
+
+  // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
+  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, rank: fRank, outside_owner: fOwner };
+  const jobFilterOptions = {
+    status: FRESH_OPTIONS,
+    role: roleOptionVals.map((v) => ({ value: v, label: v })),
+    remote: REMOTE_OPTIONS,
+    flow: ["不明", ...flowOptionVals].map((v) => ({ value: v, label: v })),
+    rank: RANK_OPTIONS,
+    outside_owner: ["未設定", ...ownerOptions].map((v) => ({ value: v, label: v })),
+  };
 
   return (
     <div className="page">
@@ -146,8 +235,15 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       {!scope.isTenant && <PendingClientJobs jobs={pendingClientJobs} />}
 
-      <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={needle || undefined} outsideOptions={ownerOptions} partner={scope.isTenant} meetingDone={scope.meetingDone}
-        agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
+      {scope.isTenant ? (
+        // パートナー（テナント隔離）：自社＋共有のみの限定データをクライアント側で表示（従来通り）
+        <EntityTable kind="jobs" rows={jobs} total={total} initialQuery={needle || undefined} outsideOptions={ownerOptions} partner meetingDone={scope.meetingDone}
+          agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
+      ) : (
+        // 社内：フィルタ・ページングをサーバ側で処理（1ページ20件・URL同期）
+        <JobsTable rows={jobs} page={page} pageCount={pageCount} total={total} pageSize={PAGE_SIZE}
+          query={needle} filters={jobFilters} filterOptions={jobFilterOptions} outsideOptions={ownerOptions} meetingDone={scope.meetingDone} />
+      )}
     </div>
   );
 }

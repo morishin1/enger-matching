@@ -1,5 +1,6 @@
 import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, CandidateGmailBulkButton, ExportButton } from "@/components/CsvTools";
 import { EntityTable } from "@/components/EntityTable";
+import { PeopleTable } from "@/components/PeopleTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
@@ -7,20 +8,89 @@ import { getViewerScope, maskCandidates } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 20;
+
+const FRESH_OPTIONS = [
+  { value: "新着", label: "新着" },
+  { value: "3日以内", label: "3日以内" },
+  { value: "4〜14日前", label: "4〜14日前" },
+  { value: "それ以前", label: "それ以前" },
+];
+const RANK_OPTIONS = [
+  { value: "A", label: "A（90万円〜）" },
+  { value: "B", label: "B（70〜89万円）" },
+  { value: "C", label: "C（〜69万円）" },
+];
+const SKILL_SHEET_OPTIONS = [
+  { value: "あり", label: "あり" },
+  { value: "なし", label: "なし" },
+];
+// リモート希望（自由テキスト）を 3 区分に正規化したフィルタ。
+// value はカテゴリキー、label は表示テキスト。実データは ilike バケットで判定（下記 applyRemote）。
+// ※ 分類の優先順位は PeopleTable.remotePrefLabel と必ず一致させること。
+const REMOTE_OPTIONS = [
+  { value: "remote", label: "フルリモート希望" },
+  { value: "hybrid", label: "一部リモート可" },
+  { value: "onsite", label: "出社可" },
+];
+// 国籍は 3 区分の固定フィルタ。外国籍は「日本以外の国籍が入っている」を表すため、literal 一致ではなく
+// 「値あり かつ 日本を含まない」で判定（将来 data に具体的な国名が入っても拾えるように）。
+const NATIONALITY_OPTIONS = [
+  { value: "japan", label: "日本" },
+  { value: "foreign", label: "外国籍" },
+  { value: "unknown", label: "不明" },
+];
+
+// 鮮度ラベル → created_at の範囲（PeopleTable の freshnessLabel と同じ境界）
+const freshRange = (label: string): { gte?: string; lt?: string } | null => {
+  const now = Date.now(), day = 86400000;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  switch (label) {
+    case "新着": return { gte: iso(now - day) };
+    case "3日以内": return { gte: iso(now - 4 * day), lt: iso(now - day) };
+    case "4〜14日前": return { gte: iso(now - 15 * day), lt: iso(now - 4 * day) };
+    case "それ以前": return { lt: iso(now - 15 * day) };
+    default: return null;
+  }
+};
+
+// ランク帯 → salary_max（無ければ salary_min）に対する PostgREST or 条件
+// 注：人材の単価は rate（自由テキスト）が主のため、構造化された salary_min/max のみ対象（近似）。
+const rankOr = (band: string): string | null => {
+  switch (band) {
+    case "A": return "salary_max.gte.90,and(salary_max.is.null,salary_min.gte.90)";
+    case "B": return "and(salary_max.gte.70,salary_max.lt.90),and(salary_max.is.null,salary_min.gte.70,salary_min.lt.90)";
+    case "C": return "salary_max.lt.70,and(salary_max.is.null,salary_min.lt.70)";
+    default: return null;
+  }
+};
+
 const EXPORT_HEADERS = [
   { key: "kanriNo", label: "管理NO" }, { key: "name", label: "氏名" }, { key: "title", label: "職種" },
   { key: "affiliation", label: "所属" }, { key: "skillsCsv", label: "スキル" }, { key: "rate", label: "希望単価" },
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const { q: initialQuery } = await searchParams;
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string }> }) {
+  const sp = await searchParams;
+  const { q: initialQuery } = sp;
   const scope = await getViewerScope();
   let people: any[] = [];
   let total = 0;
+  let pageCount = 1;
+  let titleOptionVals: string[] = [];
+  let affiliationOptionVals: string[] = [];
   let dbError: string | null = null;
 
   const needle = (initialQuery ?? "").trim();
+  const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1);
+  const fStatus = sp.f_status ?? "";
+  const fTitle = sp.f_title ?? "";
+  const fRemote = sp.f_remote ?? "";
+  const fSkillSheet = sp.f_skill_sheet ?? "";
+  const fAffiliation = sp.f_affiliation ?? "";
+  const fNationality = sp.f_nationality ?? "";
+  const fRank = sp.f_rank ?? "";
   // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
   if (scope.isTenant) {
     if (dbConfigured && scope.ownerKey) {
@@ -45,26 +115,67 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
-      const withSearch = (qb: any) => {
-        if (!needle) return qb;
-        const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-        const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
-        return qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const fresh = fStatus ? freshRange(fStatus) : null;
+      const rOr = fRank ? rankOr(fRank) : null;
+
+      // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
+      const buildBase = (selectCols: string, withSheetFilter: boolean) => {
+        let qb: any = sb.from("candidates").select(selectCols, { count: "exact" });
+        if (needle) {
+          const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+          const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+          qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
+        }
+        if (fTitle) qb = qb.eq("title", fTitle);
+        // リモート希望は自由テキストのため ilike バケットで判定（PeopleTable.remotePrefLabel と同じ優先順位）
+        if (fRemote === "remote") {
+          qb = qb.ilike("remote_pref", "%フル%");
+        } else if (fRemote === "hybrid") {
+          qb = qb.or("remote_pref.ilike.%リモート%,remote_pref.ilike.%在宅%").not("remote_pref", "ilike", "%フル%");
+        } else if (fRemote === "onsite") {
+          qb = qb.or("remote_pref.ilike.%出社%,remote_pref.ilike.%常駐%")
+            .not("remote_pref", "ilike", "%リモート%").not("remote_pref", "ilike", "%在宅%").not("remote_pref", "ilike", "%フル%");
+        }
+        if (fAffiliation) qb = fAffiliation === "未設定" ? qb.or("affiliation.is.null,affiliation.eq.") : qb.eq("affiliation", fAffiliation);
+        // 国籍は 3 区分（NATIONALITY_OPTIONS）。外国籍＝値ありかつ日本を含まない。
+        if (fNationality === "japan") {
+          qb = qb.ilike("nationality", "%日本%");
+        } else if (fNationality === "foreign") {
+          qb = qb.not("nationality", "is", null).neq("nationality", "").not("nationality", "ilike", "%日本%");
+        } else if (fNationality === "unknown") {
+          qb = qb.or("nationality.is.null,nationality.eq.");
+        }
+        if (rOr) qb = qb.or(rOr);
+        if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
+        if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
+        if (withSheetFilter && fSkillSheet) {
+          qb = fSkillSheet === "あり"
+            ? qb.not("skill_sheet_url", "is", null).neq("skill_sheet_url", "")
+            : qb.or("skill_sheet_url.is.null,skill_sheet_url.eq.");
+        }
+        return qb;
       };
-      let res: any = await withSearch(sb
-        .from("candidates")
-        .select(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, { count: "exact" }))
-        .order("candidate_no", { ascending: false })
-        .limit(needle ? 1000 : 300);
-      if (res.error) {
-        res = await withSearch(sb
-          .from("candidates")
-          .select(baseCols, { count: "exact" }))
-          .order("candidate_no", { ascending: false })
-          .limit(needle ? 1000 : 300);
-      }
+      const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
+
+      let res: any = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true));
+      if (res.error) res = await order(buildBase(baseCols, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
       people = res.data ?? [];
       total = res.count ?? people.length;
+      pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+      // フィルタ用の選択肢（職種・所属区分の distinct）。リモート・国籍は固定区分（REMOTE_OPTIONS / NATIONALITY_OPTIONS）。
+      try {
+        const optRes: any = await sb.from("candidates").select("title, affiliation").limit(5000);
+        const titleSet = new Set<string>(), affSet = new Set<string>();
+        for (const r of optRes.data ?? []) {
+          if (r.title) titleSet.add(r.title);
+          if (r.affiliation) affSet.add(r.affiliation);
+        }
+        titleOptionVals = [...titleSet].sort((a, b) => a.localeCompare(b, "ja"));
+        affiliationOptionVals = [...affSet].sort((a, b) => a.localeCompare(b, "ja"));
+      } catch { /* 列が無ければ動的選択肢なしで継続 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -74,6 +185,18 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
   const exportRows = people.map((p) => ({ ...p, kanriNo: `P-${String(p.candidate_no ?? 0).padStart(5, "0")}`, skillsCsv: (p.skills ?? []).join(" / ") }));
   const growth = scope.isTenant ? { total: people.length, last7: 0 } as any : await getEntityDelta("candidates");
+
+  // PeopleTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
+  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank };
+  const peopleFilterOptions = {
+    status: FRESH_OPTIONS,
+    title: titleOptionVals.map((v) => ({ value: v, label: v })),
+    remote: REMOTE_OPTIONS,
+    skill_sheet: SKILL_SHEET_OPTIONS,
+    affiliation: ["未設定", ...affiliationOptionVals].map((v) => ({ value: v, label: v })),
+    nationality: NATIONALITY_OPTIONS,
+    rank: RANK_OPTIONS,
+  };
 
   return (
     <div className="page">
@@ -100,8 +223,15 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
-      <EntityTable kind="people" rows={people} total={total} initialQuery={initialQuery} partner={scope.isTenant} meetingDone={scope.meetingDone}
-        agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
+      {scope.isTenant ? (
+        // パートナー（テナント隔離）：自社＋共有のみの限定データをクライアント側で表示（従来通り）
+        <EntityTable kind="people" rows={people} total={total} initialQuery={initialQuery} partner meetingDone={scope.meetingDone}
+          agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
+      ) : (
+        // 社内：フィルタ・ページングをサーバ側で処理（1ページ20件・URL同期）
+        <PeopleTable rows={people} page={page} pageCount={pageCount} total={total} pageSize={PAGE_SIZE}
+          query={needle} filters={peopleFilters} filterOptions={peopleFilterOptions} />
+      )}
     </div>
   );
 }
