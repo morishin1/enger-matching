@@ -4,7 +4,7 @@
 //     ?tab=import … Gmail 取込（inbox_emails）+ AI抽出 → 案件/人材登録
 //     ?tab=sent   … 送信履歴（mail_sent）
 
-import { engerClient, dbConfigured } from "@/lib/supabase";
+import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
 import { gmailConfigured } from "@/lib/gmail-api";
 import { MailboxClient } from "@/components/MailboxClient";
 import { MailLogClient } from "@/components/MailLogClient";
@@ -37,7 +37,10 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
 
   if (dbConfigured) {
     try {
-      const sb = engerClient();
+      // 内部スタッフ用の管理画面（サーバー側・認証済み）。これらのテーブルは RLS で
+      // anon からは0件になるため、service role で読む（無ければ anon にフォールバック）。
+      let sb: ReturnType<typeof engerClient>;
+      try { sb = engerAdmin(); } catch { sb = engerClient(); }
       if (tab === "inbox") {
         const { data, error } = await sb.from("contact_messages")
           .select("id, company, name, email, phone, topic, role, message, source, status, created_at")
