@@ -20,12 +20,22 @@ const TABS: { key: Tab; label: string; icon: string; desc: string }[] = [
   { key: "sent",   label: "送信履歴",     icon: "send",        desc: "ENGER から送信したメールの記録（誰が・いつ・誰に・何を）。" },
 ];
 
+function PipeStat({ label, n, tone }: { label: string; n: number; tone: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <span style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 700 }}>{label}</span>
+      <span className="mono" style={{ fontSize: 16, fontWeight: 800, color: tone }}>{n.toLocaleString()}</span>
+    </div>
+  );
+}
+
 export default async function MailPage({ searchParams }: { searchParams: Promise<{ tab?: string; filter?: string; q?: string; sender?: string }> }) {
   const sp = await searchParams;
   const tab: Tab = (["inbox", "import", "sent"] as const).includes(sp.tab as any) ? (sp.tab as Tab) : "inbox";
 
   let dbError: string | null = null;
   let needSetup = false;
+  let pipelineCounts: { total: number; unprocessed: number; extracted: number; registered: number; archived: number } | null = null;
 
   // ── データ取得（アクティブタブのみ）──
   let contactRows: ContactMsg[] = [];
@@ -41,6 +51,23 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
       // anon からは0件になるため、service role で読む（無ければ anon にフォールバック）。
       let sb: ReturnType<typeof engerClient>;
       try { sb = engerAdmin(); } catch { sb = engerClient(); }
+
+      // Gmail取込パイプラインの状態別件数（常に集計してタブのバッジに表示）
+      const [cTotal, cUnproc, cExtracted, cRegistered, cArchived] = await Promise.all([
+        sb.from("inbox_emails").select("id", { count: "exact", head: true }),
+        sb.from("inbox_emails").select("id", { count: "exact", head: true }).is("extracted_at", null).eq("is_archived", false),
+        sb.from("inbox_emails").select("id", { count: "exact", head: true }).not("extracted_at", "is", null).is("registered_at", null).eq("is_archived", false),
+        sb.from("inbox_emails").select("id", { count: "exact", head: true }).not("registered_at", "is", null),
+        sb.from("inbox_emails").select("id", { count: "exact", head: true }).eq("is_archived", true),
+      ]);
+      pipelineCounts = {
+        total: cTotal.count ?? 0,
+        unprocessed: cUnproc.count ?? 0,
+        extracted: cExtracted.count ?? 0,
+        registered: cRegistered.count ?? 0,
+        archived: cArchived.count ?? 0,
+      };
+
       if (tab === "inbox") {
         const { data, error } = await sb.from("contact_messages")
           .select("id, company, name, email, phone, topic, role, message, source, status, created_at")
@@ -125,6 +152,21 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
       )}
 
       {tab === "inbox" && <InboxClient rows={contactRows} />}
+      {tab === "import" && !needSetup && pipelineCounts && (
+        <div className="card" style={{ padding: "12px 14px", marginBottom: 12, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 14, background: "var(--color-surface-soft)" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 700, letterSpacing: ".04em" }}>取込パイプライン</span>
+            <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>累計 <b style={{ color: "var(--color-ink)", fontSize: 14 }}>{pipelineCounts.total.toLocaleString()}</b> 通を蓄積</span>
+          </div>
+          <span style={{ color: "var(--color-ink-4)" }}>→</span>
+          <PipeStat label="未処理" n={pipelineCounts.unprocessed} tone="#0095D9" />
+          <span style={{ color: "var(--color-ink-4)" }}>→</span>
+          <PipeStat label="AI抽出済" n={pipelineCounts.extracted} tone="#7c3aed" />
+          <span style={{ color: "var(--color-ink-4)" }}>→</span>
+          <PipeStat label="登録済（マッチング使用可）" n={pipelineCounts.registered} tone="#067647" />
+          <PipeStat label="アーカイブ" n={pipelineCounts.archived} tone="#94a3b8" />
+        </div>
+      )}
       {tab === "import" && !needSetup && <MailboxClient rows={importRows} filter={importFilter} gmailReady={gmailConfigured()} />}
       {tab === "sent" && !needSetup && <MailLogClient rows={sentRows} initialQ={sentQ} initialSender={sentSender} />}
     </div>
