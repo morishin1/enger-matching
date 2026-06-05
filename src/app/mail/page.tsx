@@ -14,6 +14,19 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+// Gmail ブランドロゴ（簡易カラー版）。「Gmail 取込」タブを一目で分かるように。
+function GmailIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden style={{ flexShrink: 0 }}>
+      <path fill="#4285F4" d="M6 38h6V22.3L4 16.5V36c0 1.1.9 2 2 2z"/>
+      <path fill="#34A853" d="M36 38h6c1.1 0 2-.9 2-2V16.5l-8 5.8V38z"/>
+      <path fill="#FBBC04" d="M36 12.8V22.3l8-5.8v-3.7c0-3-3.4-4.7-5.8-2.9L36 12.8z"/>
+      <path fill="#EA4335" d="M12 22.3v-9.5l12 9 12-9v9.5l-12 9z"/>
+      <path fill="#C5221F" d="M4 12.8v3.7l8 5.8v-9.5L9.8 9.9C7.4 8.1 4 9.8 4 12.8z"/>
+    </svg>
+  );
+}
+
 type Tab = "inbox" | "import" | "sent";
 const TABS: { key: Tab; label: string; icon: string; desc: string }[] = [
   { key: "inbox",  label: "お問い合わせ", icon: "inbox",       desc: "enger.jp のお問い合わせフォームから届いた連絡。対応状況を管理。" },
@@ -130,7 +143,10 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
               borderBottom: on ? "2px solid var(--color-brand-600)" : "2px solid transparent",
               color: on ? "var(--color-brand-700)" : "var(--color-ink-3)", fontWeight: on ? 700 : 600, fontSize: 13,
             }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{t.icon}</span>{t.label}
+              {t.key === "import"
+                ? <GmailIcon size={16} />
+                : <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{t.icon}</span>}
+              {t.label}
             </Link>
           );
         })}

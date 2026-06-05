@@ -37,6 +37,8 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   company: makeIcon("apartment"),
   analytics: makeIcon("bar_chart"),
   inbox: makeIcon("inbox"),
+  mail: makeIcon("mail"),
+  send: makeIcon("send"),
   ai: makeIcon("auto_awesome"),
   search: makeIcon("search"),
   bell: makeIcon("notifications"),
