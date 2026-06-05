@@ -782,8 +782,13 @@ export async function deleteCompany(name: string) {
   return { ok: true };
 }
 
-/** 企業マスタをCSVから一括登録/更新（name で upsert）。案件/人材が無くても企業として残る。 */
+/** 企業マスタをCSVから一括登録/更新（name で upsert）。案件/人材が無くても企業として残る。
+ *  情報持ち出し・改ざん防止のため admin のみ実行可（ローカル＝未認証は admin 相当）。 */
 export async function importCompanies(records: CompanyInput[]) {
+  const access = await currentAccess();
+  if (access && access.role !== "admin") {
+    return { ok: false, inserted: 0, error: "権限がありません（CSV取込は管理者のみ）" };
+  }
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, inserted: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const rows = records.filter((r) => r.name?.trim()).map((r) => {

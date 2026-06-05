@@ -1,13 +1,19 @@
 import { CompaniesView } from "@/components/CompaniesView";
 import { CompanyCsv } from "@/components/CompanyCsv";
 import { CompanyFollowups, type FollowupRow } from "@/components/CompanyFollowups";
+import { CompanyProposalsRanking } from "@/components/CompanyProposalsRanking";
 import { getCompanyOverview } from "@/lib/companies";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { currentAccess } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   const companies = (await getCompanyOverview()) ?? [];
+  // 情報持ち出し防止：CSV取込/書出/テンプレは admin のみに開放。
+  // ローカル（認証未設定）は admin 相当として開放、それ以外は role==="admin" のみ。
+  const access = await currentAccess();
+  const isAdmin = !access || access.role === "admin";
 
   // 手動登録した企業マスタ（連絡先・業種・担当・メモ）。名寄せして詳細/編集に使う。
   let registered: any[] = [];
@@ -50,7 +56,7 @@ export default async function CompaniesPage() {
             案件・人材データから自動集約。企業マスタは案件/人材が無くても残ります。
           </div>
         </div>
-        <div style={{ flexShrink: 0 }}><CompanyCsv registered={registered} /></div>
+        <div style={{ flexShrink: 0 }}><CompanyCsv registered={registered} isAdmin={isAdmin} /></div>
       </div>
 
       {needSetup && (
@@ -60,6 +66,8 @@ export default async function CompaniesPage() {
       )}
 
       {followups.length > 0 && <CompanyFollowups items={followups} />}
+
+      <CompanyProposalsRanking companies={companies} />
 
       {!needSetup && <CompaniesView companies={companies} registered={registered} />}
     </div>

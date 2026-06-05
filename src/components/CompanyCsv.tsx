@@ -24,11 +24,14 @@ const HEADERS = [
 ];
 const TEMPLATE = HEADERS.map((h) => h.label);
 
-export function CompanyCsv({ registered = [] }: { registered?: any[] }) {
+export function CompanyCsv({ registered = [], isAdmin = false }: { registered?: any[]; isAdmin?: boolean }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // 情報持ち出し防止：CSV取込/書出/テンプレは管理者のみ。
+  if (!isAdmin) return null;
 
   const onFile = async (file: File) => {
     setMsg(null);
