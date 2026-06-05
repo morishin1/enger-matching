@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept, DEPARTMENTS } from "@/lib/roles";
-import { listTeamKgi, currentMonthKey, KGI_METRICS, type TeamKgiRow } from "@/lib/team-kgi";
+import { getTeamKgi, currentMonthKey } from "@/lib/team-kgi";
 import { TeamKgiEditor } from "@/components/TeamKgiEditor";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +28,7 @@ export default async function TeamKgiPage({ searchParams }: { searchParams: Prom
   const department = (sp.dept && allowedDepts.includes(sp.dept)) ? sp.dept : allowedDepts[0];
   const month = sp.month && /^\d{4}-\d{2}-01$/.test(sp.month) ? sp.month : currentMonthKey();
 
-  const rows: TeamKgiRow[] = await listTeamKgi(department, month);
-  const byMetric = new Map(rows.map((r) => [r.metric, r]));
+  const kgi = await getTeamKgi(department, month);
 
   // 月セレクタ用：直近6ヶ月＋翌3ヶ月
   const months: { key: string; label: string }[] = [];
@@ -50,7 +49,7 @@ export default async function TeamKgiPage({ searchParams }: { searchParams: Prom
           <div className="meta">Settings · チームKGI</div>
           <h1>チームKGI 設定</h1>
           <div className="sub">
-            チーム（部署）の月次KGIを設定します。室山チームのKGI例：月間粗利 100〜130 万円、稼働中エンジニア 8〜10 名、離脱 0 名。
+            稼働数を中心にチーム（部署）の月次KGIを設定します。「今の稼働から何名増やすか」を決めると、売上・利益が自動で紐づいて算出されます（目標稼働数 × 1名あたり平均月額／粗利）。
             {isManager && !isAdmin && <> あなたは <b>{access?.department}</b> の {access?.teamRole === "manager" ? "マネージャー" : "リーダー"} です。</>}
           </div>
         </div>
@@ -93,15 +92,7 @@ export default async function TeamKgiPage({ searchParams }: { searchParams: Prom
         </div>
       </div>
 
-      <TeamKgiEditor
-        department={department}
-        month={month}
-        metrics={KGI_METRICS}
-        initial={KGI_METRICS.map((m) => {
-          const r = byMetric.get(m.key);
-          return { metric: m.key, target_min: r?.target_min ?? null, target_max: r?.target_max ?? null, note: r?.note ?? null, updatedAt: r?.updated_at ?? null, updatedByName: r?.updated_by_name ?? null };
-        })}
-      />
+      <TeamKgiEditor department={department} month={month} initial={kgi} />
     </div>
   );
 }
