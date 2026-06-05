@@ -70,6 +70,9 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
+  // 子メニュー展開（アクティブ階層は自動で開き、それ以外は折りたたみ。ユーザー操作で個別に開閉可）
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
   const isClient = role === "client";
   const isTenant = role === "partner" || role === "freelance";
 
@@ -129,15 +132,28 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
         {nav.map((n) => {
           const Ico = Icons[n.icon];
           const badge = n.count ? fmt(counts?.[n.count]) : null;
-          const parentActive = isActive(n.href) || (n.children?.some((c) => pathname.startsWith(c.href)) ?? false);
+          const hasChildren = (n.children?.length ?? 0) > 0;
+          const childOnPath = n.children?.some((c) => pathname.startsWith(c.href)) ?? false;
+          const parentActive = isActive(n.href) || childOnPath;
+          // 折りたたみ: 子がアクティブ階層なら自動展開、ユーザー操作の状態が優先
+          const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
           return (
             <Fragment key={n.id}>
-              <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}>
+              <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
+                style={{ position: "relative" }}>
                 <span className="ico">{Ico && <Ico />}</span>
                 <span>{n.label}</span>
                 {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                {hasChildren && (
+                  <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(n.id); }}
+                    aria-label={isOpen ? "閉じる" : "開く"}
+                    title={isOpen ? "閉じる" : "開く"}
+                    style={{ marginLeft: badge != null ? 4 : "auto", background: "transparent", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 4 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>chevron_right</span>
+                  </button>
+                )}
               </Link>
-              {n.children?.map((c) => {
+              {isOpen && n.children?.map((c) => {
                 const total = c.count ? fmt(counts?.[c.count]) : null;
                 const newN = c.newCount ? counts?.[c.newCount] : undefined;
                 const subActive = pathname.startsWith(c.href);

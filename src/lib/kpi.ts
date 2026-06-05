@@ -180,21 +180,95 @@ export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekSt
   return got;
 }
 
-/** 直近 N 期間の達成率推移（推移グラフ用）。 */
+/**
+ * 直近 N 期間の達成率推移（推移グラフ用）。
+ * 期間ごとに別クエリすると 12 期間 × 数クエリで遅いため、全期間を含む 1 つのクエリで
+ * まとめて取得し、JS側でバケットに振り分ける（DB往復: proposals×1 + meetings×1 + kpi_targets×1）。
+ */
 export async function getKpiHistory(opts: {
   ownerName: string | null; ownerEmail: string | null;
   type: Exclude<PeriodType, "custom">; periods: number;
-  metric?: Metric; // 指定がなければ提案を使う
+  metric?: Metric;
 }): Promise<{ label: string; pct: number; actual: number; target: number }[]> {
-  const out: { label: string; pct: number; actual: number; target: number }[] = [];
   const metric: Metric = opts.metric ?? "proposal";
+
+  // 1) 各期間の [start,end) を一気に作る
+  const ranges: { start: Date; end: Date; base: Date; weekStart: Date; label: string }[] = [];
   for (let i = opts.periods - 1; i >= 0; i--) {
     const base = shiftPeriod(new Date(), opts.type, -i);
-    const ws = jstStartOfWeek(base);
-    const w = await getWeeklyTargets({ ownerEmail: opts.ownerEmail, weekStart: ws });
-    const snap = await getKpiSnapshot({ ownerName: opts.ownerName, type: opts.type, base, weeklyTargets: w });
-    const m = snap.snapshot[metric];
-    out.push({ label: labelOfPeriod(opts.type, base), pct: m.pct, actual: m.actual, target: m.target });
+    const range = resolveRange(opts.type, base);
+    ranges.push({ ...range, base, weekStart: jstStartOfWeek(base), label: labelOfPeriod(opts.type, base) });
+  }
+  const overallStart = ranges[0].start;
+  const overallEnd   = ranges[ranges.length - 1].end;
+
+  const sb = engerAdmin();
+  const startIso = overallStart.toISOString();
+  const endIso   = overallEnd.toISOString();
+
+  // 2) proposals / meetings / kpi_targets を一括取得（全期間ぶん）
+  let pq: any = sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, business_category")
+    .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
+    .limit(20000);
+  if (opts.ownerName) pq = pq.or(`proposer.eq.${opts.ownerName},closer.eq.${opts.ownerName}`);
+
+  let mq: any = sb.from("meetings")
+    .select("id, our_owner, meeting_date")
+    .gte("meeting_date", startIso.slice(0, 10))
+    .lt("meeting_date", endIso.slice(0, 10))
+    .limit(20000);
+  if (opts.ownerName) mq = mq.eq("our_owner", opts.ownerName);
+
+  const tq: any = sb.from("kpi_targets")
+    .select("metric, target, week_start, scope, owner_email, team_key")
+    .gte("week_start", overallStart.toISOString().slice(0, 10))
+    .lt("week_start", overallEnd.toISOString().slice(0, 10))
+    .eq("scope", opts.ownerEmail ? "person" : "team")
+    .eq(opts.ownerEmail ? "owner_email" : "team_key", opts.ownerEmail ? opts.ownerEmail.toLowerCase() : "its");
+
+  const [pr, mr, tr] = await Promise.all([pq, mq, tq]);
+  const props: any[]   = pr.error ? [] : (pr.data ?? []);
+  const meets: any[]   = mr.error ? [] : (mr.data ?? []);
+  const targets: any[] = tr.error ? [] : (tr.data ?? []);
+
+  // 3) 期間バケットに振り分けて指標を集計
+  const isOwner = (p: any) =>
+    !opts.ownerName || p.proposer === opts.ownerName || p.closer === opts.ownerName;
+  const targetMap = new Map<string, Partial<Record<Metric, number>>>();
+  for (const t of targets) {
+    const k = String(t.week_start);
+    if (!targetMap.has(k)) targetMap.set(k, {});
+    targetMap.get(k)![t.metric as Metric] = t.target;
+  }
+  const def: Partial<Record<Metric, number>> = { proposal: 20, meeting: 3 };
+
+  const out: { label: string; pct: number; actual: number; target: number }[] = [];
+  for (const rng of ranges) {
+    const sIso = rng.start.toISOString(), eIso = rng.end.toISOString();
+    const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
+
+    let actual = 0;
+    for (const p of props) {
+      if (!isOwner(p)) continue;
+      if (metric === "proposal" && inRange(p.created_at)) actual++;
+      else if (metric === "taku" && inRange(p.created_at) && p.business_category === "受託") actual++;
+      else if (metric === "ec"   && inRange(p.created_at) && p.business_category === "EC")   actual++;
+      else if (metric === "cl"   && inRange(p.stage_updated_at) && p.stage === "クロージング中") actual++;
+      else if (metric === "won"  && inRange(p.stage_updated_at) && (p.stage === "稼働決定" || p.stage === "稼働")) actual++;
+      else if (metric === "lost" && inRange(p.stage_updated_at) && p.stage === "失注") actual++;
+    }
+    if (metric === "meeting") {
+      const sDate = sIso.slice(0, 10), eDate = eIso.slice(0, 10);
+      for (const m of meets) if (m.meeting_date >= sDate && m.meeting_date < eDate) actual++;
+    }
+
+    const ws = rng.weekStart.toISOString().slice(0, 10);
+    const w = targetMap.get(ws) ?? {};
+    const weekly = w[metric] ?? def[metric] ?? 0;
+    const target = scaleWeeklyTarget(weekly, opts.type, rng);
+    const pct = target > 0 ? Math.round((actual / target) * 100) : (actual > 0 ? 100 : 0);
+    out.push({ label: rng.label, pct, actual, target });
   }
   return out;
 }
