@@ -60,10 +60,28 @@ export async function listMessageIds(opts?: { q?: string; maxResults?: number })
   url.searchParams.set("q", q);
   url.searchParams.set("maxResults", String(max));
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) return { ok: false, error: `Gmail list HTTP ${r.status}` };
+  if (!r.ok) {
+    let detail = "";
+    try { const e: any = await r.json(); detail = e?.error?.message ? `: ${e.error.message}` : ""; } catch { /* noop */ }
+    return { ok: false, error: `Gmail list HTTP ${r.status}${detail}` };
+  }
   const data: any = await r.json();
   const ids: string[] = (data?.messages ?? []).map((m: any) => m.id).filter(Boolean);
   return { ok: true, ids };
+}
+
+/** 接続中アカウントのプロフィール（診断用）。どのメールボックスに繋がっているか確認できる。 */
+export async function getGmailProfile(): Promise<{ ok: true; emailAddress: string | null; messagesTotal: number | null } | { ok: false; error: string }> {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, error: "Gmail 認証情報が未設定です（または refresh token が無効）" };
+  const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) {
+    let detail = "";
+    try { const e: any = await r.json(); detail = e?.error?.message ? `: ${e.error.message}` : ""; } catch { /* noop */ }
+    return { ok: false, error: `Gmail profile HTTP ${r.status}${detail}` };
+  }
+  const data: any = await r.json();
+  return { ok: true, emailAddress: data?.emailAddress ?? null, messagesTotal: typeof data?.messagesTotal === "number" ? data.messagesTotal : null };
 }
 
 const headerVal = (headers: any[], name: string): string | null => {

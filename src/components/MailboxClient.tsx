@@ -51,10 +51,15 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
     setSyncMsg("Gmail と同期中…（数秒〜数十秒）");
     start(async () => {
       const r = await syncInboxFromGmail({ max: 100 });
-      if (!r.ok) { setSyncMsg(`同期失敗: ${r.error}`); return; }
-      setSyncMsg(`✓ 新規 ${r.synced ?? 0}通 / 既存スキップ ${r.skipped ?? 0}通`);
+      if (!r.ok) { setSyncMsg(`同期失敗: ${r.error}${r.account ? `（接続先: ${r.account}）` : ""}`); return; }
+      const acc = r.account ? `接続先: ${r.account} ／ ` : "";
+      if ((r.found ?? 0) === 0) {
+        setSyncMsg(`${acc}直近7日で該当メール0通。アカウントが正しいか・期間内に受信があるか確認してください。`);
+      } else {
+        setSyncMsg(`${acc}検索ヒット ${r.found}通 ／ 新規取込 ${r.synced ?? 0}通 ／ 既存スキップ ${r.skipped ?? 0}通`);
+      }
       router.refresh();
-      setTimeout(() => setSyncMsg(null), 8000);
+      setTimeout(() => setSyncMsg(null), 15000);
     });
   };
 

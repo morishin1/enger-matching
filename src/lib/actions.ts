@@ -1534,15 +1534,20 @@ export async function deleteProposalMemo(memoId: string) {
 //   - 登録: extracted_data から jobs/candidates テーブルに insert（既存 upsert*Manual を流用）
 // ────────────────────────────────────────────────────────
 
-export async function syncInboxFromGmail(opts?: { query?: string; max?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; error?: string }> {
+export async function syncInboxFromGmail(opts?: { query?: string; max?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; found?: number; account?: string | null; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const { gmailConfigured, listMessageIds, fetchMessage } = await import("./gmail-api");
+  const { gmailConfigured, listMessageIds, fetchMessage, getGmailProfile } = await import("./gmail-api");
   if (!gmailConfigured()) return { ok: false, error: "Gmail OAuth 未設定です（GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN を Vercel に設定してください）" };
 
+  // 接続先メールボックスを把握（refresh token が想定アカウントに紐づいているか診断）
+  const prof = await getGmailProfile();
+  if (!prof.ok) return { ok: false, error: `Gmail 接続エラー ${prof.error}` };
+  const account = prof.emailAddress;
+
   const list = await listMessageIds({ q: opts?.query ?? "newer_than:7d", maxResults: opts?.max ?? 100 });
-  if (!list.ok) return { ok: false, error: list.error };
-  if (list.ids.length === 0) return { ok: true, synced: 0, skipped: 0 };
+  if (!list.ok) return { ok: false, error: list.error, account };
+  if (list.ids.length === 0) return { ok: true, synced: 0, skipped: 0, found: 0, account };
 
   // 既存の message_id を一括取得（重複保存をスキップ）
   const existing = await admin.from("inbox_emails").select("gmail_message_id").in("gmail_message_id", list.ids);
@@ -1570,8 +1575,8 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   });
   await Promise.all(workers);
 
-  revalidatePath("/inbox");
-  return { ok: true, synced, skipped: seen.size };
+  revalidatePath("/inbox"); revalidatePath("/mail");
+  return { ok: true, synced, skipped: seen.size, found: list.ids.length, account };
 }
 
 const INBOX_EXTRACT_SYSTEM = "あなたはエンジニア人材紹介エージェントのメール仕分けアシスタントです。受信メール本文から、それが『案件情報』か『人材情報』か『その他/スパム』かを判定し、構造化データを返してください。出力は必ず指定された JSON 形式のみ（説明文不要）。";
