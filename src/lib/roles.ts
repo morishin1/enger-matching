@@ -46,12 +46,19 @@ const TENANT_ALLOWED = ["/", "/jobs", "/people", "/matching"];
  */
 export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/companies", "/meetings", "/pipeline"];
 
-/** 指定ロール（＋職能）が pathname にアクセスできるか。 */
-export function canAccess(role: Role, pathname: string, functions?: string[] | null): boolean {
+/** マネージャー/リーダーにも開放する settings 配下の例外ルート。 */
+const MANAGER_SETTINGS_ALLOWED = ["/settings/team-kgi"];
+
+/** 指定ロール（＋職能・チーム役職）が pathname にアクセスできるか。 */
+export function canAccess(role: Role, pathname: string, functions?: string[] | null, teamRole?: string | null): boolean {
   if (role === "admin") return true;
   const hit = (list: string[]) => list.some((p) => (p === "/" ? pathname === "/" : (pathname === p || pathname.startsWith(p + "/"))));
   if (role === "agent") {
-    if (hit(ADMIN_PREFIXES)) return false;               // settings は admin のみ
+    if (hit(ADMIN_PREFIXES)) {
+      // settings 配下でも manager/leader は KGI 設定だけ許可
+      if (canManageDept(teamRole) && hit(MANAGER_SETTINGS_ALLOWED)) return true;
+      return false;
+    }
     if (!hasSalesFunction(functions) && hit(SALES_ONLY_PREFIXES)) return false; // バックオフィス専任は営業業務を非表示
     return true;
   }

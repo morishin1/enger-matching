@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
@@ -36,6 +37,13 @@ export default async function SettingsPage() {
           <h1>設定</h1>
           <div className="sub">アカウント・権限、注力の定義、品質ルール、AI使用量を管理します。提案者・クロージング担当の選択肢は「アカウント・権限管理」の社内メンバー（管理者・エージェント）から自動で作られます。</div>
         </div>
+      </div>
+
+      {/* 主要設定への導線 */}
+      <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700 }}>🧭 主要設定：</span>
+        <Link href="/settings/team-kgi" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>🎯 チームKGI設定</Link>
+        <Link href="/settings/approvals" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>👥 アカウント・権限</Link>
       </div>
 
       {/* AI使用量 */}
