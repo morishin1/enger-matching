@@ -3,7 +3,8 @@
 //   既定では折りたたみ、未対応（新規）があるときだけ開いて注意を促す。
 
 import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
-import { InboxClient, isJunkContact, type ContactMsg } from "@/components/InboxClient";
+import { InboxClient } from "@/components/InboxClient";
+import { isJunkContact, type ContactMsg } from "@/lib/contact";
 import { Collapsible } from "@/components/Collapsible";
 
 export async function DashboardInbox() {
