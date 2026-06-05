@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
-import { gmailMessageUrl } from "@/lib/gmail";
+import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
 import { SendMailButton } from "./SendMailButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
@@ -121,10 +121,10 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer, buttonH
             target="_blank" rel="noopener noreferrer"
             className="btn ghost btn-xs"
             style={{ textDecoration: "none", opacity: origMailUrl ? 1 : 0.35, pointerEvents: origMailUrl ? "auto" : "none", cursor: origMailUrl ? "pointer" : "not-allowed" }}
-            title={origMailUrl ? "元のメールを開く" : "元メールのURLがありません"}
+            title={!origMailUrl ? "元メールのURLがありません" : (/#search\//.test(origMailUrl) ? "Gmail で関連メールを検索（原本URL未登録のためフォールバック）" : "元のメールを開く")}
             aria-disabled={!origMailUrl}
           >
-            ↗ 元メール
+            ↗ 元メール{origMailUrl && /#search\//.test(origMailUrl) ? "（検索）" : ""}
           </a>
         </div>
       </div>
@@ -193,6 +193,14 @@ export function MailComposeWizard({
   const [jobToken, setJobToken] = useState<string | null>(null);
   const [candToken, setCandToken] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // 元メールリンク：保存済みメッセージIDが無効/未登録の場合でも開けるよう、
+  // 関連キーワード(会社名・案件名・人材名)で Gmail 検索URLにフォールバックする。
+  const jobOrigUrl = gmailMessageUrl(job?.source_mail_url)
+    || gmailSearchUrl([job?.client_name, job?.title].filter(Boolean).join(" "))
+    || null;
+  const candOrigUrl = gmailMessageUrl(cand?.source_mail_url)
+    || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
 
   useEffect(() => {
     if (initialized) return;
@@ -283,7 +291,7 @@ export function MailComposeWizard({
               onProposerChange={setProposer}
               onChange={updateClientForm}
               badgeLabel={jobBadge}
-              origMailUrl={gmailMessageUrl(job.source_mail_url) || null}
+              origMailUrl={jobOrigUrl}
             />
             <CandMailBodyCard
               form={candForm}
@@ -292,7 +300,7 @@ export function MailComposeWizard({
               onProposerChange={setProposer}
               onChange={updateCandForm}
               badgeLabel={candBadge}
-              origMailUrl={gmailMessageUrl(cand.source_mail_url) || null}
+              origMailUrl={candOrigUrl}
             />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>
@@ -307,12 +315,12 @@ export function MailComposeWizard({
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <MailPreviewCard
               title="案件側メール" dotColor="#ef4444"
-              body={clientForm.body} origMailUrl={gmailMessageUrl(job.source_mail_url) || null}
+              body={clientForm.body} origMailUrl={jobOrigUrl}
               proposer={proposer} buttonHtml={jobButtonHtml}
             />
             <MailPreviewCard
               title="人材側メール" dotColor="#3b82f6"
-              body={candForm.body} origMailUrl={gmailMessageUrl(cand.source_mail_url) || null}
+              body={candForm.body} origMailUrl={candOrigUrl}
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>

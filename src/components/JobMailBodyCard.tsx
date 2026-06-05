@@ -97,10 +97,10 @@ export function JobMailBodyCard({
             target="_blank" rel="noopener noreferrer"
             className="btn ghost btn-xs"
             style={{ textDecoration: "none", opacity: origMailUrl ? 1 : 0.35, pointerEvents: origMailUrl ? "auto" : "none", cursor: origMailUrl ? "pointer" : "not-allowed" }}
-            title={origMailUrl ? "元のメールを開く" : "元メールのURLがありません"}
+            title={!origMailUrl ? "元メールのURLがありません" : (/#search\//.test(origMailUrl) ? "Gmail で関連メールを検索（原本URL未登録のためフォールバック）" : "元のメールを開く")}
             aria-disabled={!origMailUrl}
           >
-            ↗ 元メール
+            ↗ 元メール{origMailUrl && /#search\//.test(origMailUrl) ? "（検索）" : ""}
           </a>
           {badgeLabel && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: DOT_COLOR + "18", color: DOT_COLOR, border: `1px solid ${DOT_COLOR}44`, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
