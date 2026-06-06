@@ -160,7 +160,7 @@ export async function AdminOverview() {
       tone: missingDaily.length >= 3 ? "danger" : "warn", icon: "📝",
       title: `日報 未提出 ${missingDaily.length}名（${yesterday}）`,
       detail: `${names}${missingDaily.length > 3 ? ` 他${missingDaily.length - 3}名` : ""}`,
-      action: "リマインドを送る", href: "/daily-reports",
+      action: "リマインドを送る", href: "/reports",
     });
   }
   if (staleCount > 0) {
@@ -283,7 +283,7 @@ export async function AdminOverview() {
         <div className="card" style={{ padding: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>📝 最新の日報</h3>
-            <Link href="/daily-reports" style={{ fontSize: 11, color: "var(--color-brand-700)", textDecoration: "none" }}>すべて見る →</Link>
+            <Link href="/reports" style={{ fontSize: 11, color: "var(--color-brand-700)", textDecoration: "none" }}>すべて見る →</Link>
           </div>
           {dailies.length === 0 && <div className="muted" style={{ fontSize: 12, padding: 8 }}>日報がありません</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
