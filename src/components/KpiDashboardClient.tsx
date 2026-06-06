@@ -73,7 +73,7 @@ export function KpiDashboardClient(props: {
       {/* ヘッダ */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
-          <span className="material-icons-outlined" style={{ verticalAlign: "-5px", marginRight: 6, color: "var(--color-brand-600)" }}>insights</span>
+          <span className="material-symbols-outlined" style={{ verticalAlign: "-5px", marginRight: 6, color: "var(--color-brand-600)" }}>insights</span>
           KPI ダッシュボード
         </h1>
         <span className="muted" style={{ fontSize: 13 }}>
@@ -88,7 +88,7 @@ export function KpiDashboardClient(props: {
         <div style={{ marginLeft: "auto" }}>
           {(isSelf || isAdmin) && (
             <button type="button" className="btn" onClick={() => setShowEdit(true)}>
-              <span className="material-icons-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>tune</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>tune</span>
               目標を編集（週次）
             </button>
           )}
