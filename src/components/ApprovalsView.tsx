@@ -5,8 +5,9 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Account, Role } from "@/lib/accounts";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity } from "@/app/settings/account-actions";
+import { approveAccount, bulkDeleteAccounts, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity } from "@/app/settings/account-actions";
 import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
+import { detectSuspicion } from "@/lib/account-suspicion";
 
 type TabKey = "candidate" | "client" | "partner" | "freelance" | "agent" | "admin";
 const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
@@ -55,6 +56,59 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   const rows = accounts.filter((a) => a.role === cur.role)
     .sort((a, b) => (a.status === "pending" ? -1 : 1) - (b.status === "pending" ? -1 : 1) || String(b.created_at).localeCompare(String(a.created_at)));
 
+  // 一括選択（タブ切替時はリセット）
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // 削除確認モーダル
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // 怪しさ判定（行ごと）。承認待ちかつ怪しい行を上に並べる助けになる。
+  const suspicionMap = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof detectSuspicion>>();
+    for (const a of rows) m.set(a.id, detectSuspicion(a as any));
+    return m;
+  }, [rows]);
+  const suspectCount = useMemo(() => {
+    let n = 0; for (const v of suspicionMap.values()) if (v) n++; return n;
+  }, [suspicionMap]);
+
+  const toggleOne = (id: string) => {
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const visibleIds = rows.map((r) => r.id);
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someChecked = visibleIds.some((id) => selected.has(id));
+  const toggleAll = () => {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (allChecked) for (const id of visibleIds) n.delete(id);
+      else for (const id of visibleIds) n.add(id);
+      return n;
+    });
+  };
+  const selectSuspectsOnly = () => {
+    const next = new Set<string>();
+    for (const a of rows) if (suspicionMap.get(a.id)) next.add(a.id);
+    setSelected(next);
+  };
+
+  // タブ切替時に選択をリセット
+  const setTabSafe = (k: TabKey) => { setSelected(new Set()); setTab(k); };
+
+  const performBulkDelete = async () => {
+    if (selected.size === 0) return;
+    setBulkBusy(true); setMsg(null);
+    // 選択行のメールを添えて送る（LP 仮想行は email から auth.users も連動削除）
+    const targets = rows.filter((r) => selected.has(r.id)).map((r) => ({ id: r.id, email: r.email ?? null }));
+    const res = await bulkDeleteAccounts(targets);
+    setBulkBusy(false); setConfirmOpen(false);
+    if (!res.ok) { setMsg({ ok: false, text: res.error || "削除に失敗しました" }); return; }
+    const errPart = res.errors.length > 0 ? `（失敗 ${res.errors.length} 件：${res.errors.map((e) => e.error).join(" / ")}）` : "";
+    setMsg({ ok: res.deleted > 0, text: `削除 ${res.deleted} 件 ${errPart}` });
+    setSelected(new Set());
+    router.refresh();
+  };
+
   const run = (id: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
     setBusyId(id); setMsg(null);
     start(async () => {
@@ -83,7 +137,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
           const active = tab === t.key;
           const pc = pendingCount[t.key] ?? 0;
           return (
-            <button key={t.key} type="button" role="tab" aria-selected={active} onClick={() => setTab(t.key)}
+            <button key={t.key} type="button" role="tab" aria-selected={active} onClick={() => setTabSafe(t.key)}
               style={{ padding: "10px 18px", background: "transparent", border: 0, borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent", color: active ? "var(--color-brand-700)" : "var(--color-ink-3)", fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span>{t.label}</span>
               {pc > 0 && <span className="badge hot" style={{ fontSize: 10, padding: "1px 7px" }}>{pc}</span>}
@@ -92,7 +146,17 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
         })}
       </div>
 
-      <div className="muted" style={{ fontSize: 11.5 }}>{cur.hint}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+        <div className="muted" style={{ fontSize: 11.5 }}>{cur.hint}</div>
+        {suspectCount > 0 && (
+          <button type="button" onClick={selectSuspectsOnly} title="怪しさを検知した行のみ選択します"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 99,
+              background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", cursor: "pointer", fontFamily: "inherit" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>warning</span>
+            怪しい登録 {suspectCount} 件（クリックで選択）
+          </button>
+        )}
+      </div>
       {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
 
       {rows.length === 0 ? (
@@ -102,18 +166,51 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
           <div className="tbl-scroll" style={{ overflowX: "auto" }}>
             <table className="tbl tbl-compact" style={{ minWidth: 720 }}>
               <thead>
-                <tr><th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日時</th><th style={{ width: 140 }}>担当エージェント</th><th style={{ width: 200 }}>メモ（根拠/連絡）</th><th style={{ width: 220 }}>承認・面談履歴</th><th style={{ width: 260 }}>操作</th></tr>
+                <tr>
+                  <th style={{ width: 36, textAlign: "center" }}>
+                    <input type="checkbox" aria-label="表示行をすべて選択"
+                      checked={allChecked} ref={(el) => { if (el) el.indeterminate = !allChecked && someChecked; }}
+                      onChange={toggleAll} style={{ accentColor: "var(--color-brand-600)" }} />
+                  </th>
+                  <th>状態</th><th>名前 / 会社</th><th>メール</th><th>申請日時</th><th style={{ width: 140 }}>担当エージェント</th><th style={{ width: 200 }}>メモ（根拠/連絡）</th><th style={{ width: 220 }}>承認・面談履歴</th><th style={{ width: 260 }}>操作</th>
+                </tr>
               </thead>
               <tbody>
                 {rows.flatMap((a) => {
                   const sb = STATUS_BADGE[a.status] ?? STATUS_BADGE.pending;
                   const busy = busyId === a.id && pending;
+                  const sus = suspicionMap.get(a.id) ?? null;
+                  const checked = selected.has(a.id);
                   const mainRow = (
-                    <tr key={a.id}>
+                    <tr key={a.id} style={sus ? { background: sus.level === "danger" ? "rgba(180,35,24,.05)" : "rgba(217,119,6,.04)" } : undefined}>
+                      <td style={{ textAlign: "center" }}>
+                        <input type="checkbox" aria-label={`${a.name ?? a.email} を選択`}
+                          checked={checked} onChange={() => toggleOne(a.id)}
+                          style={{ accentColor: "var(--color-brand-600)" }} />
+                      </td>
                       <td><span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: sb.c, background: sb.bg }}>{sb.l}</span></td>
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name || "（名前未設定）"}</div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name || "（名前未設定）"}</span>
+                          {sus && (
+                            <span title={sus.reasons.join(" / ")} style={{
+                              display: "inline-flex", alignItems: "center", gap: 3,
+                              fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99,
+                              color: sus.level === "danger" ? "#b42318" : "#92400e",
+                              background: sus.level === "danger" ? "#fdecef" : "#fff6e0",
+                              border: `1px solid ${sus.level === "danger" ? "#f7c5cf" : "#fde9b0"}`,
+                            }}>
+                              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>warning</span>
+                              {sus.level === "danger" ? "スパム疑い" : "要確認"}
+                            </span>
+                          )}
+                        </div>
                         {a.company_name && <div className="muted" style={{ fontSize: 11 }}>{a.company_name}</div>}
+                        {sus && (
+                          <div style={{ fontSize: 10, color: sus.level === "danger" ? "#b42318" : "#92400e", marginTop: 2, lineHeight: 1.4 }}>
+                            {sus.reasons.join(" / ")}
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{a.email}</td>
                       <td style={{ fontSize: 11.5, color: "var(--color-ink-3)" }} title={a.created_at}>
@@ -202,7 +299,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                   );
                   const expandedRow = expanded === a.id ? (
                     <tr key={`${a.id}-x`}>
-                      <td colSpan={8} style={{ background: "var(--color-surface-soft)", padding: 12 }}>
+                      <td colSpan={9} style={{ background: "var(--color-surface-soft)", padding: 12 }}>
                         <ApprovalDetailPanel account={a} emails={activity[a.id]?.emails ?? []} meetings={activity[a.id]?.meetings ?? []} />
                       </td>
                     </tr>
@@ -211,6 +308,71 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* 一括操作バー（画面下部に固定）。1件以上選択されたら出現。 */}
+      {selected.size > 0 && (
+        <div role="region" aria-label="一括操作"
+          style={{
+            position: "sticky", bottom: 0, left: 0, right: 0, zIndex: 50,
+            marginTop: 6,
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+            padding: "12px 16px", borderRadius: 12,
+            background: "var(--color-surface)", border: "1px solid var(--color-border-strong)",
+            boxShadow: "0 -8px 24px rgba(15,23,42,.12)",
+          }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1, color: "var(--color-brand-600)" }}>check_box</span>
+            {selected.size} 件選択中
+          </span>
+          <button type="button" className="btn ghost btn-xs" onClick={() => setSelected(new Set())} disabled={bulkBusy}>選択を解除</button>
+          <span style={{ flex: 1 }} />
+          <button type="button"
+            disabled={bulkBusy}
+            onClick={() => setConfirmOpen(true)}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "10px 18px", borderRadius: 10, border: 0,
+              background: "var(--color-danger, #b42318)", color: "#fff",
+              fontWeight: 800, fontSize: 13, fontFamily: "inherit", cursor: "pointer",
+              boxShadow: "0 6px 14px rgba(180,35,24,.25)",
+            }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>delete</span>
+            選択した {selected.size} 件を削除
+          </button>
+        </div>
+      )}
+
+      {/* 削除確認モーダル（破壊的操作） */}
+      {confirmOpen && (
+        <div onClick={() => !bulkBusy && setConfirmOpen(false)}
+          role="dialog" aria-modal="true"
+          style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "grid", placeItems: "center", zIndex: 600, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card"
+            style={{ width: "100%", maxWidth: 480, padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 28, color: "var(--color-danger, #b42318)" }}>warning</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{selected.size} 件のアカウントを削除します</h3>
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+              この操作は取り消せません。<b>app_users / public.profiles / Supabase Auth</b> のうち該当する行を可能な範囲で連動削除します。
+              本人がログイン中の場合はセッションが切れます。承認待ち以外の行も削除されます。続行しますか？
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setConfirmOpen(false)} disabled={bulkBusy}>キャンセル</button>
+              <button type="button" onClick={performBulkDelete} disabled={bulkBusy}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "9px 16px", borderRadius: 10, border: 0,
+                  background: "var(--color-danger, #b42318)", color: "#fff",
+                  fontWeight: 800, fontSize: 13, fontFamily: "inherit", cursor: "pointer",
+                }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, lineHeight: 1 }}>delete</span>
+                {bulkBusy ? "削除中…" : "削除する"}
+              </button>
+            </div>
           </div>
         </div>
       )}

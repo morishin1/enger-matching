@@ -442,11 +442,93 @@ export async function deleteAccount(id: string): Promise<Result> {
   const guard = await requireAdmin();
   if (!guard.ok) return guard;
   if (!id) return { ok: false, error: "id がありません" };
+  const r = await bulkDeleteAccounts([id]);
+  if (!r.ok) return { ok: false, error: r.error };
+  return { ok: true };
+}
+
+// 単一行の安全な削除（id の種類で削除先を出し分け）。bulk から呼ばれる内部実装。
+//   ・"profile:<uuid>" → public.profiles 削除（メールが分かれば auth.users も削除）
+//   ・"auth:<uuid>"    → auth.users 削除のみ（profiles なし）
+//   ・"<uuid>"         → enger.app_users 削除＋同メールの auth.users 削除（あれば）
+async function deleteOneAccountInternal(
+  id: string, email: string | null, actor: Actor,
+): Promise<Result> {
   try {
     const sb = engerAdmin();
+    if (id.startsWith("profile:")) {
+      const pid = id.slice("profile:".length);
+      // メール確定 → profile削除
+      let em = (email ?? "").toLowerCase().trim() || null;
+      if (!em) {
+        try {
+          const pr: any = await sb.from("profiles").select("email").eq("id", pid).maybeSingle();
+          em = (pr.data?.email ?? null)?.toLowerCase().trim() || null;
+        } catch { /* ignore */ }
+      }
+      try { await sb.from("profiles").delete().eq("id", pid); } catch { /* テーブル無い環境はスキップ */ }
+      if (em) {
+        try {
+          const authId = await findAuthUserIdByEmail(em);
+          if (authId) await authAdmin().auth.admin.deleteUser(authId);
+        } catch { /* ignore */ }
+      }
+      await audit(id, em, "delete_lp_profile", null, actor);
+      return { ok: true };
+    }
+    if (id.startsWith("auth:")) {
+      const aid = id.slice("auth:".length);
+      try { await authAdmin().auth.admin.deleteUser(aid); } catch { /* ignore */ }
+      await audit(id, email, "delete_lp_auth", null, actor);
+      return { ok: true };
+    }
+    // 通常の app_users 行：先に対象メールを取得（auth.users 連動削除のため）
+    let em = (email ?? "").toLowerCase().trim() || null;
+    if (!em) {
+      try {
+        const u: any = await sb.from("app_users").select("email").eq("id", id).maybeSingle();
+        em = (u.data?.email ?? null)?.toLowerCase().trim() || null;
+      } catch { /* ignore */ }
+    }
     const { error } = await sb.from("app_users").delete().eq("id", id);
     if (error) return { ok: false, error: error.message };
-    bustMembers();
+    if (em) {
+      try {
+        const authId = await findAuthUserIdByEmail(em);
+        if (authId) await authAdmin().auth.admin.deleteUser(authId);
+      } catch { /* auth 同期失敗は致命ではない */ }
+    }
+    await audit(id, em, "delete", null, actor);
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** 複数アカウント削除（admin のみ）。LP仮想エントリ(profile:/auth:)・通常 app_users を混在で受け取れる。
+ *  自分自身は誤って削除できない（actor.email と一致するメールはスキップ）。 */
+export async function bulkDeleteAccounts(
+  items: Array<string | { id: string; email?: string | null }>,
+): Promise<{ ok: true; deleted: number; skipped: number; errors: { id: string; error: string }[] } | { ok: false; error: string }> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return { ok: false, error: guard.error ?? "管理者権限が必要です" };
+  const actor = guard.actor!;
+  if (!items?.length) return { ok: false, error: "削除対象が指定されていません" };
+
+  const norm = items.map((it) => typeof it === "string" ? { id: it, email: null } : { id: it.id, email: it.email ?? null });
+  let deleted = 0, skipped = 0;
+  const errors: { id: string; error: string }[] = [];
+
+  for (const it of norm) {
+    if (!it.id) { skipped++; continue; }
+    // 自分自身（メール一致）は安全のため拒否
+    if (it.email && actor.email && it.email.toLowerCase().trim() === actor.email.toLowerCase().trim()) {
+      errors.push({ id: it.id, error: "自分自身のアカウントは削除できません" });
+      continue;
+    }
+    const r = await deleteOneAccountInternal(it.id, it.email ?? null, actor);
+    if (r.ok) deleted++; else errors.push({ id: it.id, error: r.error ?? "削除に失敗しました" });
+  }
+
+  bustMembers();
+  revalidatePath("/settings/approvals");
+  return { ok: true, deleted, skipped, errors };
 }
