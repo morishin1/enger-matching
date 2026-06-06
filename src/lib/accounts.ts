@@ -36,7 +36,38 @@ export type Account = {
   meeting_done_by_name?: string | null;
   department?: string | null;
   team_role?: string | null;
+  /** LP登録の出所。'enger' | 'dojo' | 将来の値（profile/auth起源のときのみ）。表示バッジ用。 */
+  signup_source?: string | null;
+  signup_method?: string | null;
 };
+
+/** signup_source の正規化＋フォールバック判定。
+ *   1) 保存値（'enger'|'enger_lp'|'dojo'|'mugen_dojo' ...）があればそれを正規化
+ *   2) メールドメインから推定（@mugendojo.jp 等 → dojo）
+ *   3) role=student も dojo として扱う
+ *   4) どれにも当たらなければ null（UI側で「不明」と出す） */
+export function resolveSignupSource(stored: any, email: string | null | undefined, ctx: { role?: string | null } = {}): string | null {
+  const s = String(stored ?? "").toLowerCase().trim();
+  if (s === "dojo" || s === "mugen_dojo" || s === "mugendojo") return "dojo";
+  if (s === "enger" || s === "enger_lp" || s === "engerjp") return "enger";
+  if (s) return s; // 将来の新LP（保存値そのまま）
+  const em = String(email ?? "").toLowerCase();
+  if (/@(mugendojo|mugen-dojo|dojo)\./.test(em)) return "dojo";
+  if (/@enger\.jp$/.test(em)) return "enger";
+  if (String(ctx.role ?? "").toLowerCase() === "student") return "dojo";
+  return null;
+}
+
+/** signup_method の正規化（'github'|'google'|'form'|'email' に寄せる）。 */
+export function normalizeSignupMethod(m: any): string | null {
+  const s = String(m ?? "").toLowerCase().trim();
+  if (!s) return null;
+  if (s.includes("github")) return "github";
+  if (s.includes("google")) return "google";
+  if (s.includes("form")) return "form";
+  if (s.includes("mail")) return "email";
+  return s;
+}
 
 /** メールでアカウントを取得（サーバ専用 / service role）。 */
 export async function getAccountByEmail(email: string): Promise<Account | null> {
@@ -190,6 +221,9 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
       const em = String(p.email ?? "").toLowerCase();
       if (!em || existingEmails.has(em)) continue;
       profileEmails.add(em);
+      // signup_source の解決：保存値 → メールドメイン推定 → role/ヒューリスティック
+      const ss = resolveSignupSource(p?.signup_source, em, { role: p?.role });
+      const sm = normalizeSignupMethod(p?.signup_method);
       accounts.push({
         id: `profile:${p.id}`,
         email: em,
@@ -199,7 +233,9 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
         company_name: null,
         position: null,
         functions: null,
-        note: [p.signup_source ? `登録元: ${p.signup_source}` : "", p.signup_method ? `方式: ${p.signup_method}` : "", p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
+        note: [p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
+        signup_source: ss,
+        signup_method: sm,
         created_at: p.created_at ?? new Date().toISOString(),
         approved_at: null,
       } as Account);
@@ -217,6 +253,9 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
           const prov = (u.app_metadata as any)?.provider ?? "email";
           const meta: any = u.user_metadata ?? {};
           const name = (meta.full_name as string) || (meta.name as string) || null;
+          // signup_source は user_metadata に保存されていれば最優先、無ければメールドメインで推定
+          const metaSource = (meta.signup_source as string) || null;
+          const ss = resolveSignupSource(metaSource, em, {});
           accounts.push({
             id: `auth:${u.id}`,
             email: em,
@@ -226,7 +265,9 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
             company_name: null,
             position: null,
             functions: null,
-            note: `登録元: enger.jp（auth・profiles未作成）／方式: ${prov}`,
+            note: "profiles未作成（auth.users のみ）",
+            signup_source: ss,
+            signup_method: normalizeSignupMethod(prov),
             created_at: u.created_at ?? new Date().toISOString(),
             approved_at: null,
           } as Account);

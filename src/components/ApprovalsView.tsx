@@ -118,7 +118,16 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                       <td style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{a.email}</td>
                       <td style={{ fontSize: 11.5, color: "var(--color-ink-3)" }} title={a.created_at}>
                         {fmtDateTime(a.created_at)}
-                        {(a.id.startsWith("profile:") || a.id.startsWith("auth:")) && <div style={{ fontSize: 9.5, color: "#0095D9", fontWeight: 700, marginTop: 2 }}>LP登録（enger.jp）</div>}
+                        {(a.id.startsWith("profile:") || a.id.startsWith("auth:")) && (() => {
+                          const ss = (a as any).signup_source as string | null | undefined;
+                          // dojo=橙、enger=青、不明=グレー。labelは登録元LPに対応させる
+                          const map: Record<string, { label: string; color: string }> = {
+                            dojo:  { label: "LP登録（無限道場）", color: "#d97706" },
+                            enger: { label: "LP登録（enger.jp）", color: "#0095D9" },
+                          };
+                          const m = ss && map[ss] ? map[ss] : { label: "LP登録（不明）", color: "var(--color-ink-4)" };
+                          return <div style={{ fontSize: 9.5, color: m.color, fontWeight: 700, marginTop: 2 }} title={ss ? `signup_source=${ss}` : "signup_source未設定／メールドメインでも判定不可"}>{m.label}</div>;
+                        })()}
                       </td>
                       <td>
                         <select disabled={busy || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))} defaultValue={(a as any).owner_agent_email ?? ""}
