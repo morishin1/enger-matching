@@ -11,6 +11,11 @@ export type Job = {
   remote_type?: string | null; start_date?: string | null;
   client_name?: string | null; detail?: string | null; flow_note?: string | null;
   work_location?: string | null;
+  // 鮮度・充足の判定用（任意。マッチング画面が付与）
+  status?: string | null;             // 案件ステータス（募集中/募集終了 等）
+  created_at?: string | null;         // 取込日（鮮度の基準フォールバック）
+  last_confirmed_at?: string | null;  // 最終在否確認日（あれば鮮度の基準に優先）
+  is_filled?: boolean;                // 稼働決定済み（枠が埋まった）→ proposals から付与
 };
 export type Candidate = {
   candidate_no?: number; id?: string; name: string; title?: string | null;
@@ -218,6 +223,28 @@ function verdictOf(score: number, excluded: boolean): Verdict {
   return "提案不可";
 }
 
+// ===== 案件の鮮度・充足（古い/決まった案件を出さないための土台） ==========
+// マッチングに「古い案件」「決まった案件」を混ぜるのは致命的なため、scoreMatch でも
+// 最終防衛線として判定する（画面側でも除外するが、個別案件ビュー等の漏れを防ぐ）。
+export const JOB_STALE_DAYS = 30; // この日数を超えたら「古い」。基準=最終確認日 or 取込日
+// 明示的に終了/充足を示すステータス（手動運用での補助。主判定は is_filled）
+const TERMINAL_STATUS = /(募集\s*終了|終了|決定|クロ[ー-]?ズ|停止|充足|キャンセル|中止|close|closed|filled)/i;
+
+export type JobOpenness = { closed: boolean; closedReason: string | null; staleDays: number | null; stale: boolean };
+
+/** 案件の「まだ提案してよいか」を判定。closed=充足/終了、stale=古い。 */
+export function jobOpenness(job: Job, nowMs: number = Date.now()): JobOpenness {
+  const closedByStatus = !!job.status && TERMINAL_STATUS.test(job.status);
+  const closed = !!job.is_filled || closedByStatus;
+  const closedReason = job.is_filled
+    ? "稼働決定済み（枠が埋まっています）"
+    : closedByStatus ? `案件ステータス「${job.status}」` : null;
+  const baseRaw = job.last_confirmed_at || job.created_at || null;
+  const staleDays = baseRaw ? Math.floor((nowMs - new Date(baseRaw).getTime()) / 86400000) : null;
+  const stale = staleDays != null && staleDays > JOB_STALE_DAYS;
+  return { closed, closedReason, staleDays, stale };
+}
+
 export function scoreMatch(job: Job, c: Candidate): MatchResult {
   const jobSkills = (job.skills ?? []).map(canon);
   const candSet = new Set((c.skills ?? []).map(canon));
@@ -261,8 +288,17 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (!ngNat && overage != null && overage > 20) score = Math.min(score, 40);
   else if (!ngNat && overage != null && overage > 10) score = Math.min(score, 65);
 
+  // ---- 案件の鮮度・充足（最優先で表示） ----
+  const open = jobOpenness(job);
+
   // ---- 注意事項（3段階） ----
   const notes: Note[] = [];
+  // 充足/終了 → 最上段に赤で明示（再提案は致命的）
+  if (open.closed) notes.push({ level: "red", text: `この案件は提案できません：${open.closedReason}` });
+  // 古い案件 → 在否確認を促す赤注記
+  else if (open.stale) notes.push({ level: "red", text: `案件配信から約${open.staleDays}日・在否未確認。提案前に先方へ募集継続を確認してください` });
+  else if (open.staleDays != null && open.staleDays > JOB_STALE_DAYS - 10) notes.push({ level: "yellow", text: `案件配信から約${open.staleDays}日（鮮度やや低下・確認推奨）` });
+
   if (ngNat) notes.push({ level: "red", text: "国籍要件NG（日本国籍が必須の案件）" });
   else if (nationalityWarn(job, c)) notes.push({ level: "yellow", text: "国籍要件に言及あり（候補の国籍を要確認）" });
 
@@ -308,11 +344,18 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // ---- 互換用 reasons ----
   const reasons = notes.map((n) => `${n.level === "red" ? "🔴" : n.level === "yellow" ? "🟡" : "🟢"} ${n.text}`);
 
+  // 充足/終了はハード除外。古い案件は除外せず「提案推奨」への昇格だけ抑える（要確認のため）。
+  const hardExcluded = ngNat || open.closed;
+  let verdict = verdictOf(score, hardExcluded);
+  if (!hardExcluded && open.stale && (verdict === "提案推奨" || verdict === "条件付き提案推奨")) {
+    verdict = "条件付き提案検討";
+  }
+
   return {
     score,
     matchedSkills, missingSkills, reasons, notes,
-    verdict: verdictOf(score, ngNat),
-    excluded: ngNat || undefined,
+    verdict,
+    excluded: hardExcluded || undefined,
     breakdown: { skill: skill100, salary: salary100, remote: remote100, timing: timing100, age: age100, bonus },
   };
 }

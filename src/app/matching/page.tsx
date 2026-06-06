@@ -7,9 +7,10 @@ import { FocusList } from "@/components/FocusList";
 import { JumpToMatching } from "@/components/JumpToMatching";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { rankCandidates, rankJobs, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
+import { ConfirmJobButton } from "@/components/ConfirmJobButton";
 
 export const dynamic = "force-dynamic";
 
@@ -167,8 +168,10 @@ async function loadTenantData(company: string, meetingDone: boolean = true) {
   return { jobs: jobs ? maskJobs(jobs, company, meetingDone) : null, cands: cands ? maskCandidates(cands, company, meetingDone) : null };
 }
 
-export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string }> }) {
+export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string; stale?: string }> }) {
   const sp = await searchParams;
+  // 古い案件（配信から JOB_STALE_DAYS 超）を含めて表示するか。既定は false（隠す）。
+  const showStale = sp.stale === "1";
   // パートナー企業はテナント隔離のため別画面（自社＋共有のみ・他社匿名・提案/メール無効）
   const scope = await getViewerScope();
   if (scope.isTenant) {
@@ -199,6 +202,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   // 人材→案件モード用
   let person: any = null;
   let rankedJobs: any[] = [];
+  // 古い/充足で除外した案件の件数（UI 表示用）
+  let hiddenStaleCount = 0;
+  let hiddenFilledCount = 0;
 
   // 案件→人材モード用
   let jobList: any[] = [];
@@ -222,7 +228,31 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       const sb = engerClient();
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url";
       const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary`;
-      const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date";
+      const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
+      // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
+      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at`;
+
+      // 充足（枠が埋まった）案件 = 稼働決定/稼働 の提案がある job_id。マッチングから自動除外する。
+      const filledJobIds = new Set<string>();
+      try {
+        const fr: any = await sb.from("proposals").select("job_id, stage").in("stage", ["稼働決定", "稼働"]).limit(5000);
+        for (const r of (fr.data ?? []) as any[]) if (r.job_id) filledJobIds.add(r.job_id);
+      } catch { /* proposals 未整備でも続行（鮮度フィルタは効く） */ }
+
+      // 取得した案件配列に is_filled を付与し、充足案件を除外。
+      // 古い案件(stale)は showStale=false のとき除外。除外件数も返す。
+      const applyOpenness = (jobs: any[]): { kept: any[]; filledCount: number; staleHidden: number } => {
+        let filledCount = 0, staleHidden = 0;
+        const kept: any[] = [];
+        for (const j of jobs) {
+          j.is_filled = !!(j.id && filledJobIds.has(j.id));
+          const op = jobOpenness(j as Job);
+          if (op.closed) { filledCount++; continue; }            // 充足/終了 → 常に除外
+          if (op.stale && !showStale) { staleHidden++; continue; } // 古い → 既定で隠す
+          kept.push(j);
+        }
+        return { kept, filledCount, staleHidden };
+      };
 
       if (personNo) {
         // ---- 人材 → 案件（逆マッチング）----
@@ -245,11 +275,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             if (tab === "focus") q = q.eq("is_focus", true);
             return q.limit(tab === "focus" ? 500 : 200);
           };
-          let jr: any = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
+          let jr: any = await buildJ(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`);
+          if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
+          // 古い/充足案件を除外（充足は常に・古いは showStale=false のとき）
+          const _open = applyOpenness((jr.data ?? []) as any[]);
+          hiddenFilledCount += _open.filledCount; hiddenStaleCount += _open.staleHidden;
           // 第1優先：企業マスタから contact_name / contact_email を引いて付与
-          const jobList = (jr.data ?? []) as any[];
+          const jobList = _open.kept;
           await attachCompanyContact(sb, jobList, "client_name");
           // 第2優先：旧データで contact_email が無い案件は同じ client_name の他案件から流用（同社の窓口メールは共通）
           const jobNeed = jobList.filter((j) => !j.contact_email && j.client_name);
@@ -273,7 +307,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       } else if (tab === "focus") {
         // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
         const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
-        const JOB_F = `${JOB_BASE}, status, created_at`;
+        const JOB_F = JOB_BASE; // status, created_at は JOB_BASE に含む
         const CAND_F = `${CAND_BASE}, created_at`;
         const safe = async (q: any, fb: any) => { const r = await q; return r.error ? ((await fb)?.data ?? []) : (r.data ?? []); };
         const [hjJobs, recJobs, hfCands, ppCands, recCands] = await Promise.all([
@@ -283,32 +317,39 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           safe(sb.from("candidates").select(CAND_F).or("affiliation.eq.PP,affiliation.ilike.%プロパー%").limit(300), Promise.resolve({ data: [] })),
           safe(sb.from("candidates").select(CAND_F).gte("created_at", since30).limit(400), Promise.resolve({ data: [] })),
         ]);
-        // ♥お気に入り（手動）：ハートが点灯し、外すと件数が減る
-        focusJobs = (hjJobs as any[]).slice(0, 100);
+        // ♥お気に入り（手動）：ハートが点灯し、外すと件数が減る。充足/古い案件は除外。
+        focusJobs = applyOpenness(hjJobs as any[]).kept.slice(0, 100);
         focusCands = (hfCands as any[]).slice(0, 100);
-        // 自動おすすめ：プロパー・新着で決まりやすい。is_focus は注力側に出すので除外
-        recoJobs = curateFocus("jobs", recJobs).filter((j) => !j.is_focus).slice(0, 40);
+        // 自動おすすめ：プロパー・新着で決まりやすい。is_focus は注力側に出すので除外。充足/古いも除外。
+        recoJobs = applyOpenness(curateFocus("jobs", recJobs).filter((j) => !j.is_focus)).kept.slice(0, 40);
         recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
         const buildList = (cols: string) =>
-          sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(80);
-        let jlRes: any = await buildList(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
+          sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(120);
+        let jlRes: any = await buildList(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`);
+        if (jlRes.error) jlRes = await buildList(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
         if (jlRes.error) jlRes = await buildList(`${JOB_BASE}, contact_email, contact_name`);
         if (jlRes.error) jlRes = await buildList(JOB_BASE);
-        jobList = jlRes.data ?? [];
+        // 充足/古い案件を選択ドロップダウンから除外（充足は常に・古いは showStale=false のとき）
+        const _openList = applyOpenness(jlRes.data ?? []);
+        hiddenFilledCount += _openList.filledCount; hiddenStaleCount += _openList.staleHidden;
+        jobList = _openList.kept;
 
         const reqJobNo = sp.job ? Number(sp.job) : null;
         if (reqJobNo) {
-          // 指定された job_no が jobList(最新80件)に無いとき jobList[0] にフォールバックして
+          // 指定された job_no が jobList(最新120件)に無いとき jobList[0] にフォールバックして
           // 異なる案件の結果が表示される不具合があったため、必ず個別取得する。
           job = jobList.find((j) => j.job_no === reqJobNo) ?? null;
           if (!job) {
-            let jr: any = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name, source_mail_url`).eq("job_no", reqJobNo).maybeSingle();
+            let jr: any = await sb.from("jobs").select(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`).eq("job_no", reqJobNo).maybeSingle();
+            if (jr.error) jr = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name, source_mail_url`).eq("job_no", reqJobNo).maybeSingle();
             if (jr.error) jr = await sb.from("jobs").select(`${JOB_BASE}, contact_email, contact_name`).eq("job_no", reqJobNo).maybeSingle();
             if (jr.error) jr = await sb.from("jobs").select(JOB_BASE).eq("job_no", reqJobNo).maybeSingle();
             if (jr.data) {
               job = jr.data;
+              // 直接指定された案件は充足/古くても表示する（バナーで警告）。is_filled を付与。
+              job.is_filled = !!(job.id && filledJobIds.has(job.id));
               // ドロップダウン用に jobList の先頭に挿入（重複しないように）
               if (!jobList.find((j) => j.job_no === job.job_no)) jobList = [job, ...jobList];
             }
@@ -377,6 +418,47 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     }
   } else dbError = "Supabase の環境変数が未設定です";
 
+  // 古い/充足で除外している件数のお知らせ＋「古い案件も表示」トグル（鮮度ガードの可視化）
+  const buildToggleHref = (toStale: boolean) => {
+    const p = new URLSearchParams();
+    if (tab === "focus") p.set("tab", "focus");
+    if (personNo) p.set("person", String(personNo));
+    if (sp.cand) p.set("cand", sp.cand);
+    if (sp.job) p.set("job", sp.job);
+    if (toStale) p.set("stale", "1");
+    const qs = p.toString();
+    return `/matching${qs ? `?${qs}` : ""}`;
+  };
+  const opennessBanner = (hiddenFilledCount > 0 || hiddenStaleCount > 0 || showStale) ? (
+    <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 12.5 }}>
+      <span style={{ fontWeight: 700 }}>🛡 鮮度ガード</span>
+      {hiddenFilledCount > 0 && <span style={{ color: "#b42318" }}>🔒 充足/終了 <b>{hiddenFilledCount}</b>件を除外</span>}
+      {hiddenStaleCount > 0 && <span style={{ color: "#b45309" }}>🕓 配信{JOB_STALE_DAYS}日超の古い案件 <b>{hiddenStaleCount}</b>件を{showStale ? "表示中" : "非表示"}</span>}
+      {showStale && hiddenStaleCount === 0 && <span style={{ color: "#b45309" }}>🕓 古い案件も表示中（在否確認のうえ提案を）</span>}
+      <Link href={buildToggleHref(!showStale)} className="btn ghost btn-xs" style={{ marginLeft: "auto", textDecoration: "none" }}>
+        {showStale ? "古い案件を隠す" : "古い案件も表示する"}
+      </Link>
+    </div>
+  ) : null;
+
+  // 選択中の案件が充足/古い場合の警告バナー（個別案件を直接開いたケース）
+  const selectedJobWarning = (j: any) => {
+    if (!j) return null;
+    const op = jobOpenness(j as Job);
+    if (!op.closed && !op.stale) return null;
+    const danger = op.closed;
+    return (
+      <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, background: danger ? "#fdecef" : "#fff6e0", border: `1px solid ${danger ? "#f7c5cf" : "#fde9b0"}`, color: danger ? "#b42318" : "#92400e", fontSize: 12.5, fontWeight: 600 }}>
+        <span>
+          {danger
+            ? <>🔒 この案件は <b>{op.closedReason}</b>。新たな提案は推奨されません（再提案は信用を損ないます）。</>
+            : <>🕓 この案件は <b>配信から約{op.staleDays}日</b>・在否未確認です。提案前に先方へ募集継続を確認してください。</>}
+        </span>
+        {!danger && j.job_no != null && <span style={{ marginLeft: "auto" }}><ConfirmJobButton jobNo={j.job_no} /></span>}
+      </div>
+    );
+  };
+
   // ============ 人材 → 案件モードの描画 ============
   if (personNo) {
     const maxScore = rankedJobs[0]?.score ?? 0;
@@ -397,6 +479,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         </div>
 
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
+
+        {opennessBanner}
+        {selectedJobWarning(sel?.job)}
 
         {person && (
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
@@ -525,6 +610,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         <JumpToMatching />
         {Tabs}
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
+        {opennessBanner}
 
         {/* 注力（♥お気に入り・手動）：ハートを外すと即座に件数・行が減る */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
@@ -598,6 +684,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       </div>
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
+      {opennessBanner}
+      {selectedJobWarning(job)}
 
       {job && (
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>

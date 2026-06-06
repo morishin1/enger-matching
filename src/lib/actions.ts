@@ -245,6 +245,22 @@ export async function toggleFocus(table: "jobs" | "candidates", idField: string,
   return { ok: true };
 }
 
+/** 案件の在否確認（鮮度リセット）。「まだ募集中？」を確認したら last_confirmed_at を now に更新し、
+ *  マッチングの鮮度ガードから外れて再び候補に出るようにする。 */
+export async function confirmJobOpen(jobNo: number) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("jobs").update({ last_confirmed_at: new Date().toISOString() }).eq("job_no", jobNo);
+  if (error) {
+    // 列未整備（migration未適用）の場合は分かりやすく返す
+    if (/last_confirmed_at/.test(error.message)) return { ok: false, error: "鮮度カラム未整備です。supabase/jobs-freshness.sql を実行してください。" };
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/matching");
+  revalidatePath("/jobs");
+  return { ok: true };
+}
+
 /** 注力フラグの一括設定 (service role)。チェックした複数行をまとめて注力ON/OFF。 */
 export async function bulkSetFocus(
   table: "jobs" | "candidates",
