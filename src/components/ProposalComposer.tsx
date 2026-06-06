@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, gmailMessageUrl, buildProposalPrompt } from "@/lib/gmail";
 import { createProposal, undoProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
+import { SendMailModalButton } from "./SendMailModalButton";
 
 type Job = any;
 type Cand = any;
@@ -271,13 +272,7 @@ export function ProposalComposer({
       {/* ② シンプル送信操作：1つのメインCTAで両方送信＋確認プレビュー */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {job?.job_no != null && cand?.candidate_no != null ? (
-          <a href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
-            target="_blank" rel="noopener noreferrer"
-            className="btn-mail block"
-            style={{ fontSize: 13, padding: "0 22px", height: 38, textDecoration: "none", display: "inline-flex", alignItems: "center" }}
-            title="メール内容を確認・編集してから送信する">
-            📤 送信する（クライアント＋人材へ）
-          </a>
+          <SendMailModalButton job={job} cand={cand} score={score} />
         ) : (
           <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
             style={{ fontSize: 13, padding: "0 22px", height: 38 }}
