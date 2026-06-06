@@ -1566,7 +1566,7 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   if (!prof.ok) return { ok: false, error: `Gmail 接続エラー ${prof.error}` };
   const account = prof.emailAddress;
 
-  const list = await listMessageIds({ q: opts?.query ?? "newer_than:7d", maxResults: opts?.max ?? 100 });
+  const list = await listMessageIds({ q: opts?.query ?? `${INBOX_EXCLUDE_QUERY} newer_than:7d`, maxResults: opts?.max ?? 100 });
   if (!list.ok) return { ok: false, error: list.error, account };
   if (list.ids.length === 0) return { ok: true, synced: 0, skipped: 0, found: 0, account };
 
@@ -1576,12 +1576,15 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   const newIds = list.ids.filter((id) => !seen.has(id));
 
   let synced = 0;
+  let skippedBounce = 0;
   // 同時5本で取得（Gmail API は概ね 250 quota/秒なので問題ない）
   const POOL = 5; let idx = 0;
   const work = async (gid: string) => {
     const r = await fetchMessage(gid);
     if (!r.ok) return;
     const m = r.msg;
+    // 最終防衛線：バウンス/システム通知はクエリをすり抜けても保存しない
+    if (isSystemBounceEmail(m.fromEmail, m.fromName, m.subject)) { skippedBounce++; return; }
     await admin.from("inbox_emails").insert({
       gmail_message_id: m.id, gmail_thread_id: m.threadId || null,
       subject: m.subject, from_email: m.fromEmail, from_name: m.fromName, to_email: m.toEmail,
@@ -1596,8 +1599,16 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   });
   await Promise.all(workers);
 
+  // 過去に取り込んでしまったバウンス/システム通知を一括アーカイブ（一覧から消す）
+  try {
+    await admin.from("inbox_emails")
+      .update({ is_archived: true })
+      .or("from_email.ilike.%mailer-daemon%,from_email.ilike.%postmaster@%,from_name.ilike.%Mail Delivery%,subject.ilike.%Delivery Status Notification%,subject.ilike.%Undelivered Mail%")
+      .eq("is_archived", false);
+  } catch { /* is_archived 未整備でも続行 */ }
+
   revalidatePath("/inbox"); revalidatePath("/mail");
-  return { ok: true, synced, skipped: seen.size, found: list.ids.length, account };
+  return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, account };
 }
 
 const INBOX_EXTRACT_SYSTEM = "あなたはエンジニア人材紹介エージェントのメール仕分けアシスタントです。受信メール本文から、それが『案件情報』か『人材情報』か『その他/スパム』かを判定し、構造化データを返してください。出力は必ず指定された JSON 形式のみ（説明文不要）。";
@@ -1930,16 +1941,33 @@ export async function bulkRegisterFromGmail(input: {
 //   3) confidence >= 閾値（既定 0.75）なら自動登録、skip/spam は自動アーカイブ
 //   4) それ以外は「未承認（要確認）」として人がレビュー
 // ────────────────────────────────────────────────────────
-const AUTO_INGEST_GMAIL_QUERY = [
-  // 包含: SES営業メールに頻出するキーワード（最低1つ含むものを取得）
-  "(案件 OR 人材 OR スキルシート OR 経歴書 OR エンジニア OR SE OR PM OR PL OR 単価 OR 月額 OR 提案 OR 募集 OR ご紹介)",
-  // 除外: 自動送信・配信系
+// 取込ノイズ（自動送信・配信不能通知など）の除外クエリ。手動同期・自動取込の両方で使う。
+//   ※ mailer-daemon の「Delivery Status Notification (Failure)」等のバウンスを弾くのが主目的。
+const INBOX_EXCLUDE_QUERY = [
   "-from:noreply -from:no-reply -from:notifications -from:notification",
-  "-from:postmaster -from:mailer-daemon -from:donotreply",
+  "-from:postmaster -from:mailer-daemon -from:donotreply -from:mailer-daemon@googlemail.com",
   "-subject:配信停止 -subject:newsletter -subject:メルマガ",
+  '-subject:"Delivery Status Notification" -subject:"Undelivered Mail" -subject:"failure notice" -subject:"Mail Delivery"',
   "-unsubscribe -配信解除",
   "-category:promotions -category:social",
 ].join(" ");
+
+const AUTO_INGEST_GMAIL_QUERY = [
+  // 包含: SES営業メールに頻出するキーワード（最低1つ含むものを取得）
+  "(案件 OR 人材 OR スキルシート OR 経歴書 OR エンジニア OR SE OR PM OR PL OR 単価 OR 月額 OR 提案 OR 募集 OR ご紹介)",
+  // 除外: 自動送信・配信系・バウンス
+  INBOX_EXCLUDE_QUERY,
+].join(" ");
+
+// 取込時の最終防衛線：クエリをすり抜けたバウンス/システム通知を判定して保存をスキップする。
+const BOUNCE_FROM_RE = /(mailer-daemon|postmaster|no-?reply|do-?not-?reply|noreply)@/i;
+const BOUNCE_SUBJECT_RE = /(delivery status notification|undelivered mail|mail delivery (sub)?system|failure notice|returned mail|配信不能|送信できませんでした|メールが配信されませんでした)/i;
+function isSystemBounceEmail(fromEmail: string | null, fromName: string | null, subject: string | null): boolean {
+  const f = `${fromEmail ?? ""} ${fromName ?? ""}`;
+  if (BOUNCE_FROM_RE.test(f) || /mail delivery subsystem/i.test(f)) return true;
+  if (subject && BOUNCE_SUBJECT_RE.test(subject)) return true;
+  return false;
+}
 
 export async function autoIngestFromGmail(opts?: {
   query?: string; max?: number; confidenceThreshold?: number; dryRun?: boolean;
