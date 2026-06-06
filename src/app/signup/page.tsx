@@ -5,7 +5,7 @@ import { signUp, type SignupState } from "./actions";
 
 export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
-  const [role, setRole] = useState<"client" | "agent" | "candidate" | "partner" | "freelance">("client");
+  const [role, setRole] = useState<"client" | "candidate" | "freelance">("client");
   const [agHost, setAgHost] = useState(false);
   const [oauthNotice, setOauthNotice] = useState<string | null>(null);
   useEffect(() => {
@@ -64,35 +64,40 @@ export default function SignupPage() {
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご利用区分（ビジネス向け）
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => setRole("client")} style={roleBtn(role === "client")}>エンジニアを採用したい企業</button>
-                    <button type="button" onClick={() => setRole("partner")} style={roleBtn(role === "partner")}>パートナー企業</button>
+                  <div style={{ padding: "10px 12px", borderRadius: 10, border: "1.5px solid #0095D9", background: "#eaf6fd", color: "#0F2440", fontSize: 13, fontWeight: 700 }}>
+                    エンジニアを採用したい企業
                   </div>
                   <div style={{ marginTop: 6, fontSize: 11, color: "#98a2b3", lineHeight: 1.7 }}>
-                    ※ エンジニア（人材）の方は <a href="https://enger.jp/signup" style={{ color: "#0095D9", fontWeight: 700 }}>enger.jp</a>、副業エージェントの方は <a href="/signup?as=freelance" style={{ color: "#0095D9", fontWeight: 700 }}>こちら</a> からご登録ください（ag.enger.jp 準備中）。営業エージェントは運営が招待します。
+                    ※ エンジニア（人材）の方は <a href="https://enger.jp/signup" style={{ color: "#0095D9", fontWeight: 700 }}>enger.jp</a>、副業エージェントの方は <a href="/signup?as=freelance" style={{ color: "#0095D9", fontWeight: 700 }}>こちら</a> からご登録ください（ag.enger.jp 準備中）。営業エージェント・パートナー企業は運営からの招待制です。
                   </div>
                 </div>
               )}
               <input type="hidden" name="role" value={role} />
+              {/* ハニーポット：人間には見えない隠しフィールド。bot がここを埋めると拒否する。 */}
+              <input
+                type="text" name="website" tabIndex={-1} autoComplete="off"
+                aria-hidden="true"
+                style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+              />
 
               <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>お名前（ご担当者名）
-                <input name="name" type="text" required placeholder="山田 太郎" style={input} />
+                <input name="name" type="text" required maxLength={50} placeholder="山田 太郎" style={input} />
               </label>
-              {(role === "client" || role === "partner") && (
+              {role === "client" && (
                 <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>会社名
-                  <input name="company" type="text" required placeholder="株式会社〇〇" style={input} />
+                  <input name="company" type="text" required maxLength={100} placeholder="株式会社〇〇" style={input} />
                 </label>
               )}
               {role === "freelance" && (
                 <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>屋号・会社名（任意）
-                  <input name="company" type="text" placeholder="個人／屋号があれば" style={input} />
+                  <input name="company" type="text" maxLength={100} placeholder="個人／屋号があれば" style={input} />
                 </label>
               )}
-              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>メールアドレス
-                <input name="email" type="email" required autoComplete="email" placeholder="you@example.com" style={input} />
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>メールアドレス（会社のメールアドレスを推奨）
+                <input name="email" type="email" required maxLength={254} autoComplete="email" placeholder="you@example.com" style={input} />
               </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>パスワード（8文字以上）
-                <input name="password" type="password" required minLength={8} autoComplete="new-password" placeholder="••••••••" style={input} />
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>パスワード（8文字以上・英字＋数字または記号）
+                <input name="password" type="password" required minLength={8} maxLength={256} autoComplete="new-password" placeholder="••••••••" style={input} />
               </label>
 
               <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#4b5563", lineHeight: 1.7, cursor: "pointer" }}>
