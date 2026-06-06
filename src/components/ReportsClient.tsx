@@ -5,49 +5,6 @@ import { useRouter } from "next/navigation";
 import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
 
-function ManagerReview({ reports }: { reports: DailyReport[] }) {
-  const [period, setPeriod] = useState<"week" | "month">("week");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const days = period === "month" ? 30 : 7;
-  const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-  const byAuthor = new Map<string, number>();
-  for (const r of reports) { if (r.report_date >= from) byAuthor.set(r.author, (byAuthor.get(r.author) ?? 0) + 1); }
-  const authors = [...byAuthor.entries()].sort((a, b) => b[1] - a[1]);
-
-  const send = async (author: string) => {
-    setBusy(author); setMsg(null);
-    const r = await sendReportFeedback(author, period);
-    setBusy(null);
-    setMsg(r.ok ? `✓ ${author}さんへ${period === "month" ? "月次" : "週次"}フィードバックを送信しました` : `エラー：${r.error}`);
-  };
-
-  return (
-    <div className="card" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🧑‍🏫 管理者：週次/月次フィードバック（AI講評をお知らせ送信）</h3>
-        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
-          {(["week", "month"] as const).map((p) => <button key={p} onClick={() => setPeriod(p)} style={{ padding: "5px 12px", borderRadius: 99, border: 0, fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: period === p ? "var(--color-surface)" : "transparent", color: period === p ? "var(--color-ink)" : "var(--color-ink-3)" }}>{p === "week" ? "週次" : "月次"}</button>)}
-        </div>
-      </div>
-      {authors.length === 0 ? (
-        <div className="muted" style={{ fontSize: 12.5 }}>対象期間に日報の提出がありません。</div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {authors.map(([author, cnt]) => (
-            <div key={author} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", border: "1px solid var(--color-border)", borderRadius: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{author} <span className="muted" style={{ fontWeight: 400, fontSize: 11.5 }}>提出 {cnt}回 / 直近{days}日</span></span>
-              <button className="btn brand btn-xs" disabled={busy === author} onClick={() => send(author)}>{busy === author ? "生成中…" : "🤖 AI講評を送る"}</button>
-            </div>
-          ))}
-        </div>
-      )}
-      {msg && <div style={{ fontSize: 12.5, color: msg.startsWith("✓") ? "#067647" : "#b42318" }}>{msg}</div>}
-      <div className="muted" style={{ fontSize: 10.5 }}>※ 本人の自己チェック傾向・課題・成果をAIが集計し、承認＋改善点＋次の focus を本人の「お知らせ」に送信します。</div>
-    </div>
-  );
-}
-
 // 誰が書いても同じ視点になる共通フレーム
 const ACTIVITIES = ["顧客・関係者と接点", "提案・成果物を作成", "案件/業務を前進", "課題・トラブル対応", "改善・仕組み化", "学習・情報収集", "チーム連携・サポート", "事務・管理処理"];
 // 自己チェック（同じ意識をつくる問い）
@@ -295,23 +252,32 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
     return <td key={d} style={baseStyle} title="提出済（返信なし）"><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span></td>;
   };
 
+  // 折りたたみ。デフォルトは閉。未提出/未返信があるときだけ「展開」ボタンを目立たせる。
+  const [openCal, setOpenCal] = useState(false);
   return (
-    <div className="card" style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-        <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>calendar_month</span>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>日報 提出カレンダー</h3>
+    <div className="card" style={{ marginBottom: 12, padding: openCal ? undefined : "10px 14px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: openCal ? 10 : 0 }}>
+        <button type="button" onClick={() => setOpenCal((v) => !v)}
+          title={openCal ? "閉じる" : "開く"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: 0, border: 0, background: "transparent", cursor: "pointer", fontFamily: "inherit" }}>
+          <span className="material-symbols-outlined" style={{ color: "var(--color-ink-4)", transition: "transform .15s", transform: openCal ? "rotate(90deg)" : "none", fontSize: 20 }}>chevron_right</span>
+          <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>calendar_month</span>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>日報 提出カレンダー</h3>
+        </button>
         <span style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: todaySubmitted >= names.length && names.length ? "#dcfce7" : "#fef3c7", color: todaySubmitted >= names.length && names.length ? "#166534" : "#92400e" }}>本日 {todaySubmitted}/{names.length} 名 提出</span>
         {pendingReplies > 0 && (
           <span title="返信していない日報の件数（直近14日）" style={{ fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12", border: "1px solid #fde9b0" }}>未返信 {pendingReplies}</span>
         )}
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>💬</sup></span> 管理者返信</span>
-          <span><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>🤖</sup></span> AI返信のみ</span>
-          <span><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span> 提出のみ・未返信</span>
-          <span><span style={{ color: "var(--color-ink-5)" }}>・</span> 未提出</span>
+          {openCal && <>
+            <span><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 8 }}>🤖</sup></span> AI返信のみ</span>
+            <span><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span> 提出のみ・未返信</span>
+            <span><span style={{ color: "var(--color-ink-5)" }}>・</span> 未提出</span>
+          </>}
         </span>
       </div>
-      {names.length === 0 ? (
+      {openCal && (names.length === 0 ? (
         <div className="muted" style={{ fontSize: 13 }}>対象メンバーがいません。設定→担当者マスタで登録してください。</div>
       ) : (
         <div style={{ overflowX: "auto" }}>
@@ -336,7 +302,7 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
             </tbody>
           </table>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -347,10 +313,7 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
   return (
     <>
       {canManage && (
-        <>
-          <SubmissionCalendar members={members} reports={reports} today={today} />
-          <ManagerReview reports={reports} />
-        </>
+        <SubmissionCalendar members={members} reports={reports} today={today} />
       )}
       {/* 管理者以外（マネージャー/リーダー/メンバー）は自分の日報も提出できる */}
       {!isAdmin && (
@@ -377,6 +340,15 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
 function ReportArchive({ reports, author, canManage }: { reports: DailyReport[]; author: string; canManage: boolean }) {
   const [q, setQ] = useState("");
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
+  // 担当者ごとの AI週次/月次講評ボタンの状態
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [aiMsg, setAiMsg] = useState<{ author: string; ok: boolean; text: string } | null>(null);
+  const sendAi = async (a: string, period: "week" | "month") => {
+    setAiBusy(`${a}|${period}`); setAiMsg(null);
+    const r = await sendReportFeedback(a, period);
+    setAiBusy(null);
+    setAiMsg({ author: a, ok: !!r.ok, text: r.ok ? `✓ ${a}さんへ${period === "month" ? "月次" : "週次"}AI講評を送信しました` : `エラー：${r.error ?? "送信失敗"}` });
+  };
 
   const needsReply = (r: DailyReport) => !r.replied_at; // 管理者本人が返信していないもの＝「まだ見ていない」
   const base = q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports;
@@ -451,7 +423,20 @@ function ReportArchive({ reports, author, canManage }: { reports: DailyReport[];
                   )}
                 </button>
                 {o && (
-                  <div style={{ padding: 12 }}>
+                  <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {canManage && (
+                      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)" }}>
+                        <span style={{ fontSize: 11.5, color: "var(--color-ink-3)", fontWeight: 700 }}>🧑‍🏫 AI講評を {g.label} さんへ送る：</span>
+                        <button type="button" className="btn ghost btn-xs" disabled={aiBusy === `${g.key}|week`} onClick={() => sendAi(g.key, "week")}>
+                          {aiBusy === `${g.key}|week` ? "生成中…" : "📨 週次"}
+                        </button>
+                        <button type="button" className="btn ghost btn-xs" disabled={aiBusy === `${g.key}|month`} onClick={() => sendAi(g.key, "month")}>
+                          {aiBusy === `${g.key}|month` ? "生成中…" : "📨 月次"}
+                        </button>
+                        {aiMsg?.author === g.key && <span style={{ fontSize: 11, color: aiMsg.ok ? "#067647" : "#b42318" }}>{aiMsg.text}</span>}
+                        <span className="muted" style={{ fontSize: 10, marginLeft: "auto" }}>承認＋改善点＋次のfocus を本人の「お知らせ」に送信</span>
+                      </div>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
                       {g.items.sort((a, b) => b.report_date.localeCompare(a.report_date)).map((r) => <ReportCard key={r.id} r={r} canReply={canManage} />)}
                     </div>
