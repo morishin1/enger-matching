@@ -1583,8 +1583,19 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
     const r = await fetchMessage(gid);
     if (!r.ok) return;
     const m = r.msg;
-    // 最終防衛線：バウンス/システム通知はクエリをすり抜けても保存しない
-    if (isSystemBounceEmail(m.fromEmail, m.fromName, m.subject)) { skippedBounce++; return; }
+    // 最終防衛線：バウンス/システム通知はクエリをすり抜けても保存しない。
+    // ただし本文から不達となった宛先を抽出し bounce_records に蓄積（マッチング/提案で警告に使う）。
+    if (isSystemBounceEmail(m.fromEmail, m.fromName, m.subject)) {
+      skippedBounce++;
+      const recipient = extractBouncedRecipient(m.body || m.bodyHtml || "");
+      if (recipient) {
+        await recordBounce(admin, {
+          recipient, subject: m.subject, reason: extractBounceReason(m.body || m.bodyHtml || ""),
+          messageId: m.id, receivedAt: m.receivedAt,
+        });
+      }
+      return;
+    }
     await admin.from("inbox_emails").insert({
       gmail_message_id: m.id, gmail_thread_id: m.threadId || null,
       subject: m.subject, from_email: m.fromEmail, from_name: m.fromName, to_email: m.toEmail,
@@ -1599,13 +1610,27 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   });
   await Promise.all(workers);
 
-  // 過去に取り込んでしまったバウンス/システム通知を一括アーカイブ（一覧から消す）
+  // 過去に取り込んでしまったバウンス/システム通知：本文から宛先を抽出して bounce_records に蓄積し、
+  // そのうえで一覧から見えないようアーカイブする。
   try {
-    await admin.from("inbox_emails")
-      .update({ is_archived: true })
+    const past: any = await admin.from("inbox_emails")
+      .select("id, gmail_message_id, subject, body, body_html, received_at, is_archived")
       .or("from_email.ilike.%mailer-daemon%,from_email.ilike.%postmaster@%,from_name.ilike.%Mail Delivery%,subject.ilike.%Delivery Status Notification%,subject.ilike.%Undelivered Mail%")
-      .eq("is_archived", false);
-  } catch { /* is_archived 未整備でも続行 */ }
+      .limit(500);
+    const rows: any[] = past.data ?? [];
+    for (const row of rows) {
+      const recipient = extractBouncedRecipient(row.body || row.body_html || row.subject || "");
+      if (recipient) {
+        await recordBounce(admin, {
+          recipient, subject: row.subject ?? null,
+          reason: extractBounceReason(row.body || row.body_html || ""),
+          messageId: row.gmail_message_id ?? null, receivedAt: row.received_at ?? null,
+        });
+      }
+    }
+    const toArchive = rows.filter((r) => !r.is_archived).map((r) => r.id);
+    if (toArchive.length > 0) await admin.from("inbox_emails").update({ is_archived: true }).in("id", toArchive);
+  } catch { /* is_archived / bounce_records 未整備でも続行 */ }
 
   revalidatePath("/inbox"); revalidatePath("/mail");
   return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, account };
@@ -1941,6 +1966,89 @@ export async function bulkRegisterFromGmail(input: {
 //   3) confidence >= 閾値（既定 0.75）なら自動登録、skip/spam は自動アーカイブ
 //   4) それ以外は「未承認（要確認）」として人がレビュー
 // ────────────────────────────────────────────────────────
+// バウンス本文から不達となった宛先メールアドレスを抽出。
+//   優先順位：
+//     1) Final-Recipient: / Original-Recipient: 行（RFC3464 配信状態通知の標準）
+//     2) X-Failed-Recipients: ヘッダ
+//     3) 本文中の「To: <email>」「<email>」など。最初に見つかった妥当アドレスを返す。
+//   抽出できなければ null。
+const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+function extractBouncedRecipient(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const norm = String(text).replace(/\r\n/g, "\n");
+  // 1) RFC3464 ヘッダ
+  for (const line of norm.split("\n")) {
+    const m = line.match(/^\s*(Final-Recipient|Original-Recipient|X-Failed-Recipients)\s*:\s*(?:rfc822\s*;)?\s*(.+)$/i);
+    if (m) {
+      const v = m[2].match(EMAIL_RE);
+      if (v) return v[0].toLowerCase();
+    }
+  }
+  // 2) Google 形式：「Message not delivered ... <recipient@...>」「The email account that you tried to reach (recipient@...)」
+  const cues = [
+    /(?:not\s+delivered|could\s+not\s+be\s+delivered|undeliverable)[\s\S]{0,200}?<([^>\s]+@[^>\s]+)>/i,
+    /tried\s+to\s+reach\s*\(?\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*\)?/i,
+  ];
+  for (const re of cues) { const m = norm.match(re); if (m) return m[1].toLowerCase(); }
+  // 3) 本文の <email> 形式（最初のもの）
+  const m = norm.match(/<([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})>/i);
+  if (m) return m[1].toLowerCase();
+  // 4) ベタ書きアドレス（mailer-daemon系を除外して最初のもの）
+  const all = norm.match(new RegExp(EMAIL_RE.source, "gi")) ?? [];
+  for (const a of all) {
+    const low = a.toLowerCase();
+    if (/(mailer-daemon|postmaster|noreply|no-reply|donotreply|googlemail\.com|google\.com)/.test(low)) continue;
+    return low;
+  }
+  return null;
+}
+
+// バウンス本文から「失敗理由」を1行抜粋（SMTP 5xx 行や reason: ... を拾う）。
+function extractBounceReason(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const norm = String(text).replace(/\r\n/g, "\n");
+  // Diagnostic-Code: smtp; 550 5.1.1 ... のような RFC3464
+  const dx = norm.match(/Diagnostic-Code\s*:\s*(.+)/i);
+  if (dx) return dx[1].slice(0, 200).trim();
+  // SMTP 5xx メッセージ行
+  const smtp = norm.match(/(\b5\d{2}[\s-][^\n]{0,200})/);
+  if (smtp) return smtp[1].slice(0, 200).trim();
+  // 「address does not exist」「could not be delivered」等の英文の1行
+  const phrase = norm.match(/([^\n]*(?:does not exist|could not be delivered|user unknown|mailbox (?:full|not found)|address rejected|recipient address rejected)[^\n]*)/i);
+  if (phrase) return phrase[1].slice(0, 200).trim();
+  return null;
+}
+
+// バウンス記録テーブルへ upsert（テーブル未整備でも握りつぶす）。
+async function recordBounce(admin: ReturnType<typeof engerAdmin>, args: { recipient: string; subject: string | null; reason: string | null; messageId: string | null; receivedAt: string | null }) {
+  const recipient = args.recipient.toLowerCase().trim();
+  if (!recipient) return;
+  try {
+    // 既存があれば count++ と last_* を更新、無ければ新規。
+    const existing: any = await admin.from("bounce_records").select("id, bounce_count").eq("recipient_email", recipient).maybeSingle();
+    const now = args.receivedAt ?? new Date().toISOString();
+    if (existing.data?.id) {
+      await admin.from("bounce_records").update({
+        bounce_count: (existing.data.bounce_count ?? 1) + 1,
+        last_bounced_at: now,
+        last_subject: args.subject ?? null,
+        last_reason: args.reason ?? null,
+        sample_message_id: args.messageId ?? null,
+      }).eq("id", existing.data.id);
+    } else {
+      await admin.from("bounce_records").insert({
+        recipient_email: recipient,
+        bounce_count: 1,
+        first_bounced_at: now,
+        last_bounced_at: now,
+        last_subject: args.subject ?? null,
+        last_reason: args.reason ?? null,
+        sample_message_id: args.messageId ?? null,
+      });
+    }
+  } catch { /* bounce_records 未整備でも続行 */ }
+}
+
 // 取込ノイズ（自動送信・配信不能通知など）の除外クエリ。手動同期・自動取込の両方で使う。
 //   ※ mailer-daemon の「Delivery Status Notification (Failure)」等のバウンスを弾くのが主目的。
 const INBOX_EXCLUDE_QUERY = [

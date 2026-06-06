@@ -16,6 +16,10 @@ export type Job = {
   created_at?: string | null;         // 取込日（鮮度の基準フォールバック）
   last_confirmed_at?: string | null;  // 最終在否確認日（あれば鮮度の基準に優先）
   is_filled?: boolean;                // 稼働決定済み（枠が埋まった）→ proposals から付与
+  // 送達不能：bounce_records にこの案件の宛先(contact_email)が存在する場合に付与。
+  contact_email?: string | null;
+  is_undeliverable?: boolean;         // contact_email がバウンスしている
+  undeliverable_count?: number;       // 観測回数（表示用）
 };
 export type Candidate = {
   candidate_no?: number; id?: string; name: string; title?: string | null;
@@ -298,6 +302,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // 古い案件 → 在否確認を促す赤注記
   else if (open.stale) notes.push({ level: "red", text: `案件配信から約${open.staleDays}日・在否未確認。提案前に先方へ募集継続を確認してください` });
   else if (open.staleDays != null && open.staleDays > JOB_STALE_DAYS - 10) notes.push({ level: "yellow", text: `案件配信から約${open.staleDays}日（鮮度やや低下・確認推奨）` });
+  // 送達不能：宛先がバウンスしている → 赤注記＋『提案推奨』への昇格抑制
+  if (job.is_undeliverable) notes.push({ level: "red", text: `宛先 ${job.contact_email} は送達不能（${job.undeliverable_count ?? 1}回観測）。正しい連絡先を確認してから提案を` });
 
   if (ngNat) notes.push({ level: "red", text: "国籍要件NG（日本国籍が必須の案件）" });
   else if (nationalityWarn(job, c)) notes.push({ level: "yellow", text: "国籍要件に言及あり（候補の国籍を要確認）" });
@@ -344,10 +350,10 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // ---- 互換用 reasons ----
   const reasons = notes.map((n) => `${n.level === "red" ? "🔴" : n.level === "yellow" ? "🟡" : "🟢"} ${n.text}`);
 
-  // 充足/終了はハード除外。古い案件は除外せず「提案推奨」への昇格だけ抑える（要確認のため）。
+  // 充足/終了はハード除外。古い案件・送達不能は除外せず「提案推奨」への昇格だけ抑える（要確認のため）。
   const hardExcluded = ngNat || open.closed;
   let verdict = verdictOf(score, hardExcluded);
-  if (!hardExcluded && open.stale && (verdict === "提案推奨" || verdict === "条件付き提案推奨")) {
+  if (!hardExcluded && (open.stale || job.is_undeliverable) && (verdict === "提案推奨" || verdict === "条件付き提案推奨")) {
     verdict = "条件付き提案検討";
   }
 

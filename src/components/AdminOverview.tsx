@@ -11,6 +11,7 @@ import { DEPARTMENTS } from "@/lib/roles";
 import { currentMonthKey, projectKgi, type TeamKgi } from "@/lib/team-kgi";
 import { listPersonKgi, planFromTarget } from "@/lib/person-kgi";
 import { getFunnel, resolveFunnelPeriod, rate } from "@/lib/funnel";
+import { getBounceSummary } from "@/lib/bounces";
 
 type Account = { name: string; email: string | null; department: string | null; teamRole: string | null; role: string };
 type Issue = { tone: "danger" | "warn"; icon: string; title: string; detail: string; action: string; href?: string };
@@ -70,14 +71,15 @@ export async function AdminOverview() {
   const kgis: TeamKgi[] = ((kgiRes.data ?? []) as any[]);
   const kgiByDept = new Map<string, TeamKgi>(kgis.map((k) => [k.department, k] as const));
 
-  // 個人KGI（当月）＋全社転換率（提案→稼働化）。KGI/KPIの設定状況と進捗に使う。
-  const [personKgis, convThisMonth] = await Promise.all([
+  // 個人KGI（当月）＋全社転換率（提案→稼働化）＋メール送達状況（bounce_records）。
+  const [personKgis, convThisMonth, bounceSummary] = await Promise.all([
     listPersonKgi(month),
     (async () => {
       const { start, end, label } = resolveFunnelPeriod("this_month", now);
       const f = await getFunnel(start, end, label);
       return rate(f.total.won, f.total.proposal);
     })(),
+    getBounceSummary(5),
   ]);
   const personKgiByEmail = new Map(personKgis.map((k) => [k.owner_email, k] as const));
 
@@ -220,6 +222,15 @@ export async function AdminOverview() {
       title: `離脱予兆の稼働 ${nearEnd}件`,
       detail: `契約終了 ${RENEWAL_SOON_DAYS}日以内・更新打診待ち`,
       action: "更新フォロー", href: "/engagements",
+    });
+  }
+  if (bounceSummary.available && bounceSummary.uniqueRecipients > 0) {
+    const topNames = bounceSummary.top.slice(0, 3).map((b) => b.recipient_email.split("@")[1] ?? b.recipient_email).join("、");
+    issues.push({
+      tone: bounceSummary.uniqueRecipients >= 5 ? "danger" : "warn", icon: "📭",
+      title: `送達不能 ${bounceSummary.uniqueRecipients}件（提案メール不達）`,
+      detail: `不達アドレス ${bounceSummary.uniqueRecipients}件・累計 ${bounceSummary.total}回。${topNames ? `多発: ${topNames}` : ""} 提案前に正しい連絡先を確認してください。`,
+      action: "宛先を確認", href: "/mail",
     });
   }
   // 課題がゼロのとき：祝意セルを1枚出す

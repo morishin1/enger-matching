@@ -8,6 +8,7 @@ import { JumpToMatching } from "@/components/JumpToMatching";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
 import { ConfirmJobButton } from "@/components/ConfirmJobButton";
@@ -239,13 +240,26 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         for (const r of (fr.data ?? []) as any[]) if (r.job_id) filledJobIds.add(r.job_id);
       } catch { /* proposals 未整備でも続行（鮮度フィルタは効く） */ }
 
-      // 取得した案件配列に is_filled を付与し、充足案件を除外。
+      // 送達不能アドレスのセット（bounce_records）。スコアリング前に各案件へ is_undeliverable を付与する。
+      const bouncedMap = new Map<string, { count: number }>();
+      try {
+        const br: any = await sb.from("bounce_records").select("recipient_email, bounce_count").limit(10000);
+        for (const row of (br.data ?? []) as any[]) bouncedMap.set(String(row.recipient_email ?? "").toLowerCase(), { count: row.bounce_count ?? 1 });
+      } catch { /* bounce_records 未整備でも続行 */ }
+      const markBounce = (j: any) => {
+        const em = String(j?.contact_email ?? "").toLowerCase();
+        const b = em ? bouncedMap.get(em) : null;
+        if (b) { j.is_undeliverable = true; j.undeliverable_count = b.count; }
+      };
+
+      // 取得した案件配列に is_filled / is_undeliverable を付与し、充足案件を除外。
       // 古い案件(stale)は showStale=false のとき除外。除外件数も返す。
       const applyOpenness = (jobs: any[]): { kept: any[]; filledCount: number; staleHidden: number } => {
         let filledCount = 0, staleHidden = 0;
         const kept: any[] = [];
         for (const j of jobs) {
           j.is_filled = !!(j.id && filledJobIds.has(j.id));
+          markBounce(j);
           const op = jobOpenness(j as Job);
           if (op.closed) { filledCount++; continue; }            // 充足/終了 → 常に除外
           if (op.stale && !showStale) { staleHidden++; continue; } // 古い → 既定で隠す
@@ -418,6 +432,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     }
   } else dbError = "Supabase の環境変数が未設定です";
 
+  // 送達不能アドレスの照会（バナー表示用）。is_undeliverable は既に各 job に付与済み（applyOpenness内）。
+  const bouncedSet: Map<string, BounceRecord> = await getBouncedSet([
+    job?.contact_email,
+    ...rankedJobs.map((r: any) => r?.job?.contact_email),
+    ...focusJobs.map((j: any) => j?.contact_email),
+    ...recoJobs.map((j: any) => j?.contact_email),
+  ]);
+
   // 古い/充足で除外している件数のお知らせ＋「古い案件も表示」トグル（鮮度ガードの可視化）
   const buildToggleHref = (toStale: boolean) => {
     const p = new URLSearchParams();
@@ -429,23 +451,41 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     const qs = p.toString();
     return `/matching${qs ? `?${qs}` : ""}`;
   };
-  const opennessBanner = (hiddenFilledCount > 0 || hiddenStaleCount > 0 || showStale) ? (
+  // 表示中の案件で送達不能になっているもののカウント（マッチング画面の警告サマリ用）
+  const undeliverableShown = [
+    ...rankedJobs.map((r: any) => r?.job),
+    ...focusJobs, ...recoJobs,
+    ...(job ? [job] : []),
+  ].filter((j: any) => j?.is_undeliverable).length;
+
+  const opennessBanner = (hiddenFilledCount > 0 || hiddenStaleCount > 0 || showStale || undeliverableShown > 0) ? (
     <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 12.5 }}>
       <span style={{ fontWeight: 700 }}>🛡 鮮度ガード</span>
       {hiddenFilledCount > 0 && <span style={{ color: "#b42318" }}>🔒 充足/終了 <b>{hiddenFilledCount}</b>件を除外</span>}
       {hiddenStaleCount > 0 && <span style={{ color: "#b45309" }}>🕓 配信{JOB_STALE_DAYS}日超の古い案件 <b>{hiddenStaleCount}</b>件を{showStale ? "表示中" : "非表示"}</span>}
       {showStale && hiddenStaleCount === 0 && <span style={{ color: "#b45309" }}>🕓 古い案件も表示中（在否確認のうえ提案を）</span>}
+      {undeliverableShown > 0 && <span style={{ color: "#b42318" }}>📭 宛先が送達不能の案件 <b>{undeliverableShown}</b>件あり（提案前に連絡先確認）</span>}
       <Link href={buildToggleHref(!showStale)} className="btn ghost btn-xs" style={{ marginLeft: "auto", textDecoration: "none" }}>
         {showStale ? "古い案件を隠す" : "古い案件も表示する"}
       </Link>
     </div>
   ) : null;
 
-  // 選択中の案件が充足/古い場合の警告バナー（個別案件を直接開いたケース）
+  // 選択中の案件が充足/古い/送達不能の場合の警告バナー（個別案件を直接開いたケース）
   const selectedJobWarning = (j: any) => {
     if (!j) return null;
     const op = jobOpenness(j as Job);
-    if (!op.closed && !op.stale) return null;
+    const bounce = (j?.contact_email && bouncedSet.get(String(j.contact_email).toLowerCase())) || null;
+    if (!op.closed && !op.stale && !bounce) return null;
+    if (bounce && !op.closed && !op.stale) {
+      // 送達不能のみ：単独で目立つバナーを出す
+      return (
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, background: "#fdecef", border: "1px solid #f7c5cf", color: "#b42318", fontSize: 12.5, fontWeight: 600 }}>
+          <span>📭 この案件の宛先 <b>{j.contact_email}</b> は <b>送達不能</b>（{bounce.bounce_count}回観測）。提案前に正しい連絡先を確認してください。</span>
+          {bounce.last_reason && <span className="muted" style={{ fontSize: 11, fontWeight: 400, color: "#b42318" }}>理由：{bounce.last_reason}</span>}
+        </div>
+      );
+    }
     const danger = op.closed;
     return (
       <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, background: danger ? "#fdecef" : "#fff6e0", border: `1px solid ${danger ? "#f7c5cf" : "#fde9b0"}`, color: danger ? "#b42318" : "#92400e", fontSize: 12.5, fontWeight: 600 }}>
