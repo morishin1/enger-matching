@@ -50,7 +50,7 @@ const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
 
 const POSITION_LABEL: Record<string, string> = { inside: "インサイドセールス", outside: "アウトサイドセールス" };
 
-export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [] }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[] }) {
+export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [], teamRole = null, menuPerms }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -83,7 +83,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
 
   return (
     <div className={"app" + (role === "client" ? " theme-client" : "")}>
-      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} />
+      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} teamRole={teamRole} menuPerms={menuPerms} />
       <div className={"nav-overlay" + (navOpen ? " show" : "")} onClick={() => setNavOpen(false)} aria-hidden />
       <main className="main">
         <div className="topbar">

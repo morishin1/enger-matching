@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
 import { type Role, hasSalesFunction } from "@/lib/roles";
+import { isMenuAllowed } from "@/lib/menu-permissions";
 
 type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
 type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
@@ -66,7 +67,7 @@ const CLIENT_NAV: NavItem[] = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts, role = "admin", open = false, functions = [] }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[] }) {
+export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
@@ -93,16 +94,33 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [] }
     return out;
   };
 
-  const nav = isClient ? CLIENT_NAV
+  const nav0 = isClient ? CLIENT_NAV
     : isTenant ? TENANT_NAV
     : role === "agent" ? filterForAgent(NAV)
     : NAV; // admin は全部
-  const analysis = (isClient || isTenant) ? []
+  const analysis0 = (isClient || isTenant) ? []
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;
-  const tools = (isClient || isTenant) ? []
+  const tools0 = (isClient || isTenant) ? []
     : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定は admin のみ、承認はエージェントも可
     : TOOLS; // admin は設定・承認含む全部
+
+  // 役職(team_role)別メニュー表示権限の適用。
+  //   ・管理者(admin)・クライアント・テナントは対象外（adminは常に全表示でロックアウト防止）。
+  //   ・agent のみ menuPerms で絞り込む。子メニューも同様に判定。
+  const applyMenuPerms = (items: NavItem[]): NavItem[] => {
+    if (role !== "agent" || !menuPerms) return items;
+    const out: NavItem[] = [];
+    for (const n of items) {
+      const kids = (n.children ?? []).filter((c) => isMenuAllowed(menuPerms, teamRole, c.href));
+      if (isMenuAllowed(menuPerms, teamRole, n.href)) out.push({ ...n, children: kids });
+      else if (kids.length > 0) out.push({ ...n, children: kids }); // 親が不可でも許可された子があれば親ごと表示
+    }
+    return out;
+  };
+  const nav = applyMenuPerms(nav0);
+  const analysis = applyMenuPerms(analysis0);
+  const tools = applyMenuPerms(tools0);
 
   return (
     <aside className={"side" + (open ? " open" : "")}>

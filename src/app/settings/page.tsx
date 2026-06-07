@@ -2,6 +2,8 @@ import Link from "next/link";
 import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
+import { MenuPermissionEditor } from "@/components/MenuPermissionEditor";
+import { loadMenuPermissions } from "@/lib/menu-permissions";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
@@ -13,10 +15,11 @@ const yen = (usd: number) => `¥${Math.round(usd * YEN_PER_USD).toLocaleString("
 
 // 設定タブの定義。URL ?tab=... で切替。
 const TABS = [
-  { key: "ai",       label: "AI使用量",          icon: "smart_toy",      desc: "各AIの呼び出し回数と概算コスト" },
-  { key: "focus",    label: "注力定義",          icon: "target",         desc: "「注力」に出す案件・人材の閾値" },
-  { key: "quality",  label: "品質ルール",        icon: "rule",           desc: "提案の自動失格・警告ルール" },
-  { key: "accounts", label: "アカウント・権限",  icon: "manage_accounts", desc: "メンバーの権限・部署・職能" },
+  { key: "ai",        label: "AI使用量",          icon: "smart_toy",       desc: "各AIの呼び出し回数と概算コスト" },
+  { key: "focus",     label: "注力定義",          icon: "target",          desc: "「注力」に出す案件・人材の閾値" },
+  { key: "quality",   label: "品質ルール",        icon: "rule",            desc: "提案の自動失格・警告ルール" },
+  { key: "accounts",  label: "アカウント・権限",  icon: "manage_accounts", desc: "メンバーの権限・部署・職能" },
+  { key: "menus",     label: "メニュー権限",      icon: "lock",            desc: "役職別にサイドバーの表示メニューを設定" },
 ] as const;
 type TabKey = typeof TABS[number]["key"];
 
@@ -40,6 +43,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const focusCriteria = tab === "focus" ? await loadFocusCriteria() : null;
   const quality = tab === "quality" ? await getQuality() : null;
   const accounts = tab === "accounts" ? await listAccounts() : null;
+  const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
   const maxDaily = usage ? Math.max(0.0001, ...usage.daily.map((d) => d.usd)) : 1;
 
   const Icon = ({ name, size = 16 }: { name: string; size?: number }) => (
@@ -145,6 +149,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       {tab === "accounts" && accounts && (
         <div id="accounts"><AccountManager accounts={accounts} /></div>
+      )}
+
+      {tab === "menus" && menuPerms && (
+        <div id="menus"><MenuPermissionEditor initial={menuPerms} /></div>
       )}
     </div>
   );

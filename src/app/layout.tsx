@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts } from "@/lib/counts";
 import { getStaff } from "@/lib/staff";
 import { getSessionEmail, resolveAccess, type Role } from "@/lib/accounts";
+import { loadMenuPermissions } from "@/lib/menu-permissions";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://dx.enger.jp"),
@@ -47,7 +48,7 @@ export default async function RootLayout({
     if (!em) return { email: "", access: null };
     return { email: em, access: await resolveAccess(em) };
   })();
-  const [counts, staff, auth] = await Promise.all([getSidebarCounts(), getStaff(), authP]);
+  const [counts, staff, auth, menuPerms] = await Promise.all([getSidebarCounts(), getStaff(), authP, loadMenuPermissions()]);
 
   // 担当者候補（提案者∪クロージング、重複排除、未割当除外）
   const operators = Array.from(new Set([...staff.proposers, ...staff.closers.filter((c) => c !== "未割当")]));
@@ -58,10 +59,11 @@ export default async function RootLayout({
   let position: "inside" | "outside" | null = null;
   let userEmail = "";
   let functions: string[] = [];
+  let teamRole: string | null = null;
   if (auth.email) {
     userEmail = auth.email;
     defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === auth.email)?.name ?? "";
-    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
+    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
   }
   return (
     <html lang="ja" data-density="regular">
@@ -72,7 +74,7 @@ export default async function RootLayout({
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
       </head>
       <body suppressHydrationWarning>
-        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions}>{children}</AppShell>
+        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms}>{children}</AppShell>
       </body>
     </html>
   );
