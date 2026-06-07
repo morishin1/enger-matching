@@ -75,7 +75,7 @@ export default async function ReportsPage() {
       )}
 
       {author && <MyDailyScorecard s={scorecard} />}
-      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} isAdmin={effective === "all"} canReply={canReply} members={members} />
+      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} isAdmin={effective === "all"} canReply={canReply} members={members} reviewKind={access?.role === "admin" ? "admin" : effective === "dept" ? "manager" : null} />
     </div>
   );
 }

@@ -219,3 +219,38 @@ export async function sendReportMessage(reportId: string, message: string): Prom
   revalidatePath("/reports"); revalidatePath("/notifications");
   return { ok: true };
 }
+
+/** 日報の『確認した』チェック。役割ごとに独立して保存（管理者/マネージャー）。
+ *   ・kind='admin'   : admin のみ実行可
+ *   ・kind='manager' : manager/leader が実行可（admin も可）
+ *   ・undo=true で解除（再度一覧に表示）。
+ */
+export async function markReportReviewed(reportId: string, kind: "admin" | "manager", undo: boolean = false): Promise<Result> {
+  const access = await currentAccess();
+  if (!access) return { ok: false, error: "認証が必要です" };
+  if (kind === "admin" && access.role !== "admin") return { ok: false, error: "管理者権限が必要です" };
+  if (kind === "manager") {
+    const allowed = access.role === "admin" || canManageDept(access.teamRole);
+    if (!allowed) return { ok: false, error: "マネージャー/リーダー権限が必要です" };
+  }
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const patch: Record<string, any> = undo
+    ? (kind === "admin"
+        ? { reviewed_by_admin_at: null, reviewed_by_admin_email: null, reviewed_by_admin_name: null }
+        : { reviewed_by_manager_at: null, reviewed_by_manager_email: null, reviewed_by_manager_name: null })
+    : (kind === "admin"
+        ? { reviewed_by_admin_at: new Date().toISOString(), reviewed_by_admin_email: access.email, reviewed_by_admin_name: access.name ?? null }
+        : { reviewed_by_manager_at: new Date().toISOString(), reviewed_by_manager_email: access.email, reviewed_by_manager_name: access.name ?? null });
+  try {
+    const { error } = await admin.from("daily_reports").update(patch).eq("id", reportId);
+    if (error) {
+      if (/column .* does not exist|reviewed_by/i.test(error.message)) {
+        return { ok: false, error: "閲覧チェック列が未整備です（supabase/daily-reports-review.sql を実行してください）" };
+      }
+      return { ok: false, error: error.message };
+    }
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+  revalidatePath("/reports");
+  return { ok: true };
+}

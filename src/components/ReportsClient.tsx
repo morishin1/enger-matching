@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage } from "@/app/reports/actions";
+import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage, markReportReviewed } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
 
 // 誰が書いても同じ視点になる共通フレーム
@@ -307,7 +307,7 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, members = [] }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; members?: string[] }) {
+export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, members = [], reviewKind = null }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; members?: string[]; reviewKind?: "admin" | "manager" | null }) {
   const todays = reports.find((r) => r.author === author && r.report_date === today);
   const canManage = isAdmin || canReply; // 提出カレンダー＋返信UI を出す
   return (
@@ -327,7 +327,7 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
         </>
       )}
 
-      <ReportArchive reports={reports} author={author} canManage={canManage} />
+      <ReportArchive reports={reports} author={author} canManage={canManage} reviewKind={reviewKind} />
     </>
   );
 }
@@ -337,9 +337,44 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
  *   - 本人のみ：月ごとにアコーディオン。今月を自動で開く。
  *   - 「未返信のみ」トグル・氏名絞り込みつき。
  */
-function ReportArchive({ reports, author, canManage }: { reports: DailyReport[]; author: string; canManage: boolean }) {
+function ReportArchive({ reports, author, canManage, reviewKind = null }: { reports: DailyReport[]; author: string; canManage: boolean; reviewKind?: "admin" | "manager" | null }) {
   const [q, setQ] = useState("");
   const [onlyUnreplied, setOnlyUnreplied] = useState(false);
+  // 役割別チェック（管理者/マネージャー）のための optimistic ローカル状態
+  const [reviewedExtra, setReviewedExtra] = useState<Set<string>>(new Set()); // 自分が今チェックしたID
+  const [unreviewedExtra, setUnreviewedExtra] = useState<Set<string>>(new Set()); // チェック解除したID
+  // 未確認のみ表示するか（管理者/マネージャー向け既定 true）。
+  const [onlyUnreviewed, setOnlyUnreviewed] = useState(true);
+  const isReviewed = (r: DailyReport) => {
+    if (!reviewKind) return false;
+    if (reviewedExtra.has(r.id)) return true;
+    if (unreviewedExtra.has(r.id)) return false;
+    return reviewKind === "admin" ? !!r.reviewed_by_admin_at : !!r.reviewed_by_manager_at;
+  };
+  const toggleReviewed = async (r: DailyReport) => {
+    if (!reviewKind) return;
+    const currentlyReviewed = isReviewed(r);
+    // optimistic
+    if (currentlyReviewed) {
+      setReviewedExtra((s) => { const n = new Set(s); n.delete(r.id); return n; });
+      setUnreviewedExtra((s) => { const n = new Set(s); n.add(r.id); return n; });
+    } else {
+      setUnreviewedExtra((s) => { const n = new Set(s); n.delete(r.id); return n; });
+      setReviewedExtra((s) => { const n = new Set(s); n.add(r.id); return n; });
+    }
+    const res = await markReportReviewed(r.id, reviewKind, currentlyReviewed);
+    if (!res.ok) {
+      // 失敗したら元に戻す
+      if (currentlyReviewed) {
+        setUnreviewedExtra((s) => { const n = new Set(s); n.delete(r.id); return n; });
+        setReviewedExtra((s) => { const n = new Set(s); n.add(r.id); return n; });
+      } else {
+        setReviewedExtra((s) => { const n = new Set(s); n.delete(r.id); return n; });
+        setUnreviewedExtra((s) => { const n = new Set(s); n.add(r.id); return n; });
+      }
+      alert(res.error ?? "更新に失敗しました");
+    }
+  };
   // 担当者ごとの AI週次/月次講評ボタンの状態
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [aiMsg, setAiMsg] = useState<{ author: string; ok: boolean; text: string } | null>(null);
@@ -375,6 +410,53 @@ function ReportArchive({ reports, author, canManage }: { reports: DailyReport[];
   const setAll = (v: boolean) => setOpen(Object.fromEntries(groupList.map((g) => [g.key, v])));
 
   const totalUnreplied = base.filter(needsReply).length;
+
+  // ===== 管理者/マネージャー向け：新着順フラットリスト＋『確認した』チェック =====
+  if (reviewKind) {
+    const flat = (q.trim() ? reports.filter((r) => (r.author ?? "").includes(q.trim())) : reports)
+      .slice() // 元配列保護
+      .sort((a, b) => String(b.created_at ?? b.report_date ?? "").localeCompare(String(a.created_at ?? a.report_date ?? "")));
+    const visible = onlyUnreviewed ? flat.filter((r) => !isReviewed(r)) : flat;
+    const unreviewedCount = flat.filter((r) => !isReviewed(r)).length;
+    return (
+      <>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 2px", gap: 10, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+            {reviewKind === "admin" ? "📓 日報チェック（全員・新着順）" : "📓 日報チェック（部署メンバー・新着順）"}
+            <span className="muted" style={{ fontSize: 11.5, fontWeight: 500, marginLeft: 8 }}>
+              未確認 <b style={{ color: unreviewedCount > 0 ? "#b42318" : "#067647" }}>{unreviewedCount}</b> / {flat.length}件
+            </span>
+          </h3>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => setOnlyUnreviewed((v) => !v)}
+              title={onlyUnreviewed ? "確認済みも表示" : "未確認のみ表示"}
+              style={{
+                cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 99,
+                border: `1px solid ${onlyUnreviewed ? "#d97706" : "var(--color-border-strong)"}`,
+                background: onlyUnreviewed ? "#fff6e0" : "var(--color-surface)",
+                color: onlyUnreviewed ? "#92400e" : "var(--color-ink-2)",
+              }}>
+              {onlyUnreviewed ? "● 未確認のみ" : "○ 確認済みも表示"}
+            </button>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="氏名で絞り込み…"
+              style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 10px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+          </span>
+        </div>
+
+        {visible.length === 0 ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30 }}>
+            {onlyUnreviewed ? "未確認の日報はありません 🎉" : "日報がありません。"}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 12 }}>
+            {visible.map((r) => (
+              <ReviewableReportCard key={r.id} r={r} canReply={canManage} reviewKind={reviewKind} reviewed={isReviewed(r)} onToggleReviewed={() => toggleReviewed(r)} />
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <>
@@ -448,5 +530,42 @@ function ReportArchive({ reports, author, canManage }: { reports: DailyReport[];
         </div>
       )}
     </>
+  );
+}
+
+// 管理者/マネージャー向け：『確認した』チェック付き日報カード。
+//   - 既存の ReportCard を内包し、上部に投稿者・投稿日時・チェックボタンを追加。
+//   - チェック済みは画面上から消える（onlyUnreviewed=true 時）。
+function ReviewableReportCard({ r, canReply, reviewKind, reviewed, onToggleReviewed }:
+  { r: DailyReport; canReply: boolean; reviewKind: "admin" | "manager"; reviewed: boolean; onToggleReviewed: () => void }) {
+  const ts = r.created_at ? new Date(r.created_at) : null;
+  const tsStr = ts && !isNaN(ts.getTime())
+    ? `${ts.getMonth() + 1}/${ts.getDate()} ${String(ts.getHours()).padStart(2, "0")}:${String(ts.getMinutes()).padStart(2, "0")}`
+    : r.report_date;
+  const reviewerAt = reviewKind === "admin" ? r.reviewed_by_admin_at : r.reviewed_by_manager_at;
+  const reviewerName = reviewKind === "admin" ? r.reviewed_by_admin_name : r.reviewed_by_manager_name;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, border: "1px solid var(--color-border)", borderRadius: 10, background: reviewed ? "var(--color-surface-soft)" : "var(--color-surface)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <b style={{ fontSize: 12.5 }}>{r.author}</b>
+          <span className="muted mono" style={{ fontSize: 10.5 }}>{tsStr}</span>
+          {r.mood && <span style={{ fontSize: 11 }}>{r.mood}</span>}
+        </div>
+        <button type="button" onClick={onToggleReviewed}
+          title={reviewed ? `${reviewerName ?? ""} ${reviewerAt ? `(${new Date(reviewerAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })})` : ""} ・ 取り消して未確認に戻す` : "確認したらクリック（リストから消えます）"}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            fontSize: 11, fontWeight: 800, padding: "4px 10px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit",
+            background: reviewed ? "#e7f7ee" : "var(--color-brand-25)",
+            color: reviewed ? "#067647" : "var(--color-brand-700)",
+            border: `1px solid ${reviewed ? "#bfe3cc" : "var(--color-brand-100)"}`,
+          }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>{reviewed ? "check_circle" : "check_circle_outline"}</span>
+          {reviewed ? "確認済み（取消）" : "確認した"}
+        </button>
+      </div>
+      <ReportCard r={r} canReply={canReply} />
+    </div>
   );
 }

@@ -8,6 +8,10 @@ export type DailyReport = {
   metrics: any; ai_comment: string | null;
   replied_at?: string | null; replied_by?: string | null; reply_text?: string | null;
   ai_replied_at?: string | null;
+  // 役割別の閲覧チェック（誰が・いつ確認したか）
+  reviewed_by_admin_at?: string | null; reviewed_by_admin_email?: string | null; reviewed_by_admin_name?: string | null;
+  reviewed_by_manager_at?: string | null; reviewed_by_manager_email?: string | null; reviewed_by_manager_name?: string | null;
+  created_at?: string | null;
 };
 
 // 進行中ステージ。新名(所属確認/提案中/面談/合格)＋旧名を互換のため両方含める。
@@ -60,7 +64,8 @@ export async function listReports(opts?: { author?: string; authors?: string[]; 
   if (!dbConfigured) return [];
   try {
     const sb = engerClient();
-    let q = sb.from("daily_reports").select("*").order("report_date", { ascending: false }).limit(opts?.limit ?? 60);
+    // 新着順：created_at(投稿時刻) を優先、同日内は created_at で正確に並べる。
+    let q = sb.from("daily_reports").select("*").order("created_at", { ascending: false }).order("report_date", { ascending: false }).limit(opts?.limit ?? 60);
     if (opts?.author) q = q.eq("author", opts.author);
     else if (opts?.authors) {
       if (opts.authors.length === 0) return [];
