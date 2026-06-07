@@ -37,11 +37,11 @@ export async function ClientHome({ companyName, displayName, needGate = false }:
   const remote = (t?: string | null) => ({ full: "フルリモート", hybrid: "ハイブリッド", onsite: "出社" } as Record<string, string>)[t ?? ""] ?? (t || "—");
 
   const activeProps = proposals.filter((p) => p.stage !== "見送り" && p.stage !== "失注");
-  const interview = proposals.filter((p) => ["面談", "面談調整", "面談設定", "面談実施", "面談合格"].includes(p.stage));
-  const won = proposals.filter((p) => ["面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage));
+  const interview = proposals.filter((p) => ["面談", "面談調整", "面談設定", "面談実施", "面談合格", "合格"].includes(p.stage));
+  const won = proposals.filter((p) => ["合格", "面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage));
 
   const stageTone = (s?: string) => {
-    if (s === "面談合格" || s === "稼働" || s === "稼働中" || s === "稼働決定") return { bg: "#e7f7ee", fg: "#067647" };
+    if (s === "合格" || s === "面談合格" || s === "稼働" || s === "稼働中" || s === "稼働決定") return { bg: "#e7f7ee", fg: "#067647" };
     if (s === "見送り" || s === "失注") return { bg: "#fdecef", fg: "#b42318" };
     return { bg: "#eaf4fd", fg: "#0b5cab" };
   };

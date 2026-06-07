@@ -14,7 +14,7 @@ const SYSTEM = `あなたはSES営業の案件・人材情報を構造化する�
 {
   "job_title": string | null,          // 案件名・職務概要
   "client_name": string | null,        // クライアント企業名（株式会社○○ 等）
-  "stage": "提案済"|"返信待ち"|"面談調整"|"クロージング中"|"面談合格"|null,
+  "stage": "所属確認"|"提案中"|"面談"|"合格"|null,
   "meeting_date": string | null,       // 面談予定日 YYYY/MM/DD
   "cand_name": string | null,          // 人材の氏名 or イニシャル
   "cand_company": string | null,       // 人材の所属会社

@@ -12,15 +12,14 @@ import { restoreProposal } from "@/lib/actions";
 import { normalizeStage } from "@/lib/proposal-constants";
 
 const STAGE_TONE: Record<string, { bg: string; fg: string }> = {
-  提案済:        { bg: "var(--color-surface-inset)", fg: "var(--color-ink-2)" },
-  返信待ち:      { bg: "#eaf6fd", fg: "#0a6ea0" },
-  面談調整:      { bg: "#fff5e6", fg: "#9a5b1a" },
-  クロージング中: { bg: "#fdf1f5", fg: "#b53a6b" },
-  面談合格:      { bg: "#e7f7ee", fg: "#067647" },
-  稼働:          { bg: "#e7f7ee", fg: "#067647" },
-  稼働決定:      { bg: "#e7f7ee", fg: "#067647" },
-  見送り:        { bg: "#fdecef", fg: "#b42318" },
-  失注:          { bg: "#fdecef", fg: "#b42318" },
+  所属確認:  { bg: "var(--color-surface-inset)", fg: "var(--color-ink-2)" },
+  提案中:    { bg: "#eaf6fd", fg: "#0a6ea0" },
+  面談:      { bg: "#fff5e6", fg: "#9a5b1a" },
+  合格:      { bg: "#e7f7ee", fg: "#067647" },
+  稼働:      { bg: "#e7f7ee", fg: "#067647" },
+  稼働決定:  { bg: "#e7f7ee", fg: "#067647" },
+  見送り:    { bg: "#fdecef", fg: "#b42318" },
+  失注:      { bg: "#fdecef", fg: "#b42318" },
 };
 const TERMINAL = new Set(["見送り", "失注", "稼働", "稼働決定"]);
 
@@ -54,7 +53,7 @@ export function ProposalHistory({ items }: { items: any[] }) {
   const [period, setPeriod] = useState<"all" | "today" | "week" | "month">("all");
 
   const restore = (id: string, label: string) => {
-    if (!confirm(`「${label}」をボードに戻しますか？（ステージ=提案済に戻ります。稼働化済みの場合は稼働も取り消されます）`)) return;
+    if (!confirm(`「${label}」をボードに戻しますか？（ステージ=所属確認に戻ります。稼働化済みの場合は稼働も取り消されます）`)) return;
     start(async () => { await restoreProposal(id); router.refresh(); });
   };
 
@@ -83,9 +82,9 @@ export function ProposalHistory({ items }: { items: any[] }) {
   }, [items, q, stageFilter, period]);
 
   const stageDisplay = (raw: string | null | undefined): { label: string; tone: { bg: string; fg: string } } => {
-    if (raw && TERMINAL.has(raw)) return { label: raw, tone: STAGE_TONE[raw] ?? STAGE_TONE.提案済 };
+    if (raw && TERMINAL.has(raw)) return { label: raw, tone: STAGE_TONE[raw] ?? STAGE_TONE.提案中 };
     const norm = normalizeStage(raw);
-    return { label: norm, tone: STAGE_TONE[norm] ?? STAGE_TONE.提案済 };
+    return { label: norm, tone: STAGE_TONE[norm] ?? STAGE_TONE.提案中 };
   };
 
   const td = { padding: "8px 10px", borderTop: "1px solid var(--color-border)", verticalAlign: "top" } as const;

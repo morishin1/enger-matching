@@ -72,7 +72,7 @@ const getGrowthData = unstable_cache(async (): Promise<GrowthData | null> => {
       ]);
       const map = new Map<string, AgentRow>();
       const get = (n: string) => { const k = (n || "").trim(); if (!k) return null; if (!map.has(k)) map.set(k, { name: k, proposals: 0, scouts: 0, meetings: 0, won: 0, pr: 0 }); return map.get(k)!; };
-      for (const p of (pr.data ?? []) as any[]) { const a = get(p.proposer); if (a) { a.proposals++; if (["面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage)) a.won++; } }
+      for (const p of (pr.data ?? []) as any[]) { const a = get(p.proposer); if (a) { a.proposals++; if (["合格", "面談合格", "稼働", "稼働中", "稼働決定"].includes(p.stage)) a.won++; } }
       for (const s of (sc.data ?? []) as any[]) { const a = get(s.agent); if (a) a.scouts++; }
       for (const m of (mt.data ?? []) as any[]) { const a = get(m.our_owner); if (a) a.meetings++; }
       for (const x of (prp.data ?? []) as any[]) { const a = get(x.operator); if (a) a.pr++; }

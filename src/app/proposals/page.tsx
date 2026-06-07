@@ -154,7 +154,7 @@ export default async function ProposalsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Proposals · 提案管理</div>
           <h1>提案管理</h1>
-          <div className="sub">マッチングからの提案を時系列で確認できます。<b>提案済 → 返信待ち → 面談調整 → クロージング中 → 面談合格</b> のカンバン進行は「提案ボード」タブから。提案は<b>2人1組（提案者＋パートナー）</b>で進め、面談合格の「稼働化」で<b>稼働管理</b>へ移ります。</div>
+          <div className="sub"><b>所属確認 → 提案中 → 面談 → 合格</b> の4ステップで管理します。①情報が届いたら案件先「まだ募集中？」・人材先「まだ営業できる？」を<b>所属確認</b>→②両方OKで<b>提案</b>（LINE/メール等の社外連絡もメモにコピペ）→③双方マッチで<b>面談</b>→④<b>合格</b>の「稼働化」で稼働管理へ。提案は2人1組（提案者＋パートナー）で進めます。</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           <NextStepLink href="/progress" label="稼働管理を見る" hint="面談合格→稼働化したエンゲージメントへ" />

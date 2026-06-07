@@ -15,15 +15,16 @@ import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
-  提案済: "#6b7280", 返信待ち: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
+  所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260",
 };
 const normStage = (s: string | null | undefined) => {
   const v = String(s ?? "").trim();
   if ((STAGES as readonly string[]).includes(v)) return v;
   // 旧→新マッピング（DB に旧値が残っていても綺麗に分類するため）
-  if (v === "返信待ち") return "提案済";
-  if (v === "提案中" || v === "返信あり") return "返信待ち";
-  return "提案済";
+  if (["提案済", "返信待ち", "提案中", "返信あり"].includes(v)) return "提案中";
+  if (["面談調整", "クロージング中"].includes(v)) return "面談";
+  if (v === "面談合格") return "合格";
+  return "提案中";
 };
 const fmtDate = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`; };
 const fmtDateTime = (d: any) => {
@@ -57,21 +58,19 @@ function nextActionFor(p: any): NextAction {
   const stageDays = daysAgo(p.stage_updated_at || p.updated_at || p.created_at);
   const caller = p.caller_status || "";
 
-  if (stage === "面談合格") return { text: "稼働化へ（契約・条件確認）", urgency: "high", icon: "rocket_launch" };
-  if (stage === "クロージング中") return { text: "条件・最終決裁の詰め", urgency: "high", icon: "handshake" };
+  if (stage === "合格") return { text: "稼働化へ（契約・条件確認）", urgency: "high", icon: "rocket_launch" };
 
-  if (stage === "面談調整") {
+  if (stage === "面談") {
     if (p.meeting_date && p.meeting_status !== "実施済") return { text: `面談 ${String(p.meeting_date).slice(5)} 当日対応`, urgency: "medium", icon: "event_available" };
-    return { text: "面談日程の確定", urgency: "high", icon: "event" };
+    return { text: "面談日程の確定・実施", urgency: "high", icon: "event" };
   }
 
-  if (stage === "返信待ち") {
-    if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "schedule_send" };
-    if (stageDays >= 3) return { text: `状況確認・フォロー`, urgency: "medium", icon: "schedule_send" };
-    return { text: "返信待ち（必要に応じてフォロー）", urgency: "low", icon: "schedule" };
+  if (stage === "所属確認") {
+    if (stageDays >= 2) return { text: `在否確認の催促（${stageDays}日滞留）`, urgency: "high", icon: "contact_phone" };
+    return { text: "案件先・人材先に営業可否を確認", urgency: "medium", icon: "contact_phone" };
   }
 
-  // 返信待ち
+  // 提案中（提案を実施し反応待ち）
   if (caller === "未架電" || !caller) {
     if (jobPending && candPending) return { text: "案件・人材へ初回コンタクト", urgency: "high", icon: "call" };
     if (jobPending) return { text: "クライアントへ確認連絡", urgency: "medium", icon: "business" };

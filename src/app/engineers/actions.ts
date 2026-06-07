@@ -69,7 +69,7 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
         .select("id").eq("candidate_name", engineer_name).eq("job_title", job_title ?? "").is("candidate_id", null).maybeSingle();
       if (!dup?.id) {
         await admin.from("proposals").insert({
-          job_id: null, candidate_id: null, stage: "提案済",
+          job_id: null, candidate_id: null, stage: "所属確認",
           job_title: job_title ?? "（スカウト）", candidate_name: engineer_name, c_init: cInit,
           proposer: agent, ai: false, next_action: "スカウト送信（返信待ち）",
         });

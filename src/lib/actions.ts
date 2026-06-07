@@ -386,7 +386,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   const cand_action_token = (preTokens?.candToken && HEX48.test(preTokens.candToken)) ? preTokens.candToken : randomBytes(24).toString("hex");
 
   const insertBase = {
-    job_id: job.id, candidate_id: cand.id, stage: "提案済",
+    job_id: job.id, candidate_id: cand.id, stage: "所属確認",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser,
@@ -456,8 +456,8 @@ export async function undoProposal(id: string) {
     .maybeSingle();
   if (fe || !p) return { ok: false, error: "提案が見つかりません" };
 
-  // 旧ステージ "返信待ち"（=新 "提案済"）/ 新 "提案済" のどちらでも取り消し可
-  if (p.stage !== "提案済" && p.stage !== "返信待ち") return { ok: false, error: `ステージが「${p.stage}」に進んでいるため取り消せません` };
+  // 初期ステージ（新:所属確認、旧:提案済/返信待ち）のうちは取り消し可
+  if (!["所属確認", "提案済", "返信待ち"].includes(p.stage)) return { ok: false, error: `ステージが「${p.stage}」に進んでいるため取り消せません` };
   if (p.next_action) return { ok: false, error: "次のアクションが記入済みのため取り消せません" };
 
   const diffSec = (new Date(p.updated_at).getTime() - new Date(p.created_at).getTime()) / 1000;
@@ -480,9 +480,9 @@ export async function restoreProposal(id: string) {
   // 稼働化済みなら稼働も取り消し
   try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* 続行 */ }
   const now = new Date().toISOString();
-  let rr: any = await admin.from("proposals").update({ stage: "提案済", lost_reason: null, lost_phase: null, lost_reason_note: null, updated_at: now, stage_updated_at: now }).eq("id", id);
+  let rr: any = await admin.from("proposals").update({ stage: "所属確認", lost_reason: null, lost_phase: null, lost_reason_note: null, updated_at: now, stage_updated_at: now }).eq("id", id);
   if (rr.error && /stage_updated_at|lost_reason_note|column/i.test(rr.error.message)) {
-    rr = await admin.from("proposals").update({ stage: "提案済", lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
+    rr = await admin.from("proposals").update({ stage: "所属確認", lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
   }
   const error = rr.error;
   if (error) return { ok: false, error: error.message };
@@ -1421,7 +1421,7 @@ export async function createProposalManual(input: {
 
   const insertRow: Record<string, any> = {
     job_id: jobRow.id, candidate_id: candRow.id,
-    stage: input.stage?.trim() || "提案済",
+    stage: input.stage?.trim() || "所属確認",
     job_title: jobRow.title, company: jobRow.client_name, candidate_name: candRow.name,
     c_init: candRow.initials, rate: candRow.rate, ai: false,
   };

@@ -6,9 +6,9 @@ import { IssueBoard, type Issue } from "./IssueBoard";
 import { Collapsible } from "./Collapsible";
 import { leadKpi, isContacted } from "@/lib/quality";
 
-// 進行中ステージ。旧ステージ名(返信待ち=旧提案直後/提案中=旧反応後) も互換のため含める。
-const ACTIVE_STAGES = ["提案済", "返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
-const MET_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
+// 進行中ステージ。新名(所属確認/提案中/面談/合格)＋旧名を互換のため両方含める。
+const ACTIVE_STAGES = ["所属確認", "提案中", "面談", "合格", "提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"];
+const MET_STAGES = ["面談", "合格", "面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const DAY = 86400000;
 
 function parseManYen(rate?: string | number | null): number {
@@ -119,11 +119,13 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const today = todayStr();
   const hasMeetingDate = proposals.some((p) => p.meeting_date);
   const todaysMeetings = proposals.filter((p) => p.meeting_date === today);
-  const meetingsAdjusting = proposals.filter((p) => p.stage === "面談調整");
+  // 面談（新）＝旧 面談調整 を含む
+  const meetingsAdjusting = proposals.filter((p) => p.stage === "面談" || p.stage === "面談調整");
   const renewSoon = liveEngs.filter((e) => { const d = daysUntil(e.end_date); return d != null && d <= 31 && d >= 0; });
-  // 新「提案済」=旧「返信待ち」（提案直後・未反応のもの）を架電フォロー対象に
-  const callPending = proposals.filter((p) => p.stage === "提案済" || p.stage === "返信待ち" || p.caller_status === "未架電");
-  const closingStalled = proposals.filter((p) => p.stage === "クロージング中" && daysAgo(p.created_at) >= 7);
+  // 所属確認/提案中（提案直後・未反応）を架電フォロー対象に。旧 提案済/返信待ち も含める。
+  const callPending = proposals.filter((p) => ["所属確認", "提案中", "提案済", "返信待ち"].includes(p.stage) || p.caller_status === "未架電");
+  // 面談（合格手前）の長期滞留。旧 クロージング中 も含める。
+  const closingStalled = proposals.filter((p) => (p.stage === "面談" || p.stage === "クロージング中") && daysAgo(p.created_at) >= 7);
   const actionTotal = (hasMeetingDate ? todaysMeetings.length : meetingsAdjusting.length) + renewSoon.length + callPending.length + closingStalled.length;
 
   // --- お金レーン ---
@@ -248,7 +250,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const KPI_PROPOSAL = 20, KPI_MEETING = 3;
 
   // 2人1組（提案者＋パートナー）でクロージングまで。期限1週間。区分は問わない。
-  const CLOSING_STAGES = ["面談合格", "クロージング中"];
+  const CLOSING_STAGES = ["合格", "面談", "面談合格", "クロージング中"];
   const mineInTeam = (p: any) => (myName ? (p.proposer === myName || p.partner === myName || p.closer === myName) : true);
   const closingTeam = proposals.filter((p) => CLOSING_STAGES.includes(p.stage) && mineInTeam(p)).map((p: any) => {
     const d = daysAgo(p.created_at);

@@ -1,13 +1,14 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { canSeeMargin } from "@/lib/engagement-access";
+import { normalizeStage } from "@/lib/proposal-constants";
 
 export const dynamic = "force-dynamic";
 
 // ステージ別の成約確度（加重見込みに使用）
-const STAGE_PROB: Record<string, number> = { 返信待ち: 0.1, 提案中: 0.25, 面談調整: 0.5, クロージング中: 0.7, 面談合格: 0.9 };
-const STAGE_ORDER = ["提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"];
-const STAGE_TONE: Record<string, string> = { 返信待ち: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260" };
+const STAGE_PROB: Record<string, number> = { 所属確認: 0.05, 提案中: 0.2, 面談: 0.5, 合格: 0.9 };
+const STAGE_ORDER = ["所属確認", "提案中", "面談", "合格"];
+const STAGE_TONE: Record<string, string> = { 所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260" };
 
 function parseManYen(rate?: string | number | null): number {
   if (rate == null) return 0;
@@ -38,9 +39,12 @@ export default async function PipelinePage() {
   } else setup = true;
 
   // ---- 確度別パイプライン（進行中提案） ----
-  const active = proposals.filter((p) => STAGE_ORDER.includes(p.stage) && !p.disqualified);
+  // DB stage（旧名混在）を新ステージに正規化してから集計。終了系(見送り/失注/稼働)は除外。
+  const TERMINAL = ["見送り", "失注", "稼働", "稼働決定"];
+  const active = proposals.filter((p) => !TERMINAL.includes(p.stage) && !p.disqualified)
+    .map((p) => ({ ...p, _stage: normalizeStage(p.stage) }));
   const byStage = STAGE_ORDER.map((s) => {
-    const rows = active.filter((p) => p.stage === s);
+    const rows = active.filter((p) => p._stage === s);
     const amount = rows.reduce((a, p) => a + parseManYen(p.rate), 0);
     const prob = STAGE_PROB[s] ?? 0;
     return { stage: s, count: rows.length, amount, prob, weighted: Math.round(amount * prob) };

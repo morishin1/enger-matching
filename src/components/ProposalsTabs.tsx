@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
-type TabKey = "history" | "board" | "lost";
+type TabKey = "board" | "history" | "lost";
 
 export function ProposalsTabs({
   board,
@@ -19,11 +19,11 @@ export function ProposalsTabs({
   historyCount: number;
   lostCount: number;
 }) {
-  // デフォルトを「提案履歴」に。マッチングから提案した直後に何が登録されたか時系列で確認したい要望。
-  const [tab, setTab] = useState<TabKey>("history");
+  // デフォルトは「提案ボード（リスト）」。並び：提案ボード → 提案履歴 → 失注分析。
+  const [tab, setTab] = useState<TabKey>("board");
   const tabs: { key: TabKey; label: string; icon: string; count: number; show: boolean; title?: string }[] = [
+    { key: "board",   label: "提案ボード", icon: "view_kanban", count: boardCount,   show: true, title: "進行中の提案カンバン（所属確認→提案中→面談→合格）。見送り/失注/稼働済みは除外。" },
     { key: "history", label: "提案履歴", icon: "history",     count: historyCount, show: !!history, title: "マッチングから提案した履歴。誰がいつ提案したかを時系列で表示。" },
-    { key: "board",   label: "提案ボード", icon: "view_kanban", count: boardCount,   show: true, title: "進行中の提案カンバン（提案済〜面談合格）。見送り/失注/稼働済みは除外。" },
     { key: "lost",    label: "失注分析",   icon: "monitoring",  count: lostCount,    show: !!lostSummary, title: "見送り/失注の合計件数" },
   ];
   return (

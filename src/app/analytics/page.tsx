@@ -9,9 +9,9 @@ import { GrowthStrategy } from "@/components/GrowthStrategy";
 
 export const dynamic = "force-dynamic";
 
-// 進行中ステージ。旧名称(返信待ち/提案中)も互換のため含める。
-const ACTIVE_STAGES = ["提案済", "返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
-const MET_STAGES = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
+// 進行中ステージ。新名(所属確認/提案中/面談/合格)＋旧名を互換のため両方含める。
+const ACTIVE_STAGES = ["所属確認", "提案中", "面談", "合格", "提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"];
+const MET_STAGES = ["面談", "合格", "面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const LOST_STAGES = ["見送り", "失注"];
 
 // 分析タブの定義。URL ?tab=... で切替。デフォルトは育成戦略（市場参考から方針提示）。

@@ -6,7 +6,7 @@ import { isContacted, isLost } from "@/lib/quality";
 //  他決 … lost_reason / lost_phase のテキスト判定（構造化フィールドが無いため概算）。
 //  初動 … proposed_at → called_at の日数（両方入力のある提案のみ）。
 
-const MET = ["面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
+const MET = ["面談", "合格", "面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const WON = ["稼働", "稼働決定"];
 const DAY = 86400000;
 const daysAgo = (d?: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / DAY) : null);

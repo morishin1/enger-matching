@@ -22,11 +22,10 @@ const daysSince = (d: any) => {
 };
 // 各ステージの目標滞留日数(SLA)。これを超えると警告/危険トーンで強調する。
 const STAGE_SLA_DAYS: Record<string, number> = {
-  提案済: 3,
-  返信待ち: 5,
-  面談調整: 3,
-  クロージング中: 5,
-  面談合格: 7,
+  所属確認: 2,
+  提案中: 5,
+  面談: 3,
+  合格: 7,
 };
 function ageTone(days: number | null, sla: number) {
   if (days == null) return { fg: "var(--color-ink-4)", bg: "transparent", bd: "var(--color-border)", level: "ok" as const };
@@ -47,7 +46,7 @@ import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHA
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
-  提案済: "#6b7280", 返信待ち: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
+  所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260",
 };
 const CALLER_TONE: Record<string, string> = {
   返信あり: "#1aa260", 電話済み: "#0095D9", "電話(不在)": "#d98a2b", LINE確認中: "#7c5cff", メール確認中: "#7c5cff", 未架電: "#9aa7b4",
@@ -233,7 +232,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx <= 0 || busy} onClick={() => onMove(p.id, STAGES[stageIdx - 1])} title="前へ">←</button>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
-        {p.stage === "面談合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
+        {normStageFn(p.stage) === "合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
         <button type="button" className="btn ghost btn-xs" onClick={() => onOpen?.()} style={{ marginLeft: "auto" }} title="詳細・編集ドロワーを開く">編集</button>
         <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy} title="この提案を削除（記録ミスの取り消し）" onClick={() => { if (confirm(`「${p.candidate_name ?? "この人材"} × ${p.job_title ?? "案件"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) onDelete(p.id); }}>🗑</button>
       </div>
@@ -365,7 +364,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
   }, { warn: 0, danger: 0 });
   const oldestStageDays = Math.max(0, ...proposals.map((p) => daysSince(p.stage_updated_at ?? p.updated_at ?? p.created_at) ?? 0));
   const avgClosingDays = (() => {
-    const closed = proposals.filter((p) => p.stage === "面談合格");
+    const closed = proposals.filter((p) => normStageFn(p.stage) === "合格");
     if (closed.length === 0) return null;
     const sum = closed.reduce((s, p) => s + (daysSince(p.created_at) ?? 0), 0);
     return Math.round(sum / closed.length);

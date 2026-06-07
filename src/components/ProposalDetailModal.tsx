@@ -14,7 +14,7 @@ import { gmailMessageUrl } from "@/lib/gmail";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -83,7 +83,8 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
 
-  const stageIdx = Math.max(0, STAGES.indexOf(p.stage));
+  // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
+  const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(p.stage)));
   const needsLostNote = lostReason === "E3: その他";
   const lostReady = !!lostReason && (!needsLostNote || lostNote.trim().length > 0);
 
@@ -426,7 +427,7 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
             )}
           </div>
           <button type="button" className="btn ghost" disabled={pending} onClick={saveFields} title="ステージは変更せず編集内容のみ保存">編集を保存</button>
-          {p.stage === "面談合格" && (
+          {normalizeStage(p.stage) === "合格" && (
             <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}
           <button type="button" className="btn ghost" disabled={pending}
