@@ -102,8 +102,8 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;
   const tools0 = (isClient || isTenant) ? []
-    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定は admin のみ、承認はエージェントも可
-    : TOOLS; // admin は設定・承認含む全部
+    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings" && n.href !== "/settings/approvals") // 設定・ユーザー管理は admin のみ
+    : TOOLS; // admin は設定・ユーザー管理含む全部
 
   // 役職(team_role)別メニュー表示権限の適用。
   //   ・管理者(admin)・クライアント・テナントは対象外（adminは常に全表示でロックアウト防止）。

@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ApprovalsPage() {
   const access = await currentAccess();
-  // 管理者・エージェントが利用可能（agent は admin ロール付与・admin の操作は不可）
-  if (access && access.role !== "admin" && access.role !== "agent") redirect("/");
+  // ユーザー管理は管理者(admin)専用。直URLアクセスもブロック。
+  if (access && access.role !== "admin") redirect("/");
 
   const [accountsReal, lpPending, staff] = await Promise.all([listAccounts(), listLpPendingCandidates(), getStaff()]);
   // 実 app_users ＋ LP（profiles）から昇格待ちの人材を合算。LP分は人材タブに承認待ちで表示される。

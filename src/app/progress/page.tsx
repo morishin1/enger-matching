@@ -20,7 +20,9 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
   const access = await currentAccess();
   const role = access?.role ?? "admin";
   const isBackoffice = (access?.functions ?? []).includes("バックオフィス");
-  const agentScoped = role === "agent" && !isBackoffice;
+  // 表示スコープ：admin（経営/管理）のみ全件、それ以外（マネージャー含む agent）は自分担当のみ。
+  //   ※ バックオフィス職能を持っていても表示は自分担当のみに統一。請求書/勤怠の編集権限(canManage)とは別。
+  const agentScoped = role !== "admin";
 
   if (dbConfigured) {
     try {
@@ -75,7 +77,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Engagements · 稼働管理</div>
           <h1>稼働管理</h1>
-          <div className="sub"><b>月初業務</b>（勤怠チェック・請求書送付）と<b>契約管理</b>をタブで切り分け。<b>請求書は board で作成・送付</b>し、ENGER は送付完了のチェックのみ（二重管理なし）。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。集計KPIは<a href="/analytics" style={{ textDecoration: "underline" }}>分析</a>に集約しました。{agentScoped ? "自分が担当する稼働のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
+          <div className="sub"><b>月初業務</b>（勤怠チェック・請求書送付）と<b>契約管理</b>をタブで切り分け。<b>請求書は board で作成・送付</b>し、ENGER は送付完了のチェックのみ（二重管理なし）。<b>勤怠表をアップロードするとAIが稼働時間を自動計算</b>します。集計KPIは<a href="/analytics" style={{ textDecoration: "underline" }}>分析</a>に集約しました。{agentScoped ? "自分が担当する稼働（提案者/パートナー/クロージング）のみ表示しています。" : "原価/粗利は権限と所属区分(PP/BP/FL)に応じて表示（PPプロパー給与は保護）。"}</div>
         </div>
       </div>
 
