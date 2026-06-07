@@ -3,7 +3,9 @@ import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { MenuPermissionEditor } from "@/components/MenuPermissionEditor";
+import { ReportScopeEditor } from "@/components/ReportScopeEditor";
 import { loadMenuPermissions } from "@/lib/menu-permissions";
+import { loadReportScopes } from "@/lib/report-scope";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
@@ -44,6 +46,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const quality = tab === "quality" ? await getQuality() : null;
   const accounts = tab === "accounts" ? await listAccounts() : null;
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
+  const reportScopes = tab === "menus" ? await loadReportScopes() : null;
   const maxDaily = usage ? Math.max(0.0001, ...usage.daily.map((d) => d.usd)) : 1;
 
   const Icon = ({ name, size = 16 }: { name: string; size?: number }) => (
@@ -151,8 +154,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div id="accounts"><AccountManager accounts={accounts} /></div>
       )}
 
-      {tab === "menus" && menuPerms && (
-        <div id="menus"><MenuPermissionEditor initial={menuPerms} /></div>
+      {tab === "menus" && menuPerms && reportScopes && (
+        <div id="menus" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <MenuPermissionEditor initial={menuPerms} />
+          <ReportScopeEditor initial={reportScopes} />
+        </div>
       )}
     </div>
   );
