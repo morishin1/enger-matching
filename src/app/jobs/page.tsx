@@ -1,6 +1,7 @@
 import { ExportButton, JobImportButton, JobNewButton, JobBulkExtractButton, JobGmailBulkButton } from "@/components/CsvTools";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
+import { currentAccess } from "@/lib/accounts";
 import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
@@ -80,6 +81,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const fRank = sp.f_rank ?? "";
   const fOwner = sp.f_outside_owner ?? "";
   const scope = await getViewerScope();
+  // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
+  const access = await currentAccess();
+  const canExportCsv = !access || access.role === "admin" || (access.functions ?? []).includes("バックオフィス");
   let jobs: any[] = [];
   let total = 0;
   let pageCount = 1;
@@ -213,7 +217,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
               {showAll ? "公開中のみ表示" : "非公開も表示"}
             </a>
           )}
-          {!scope.isTenant && <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />}
+          {!scope.isTenant && canExportCsv && <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />}
           <JobNewButton />
           {!scope.isTenant && <JobGmailBulkButton />}
           {!scope.isTenant && <JobBulkExtractButton />}

@@ -2,14 +2,21 @@ import { CompaniesView } from "@/components/CompaniesView";
 import { CompanyCsv } from "@/components/CompanyCsv";
 import { CompanyFollowups, type FollowupRow } from "@/components/CompanyFollowups";
 import { CompanyProposalsRanking } from "@/components/CompanyProposalsRanking";
+import { CompanyTargetingBoard } from "@/components/CompanyTargetingBoard";
 import { getCompanyOverview } from "@/lib/companies";
+import { loadCompanyFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
-  const companies = (await getCompanyOverview()) ?? [];
+  // 並列取得：企業概要・提案ファネル・案件スキル分布
+  const [companies, funnels, topSkillsByCompany] = await Promise.all([
+    getCompanyOverview().then((r) => r ?? []),
+    loadCompanyFunnels(),
+    loadCompanyTopSkills(),
+  ]);
   // 情報持ち出し防止：CSV取込/書出/テンプレは admin のみに開放。
   // ローカル（認証未設定）は admin 相当として開放、それ以外は role==="admin" のみ。
   const access = await currentAccess();
@@ -65,11 +72,18 @@ export default async function CompaniesPage() {
         </div>
       )}
 
+      {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
+      <CompanyTargetingBoard companies={companies} funnels={funnels} topSkillsByCompany={topSkillsByCompany} />
+
       {followups.length > 0 && <CompanyFollowups items={followups} />}
 
       <CompanyProposalsRanking companies={companies} />
 
       {!needSetup && <CompaniesView companies={companies} registered={registered} />}
+
+      <div className="muted" style={{ fontSize: 11, padding: "8px 4px", color: "var(--color-ink-4)" }}>
+        🔒 情報漏洩防止のため、企業／案件／人材の CSV 書き出しは <b>管理者・バックオフィス</b> のみ操作できます。一般のエージェントには書き出しボタンは表示されません。
+      </div>
     </div>
   );
 }

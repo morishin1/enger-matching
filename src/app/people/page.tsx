@@ -1,6 +1,7 @@
 import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, CandidateGmailBulkButton, ExportButton } from "@/components/CsvTools";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
+import { currentAccess } from "@/lib/accounts";
 import { PeopleTable } from "@/components/PeopleTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { NextStepLink } from "@/components/NextStepLink";
@@ -77,6 +78,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const { q: initialQuery } = sp;
   const scope = await getViewerScope();
+  // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
+  const access = await currentAccess();
+  const canExportCsv = !access || access.role === "admin" || (access.functions ?? []).includes("バックオフィス");
   let people: any[] = [];
   let total = 0;
   let pageCount = 1;
@@ -211,7 +215,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで案件を探す" hint="人材×案件のマッチング画面へ" />}
-          {!scope.isTenant && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
+          {!scope.isTenant && canExportCsv && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
           <CandidateNewButton />
           {!scope.isTenant && <CandidateGmailBulkButton />}
           {!scope.isTenant && <CandidateBulkExtractButton />}
