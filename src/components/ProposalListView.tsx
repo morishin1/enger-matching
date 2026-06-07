@@ -15,9 +15,16 @@ import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
-  返信待ち: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
+  提案済: "#6b7280", 返信待ち: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
 };
-const normStage = (s: string | null | undefined) => (s && (STAGES as readonly string[]).includes(s) ? s : "返信待ち");
+const normStage = (s: string | null | undefined) => {
+  const v = String(s ?? "").trim();
+  if ((STAGES as readonly string[]).includes(v)) return v;
+  // 旧→新マッピング（DB に旧値が残っていても綺麗に分類するため）
+  if (v === "返信待ち") return "提案済";
+  if (v === "提案中" || v === "返信あり") return "返信待ち";
+  return "提案済";
+};
 const fmtDate = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`; };
 const fmtDateTime = (d: any) => {
   if (!d) return "—";
@@ -58,7 +65,7 @@ function nextActionFor(p: any): NextAction {
     return { text: "面談日程の確定", urgency: "high", icon: "event" };
   }
 
-  if (stage === "提案中") {
+  if (stage === "返信待ち") {
     if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "schedule_send" };
     if (stageDays >= 3) return { text: `状況確認・フォロー`, urgency: "medium", icon: "schedule_send" };
     return { text: "返信待ち（必要に応じてフォロー）", urgency: "low", icon: "schedule" };

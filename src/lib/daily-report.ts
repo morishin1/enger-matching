@@ -10,7 +10,8 @@ export type DailyReport = {
   ai_replied_at?: string | null;
 };
 
-const ACTIVE = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
+// 進行中ステージ。旧名(返信待ち/提案中)も互換のため含める。
+const ACTIVE = ["提案済", "返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const weekAgoStr = () => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 

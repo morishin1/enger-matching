@@ -18,7 +18,8 @@ type Issue = { tone: "danger" | "warn"; icon: string; title: string; detail: str
 
 const STALE_DAYS = 7;                    // 滞留商談のしきい値
 const RENEWAL_SOON_DAYS = 30;            // 離脱予兆：契約終了が近い日数
-const ACTIVE_PROP_STAGES = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"]; // 滞留判定対象
+// 進行中ステージ。旧ステージ名(返信待ち=旧提案直後/提案中=旧反応後) も互換のため含める。
+const ACTIVE_PROP_STAGES = ["提案済", "返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"]; // 滞留判定対象
 
 // 業務日（昨日。土日なら直近の金曜）
 function lastBusinessDay(today = new Date()): string {

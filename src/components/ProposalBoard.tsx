@@ -22,8 +22,8 @@ const daysSince = (d: any) => {
 };
 // 各ステージの目標滞留日数(SLA)。これを超えると警告/危険トーンで強調する。
 const STAGE_SLA_DAYS: Record<string, number> = {
-  返信待ち: 3,
-  提案中: 5,
+  提案済: 3,
+  返信待ち: 5,
   面談調整: 3,
   クロージング中: 5,
   面談合格: 7,
@@ -43,11 +43,11 @@ function hashColor(name?: string | null): string {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return PROPOSER_PALETTE[h % PROPOSER_PALETTE.length];
 }
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHASES, LOST_REASONS } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHASES, LOST_REASONS, normalizeStage as normStageFn } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
-  返信待ち: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
+  提案済: "#6b7280", 返信待ち: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
 };
 const CALLER_TONE: Record<string, string> = {
   返信あり: "#1aa260", 電話済み: "#0095D9", "電話(不在)": "#d98a2b", LINE確認中: "#7c5cff", メール確認中: "#7c5cff", 未架電: "#9aa7b4",
@@ -349,9 +349,9 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
     run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason, lost_reason_note: lost_reason_note ?? null }));
   const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
-  // 未知のステージ（旧仕様の "返信あり" 等の残骸や null）は「返信待ち」に丸めて、
+  // 未知のステージ（旧仕様の "返信あり" 等の残骸や null）は新ステージにマップして
   // ボード合計(boardCount) と 各カラムの合計が一致するようにする。
-  const normalizeStage = (s: string | null | undefined): string => (s && (STAGES as readonly string[]).includes(s)) ? s : "返信待ち";
+  const normalizeStage = (s: string | null | undefined): string => normStageFn(s);
   const byStage = (s: string) => proposals.filter((p) => normalizeStage(p.stage) === s);
   // ステージ目標日数を超過 / 大幅超過の件数を集計
   const stalled = proposals.reduce((acc, p) => {

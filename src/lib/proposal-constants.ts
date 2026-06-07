@@ -3,12 +3,27 @@
 //   定数(配列)はこの通常モジュールに置き、クライアント/サーバ双方から import する。
 
 // 提案ステージ。
-//   返信待ち   : 提案メール送信済み・先方からのアクション待ち（カンバン最左の初期キュー）
-//   提案中     : やり取り開始後・並行検討やフォロー中
+//   提案済    : 提案メール送信済み。先方からまだ何の反応もない状態（カンバン最左の初期キュー）
+//   返信待ち  : 先方から1次反応あり。やり取りを進めている、次アクション待ち
 //   面談調整   : 面談日程セッティング中
 //   クロージング中: 内定間際・条件詰め
 //   面談合格   : 内定（→ 稼働化で稼働管理へ）
-export const PROPOSAL_STAGES = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"] as const;
+export const PROPOSAL_STAGES = ["提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"] as const;
+
+// 旧ステージ名 → 新ステージ名のマッピング。
+//   ・旧 "返信待ち" は提案直後のキューを意味していた → 新 "提案済" に対応
+//   ・旧 "提案中"   は反応後のやり取りを意味していた → 新 "返信待ち" に対応
+//   DB に旧値が残っていても読み込み時に正規化して新名で扱う。
+//   書き込みは常に新ステージ名で行う（actions.ts を参照）。
+/** DB stage を新ラベルに正規化（未知の値は「提案済」に丸める）。 */
+export function normalizeStage(s: string | null | undefined): typeof PROPOSAL_STAGES[number] {
+  const v = String(s ?? "").trim();
+  if ((PROPOSAL_STAGES as readonly string[]).includes(v)) return v as typeof PROPOSAL_STAGES[number];
+  if (v === "返信待ち") return "提案済";   // 旧返信待ち
+  if (v === "提案中" || v === "返信あり") return "返信待ち";
+  return "提案済";
+}
+
 // 稼働化後の終端ステージ（提案ボードからは除外し、稼働管理へ移る）
 export const CONVERTED_STAGE = "稼働";
 

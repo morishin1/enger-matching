@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // ステージ別の成約確度（加重見込みに使用）
 const STAGE_PROB: Record<string, number> = { 返信待ち: 0.1, 提案中: 0.25, 面談調整: 0.5, クロージング中: 0.7, 面談合格: 0.9 };
-const STAGE_ORDER = ["返信待ち", "提案中", "面談調整", "クロージング中", "面談合格"];
+const STAGE_ORDER = ["提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"];
 const STAGE_TONE: Record<string, string> = { 返信待ち: "#6b7280", 提案中: "#0095D9", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260" };
 
 function parseManYen(rate?: string | number | null): number {

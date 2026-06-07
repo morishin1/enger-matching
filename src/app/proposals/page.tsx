@@ -108,11 +108,12 @@ export default async function ProposalsPage() {
         proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
         lost = lostRows.length;
-        // 過去の提案（履歴）：見送り/失注/稼働化済を新しい順に
+        // 提案履歴：進行中＋終了（見送り/失注/稼働）すべてを時系列で表示。
+        // マッチングから提案した直後のものをここで確認できる。
         history = all
-          .filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage))
-          .sort((a: any, b: any) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")))
-          .slice(0, 200);
+          .slice() // 元配列を破壊しない
+          .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+          .slice(0, 400);
         // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
         analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         // 企業フィードバックを紐付け（ミスマッチ低減の材料）
@@ -153,7 +154,7 @@ export default async function ProposalsPage() {
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Proposals · 提案管理</div>
           <h1>提案管理</h1>
-          <div className="sub"><b>返信待ち → 提案中 → 面談調整 → クロージング中 → 面談合格</b> のカンバン。「返信待ち」は提案メール送信済みで先方の反応待ちのキューです。提案は<b>2人1組（提案者＋パートナー）</b>で進め、クロージング担当は2人のうちどちらかをカードで選べます。面談合格の「稼働化」で<b>稼働管理</b>へ移ります。</div>
+          <div className="sub">マッチングからの提案を時系列で確認できます。<b>提案済 → 返信待ち → 面談調整 → クロージング中 → 面談合格</b> のカンバン進行は「提案ボード」タブから。提案は<b>2人1組（提案者＋パートナー）</b>で進め、面談合格の「稼働化」で<b>稼働管理</b>へ移ります。</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           <NextStepLink href="/progress" label="稼働管理を見る" hint="面談合格→稼働化したエンゲージメントへ" />
