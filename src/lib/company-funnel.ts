@@ -99,6 +99,74 @@ export async function loadCompanyFunnels(limit = 1000): Promise<Map<string, Comp
   return out;
 }
 
+// 企業 × 先方担当者(client_contact) で同じファネルを集計。
+//   どの担当との相性が良い/悪いかを可視化する根拠データ。
+export type ContactFunnel = CompanyFunnel & { contact: string };
+
+export async function loadCompanyContactFunnels(): Promise<Map<string, ContactFunnel[]>> {
+  // company名 → ContactFunnel[]（その企業の担当者別）
+  const out = new Map<string, ContactFunnel[]>();
+  if (!dbConfigured) return out;
+  let sb: ReturnType<typeof engerClient>;
+  try { sb = engerAdmin(); } catch { sb = engerClient(); }
+  const since = new Date(Date.now() - 365 * 86400000).toISOString();
+  try {
+    const r: any = await sb.from("proposals")
+      .select("company, client_contact, stage, rate, lost_reason, created_at, stage_updated_at")
+      .gte("created_at", since).limit(5000);
+    type Acc = { company: string; contact: string; proposals: number; met: number; won: number; lost: number; rates: number[]; closeDays: number[]; lastAt: number; reasons: Map<string, number> };
+    // 企業×担当者ごとの集計（companyとcontactは値として保持して分離を確実に）
+    const tmp = new Map<string, Acc>();
+    const keyOf = (co: string, ct: string) => `${co}${ct}`;
+    for (const p of (r.data ?? []) as any[]) {
+      const co = (p.company ?? "").trim();
+      const ct = (p.client_contact ?? "").trim();
+      if (!co || !ct) continue; // 担当者未入力はスキップ
+      const k = keyOf(co, ct);
+      const e: Acc = tmp.get(k) ?? { company: co, contact: ct, proposals: 0, met: 0, won: 0, lost: 0, rates: [], closeDays: [], lastAt: 0, reasons: new Map<string, number>() };
+      e.proposals++;
+      const stage = String(p.stage ?? "");
+      if (MET_STAGES.has(stage)) e.met++;
+      if (WON_STAGES.has(stage)) {
+        e.won++;
+        const c = new Date(p.created_at || 0).getTime();
+        const s = new Date(p.stage_updated_at || p.created_at || 0).getTime();
+        if (c && s && s >= c) e.closeDays.push(Math.max(0, Math.round((s - c) / 86400000)));
+      }
+      if (LOST_STAGES.has(stage)) {
+        e.lost++;
+        const reason = (p.lost_reason ?? "").trim() || "（理由未入力）";
+        e.reasons.set(reason, (e.reasons.get(reason) ?? 0) + 1);
+      }
+      const rate = parseManYen(p.rate);
+      if (rate > 0) e.rates.push(rate);
+      const t = new Date(p.created_at || 0).getTime();
+      if (t > e.lastAt) e.lastAt = t;
+      tmp.set(k, e);
+    }
+    for (const e of tmp.values()) {
+      const company = e.company; const contact = e.contact;
+      const avgRate = e.rates.length ? Math.round(e.rates.reduce((a, b) => a + b, 0) / e.rates.length) : null;
+      const avgCloseDays = e.closeDays.length ? Math.round(e.closeDays.reduce((a, b) => a + b, 0) / e.closeDays.length) : null;
+      const meetRate = e.proposals > 0 ? Math.round((e.met / e.proposals) * 100) : 0;
+      const winRate = e.proposals > 0 ? Math.round((e.won / e.proposals) * 100) : 0;
+      const topReasons = [...e.reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, n]) => ({ reason, n }));
+      const arr = out.get(company) ?? [];
+      arr.push({
+        company, contact,
+        proposals: e.proposals, met: e.met, won: e.won, lost: e.lost,
+        meetRate, winRate, avgRate, avgCloseDays,
+        lastProposedAt: e.lastAt ? new Date(e.lastAt).toISOString() : null,
+        topReasons,
+      });
+      out.set(company, arr);
+    }
+    // 各企業内で「提案数 → 稼働化率」降順に
+    for (const [, arr] of out) arr.sort((a, b) => b.proposals - a.proposals || b.winRate - a.winRate);
+  } catch { /* ignore */ }
+  return out;
+}
+
 /** 企業の案件スキル分布（上位N件）。 */
 export async function loadCompanyTopSkills(limit = 1000): Promise<Map<string, { skill: string; n: number }[]>> {
   const out = new Map<string, { skill: string; n: number }[]>();

@@ -3,18 +3,20 @@ import { CompanyCsv } from "@/components/CompanyCsv";
 import { CompanyFollowups, type FollowupRow } from "@/components/CompanyFollowups";
 import { CompanyProposalsRanking } from "@/components/CompanyProposalsRanking";
 import { CompanyTargetingBoard } from "@/components/CompanyTargetingBoard";
+import { CompanyContactBoard } from "@/components/CompanyContactBoard";
 import { getCompanyOverview } from "@/lib/companies";
-import { loadCompanyFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
+import { loadCompanyFunnels, loadCompanyContactFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
-  // 並列取得：企業概要・提案ファネル・案件スキル分布
-  const [companies, funnels, topSkillsByCompany] = await Promise.all([
+  // 並列取得：企業概要・提案ファネル・担当者別ファネル・案件スキル分布
+  const [companies, funnels, contactFunnels, topSkillsByCompany] = await Promise.all([
     getCompanyOverview().then((r) => r ?? []),
     loadCompanyFunnels(),
+    loadCompanyContactFunnels(),
     loadCompanyTopSkills(),
   ]);
   // 情報持ち出し防止：CSV取込/書出/テンプレは admin のみに開放。
@@ -74,6 +76,9 @@ export default async function CompaniesPage() {
 
       {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
       <CompanyTargetingBoard companies={companies} funnels={funnels} topSkillsByCompany={topSkillsByCompany} />
+
+      {/* 👤 担当者別の決定率：相手の窓口が誰かで結果が変わるため、相性をデータで提示 */}
+      <CompanyContactBoard contactsByCompany={contactFunnels} />
 
       {followups.length > 0 && <CompanyFollowups items={followups} />}
 
