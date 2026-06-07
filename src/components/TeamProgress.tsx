@@ -7,6 +7,7 @@
 
 import { engerAdmin, engerClient, dbConfigured } from "@/lib/supabase";
 import { listAccounts, listDepartmentMemberNames } from "@/lib/accounts";
+import { listPersonKgi, monthKey } from "@/lib/person-kgi";
 
 type Scope = "all" | "department";
 
@@ -15,10 +16,14 @@ const TARGET_MEETING_WEEK = 3;
 
 type Row = {
   name: string;
+  email: string | null;
   department: string | null;
   teamRole: string | null;
   placedAsProposer: number;   // 今月の稼働化（提案者として）
   placedAsCloser: number;     // 今月の稼働化（クロージングとして）
+  placedTotal: number;        // 提案者+クロージング（KGI評価対象）
+  kgiTarget: number | null;   // 個人月次KGI（稼働化目標）
+  kgiPct: number | null;      // 達成率（%、KGIが無いと null）
   proposalsMonth: number;     // 今月の提案数（活動量）
   meetingsWeek: number;       // 今週の打合せ数（活動量）
 };
@@ -26,18 +31,27 @@ type Row = {
 export async function TeamProgress({ scope, departmentName, myName }: { scope: Scope; departmentName?: string | null; myName?: string | null }) {
   if (!dbConfigured) return null;
 
-  // 対象メンバーの氏名を集める。全社（admin） or 自部署のみ（manager/leader）。
-  let members: { name: string; department: string | null; teamRole: string | null }[] = [];
+  // 対象メンバーの氏名/メールを集める。全社（admin） or 自部署のみ（manager/leader）。
+  // KGI（個人月次目標）の突合は email キーで行うため、可能なら email も保持する。
+  let members: { name: string; email: string | null; department: string | null; teamRole: string | null }[] = [];
   try {
     if (scope === "all") {
       const accs = await listAccounts();
       members = accs
         .filter((a) => a.status === "active" && (a.role === "admin" || a.role === "agent") && a.name)
-        .map((a) => ({ name: a.name!, department: (a as any).department ?? null, teamRole: (a as any).team_role ?? null }));
+        .map((a) => ({ name: a.name!, email: a.email ?? null, department: (a as any).department ?? null, teamRole: (a as any).team_role ?? null }));
     } else {
       if (!departmentName) return null;
-      const names = await listDepartmentMemberNames(departmentName);
-      members = names.map((n) => ({ name: n, department: departmentName, teamRole: null }));
+      // 部署スコープでも email を取りたいので listAccounts から自部署を絞る（軽量）。
+      const accs = await listAccounts();
+      members = accs
+        .filter((a) => a.status === "active" && (a.role === "admin" || a.role === "agent") && a.name && (a as any).department === departmentName)
+        .map((a) => ({ name: a.name!, email: a.email ?? null, department: (a as any).department ?? null, teamRole: (a as any).team_role ?? null }));
+      // フォールバック：listDepartmentMemberNames で名前だけ取れる場合（マスタ未整備対策）
+      if (members.length === 0) {
+        const names = await listDepartmentMemberNames(departmentName);
+        members = names.map((n) => ({ name: n, email: null, department: departmentName, teamRole: null }));
+      }
     }
   } catch {
     return null;
@@ -107,24 +121,40 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
     mtgByName.set(m.our_owner, (mtgByName.get(m.our_owner) ?? 0) + 1);
   }
 
-  const rows: Row[] = members.map((m) => ({
-    name: m.name,
-    department: m.department,
-    teamRole: m.teamRole,
-    placedAsProposer: placedProposer.get(m.name) ?? 0,
-    placedAsCloser: placedCloser.get(m.name) ?? 0,
-    proposalsMonth: propByName.get(m.name) ?? 0,
-    meetingsWeek: mtgByName.get(m.name) ?? 0,
-  }));
+  // 個人KGI（当月）を email キーで一括取得。
+  const kgis = await listPersonKgi(monthKey(now), scope === "department" ? { department: departmentName } : undefined);
+  const kgiByEmail = new Map<string, number>();
+  for (const k of kgis) if (k.placement_target != null) kgiByEmail.set((k.owner_email ?? "").toLowerCase(), k.placement_target);
 
-  // 稼働化の合計（提案者＋クローザー）降順 → 同点は提案数で。稼働数を最重視。
-  rows.sort((a, b) => {
-    const pb = (b.placedAsProposer + b.placedAsCloser) - (a.placedAsProposer + a.placedAsCloser);
-    if (pb !== 0) return pb;
-    return b.proposalsMonth - a.proposalsMonth;
+  const rows: Row[] = members.map((m) => {
+    const placedAsProposer = placedProposer.get(m.name) ?? 0;
+    const placedAsCloser = placedCloser.get(m.name) ?? 0;
+    const placedTotal = placedAsProposer + placedAsCloser;
+    const kgiTarget = m.email ? (kgiByEmail.get(m.email.toLowerCase()) ?? null) : null;
+    const kgiPct = (kgiTarget != null && kgiTarget > 0) ? Math.min(100, Math.round((placedTotal / kgiTarget) * 100)) : null;
+    return {
+      name: m.name, email: m.email, department: m.department, teamRole: m.teamRole,
+      placedAsProposer, placedAsCloser, placedTotal, kgiTarget, kgiPct,
+      proposalsMonth: propByName.get(m.name) ?? 0,
+      meetingsWeek: mtgByName.get(m.name) ?? 0,
+    };
   });
 
-  const totalPlaced = rows.reduce((s, r) => s + r.placedAsProposer + r.placedAsCloser, 0);
+  // 並び順：要対応（KGI未設定 or 達成率低い）を先頭、次に達成率↑、最後に名前順。
+  //   マネージャーが『どの部下を今日助けるか』が一目で分かる順序。
+  rows.sort((a, b) => {
+    const aDanger = a.kgiTarget == null ? 2 : a.kgiPct! < 50 ? 1 : 0;
+    const bDanger = b.kgiTarget == null ? 2 : b.kgiPct! < 50 ? 1 : 0;
+    if (aDanger !== bDanger) return bDanger - aDanger;
+    if (a.kgiPct != null && b.kgiPct != null) return a.kgiPct - b.kgiPct;
+    return a.name.localeCompare(b.name);
+  });
+
+  const totalPlaced = rows.reduce((s, r) => s + r.placedTotal, 0);
+  const totalKgi = rows.reduce((s, r) => s + (r.kgiTarget ?? 0), 0);
+  const overallPct = totalKgi > 0 ? Math.min(100, Math.round((totalPlaced / totalKgi) * 100)) : null;
+  const noKgiCount = rows.filter((r) => r.kgiTarget == null).length;
+  const behindCount = rows.filter((r) => r.kgiPct != null && r.kgiPct < 50).length;
   const heading = scope === "all" ? "🏢 全社メンバー進捗（稼働数）" : `👥 ${departmentName} メンバー進捗（稼働数）`;
   const subtitle = scope === "all"
     ? "全エージェント・管理者の今月の稼働化数を最重視。提案者／クロージング担当それぞれで集計。"
@@ -137,26 +167,39 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{heading}</h3>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{subtitle}</div>
         </div>
-        <span className="muted" style={{ fontSize: 11 }}>
-          今月の稼働化 合計 <b style={{ color: "var(--color-brand-700)", fontSize: 13 }}>{totalPlaced}</b> 件
-        </span>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 11 }}>
+          {overallPct != null && (
+            <span>
+              チーム達成率 <b style={{ color: overallPct >= 80 ? "#067647" : overallPct >= 50 ? "#b45309" : "#b42318", fontSize: 14 }}>{overallPct}%</b>
+              <span className="muted" style={{ marginLeft: 4 }}>({totalPlaced}/{totalKgi})</span>
+            </span>
+          )}
+          {noKgiCount > 0 && (
+            <span style={{ color: "#b45309", fontWeight: 700 }}>⚠ KGI未設定 {noKgiCount}名</span>
+          )}
+          {behindCount > 0 && (
+            <span style={{ color: "#b42318", fontWeight: 700 }}>🚨 達成率50%未満 {behindCount}名</span>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 200px) 1fr 1fr 1.4fr", gap: 12, padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--color-ink-4)", letterSpacing: ".04em" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 180px) minmax(160px, 1.4fr) 70px 70px 1.2fr", gap: 12, padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--color-ink-4)", letterSpacing: ".04em" }}>
           <span>メンバー</span>
-          <span>🎯 稼働化・提案者（今月）</span>
-          <span>🎯 稼働化・クロージング（今月）</span>
+          <span>🏁 KGI達成（稼働化/目標）</span>
+          <span style={{ textAlign: "center" }}>提案者</span>
+          <span style={{ textAlign: "center" }}>クローザー</span>
           <span>活動量（提案/月・打合せ/週）</span>
         </div>
         {rows.map((r) => {
           const isMe = myName && r.name === myName;
+          const tone = r.kgiPct == null ? "warn" : r.kgiPct >= 80 ? "good" : r.kgiPct >= 50 ? "med" : "bad";
+          const bg = isMe ? "var(--color-brand-25)" : tone === "bad" ? "rgba(180,35,24,.04)" : tone === "warn" ? "rgba(217,119,6,.04)" : "var(--color-surface)";
           return (
             <div key={r.name} style={{
-              display: "grid", gridTemplateColumns: "minmax(130px, 200px) 1fr 1fr 1.4fr", gap: 12,
+              display: "grid", gridTemplateColumns: "minmax(130px, 180px) minmax(160px, 1.4fr) 70px 70px 1.2fr", gap: 12,
               alignItems: "center", padding: "9px 10px",
-              border: "1px solid var(--color-border)", borderRadius: 8,
-              background: isMe ? "var(--color-brand-25)" : "var(--color-surface)",
+              border: "1px solid var(--color-border)", borderRadius: 8, background: bg,
             }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -166,6 +209,7 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
                   {r.department ?? "未所属"}{r.teamRole ? ` ・ ${labelOf(r.teamRole)}` : ""}
                 </span>
               </div>
+              <KgiProgress placed={r.placedTotal} target={r.kgiTarget} pct={r.kgiPct} />
               <PlacedBadge value={r.placedAsProposer} tone="brand" />
               <PlacedBadge value={r.placedAsCloser} tone="accent" />
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -178,8 +222,29 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
       </div>
 
       <div className="muted" style={{ fontSize: 11, marginTop: 10 }}>
-        ※ 稼働化＝今月ひも付けられた稼働の件数。1つの稼働は「提案者」と「クロージング担当」の双方に1件ずつ計上されます（重複ではなく役割別の貢献）。
+        ※ KGI達成率＝今月の稼働化(提案者+クローザー合算) ÷ 個人月次KGI。<b>KGI未設定の部下</b>は <a href="/settings/person-kgi" style={{ color: "var(--color-brand-700)" }}>個人KGI設定</a> から目標を設定してください。
       </div>
+    </div>
+  );
+}
+
+// 個人KGIの達成率バー。未設定はオレンジ警告。
+function KgiProgress({ placed, target, pct }: { placed: number; target: number | null; pct: number | null }) {
+  if (target == null) {
+    return (
+      <a href="/settings/person-kgi" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>
+        ⚠ KGI未設定 <span style={{ fontSize: 10, textDecoration: "underline" }}>設定する →</span>
+      </a>
+    );
+  }
+  const color = pct! >= 80 ? "#067647" : pct! >= 50 ? "#b45309" : "#b42318";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, height: 8, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: color, transition: "width .25s" }} />
+      </div>
+      <span className="mono" style={{ fontSize: 12, fontWeight: 800, color, minWidth: 50, textAlign: "right" }}>{placed}/{target}</span>
+      <span style={{ fontSize: 10.5, fontWeight: 800, color, minWidth: 32, textAlign: "right" }}>{pct}%</span>
     </div>
   );
 }

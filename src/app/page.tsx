@@ -8,7 +8,6 @@ import { ReplyAlertBanner } from "@/components/ReplyAlertBanner";
 import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { TalentRequests } from "@/components/TalentRequests";
-import { RecentActivity } from "@/components/RecentActivity";
 import { DashboardInbox } from "@/components/DashboardInbox";
 import { TeamProgress } from "@/components/TeamProgress";
 import { currentAccess } from "@/lib/accounts";
@@ -63,33 +62,45 @@ export default async function DashboardPage() {
     );
   }
 
-  // 営業メンバー（agent）：従来構成。マネージャー/リーダーには自部署のメンバー進捗を出す。
-  // メンバー（マネージャー/リーダー以外）には、最上段でKGI/KPIヒーローを表示して
-  // 毎日・毎週・今月の目標達成意識を促す。
+  // 営業エージェント：役職で2分岐し、ダッシュボードをシンプル化。
+  //   メンバー（マネージャー/リーダー以外）→ 自分のKGI/KPIヒーローのみ。詳細は各画面で。
+  //   マネージャー/リーダー → 自部署メンバーの進捗管理が中心。
   const isMemberOnly = !isManager;
-  const scorecard = (access?.name || access?.email) ? await getMyScorecard(access?.name ?? null, access?.email ?? null) : null;
+
+  if (isMemberOnly) {
+    const scorecard = (access?.name || access?.email) ? await getMyScorecard(access?.name ?? null, access?.email ?? null) : null;
+    return (
+      <>
+        <ReplyAlertBanner name={access?.name ?? null} />
+        {scorecard && (
+          <div className="page">
+            <AgentGoalsHero name={access?.name ?? null} s={scorecard} />
+          </div>
+        )}
+        {talentRequests.length > 0 && (
+          <div className="page" style={{ paddingTop: 0 }}>
+            <TalentRequests rows={talentRequests} />
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // マネージャー/リーダー：部署メンバーの進捗管理を中心に。
+  //   ・上：自部署メンバーの個人KGI達成率・要対応の可視化（TeamProgress）
+  //   ・下：従来の運用情報（受信箱・人材リクエスト）も保持
   return (
     <>
       <ReplyAlertBanner name={access?.name ?? null} />
-      {isMemberOnly && scorecard && (
-        <div className="page" style={{ paddingBottom: 0 }}>
-          <AgentGoalsHero name={access?.name ?? null} s={scorecard} />
-        </div>
-      )}
       <div className="page" style={{ paddingBottom: 0 }}>
-        <RecentActivity />
+        <TeamProgress scope="department" departmentName={access?.department ?? null} myName={access?.name ?? null} />
       </div>
-      <DashboardInbox />
       {talentRequests.length > 0 && (
         <div className="page" style={{ paddingBottom: 0 }}>
           <TalentRequests rows={talentRequests} />
         </div>
       )}
-      {isManager && (
-        <div className="page" style={{ paddingBottom: 0 }}>
-          <TeamProgress scope="department" departmentName={access?.department ?? null} myName={access?.name ?? null} />
-        </div>
-      )}
+      <DashboardInbox />
       <AgentDashboard role="agent" myName={access?.name ?? null} position={access?.position ?? null} />
     </>
   );
