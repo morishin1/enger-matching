@@ -1,8 +1,10 @@
 "use client";
 
 // マッチング配下のタブ（マッチング / 案件 / 人材 / サイト登録）。
-// ヘッダー(topbar)内のパンくず右側に並べて表示する想定。
-// pathname で active 判定し、該当画面以外では何も描画しない（早期 null）。
+// 表示先：
+//   - 通常はヘッダー(topbar)内に並べる（MatchingTabs）。
+//   - /matching ではヘッダー側を非表示にし、ページ本体内（フローバー直下）に
+//     MatchingPeerTabs として配置する（トップバーのスリム化）。
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
@@ -24,11 +26,23 @@ function activeFromPath(path: string): TabKey | null {
   return null;
 }
 
-export function MatchingTabs({ counts }: { counts?: SidebarCounts }) {
+/** ヘッダー用。/matching のときは本体側に描画を委譲して非表示にする（ヘッダースリム化）。 */
+export function MatchingTabs({ counts, hideOnMatching = true }: { counts?: SidebarCounts; hideOnMatching?: boolean }) {
   const path = usePathname() ?? "";
   const active = activeFromPath(path);
   if (!active) return null;
+  if (hideOnMatching && active === "matching") return null;
+  return <PeerTabsInternal counts={counts} active={active} />;
+}
 
+/** マッチングページ本体用。ヘッダーから移動してきたタブ群をここに描画する。 */
+export function MatchingPeerTabs({ counts }: { counts?: SidebarCounts }) {
+  const path = usePathname() ?? "";
+  const active = activeFromPath(path) ?? "matching";
+  return <PeerTabsInternal counts={counts} active={active} />;
+}
+
+function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: TabKey }) {
   const totalOf: Record<TabKey, number | undefined> = {
     matching: undefined,
     jobs: counts?.jobs,

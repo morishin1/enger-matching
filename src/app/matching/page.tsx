@@ -4,7 +4,6 @@ import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
 import { FocusList } from "@/components/FocusList";
-import { JumpToMatching } from "@/components/JumpToMatching";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
@@ -13,6 +12,9 @@ import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
 import { ConfirmJobButton } from "@/components/ConfirmJobButton";
 import { FlowSteps } from "@/components/FlowSteps";
+import { MatchingPeerTabs } from "@/components/MatchingTabs";
+import { MatchingModeTabs } from "@/components/MatchingModeTabs";
+import { getSidebarCounts } from "@/lib/counts";
 
 export const dynamic = "force-dynamic";
 
@@ -174,6 +176,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   // 古い案件（配信から JOB_STALE_DAYS 超）を含めて表示するか。既定は false（隠す）。
   const showStale = sp.stale === "1";
+  // 関連タブのカウント（マッチング/案件/人材/LP登録）。ヘッダーから本体に移したため
+  // ページ側で取得して MatchingPeerTabs に渡す。
+  const peerCounts = await getSidebarCounts();
   // パートナー企業はテナント隔離のため別画面（自社＋共有のみ・他社匿名・提案/メール無効）
   const scope = await getViewerScope();
   if (scope.isTenant) {
@@ -520,6 +525,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         </div>
 
         <FlowSteps current="matching" sub="人材 → 案件" />
+        <MatchingPeerTabs counts={peerCounts} />
 
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
@@ -629,18 +635,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   // ============ 注力マッチング（ウォッチリスト）の描画 ============
   if (tab === "focus") {
-    const Tabs = (
-      <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: "★ ♡・プロパー・新着" }].map((t) => {
-          const active = t.id === (tab as string);
-          return (
-            <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
-              {t.label}<span style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
-            </Link>
-          );
-        })}
-      </div>
-    );
     return (
       <div className="page">
         <div className="page-head">
@@ -651,8 +645,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
         <FlowSteps current="matching" sub="注力" />
-        <JumpToMatching />
-        {Tabs}
+        <MatchingPeerTabs counts={peerCounts} />
+        <MatchingModeTabs />
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
         {opennessBanner}
 
@@ -715,19 +709,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
       <FlowSteps current="matching" sub="案件 → 人材" />
 
-      <JumpToMatching />
+      <MatchingPeerTabs counts={peerCounts} />
 
-      {/* タブ */}
-      <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "auto", label: "自動マッチング", note: "全案件・全人材" }, { id: "focus", label: "注力マッチング", note: "★ ♡・プロパー・新着" }].map((t) => {
-          const active = t.id === (tab as string);
-          return (
-            <Link key={t.id} href={`/matching?tab=${t.id}`} style={{ padding: "8px 18px", borderRadius: 99, textDecoration: "none", background: active ? "var(--color-surface)" : "transparent", color: active ? "var(--color-ink)" : "var(--color-ink-3)", fontSize: 13, fontWeight: 600, boxShadow: active ? "0 1px 2px rgba(15,23,42,0.08)" : "none", display: "inline-flex", flexDirection: "column", lineHeight: 1.3 }}>
-              {t.label}<span style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
-            </Link>
-          );
-        })}
-      </div>
+      <MatchingModeTabs />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {opennessBanner}
