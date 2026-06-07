@@ -40,6 +40,28 @@ const daysAgo = (d: any) => {
   return Math.max(0, Math.floor((Date.now() - t) / 86400000));
 };
 
+// 単価文字列（"¥70万" "70" 等）→ 万円の数値。見込み金額の集計に使う。
+const parseManYen = (rate?: string | number | null): number => {
+  if (rate == null) return 0;
+  if (typeof rate === "number") return rate >= 10000 ? Math.round(rate / 10000) : Math.round(rate);
+  const m = String(rate).replace(/,/g, "").match(/(\d+(?:\.\d+)?)/);
+  if (!m) return 0;
+  let n = parseFloat(m[1]);
+  if (/万/.test(rate)) return Math.round(n);
+  if (n >= 10000) n = n / 10000;
+  return Math.round(n);
+};
+const yen = (man: number) => (man >= 10000 ? `${(man / 10000).toFixed(1)}億` : `${man.toLocaleString("ja-JP")}万`);
+
+// ステージごとの目標滞留日数(SLA)と、滞留したとき何をすべきか（行動を促す一手）。
+const STAGE_SLA: Record<string, number> = { 所属確認: 2, 提案中: 5, 面談: 3, 合格: 7 };
+const STAGE_HINT: Record<string, string> = {
+  所属確認: "営業可否を確認",
+  提案中: "フォロー架電",
+  面談: "日程を確定・実施",
+  合格: "稼働化する",
+};
+
 // 安定カラー（同じ名前は同じ色）— 提案者・CLの見分け用
 const PALETTE = ["#0b5cab", "#7c3aed", "#1aa260", "#d97706", "#dc2626", "#0891b2", "#db2777", "#65a30d", "#475569", "#ea580c", "#4338ca", "#0d9488"];
 function hashColor(name?: string | null): string {
@@ -157,10 +179,22 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
   };
   const pendingCount = useMemo(() => proposals.filter((p) => isPending(p.job_notify_status) || isPending(p.cand_notify_status)).length, [proposals]);
 
-  // ステージ別件数（KPI）
-  const counts = useMemo(() => {
-    const m: Record<string, number> = Object.fromEntries(STAGES.map((s) => [s, 0]));
-    for (const p of proposals) m[normStage(p.stage)] = (m[normStage(p.stage)] ?? 0) + 1;
+  // ステージ別サマリ（件数 + 要対応(滞留/未処理) + 見込み金額）。
+  //   要対応 = そのステージで「いま動かすべき」件数：
+  //     ・通知が未処理（案件側 or 人材側が pending） … 初回コンタクト/フォロー漏れ
+  //     ・SLA超過（stage_updated_at から STAGE_SLA 日以上動きなし） … 放置
+  //   見込み金額 = そのステージにある提案の単価合計（万円）。どこに売上が積まれているか。
+  const stats = useMemo(() => {
+    const m: Record<string, { count: number; due: number; man: number }> = Object.fromEntries(STAGES.map((s) => [s, { count: 0, due: 0, man: 0 }]));
+    for (const p of proposals) {
+      const s = normStage(p.stage);
+      const e = m[s]; if (!e) continue;
+      e.count++;
+      e.man += parseManYen(p.rate);
+      const stalled = daysAgo(p.stage_updated_at || p.updated_at || p.created_at) >= (STAGE_SLA[s] ?? 5);
+      const pending = isPending(p.job_notify_status) || isPending(p.cand_notify_status);
+      if (stalled || pending) e.due++;
+    }
     return m;
   }, [proposals]);
 
@@ -189,21 +223,38 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {/* KPI カード（ステージ別・クリックで絞り込み） */}
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(140px, 1fr))`, gap: 10, overflowX: "auto" }}>
+      {/* ステージ別サマリ（クリックで絞り込み）。件数だけでなく
+          「要対応(いま動かす件数)」「見込み金額」「次の一手」を出して行動につなげる。 */}
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(176px, 1fr))`, gap: 10, overflowX: "auto" }}>
         {STAGES.map((s) => {
           const tone = STAGE_TONE[s] ?? "#6b7280";
           const on = stageFilter === s;
+          const st = stats[s] ?? { count: 0, due: 0, man: 0 };
           return (
             <button key={s} type="button" onClick={() => setStageFilter(on ? "" : s)} title={on ? "絞り込み解除" : `「${s}」で絞り込み`}
-              className="card" style={{ textAlign: "left", padding: 14, cursor: "pointer", border: on ? `2px solid ${tone}` : "1px solid var(--color-border)", background: on ? `${tone}0d` : "var(--color-surface)", fontFamily: "inherit" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: tone }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: tone }} />{s}
+              className="card" style={{ textAlign: "left", padding: 14, cursor: "pointer", border: on ? `2px solid ${tone}` : "1px solid var(--color-border)", background: on ? `${tone}0d` : "var(--color-surface)", fontFamily: "inherit", display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: tone }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: tone }} />{s}
+                </span>
+                {st.man > 0 && <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>¥{yen(st.man)}</span>}
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 6 }}>
-                <span className="tnum" style={{ fontSize: 26, fontWeight: 800, lineHeight: 1 }}>{counts[s] ?? 0}</span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                <span className="tnum" style={{ fontSize: 24, fontWeight: 800, lineHeight: 1 }}>{st.count}</span>
                 <span className="muted" style={{ fontSize: 11 }}>件</span>
               </div>
+              {/* 要対応（滞留 or 未処理）＝今すぐ動かす件数＋次の一手 */}
+              {st.due > 0 ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#b42318" }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 99, background: "#dc2626" }} />
+                  要対応 {st.due}
+                  <span style={{ fontWeight: 600, color: "var(--color-ink-3)" }}>→ {STAGE_HINT[s] ?? ""}</span>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: st.count > 0 ? "#067647" : "var(--color-ink-4)", fontWeight: 600 }}>
+                  {st.count > 0 ? "✓ 滞留なし" : "—"}
+                </div>
+              )}
             </button>
           );
         })}
