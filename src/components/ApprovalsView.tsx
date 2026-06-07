@@ -53,8 +53,14 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   }, [accounts]);
 
   const cur = TABS.find((t) => t.key === tab)!;
-  const rows = accounts.filter((a) => a.role === cur.role)
-    .sort((a, b) => (a.status === "pending" ? -1 : 1) - (b.status === "pending" ? -1 : 1) || String(b.created_at).localeCompare(String(a.created_at)));
+  // ステータス絞り込み（承認待ち / 承認済み / すべて）。役割タブ内のサブタブ。
+  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "all">("pending");
+  const inRole = accounts.filter((a) => a.role === cur.role);
+  const rolePending = inRole.filter((a) => a.status === "pending").length;
+  const roleApproved = inRole.filter((a) => a.status !== "pending").length;
+  const rows = inRole
+    .filter((a) => statusFilter === "all" ? true : statusFilter === "pending" ? a.status === "pending" : a.status !== "pending")
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
 
   // 一括選択（タブ切替時はリセット）
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -93,7 +99,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   };
 
   // タブ切替時に選択をリセット
-  const setTabSafe = (k: TabKey) => { setSelected(new Set()); setTab(k); };
+  const setTabSafe = (k: TabKey) => { setSelected(new Set()); setStatusFilter("pending"); setTab(k); };
 
   const performBulkDelete = async () => {
     if (selected.size === 0) return;
@@ -156,6 +162,33 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
             怪しい登録 {suspectCount} 件（クリックで選択）
           </button>
         )}
+      </div>
+
+      {/* 承認待ち / 承認済み のサブタブ（役割タブ内） */}
+      <div role="tablist" aria-label="ステータス" style={{ display: "inline-flex", gap: 4, padding: 4, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
+        {([
+          { k: "pending",  label: "承認待ち", n: rolePending,  fg: "#b45309", bg: "#fff6e0" },
+          { k: "approved", label: "承認済み", n: roleApproved, fg: "#067647", bg: "#e7f7ee" },
+          { k: "all",      label: "すべて",   n: rolePending + roleApproved, fg: "var(--color-ink)", bg: "var(--color-surface)" },
+        ] as const).map((s) => {
+          const on = statusFilter === s.k;
+          return (
+            <button key={s.k} type="button" role="tab" aria-selected={on}
+              onClick={() => { setStatusFilter(s.k); setSelected(new Set()); }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "6px 14px", borderRadius: 99, fontFamily: "inherit",
+                background: on ? "var(--color-surface)" : "transparent",
+                color: on ? s.fg : "var(--color-ink-3)",
+                boxShadow: on ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
+                fontSize: 12.5, fontWeight: on ? 800 : 600, border: 0, cursor: "pointer",
+              }}>
+              {s.label}
+              <span style={{ fontSize: 10.5, fontWeight: 800, padding: "1px 7px", borderRadius: 99,
+                background: on ? s.bg : "var(--color-surface)", color: on ? s.fg : "var(--color-ink-4)" }}>{s.n}</span>
+            </button>
+          );
+        })}
       </div>
       {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
 

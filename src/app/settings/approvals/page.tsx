@@ -22,9 +22,9 @@ export default async function ApprovalsPage() {
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">Approvals · 新規登録の承認</div>
-          <h1>新規登録（承認）{pending > 0 && <span className="badge hot" style={{ marginLeft: 8, fontSize: 12 }}>{pending} 件待ち</span>}</h1>
-          <div className="sub">自己登録したアカウントを<b>企業 / 人材 / 営業</b>のタブで切り分けて承認します。承認すると、その区分のダッシュボード・ポータルを利用できるようになります。</div>
+          <div className="meta">Users · ユーザー管理</div>
+          <h1>ユーザー管理{pending > 0 && <span className="badge hot" style={{ marginLeft: 8, fontSize: 12 }}>{pending} 件承認待ち</span>}</h1>
+          <div className="sub">登録ユーザーを<b>企業 / 人材 / 営業</b>等のタブで切り分け、<b>承認待ち / 承認済み</b>を分けて表示。承認・削除・担当者割当・無効化などをまとめて行えます。</div>
         </div>
       </div>
 

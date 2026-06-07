@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, deleteAccount, createAgent, resetAccountPassword } from "@/app/settings/account-actions";
+import { useMemo, useState, useTransition } from "react";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, deleteAccount, createAgent, resetAccountPassword, bulkDeleteAccounts } from "@/app/settings/account-actions";
 import type { Account, Role } from "@/lib/accounts";
 import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
+
+const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
 const ROLE_LABEL: Record<Role, string> = { admin: "管理者", agent: "エージェント", client: "ユーザー企業", candidate: "人材", partner: "パートナー企業", freelance: "副業エージェント" };
 const ROLE_TONE: Record<Role, { bg: string; fg: string }> = {
@@ -55,8 +57,31 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
       else setMsg(r.error ?? "操作に失敗しました");
     });
 
-  const waiting = accounts.filter((a) => a.status === "pending");
-  const others = accounts.filter((a) => a.status !== "pending");
+  const waiting = useMemo(() => accounts.filter((a) => a.status === "pending").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), [accounts]);
+  const others = useMemo(() => accounts.filter((a) => a.status !== "pending").sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), [accounts]);
+
+  // 一括選択（承認待ち / 承認済み で独立）
+  const [selWait, setSelWait] = useState<Set<string>>(new Set());
+  const [selOther, setSelOther] = useState<Set<string>>(new Set());
+  const [confirmKind, setConfirmKind] = useState<null | "wait" | "other">(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const togWait = (id: string) => setSelWait((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const togOther = (id: string) => setSelOther((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const togAllWait = () => setSelWait((s) => { const ids = waiting.map((a) => a.id); const allOn = ids.every((id) => s.has(id)); return new Set(allOn ? [] : ids); });
+  const togAllOther = () => setSelOther((s) => { const ids = others.map((a) => a.id); const allOn = ids.every((id) => s.has(id)); return new Set(allOn ? [] : ids); });
+  const performBulkDelete = (kind: "wait" | "other") => {
+    const list = kind === "wait" ? waiting.filter((a) => selWait.has(a.id)) : others.filter((a) => selOther.has(a.id));
+    if (list.length === 0) return;
+    setBulkBusy(true); setMsg(null);
+    startTransition(async () => {
+      const res = await bulkDeleteAccounts(list.map((a) => ({ id: a.id, email: a.email })));
+      setBulkBusy(false); setConfirmKind(null);
+      if (!res.ok) { setMsg(res.error ?? "削除に失敗しました"); return; }
+      const err = res.errors.length > 0 ? `（失敗 ${res.errors.length} 件：${res.errors.map((e) => e.error).join(" / ")}）` : "";
+      setMsg(`削除 ${res.deleted} 件 ${err}`);
+      if (kind === "wait") setSelWait(new Set()); else setSelOther(new Set());
+    });
+  };
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
@@ -132,10 +157,34 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
 
       {waiting.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div className="muted" style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 8 }}>承認待ち</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: "#b45309", padding: "2px 10px", borderRadius: 99, background: "#fff6e0", border: "1px solid #fde9b0" }}>承認待ち {waiting.length}</span>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>
+              <input type="checkbox" checked={waiting.length > 0 && waiting.every((a) => selWait.has(a.id))}
+                ref={(el) => { if (el) el.indeterminate = selWait.size > 0 && !waiting.every((a) => selWait.has(a.id)); }}
+                onChange={togAllWait} style={{ accentColor: "var(--color-brand-600)" }} /> 全選択
+            </label>
+            {selWait.size > 0 && (
+              <button type="button" onClick={() => setConfirmKind("wait")} disabled={bulkBusy}
+                style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 8, border: 0, background: "var(--color-danger, #b42318)", color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>delete</span>
+                選択 {selWait.size} 件を削除
+              </button>
+            )}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {waiting.map((a) => (
-              <PendingRow key={a.id} a={a} busy={pending} onApprove={(fd) => run(() => approveAccount(fd))} />
+              <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+                <label style={{ display: "flex", alignItems: "center", paddingLeft: 4 }}>
+                  <input type="checkbox" checked={selWait.has(a.id)} onChange={() => togWait(a.id)} style={{ accentColor: "var(--color-brand-600)" }} />
+                </label>
+                <div style={{ flex: 1 }}>
+                  <PendingRow a={a} busy={pending} onApprove={(fd) => run(() => approveAccount(fd))} />
+                  <div className="muted" style={{ fontSize: 10.5, paddingLeft: 12, marginTop: 2 }}>
+                    📅 登録 {fmtDateTime(a.created_at)}
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -143,16 +192,34 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
 
       {others.length > 0 && (
         <div>
-          <div className="muted" style={{ fontSize: 11.5, fontWeight: 700, marginBottom: 8 }}>登録済みアカウント</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: "#067647", padding: "2px 10px", borderRadius: 99, background: "#e7f7ee", border: "1px solid #bfe3cc" }}>承認済み {others.length}</span>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>
+              <input type="checkbox" checked={others.length > 0 && others.every((a) => selOther.has(a.id))}
+                ref={(el) => { if (el) el.indeterminate = selOther.size > 0 && !others.every((a) => selOther.has(a.id)); }}
+                onChange={togAllOther} style={{ accentColor: "var(--color-brand-600)" }} /> 全選択
+            </label>
+            {selOther.size > 0 && (
+              <button type="button" onClick={() => setConfirmKind("other")} disabled={bulkBusy}
+                style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 8, border: 0, background: "var(--color-danger, #b42318)", color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>delete</span>
+                選択 {selOther.size} 件を削除
+              </button>
+            )}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {others.map((a) => {
               const t = ROLE_TONE[a.role];
               return (
                 <div key={a.id} style={{ display: "flex", flexDirection: "column", gap: 8, padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: 10, opacity: a.status === "disabled" ? 0.55 : 1 }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                  <label style={{ display: "flex", alignItems: "center" }}>
+                    <input type="checkbox" checked={selOther.has(a.id)} onChange={() => togOther(a.id)} style={{ accentColor: "var(--color-brand-600)" }} />
+                  </label>
                   <div style={{ minWidth: 160, flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{a.name || "（名前未設定）"}{a.company_name ? <span className="muted" style={{ fontWeight: 400 }}>・{a.company_name}</span> : null}</div>
                     <div className="muted" style={{ fontSize: 11.5 }}>{a.email}</div>
+                    <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>📅 登録 {fmtDateTime(a.created_at)}{a.approved_at ? `　・　✓ 承認 ${fmtDateTime(a.approved_at)}` : ""}</div>
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: t.bg, color: t.fg }}>{ROLE_LABEL[a.role]}</span>
                   <select value={a.role} onChange={(e) => run(() => setAccountRole(a.id, e.target.value as Role))} disabled={pending} style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12 }}>
@@ -203,6 +270,35 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
           </div>
         </div>
       )}
+
+      {/* 一括削除の確認モーダル */}
+      {confirmKind && (() => {
+        const list = confirmKind === "wait" ? waiting.filter((a) => selWait.has(a.id)) : others.filter((a) => selOther.has(a.id));
+        return (
+          <div onClick={() => !bulkBusy && setConfirmKind(null)} role="dialog" aria-modal="true"
+            style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "grid", placeItems: "center", zIndex: 600, padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()} className="card"
+              style={{ width: "100%", maxWidth: 480, padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 28, color: "var(--color-danger, #b42318)" }}>warning</span>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{list.length} 件のアカウントを削除します</h3>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+                この操作は取り消せません。<b>app_users / public.profiles / Supabase Auth</b> のうち該当する行を可能な範囲で連動削除します。本人がログイン中の場合はセッションが切れます。
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button type="button" onClick={() => setConfirmKind(null)} disabled={bulkBusy}
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+                <button type="button" onClick={() => performBulkDelete(confirmKind)} disabled={bulkBusy}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: 10, border: 0, background: "var(--color-danger, #b42318)", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>delete</span>
+                  {bulkBusy ? "削除中…" : "削除する"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

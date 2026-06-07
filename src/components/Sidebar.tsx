@@ -39,7 +39,7 @@ const ANALYSIS: NavItem[] = [
 
 // その他（補助ツール）。
 const TOOLS: NavItem[] = [
-  { href: "/settings/approvals", id: "approvals", label: "新規登録（承認）", icon: "person_add", count: "approvalsPending", hot: true },
+  { href: "/settings/approvals", id: "approvals", label: "ユーザー管理", icon: "person_add", count: "approvalsPending", hot: true },
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
