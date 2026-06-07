@@ -1,4 +1,5 @@
 import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, CandidateGmailBulkButton, ExportButton } from "@/components/CsvTools";
+import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
 import { PeopleTable } from "@/components/PeopleTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
@@ -216,6 +217,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           {!scope.isTenant && <CandidateImportButton />}
         </div>
       </div>
+
+      {!scope.isTenant && <MatchingPeerTabsServer />}
 
       {scope.isTenant && (
         <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>

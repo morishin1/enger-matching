@@ -1,4 +1,5 @@
 import { ExportButton, JobImportButton, JobNewButton, JobBulkExtractButton, JobGmailBulkButton } from "@/components/CsvTools";
+import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
 import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
@@ -217,6 +218,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           {!scope.isTenant && <JobImportButton />}
         </div>
       </div>
+
+      {!scope.isTenant && <MatchingPeerTabsServer />}
 
       {scope.isTenant && (
         <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>

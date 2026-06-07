@@ -58,7 +58,7 @@ function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: 
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
   return (
-    <div role="tablist" style={{ display: "flex", gap: 0, alignItems: "center", overflowX: "auto", minWidth: 0 }}>
+    <div role="tablist" style={{ display: "flex", gap: 0, alignItems: "center", overflowX: "auto", minWidth: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 14 }}>
       {TABS.map((t) => {
         const isActive = t.key === active;
         const total = fmt(totalOf[t.key]);

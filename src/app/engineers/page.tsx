@@ -1,4 +1,5 @@
 import { EngineersClient } from "@/components/EngineersClient";
+import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export default async function EngineersPage() {
           </div>
         </div>
       </div>
+
+      <MatchingPeerTabsServer />
 
       {!available && (
         <div className="card" style={{ borderColor: "var(--color-warn, #e0a317)", color: "var(--color-ink-2)", fontSize: 13 }}>
