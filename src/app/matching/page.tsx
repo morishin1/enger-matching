@@ -507,8 +507,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   // ============ 人材 → 案件モードの描画 ============
   if (personNo) {
-    const maxScore = rankedJobs[0]?.score ?? 0;
-    const avgScore = rankedJobs.length ? Math.round(rankedJobs.reduce((a, r) => a + r.score, 0) / rankedJobs.length) : 0;
     const selJob = sp.job ? rankedJobs.find((r) => String(r.job.job_no) === sp.job) : rankedJobs[0];
     const sel = selJob ?? rankedJobs[0];
     const linkFor = (jno?: number) => `/matching?person=${personNo}&tab=${tab}${jno != null ? `&job=${jno}` : ""}`;
@@ -568,27 +566,28 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
             {/* 右: 詳細 */}
             <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-              <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 人材</span>
-                    <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} row={person} />
-                  </div>
-                  <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
-                  <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
-                    {person.title && <span className="tag">{person.title}</span>}
-                    {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
-                    {person.affiliation && <span className="tag">{person.affiliation}</span>}
-                    <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
-                    <span className="tag">{person.location ?? "勤務地不明"}</span>
-                    <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
-                  </div>
+              <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", padding: "12px 16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                  <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 人材</span>
+                  <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} row={person} />
+                  <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {rankedJobs.length}件</span>
                 </div>
-                <div style={{ display: "flex", gap: 18, flexShrink: 0, textAlign: "center" }}>
-                  <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-brand-700)" }}>{maxScore}%</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>最高スコア</div></div>
-                  <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-ink-2)" }}>{avgScore}%</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>平均スコア</div></div>
-                  <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-ink-2)" }}>{rankedJobs.length}</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>候補案件</div></div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
+                <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
+                  {person.title && <span className="tag">{person.title}</span>}
+                  {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
+                  {person.affiliation && <span className="tag">{person.affiliation}</span>}
+                  <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
+                  <span className="tag">{person.location ?? "勤務地不明"}</span>
+                  {person.exp != null && String(person.exp).trim() !== "" && <span className="tag">経験 {/^\d+$/.test(String(person.exp).trim()) ? `${String(person.exp).trim()}年` : person.exp}</span>}
+                  {person.avail && <span className="tag">稼働 {person.avail}</span>}
+                  <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
                 </div>
+                {person.skills?.length > 0 && (
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
+                    {person.skills.slice(0, 12).map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 10.5 }}>{s}</span>)}
+                  </div>
+                )}
               </div>
 
               {sel && (() => {
@@ -696,8 +695,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   }
 
   // ============ 案件 → 人材モードの描画 ============
-  const maxScore = ranked[0]?.score ?? 0;
-  const avgScore = ranked.length ? Math.round(ranked.reduce((a, r) => a + r.score, 0) / ranked.length) : 0;
   const selIdx = sp.cand ? ranked.findIndex((r) => String(r.candidate.candidate_no) === sp.cand) : 0;
   const sel = ranked[selIdx >= 0 ? selIdx : 0];
   const jobAbbr = (job?.title ?? "").slice(0, 3);
@@ -739,28 +736,31 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
           {/* 右: 詳細パネル */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-            {/* 対象案件 サマリ */}
-            <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                  <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
-                  <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} row={job} />
-                </div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
-                <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
-                  <span>{job.client_name ?? "—"}</span>
-                  {job.role_label && <span className="tag">{job.role_label}</span>}
-                  <span className="tag">{remoteLabel(job.remote_type)}</span>
-                  {job.work_location && <span className="tag">{job.work_location}</span>}
-                  {job.flow_note && job.flow_note !== "不明" && <span className="tag">{job.flow_note}</span>}
-                  <b style={{ color: "var(--color-ink)" }}>{salaryLabel(job.salary_min, job.salary_max)}</b>
-                </div>
+            {/* 対象案件 サマリ（スコア集計は団子になり情報量が無いので撤去。代わりに案件情報を厚く） */}
+            <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", padding: "12px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
+                <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} row={job} />
+                <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {ranked.length}名</span>
               </div>
-              <div style={{ display: "flex", gap: 18, flexShrink: 0, textAlign: "center" }}>
-                <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-brand-700)" }}>{maxScore}%</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>最高スコア</div></div>
-                <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-ink-2)" }}>{avgScore}%</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>平均スコア</div></div>
-                <div><div className="display tnum" style={{ fontSize: 22, color: "var(--color-ink-2)" }}>{ranked.length}</div><div style={{ fontSize: 10, color: "var(--color-ink-4)" }}>候補人材</div></div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
+              <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
+                <span>{job.client_name ?? "—"}</span>
+                {job.role_label && <span className="tag">{job.role_label}</span>}
+                <span className="tag">{remoteLabel(job.remote_type)}</span>
+                {job.work_location && <span className="tag">{job.work_location}</span>}
+                {job.flow_note && job.flow_note !== "不明" && <span className="tag">{job.flow_note}</span>}
+                {job.start_date && <span className="tag">稼働 {job.start_date}</span>}
+                <b style={{ color: "var(--color-ink)" }}>{salaryLabel(job.salary_min, job.salary_max)}</b>
               </div>
+              {job.skills?.length > 0 && (
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
+                  {job.skills.slice(0, 12).map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 10.5 }}>{s}</span>)}
+                </div>
+              )}
+              {job.detail && (
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{job.detail}</div>
+              )}
             </div>
 
             {/* 選択候補 詳細 */}
