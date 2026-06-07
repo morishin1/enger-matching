@@ -1,5 +1,6 @@
 import { ClientHome } from "@/components/ClientHome";
 import { AgentDashboard } from "@/components/AgentDashboard";
+import { AgentGoalsHero } from "@/components/AgentGoalsHero";
 import { AdminOverview } from "@/components/AdminOverview";
 import { WorkHome } from "@/components/WorkHome";
 import { TalentHome } from "@/components/TalentHome";
@@ -13,6 +14,7 @@ import { TeamProgress } from "@/components/TeamProgress";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction, canManageDept } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
+import { getMyScorecard } from "@/lib/me-scorecard";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +64,18 @@ export default async function DashboardPage() {
   }
 
   // 営業メンバー（agent）：従来構成。マネージャー/リーダーには自部署のメンバー進捗を出す。
+  // メンバー（マネージャー/リーダー以外）には、最上段でKGI/KPIヒーローを表示して
+  // 毎日・毎週・今月の目標達成意識を促す。
+  const isMemberOnly = !isManager;
+  const scorecard = (access?.name || access?.email) ? await getMyScorecard(access?.name ?? null, access?.email ?? null) : null;
   return (
     <>
       <ReplyAlertBanner name={access?.name ?? null} />
+      {isMemberOnly && scorecard && (
+        <div className="page" style={{ paddingBottom: 0 }}>
+          <AgentGoalsHero name={access?.name ?? null} s={scorecard} />
+        </div>
+      )}
       <div className="page" style={{ paddingBottom: 0 }}>
         <RecentActivity />
       </div>
