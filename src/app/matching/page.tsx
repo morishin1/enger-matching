@@ -34,8 +34,8 @@ const verdictStyle = (v: Verdict): { bg: string; fg: string; bd: string } => {
 
 /** マッチ理由を 🔴重要 / 🟡注意 / 🟢参考 の3段階で表示。 */
 function NotesPanel({ sel }: { sel: MatchResult }) {
-  const red = sel.notes.filter((n) => n.level === "red");
-  const yel = sel.notes.filter((n) => n.level === "yellow");
+  const red = sel.notes.filter((n: { level: string }) => n.level === "red");
+  const yel = sel.notes.filter((n: { level: string }) => n.level === "yellow");
   const grn = sel.notes.filter((n) => n.level === "green");
   const Bar = ({ label, color, score, max }: { label: string; color: string; score: number; max: number }) => (
     <div style={{ display: "grid", gridTemplateColumns: "minmax(64px,90px) 1fr 56px", alignItems: "center", gap: 8 }}>
@@ -608,20 +608,34 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), j.work_location, salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
-                      {/* 左：スキル評価／右：マッチ理由（3段階） */}
-                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }}>
-                        <div>
-                          <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
-                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                            {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
-                            {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
-                          </div>
-                        </div>
-                        <NotesPanel sel={sel} />
-                      </div>
-                    </div>
-                    <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
+                      {/* 提案フォームを最上部に（すぐ送れるように） */}
                       <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null} />
+
+                      {/* マッチ詳細はアコーディオン（既定は閉。注意件数はサマリに表示） */}
+                      {(() => {
+                        const reds = sel.notes.filter((n: { level: string }) => n.level === "red").length;
+                        const yels = sel.notes.filter((n: { level: string }) => n.level === "yellow").length;
+                        return (
+                          <details style={{ marginTop: 14, borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+                            <summary style={{ cursor: "pointer", listStyle: "none", display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-2)" }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-ink-4)" }}>expand_more</span>
+                              📋 マッチ詳細（スキル評価・内訳・注意点）
+                              {reds > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fdecef", color: "#b42318" }}>🔴 {reds}</span>}
+                              {yels > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12" }}>🟡 {yels}</span>}
+                            </summary>
+                            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start", marginTop: 12 }}>
+                              <div>
+                                <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
+                                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                                  {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
+                                  {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
+                                </div>
+                              </div>
+                              <NotesPanel sel={sel} />
+                            </div>
+                          </details>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
@@ -777,30 +791,43 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} row={c} /></div>
                     </div>
 
-                    {/* 左：スキル評価/商流・単価／右：注意点 (スクロール量を減らすため2カラム) */}
-                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }}>
-                      <div>
-                        <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
-                        {job.skills?.length ? (
-                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
-                            {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
-                            {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
-                          </div>
-                        ) : <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>スキル評価データがありません</div>}
-
-                        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流・単価</div>
-                        <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
-                          <div>商流：{job.flow_note && job.flow_note !== "不明" ? job.flow_note : "確認中"}</div>
-                          <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
-                        </div>
-                      </div>
-                      <NotesPanel sel={sel} />
-                    </div>
-                  </div>
-
-                  {/* アクション: 返信メール（テンプレ/コピペ/AI生成） */}
-                  <div style={{ padding: "14px 20px", borderTop: "1px solid var(--color-border)" }}>
+                    {/* 提案フォームを最上部に（すぐ送れるように） */}
                     <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null} />
+
+                    {/* マッチ詳細はアコーディオンで折りたたみ（既定は閉。注意件数はサマリに出す） */}
+                    {(() => {
+                      const reds = sel.notes.filter((n: { level: string }) => n.level === "red").length;
+                      const yels = sel.notes.filter((n: { level: string }) => n.level === "yellow").length;
+                      return (
+                        <details style={{ marginTop: 14, borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+                          <summary style={{ cursor: "pointer", listStyle: "none", display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-2)" }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-ink-4)" }}>expand_more</span>
+                            📋 マッチ詳細（スキル評価・内訳・商流・注意点）
+                            {reds > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fdecef", color: "#b42318" }}>🔴 {reds}</span>}
+                            {yels > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12" }}>🟡 {yels}</span>}
+                          </summary>
+                          {/* 左：スキル評価/商流・単価／右：注意点 (2カラム) */}
+                          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start", marginTop: 12 }}>
+                            <div>
+                              <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
+                              {job.skills?.length ? (
+                                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 16 }}>
+                                  {sel.matchedSkills.map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>✓ {s}</span>)}
+                                  {sel.missingSkills.map((s: string) => <span key={s} className="tag" style={{ fontSize: 11, background: "transparent", border: "1px dashed var(--color-border-strong)", color: "var(--color-ink-4)" }}>未 {s}</span>)}
+                                </div>
+                              ) : <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>スキル評価データがありません</div>}
+
+                              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流・単価</div>
+                              <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
+                                <div>商流：{job.flow_note && job.flow_note !== "不明" ? job.flow_note : "確認中"}</div>
+                                <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
+                              </div>
+                            </div>
+                            <NotesPanel sel={sel} />
+                          </div>
+                        </details>
+                      );
+                    })()}
                   </div>
                 </div>
               );
