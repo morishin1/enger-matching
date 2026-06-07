@@ -12,15 +12,17 @@ type NavItem = { href: string; id: string; label: string; icon: keyof typeof Ico
 
 // 営業フローに沿った並び（ダッシュボード→取込→マスタ→マッチング→提案→稼働の順）。
 // ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
+// マッチングは「案件×人材」の中核。案件/人材/LP登録は子としてぶら下げ、
+// 上部の統一タブ（MatchingPeerTabs）と意味的にも一致させる。
 const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
   { href: "/mail", id: "mail", label: "メール取込", icon: "mail" },
   { href: "/companies", id: "companies", label: "企業", icon: "company", count: "companies" },
-  { href: "/jobs", id: "jobs", label: "案件", icon: "jobs", count: "jobs" },
-  { href: "/people", id: "people", label: "人材", icon: "people", count: "people", children: [
-    { href: "/engineers", id: "engineers", label: "LP登録（フリーランス）", count: "engineers" },
+  { href: "/matching", id: "matching", label: "マッチング", icon: "matching", children: [
+    { href: "/jobs",      id: "jobs",      label: "案件",   count: "jobs",      newCount: "newJobs" },
+    { href: "/people",    id: "people",    label: "人材",   count: "people",    newCount: "newPeople" },
+    { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },
   ] },
-  { href: "/matching", id: "matching", label: "マッチング", icon: "matching" },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
 ];

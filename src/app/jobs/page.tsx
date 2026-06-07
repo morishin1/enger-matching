@@ -197,13 +197,15 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div style={{ maxWidth: 820 }}>
+      {/* page-head: ボタンが多いため、タイトル列に flex:1 / minWidth:0 を与えてつぶれないようにし、
+          ボタン列は flex-wrap で必要に応じて折り返す（狭幅で h1 が縦に潰れるレイアウト崩れの対策）。 */}
+      <div className="page-head" style={{ flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <div className="meta">Jobs · 案件マスタ（実データ）</div>
           <h1>案件</h1>
           <EntityGrowthLine unit="件" delta={growth} />
         </div>
-        <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで人材を探す" hint="案件×人材のマッチング画面へ" />}
           {!scope.isTenant && (
             <a href={showAll ? "/jobs" : "/jobs?show=all"} className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }}

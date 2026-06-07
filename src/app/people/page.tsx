@@ -202,13 +202,14 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div style={{ maxWidth: 820 }}>
+      {/* page-head: ボタンが多いため、タイトル列に flex:1 / minWidth:0 を与えてつぶれないようにする。 */}
+      <div className="page-head" style={{ flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <div className="meta">People · 人材マスタ（実データ）</div>
           <h1>人材</h1>
           <EntityGrowthLine unit="名" delta={growth} />
         </div>
-        <div style={{ display: "flex", gap: 10, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで案件を探す" hint="人材×案件のマッチング画面へ" />}
           {!scope.isTenant && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
           <CandidateNewButton />
