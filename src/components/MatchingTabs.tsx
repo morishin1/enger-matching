@@ -58,7 +58,7 @@ function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: 
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
   return (
-    <div role="tablist" style={{ display: "flex", gap: 0, alignItems: "center", overflowX: "auto", minWidth: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 14 }}>
+    <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "center", overflowX: "auto", minWidth: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 14 }}>
       {TABS.map((t) => {
         const isActive = t.key === active;
         const total = fmt(totalOf[t.key]);
@@ -70,22 +70,29 @@ function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: 
             role="tab"
             aria-selected={isActive}
             style={{
-              padding: "8px 14px",
-              borderBottom: isActive ? "2px solid var(--color-brand-600)" : "2px solid transparent",
-              color: isActive ? "var(--color-brand-700)" : "var(--color-ink-3)",
-              fontWeight: isActive ? 700 : 500,
-              fontSize: 13,
+              padding: "10px 18px",
+              borderBottom: isActive ? "3px solid var(--color-brand-600)" : "3px solid transparent",
+              color: isActive ? "var(--color-brand-700)" : "var(--color-ink-2)",
+              fontWeight: isActive ? 800 : 600,
+              fontSize: 17,
               textDecoration: "none",
               display: "inline-flex",
               alignItems: "center",
-              gap: 6,
+              gap: 7,
               whiteSpace: "nowrap",
             }}
           >
             <span>{t.label}</span>
-            {total != null && <span className="badge" style={{ fontSize: 10, padding: "1px 6px" }}>{total}</span>}
+            {total != null && <span className="badge" style={{ fontSize: 11, padding: "1px 7px" }}>{total}</span>}
             {n != null && n > 0 && (
-              <span className="badge hot" style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${n} 件`}>NEW</span>
+              <span
+                className="material-symbols-outlined"
+                title={`直近7日の新着 ${n} 件`}
+                aria-label={`新着 ${n} 件`}
+                style={{ fontSize: 18, lineHeight: 1, color: "var(--color-danger, #dc2626)", fontVariationSettings: "'FILL' 1" }}
+              >
+                fiber_new
+              </span>
             )}
           </Link>
         );
