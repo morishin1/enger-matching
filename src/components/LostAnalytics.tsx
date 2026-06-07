@@ -18,11 +18,13 @@ type HItem = {
   candidate_name?: string | null;
   stage?: string | null;
   lost_reason?: string | null;
+  lost_reason_note?: string | null;
   lost_phase?: string | null;
   proposer?: string | null;
   closer?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  stage_updated_at?: string | null;
 };
 
 const LOST_STAGES = new Set(["見送り", "失注"]);
@@ -125,7 +127,12 @@ type Aggregated = {
     reasons: Record<string, number>;
     phases: Record<string, number>;
   }>;
-  byProposer: Array<{ name: string; won: number; lost: number; reasons: Record<string, number> }>;
+  byProposer: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
+  // 提案→失注 までのタイムラグ（日）。スピード改善のための分布・上位の遅い案件を保持。
+  lagBuckets: Array<{ label: string; range: [number, number]; n: number }>;
+  lagStats: { avg: number | null; median: number | null; p90: number | null; total: number };
+  // 失注ログ（担当者・理由・日数・コメント）。テーブル表示用。
+  lostRows: Array<{ id: string; company: string; job_title: string; candidate_name: string; proposer: string; closer: string; reason: string; phase: string; note: string | null; created_at: number; lost_at: number; lagDays: number | null }>;
 };
 
 function analyze(items: HItem[]): Aggregated {
@@ -133,6 +140,7 @@ function analyze(items: HItem[]): Aggregated {
   const reasons: Record<string, number> = {};
   const companies: Record<string, any> = {};
   const byProposer: Record<string, any> = {};
+  const lostRowsRaw: Aggregated["lostRows"] = [];
   let lost = 0, won = 0;
 
   for (const p of items) {
@@ -159,11 +167,30 @@ function analyze(items: HItem[]): Aggregated {
     if (t > companies[company].lastContactAt) companies[company].lastContactAt = t;
 
     const proposer = (p.proposer ?? "（未割当）").trim() || "（未割当）";
-    if (!byProposer[proposer]) byProposer[proposer] = { name: proposer, won: 0, lost: 0, reasons: {} };
+    if (!byProposer[proposer]) byProposer[proposer] = { name: proposer, won: 0, lost: 0, reasons: {}, lagDays: [] };
     if (isLost) {
       byProposer[proposer].lost++;
       const r = p.lost_reason || "（理由未入力）";
       byProposer[proposer].reasons[r] = (byProposer[proposer].reasons[r] || 0) + 1;
+      // 提案→失注のタイムラグ。created_at(提案開始) と stage_updated_at(ステージ更新=失注確定) の差分。
+      // stage_updated_at が無い古いレコードは updated_at にフォールバック。
+      const createdT = new Date(p.created_at || 0).getTime();
+      const lostT = new Date(p.stage_updated_at || p.updated_at || 0).getTime();
+      if (createdT && lostT && lostT >= createdT) {
+        const days = Math.max(0, Math.round((lostT - createdT) / 86400000));
+        byProposer[proposer].lagDays.push(days);
+        lostRowsRaw.push({
+          id: p.id, company, job_title: (p.job_title ?? "—") || "—", candidate_name: (p.candidate_name ?? "—") || "—",
+          proposer, closer: (p.closer ?? "—") || "—", reason: r, phase: p.lost_phase || "（未入力）",
+          note: p.lost_reason_note ?? null, created_at: createdT, lost_at: lostT, lagDays: days,
+        });
+      } else {
+        lostRowsRaw.push({
+          id: p.id, company, job_title: (p.job_title ?? "—") || "—", candidate_name: (p.candidate_name ?? "—") || "—",
+          proposer, closer: (p.closer ?? "—") || "—", reason: r, phase: p.lost_phase || "（未入力）",
+          note: p.lost_reason_note ?? null, created_at: createdT, lost_at: lostT, lagDays: null,
+        });
+      }
     } else {
       byProposer[proposer].won++;
     }
@@ -185,11 +212,36 @@ function analyze(items: HItem[]): Aggregated {
   const total = lost + won;
   const winRate = total === 0 ? 0 : Math.round((won / total) * 100);
 
+  // 全体のラグ統計（提案→失注 日数）。スピード改善の起点。
+  const allLags = lostRowsRaw.map((r) => r.lagDays).filter((d): d is number => d != null).sort((a, b) => a - b);
+  const lagStats = (() => {
+    if (allLags.length === 0) return { avg: null, median: null, p90: null, total: 0 };
+    const avg = Math.round(allLags.reduce((a, b) => a + b, 0) / allLags.length);
+    const median = allLags[Math.floor(allLags.length / 2)];
+    const p90 = allLags[Math.min(allLags.length - 1, Math.floor(allLags.length * 0.9))];
+    return { avg, median, p90, total: allLags.length };
+  })();
+  // ラグ分布（決定の速さの典型）。1日内/1-3/4-7/8-14/15-30/31日以上 のバケツ。
+  const lagBuckets: Aggregated["lagBuckets"] = [
+    { label: "1日以内", range: [0, 1], n: 0 },
+    { label: "2-3日",  range: [2, 3], n: 0 },
+    { label: "4-7日",  range: [4, 7], n: 0 },
+    { label: "8-14日", range: [8, 14], n: 0 },
+    { label: "15-30日", range: [15, 30], n: 0 },
+    { label: "31日以上", range: [31, Infinity], n: 0 },
+  ];
+  for (const d of allLags) {
+    const b = lagBuckets.find((x) => d >= x.range[0] && d <= x.range[1]);
+    if (b) b.n++;
+  }
+
   return {
     totals: { lost, won, winRate },
     phases, reasons, topReasons, topPhase,
     companies: companyList,
     byProposer: Object.values(byProposer).map((p: any) => p) as Aggregated["byProposer"],
+    lagBuckets, lagStats,
+    lostRows: lostRowsRaw.sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0)),
   };
 }
 
@@ -386,20 +438,68 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
         );
       })()}
 
-      {/* 担当者別 */}
+      {/* ⏱ 提案 → 失注 タイムラグ（スピード分析） */}
+      {data.lagStats.total > 0 && (
+        <div className="card" style={{ padding: 14 }}>
+          <Header title="⏱ 提案 → 失注 タイムラグ（決定の速さ）" hint="提案開始(created_at)から失注確定(stage_updated_at)までの日数。早期決定が多いほど機会損失が少なく、長期化はフォローや訴求の改善余地あり。" />
+          {/* 上段：平均/中央値/P90 のサマリ */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, marginBottom: 12 }}>
+            <KPI label="平均ラグ" value={data.lagStats.avg ?? "—"} unit="日" tone="#b45309" />
+            <KPI label="中央値" value={data.lagStats.median ?? "—"} unit="日" tone="#0b5cab" />
+            <KPI label="P90（遅い90%ライン）" value={data.lagStats.p90 ?? "—"} unit="日" tone="#b42318" small />
+            <KPI label="ラグ算出対象" value={data.lagStats.total} unit="件" tone="var(--color-ink-3)" small />
+          </div>
+          {/* 中段：分布バー */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(() => {
+              const max = Math.max(1, ...data.lagBuckets.map((b) => b.n));
+              return data.lagBuckets.map((b) => {
+                const pct = data.lagStats.total === 0 ? 0 : Math.round((b.n / data.lagStats.total) * 100);
+                const isSlow = b.range[0] >= 15;
+                const tone = isSlow ? "#b42318" : b.range[0] >= 4 ? "#b45309" : "#067647";
+                return (
+                  <div key={b.label} style={{ display: "grid", gridTemplateColumns: "minmax(90px, 110px) 1fr 84px", gap: 10, alignItems: "center", fontSize: 11.5 }}>
+                    <span style={{ color: tone, fontWeight: 700 }}>{b.label}</span>
+                    <div style={{ height: 10, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ width: `${(b.n / max) * 100}%`, height: "100%", background: tone, borderRadius: 99 }} />
+                    </div>
+                    <span className="mono" style={{ fontSize: 11, textAlign: "right", color: "var(--color-ink-3)" }}>{b.n}件 ({pct}%)</span>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+          <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ 15日以上で長期化＝先方の関心が冷める前にクロージング/フォローしましょう。31日以上が多いと「いつまでも返事を待っている」状態の可能性。</div>
+        </div>
+      )}
+
+      {/* 担当者別 失注（理由＋スピード） */}
       {data.byProposer.length > 0 && (
         <div className="card" style={{ padding: 14 }}>
-          <Header title="👤 担当者別 失注傾向" hint="スキル/単価系が多い → マッチング精度。フォロー/連絡系が多い → 接触ペース見直し" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Header title="👤 担当者別 失注傾向＋スピード" hint="ラグが大きい担当ほど『決定までに時間がかかっている』。スキル/単価系が多い → マッチング精度。フォロー/連絡系が多い → 接触ペース見直し。" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[...data.byProposer].sort((a, b) => b.lost - a.lost).map((p) => {
               const total = p.lost;
               const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
               const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
+              const lagArr = [...p.lagDays].sort((a, b) => a - b);
+              const lagAvg = lagArr.length ? Math.round(lagArr.reduce((a, b) => a + b, 0) / lagArr.length) : null;
+              const lagMed = lagArr.length ? lagArr[Math.floor(lagArr.length / 2)] : null;
+              const slow = lagArr.filter((d) => d >= 15).length;
               return (
                 <div key={p.name} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 700 }}>{p.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
                     <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won} ／ 勝率 {p.won + p.lost === 0 ? 0 : Math.round((p.won / (p.won + p.lost)) * 100)}%</span>
+                    {lagAvg != null && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                        background: lagAvg >= 15 ? "#fdecef" : lagAvg >= 7 ? "#fff6e0" : "#e7f7ee",
+                        color:      lagAvg >= 15 ? "#b42318" : lagAvg >= 7 ? "#9a7b12" : "#067647",
+                      }} title={`平均 ${lagAvg}日 / 中央値 ${lagMed}日 / 15日以上 ${slow}件`}>
+                        ⏱ 平均{lagAvg}日（中央値 {lagMed}日）{slow > 0 ? ` ・ 長期化${slow}件` : ""}
+                      </span>
+                    )}
                   </div>
                   {total > 0 ? (
                     <>
@@ -425,6 +525,11 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
             })}
           </div>
         </div>
+      )}
+
+      {/* 失注ログ（担当者・理由・スピード一覧） */}
+      {data.lostRows.length > 0 && (
+        <LostRowsTable rows={data.lostRows} />
       )}
 
       {/* 推奨：今後とるべき情報 */}
@@ -481,6 +586,101 @@ function BarList({ items, total, tone }: { items: [string, number][]; total: num
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// 失注ログテーブル：担当者・理由・タイムラグを一覧。担当者/期間で絞り込み可能。
+function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
+  const [proposerFilter, setProposerFilter] = useState("");
+  const [reasonFilter, setReasonFilter] = useState("");
+  const [order, setOrder] = useState<"recent" | "slow" | "fast">("recent");
+  const proposers = useMemo(() => Array.from(new Set(rows.map((r) => r.proposer))).sort(), [rows]);
+  const reasons = useMemo(() => Array.from(new Set(rows.map((r) => r.reason))).sort(), [rows]);
+
+  const filtered = useMemo(() => {
+    let r = rows;
+    if (proposerFilter) r = r.filter((x) => x.proposer === proposerFilter);
+    if (reasonFilter) r = r.filter((x) => x.reason === reasonFilter);
+    if (order === "slow") r = [...r].sort((a, b) => (b.lagDays ?? -1) - (a.lagDays ?? -1));
+    else if (order === "fast") r = [...r].sort((a, b) => (a.lagDays ?? 1e9) - (b.lagDays ?? 1e9));
+    else r = [...r].sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0));
+    return r.slice(0, 200);
+  }, [rows, proposerFilter, reasonFilter, order]);
+
+  const fmtD = (ms: number) => { if (!ms) return "—"; const d = new Date(ms); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`; };
+  const lagTone = (d: number | null) => d == null ? "var(--color-ink-4)" : d >= 15 ? "#b42318" : d >= 7 ? "#9a7b12" : "#067647";
+
+  const sel: React.CSSProperties = { fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" };
+  const td: React.CSSProperties = { padding: "6px 10px", borderTop: "1px solid var(--color-border)", verticalAlign: "top" };
+  const th: React.CSSProperties = { padding: "6px 10px", textAlign: "left", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, background: "var(--color-surface-soft)", whiteSpace: "nowrap" };
+
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <Header title="📋 失注ログ（担当者・理由・スピード一覧）" hint="提案日／失注日／タイムラグ／担当者／理由 を1行で確認。長期化(赤)の上位を優先的に振り返り、スピードを上げる打ち手を考える。" />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          担当者
+          <select value={proposerFilter} onChange={(e) => setProposerFilter(e.target.value)} style={sel}>
+            <option value="">すべて</option>
+            {proposers.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          理由
+          <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)} style={sel}>
+            <option value="">すべて</option>
+            {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          並び順
+          <select value={order} onChange={(e) => setOrder(e.target.value as any)} style={sel}>
+            <option value="recent">新しい順</option>
+            <option value="slow">ラグが大きい順（要振り返り）</option>
+            <option value="fast">ラグが小さい順（即決）</option>
+          </select>
+        </label>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{filtered.length}件 / 全{rows.length}件（最大200件表示）</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 880 }}>
+          <thead>
+            <tr>
+              <th style={th}>提案日</th><th style={th}>失注日</th>
+              <th style={{ ...th, textAlign: "right" }}>タイムラグ</th>
+              <th style={th}>担当者</th>
+              <th style={th}>会社 / 案件</th>
+              <th style={th}>人材</th>
+              <th style={th}>失注フェーズ</th>
+              <th style={th}>失注理由</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => (
+              <tr key={r.id}>
+                <td style={td} className="mono">{fmtD(r.created_at)}</td>
+                <td style={td} className="mono">{fmtD(r.lost_at)}</td>
+                <td style={{ ...td, textAlign: "right", color: lagTone(r.lagDays), fontWeight: 800 }} className="mono">{r.lagDays != null ? `${r.lagDays}日` : "—"}</td>
+                <td style={td}>
+                  <div style={{ fontWeight: 700 }}>{r.proposer}</div>
+                  {r.closer && r.closer !== r.proposer && r.closer !== "—" && <div className="muted" style={{ fontSize: 10.5 }}>CL: {r.closer}</div>}
+                </td>
+                <td style={td}>
+                  <div style={{ fontWeight: 600 }}>{r.company}</div>
+                  <div className="muted" style={{ fontSize: 11 }}>{r.job_title}</div>
+                </td>
+                <td style={td}>{r.candidate_name}</td>
+                <td style={{ ...td, color: "var(--color-ink-3)", fontSize: 11 }}>{r.phase}</td>
+                <td style={td}>
+                  <div>{r.reason}</div>
+                  {r.note && <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginTop: 2, whiteSpace: "pre-wrap" }}>「{r.note}」</div>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
