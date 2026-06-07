@@ -8,6 +8,7 @@
 import { engerAdmin, engerClient, dbConfigured } from "@/lib/supabase";
 import { listAccounts, listDepartmentMemberNames } from "@/lib/accounts";
 import { listPersonKgi, monthKey } from "@/lib/person-kgi";
+import { TeamMemberMessage } from "./TeamMemberMessage";
 
 type Scope = "all" | "department";
 
@@ -26,6 +27,8 @@ type Row = {
   kgiPct: number | null;      // 達成率（%、KGIが無いと null）
   proposalsMonth: number;     // 今月の提案数（活動量）
   meetingsWeek: number;       // 今週の打合せ数（活動量）
+  reportYesterday: boolean;   // 昨日(=直前営業日)の日報を出したか
+  lastReportDate: string | null; // 直近の日報日付（YYYY-MM-DD）
 };
 
 export async function TeamProgress({ scope, departmentName, myName }: { scope: Scope; departmentName?: string | null; myName?: string | null }) {
@@ -63,25 +66,47 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
   const monthPrefix = now.toISOString().slice(0, 7);
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
   const monthStartIso = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  // 「昨日」＝日報の評価基準日。土日は直近の金曜に丸める。
+  const yesterdayKey = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  // 直近の日報を判定するため、過去14日分を取得対象に。
+  const reportSince = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
 
-  // 提案・打合せ・稼働をまとめて取得（service role で RLS を越える）。
+  // 提案・打合せ・稼働・日報 をまとめて取得（service role で RLS を越える）。
   let proposals: { proposer: string | null; created_at: string }[] = [];
   let meetings: { our_owner: string | null; meeting_date: string | null }[] = [];
   let engagements: { proposal_id: string | null; created_at: string }[] = [];
+  let reports: { author: string | null; report_date: string }[] = [];
   let sb: ReturnType<typeof engerClient>;
   try {
     try { sb = engerAdmin(); } catch { sb = engerClient(); }
-    const [pr, mt, eng] = await Promise.all([
+    const [pr, mt, eng, rep] = await Promise.all([
       sb.from("proposals").select("proposer, created_at").gte("created_at", monthStartIso).limit(3000),
       sb.from("meetings").select("our_owner, meeting_date").gte("meeting_date", weekAgo).limit(2000),
       // 今月「稼働化」した稼働（created_at が当月）。提案者/クローザーは紐づく proposal から引く。
       sb.from("engagements").select("proposal_id, created_at").gte("created_at", monthStartIso).limit(3000),
+      // 直近14日の日報（部下の昨日提出 / 最終提出日 を判定するため）
+      sb.from("daily_reports").select("author, report_date").gte("report_date", reportSince).limit(2000),
     ]);
     proposals = (pr.data ?? []) as any[];
     meetings = (mt.data ?? []) as any[];
     engagements = (eng.data ?? []) as any[];
+    reports = (rep.data ?? []) as any[];
   } catch {
     // テーブル未整備でも進捗0で続行
+  }
+
+  // 部下別の最終提出日と『昨日提出』フラグを算出
+  const lastReportByName = new Map<string, string>();
+  const reportYesterdaySet = new Set<string>();
+  for (const r of reports) {
+    if (!r.author) continue;
+    const cur = lastReportByName.get(r.author);
+    if (!cur || r.report_date > cur) lastReportByName.set(r.author, r.report_date);
+    if (r.report_date === yesterdayKey) reportYesterdaySet.add(r.author);
   }
 
   // 今月の稼働化を「提案者」「クロージング担当」へ割り当てる。
@@ -137,16 +162,23 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
       placedAsProposer, placedAsCloser, placedTotal, kgiTarget, kgiPct,
       proposalsMonth: propByName.get(m.name) ?? 0,
       meetingsWeek: mtgByName.get(m.name) ?? 0,
+      reportYesterday: reportYesterdaySet.has(m.name),
+      lastReportDate: lastReportByName.get(m.name) ?? null,
     };
   });
 
-  // 並び順：要対応（KGI未設定 or 達成率低い）を先頭、次に達成率↑、最後に名前順。
+  // 並び順：要対応（日報未提出 → KGI未設定 → 達成率低い）を先頭。
   //   マネージャーが『どの部下を今日助けるか』が一目で分かる順序。
   rows.sort((a, b) => {
+    // 1) 日報未提出を最上位
+    if (a.reportYesterday !== b.reportYesterday) return a.reportYesterday ? 1 : -1;
+    // 2) KGI未設定 → 達成率50%未満 → それ以外
     const aDanger = a.kgiTarget == null ? 2 : a.kgiPct! < 50 ? 1 : 0;
     const bDanger = b.kgiTarget == null ? 2 : b.kgiPct! < 50 ? 1 : 0;
     if (aDanger !== bDanger) return bDanger - aDanger;
+    // 3) 達成率昇順
     if (a.kgiPct != null && b.kgiPct != null) return a.kgiPct - b.kgiPct;
+    // 4) 名前順
     return a.name.localeCompare(b.name);
   });
 
@@ -155,6 +187,7 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
   const overallPct = totalKgi > 0 ? Math.min(100, Math.round((totalPlaced / totalKgi) * 100)) : null;
   const noKgiCount = rows.filter((r) => r.kgiTarget == null).length;
   const behindCount = rows.filter((r) => r.kgiPct != null && r.kgiPct < 50).length;
+  const missingReportCount = rows.filter((r) => !r.reportYesterday).length;
   const heading = scope === "all" ? "🏢 全社メンバー進捗（稼働数）" : `👥 ${departmentName} メンバー進捗（稼働数）`;
   const subtitle = scope === "all"
     ? "全エージェント・管理者の今月の稼働化数を最重視。提案者／クロージング担当それぞれで集計。"
@@ -174,6 +207,9 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
               <span className="muted" style={{ marginLeft: 4 }}>({totalPlaced}/{totalKgi})</span>
             </span>
           )}
+          {missingReportCount > 0 && (
+            <span style={{ color: "#b42318", fontWeight: 700 }}>📓 日報未提出 {missingReportCount}名（{yesterdayKey}）</span>
+          )}
           {noKgiCount > 0 && (
             <span style={{ color: "#b45309", fontWeight: 700 }}>⚠ KGI未設定 {noKgiCount}名</span>
           )}
@@ -184,29 +220,44 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 180px) minmax(160px, 1.4fr) 70px 70px 1.2fr", gap: 12, padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--color-ink-4)", letterSpacing: ".04em" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(130px, 180px) minmax(160px, 1.4fr) 60px 60px 1fr 110px", gap: 10, padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--color-ink-4)", letterSpacing: ".04em" }}>
           <span>メンバー</span>
           <span>🏁 KGI達成（稼働化/目標）</span>
           <span style={{ textAlign: "center" }}>提案者</span>
           <span style={{ textAlign: "center" }}>クローザー</span>
           <span>活動量（提案/月・打合せ/週）</span>
+          <span style={{ textAlign: "right" }}>アクション</span>
         </div>
         {rows.map((r) => {
           const isMe = myName && r.name === myName;
           const tone = r.kgiPct == null ? "warn" : r.kgiPct >= 80 ? "good" : r.kgiPct >= 50 ? "med" : "bad";
-          const bg = isMe ? "var(--color-brand-25)" : tone === "bad" ? "rgba(180,35,24,.04)" : tone === "warn" ? "rgba(217,119,6,.04)" : "var(--color-surface)";
+          // 背景：日報未提出が最優先(赤) → KGI未設定(橙) → 達成率低(薄赤) → 通常
+          const bg = isMe ? "var(--color-brand-25)"
+            : !r.reportYesterday ? "rgba(180,35,24,.06)"
+            : tone === "bad" ? "rgba(180,35,24,.04)"
+            : tone === "warn" ? "rgba(217,119,6,.04)"
+            : "var(--color-surface)";
           return (
             <div key={r.name} style={{
-              display: "grid", gridTemplateColumns: "minmax(130px, 180px) minmax(160px, 1.4fr) 70px 70px 1.2fr", gap: 12,
+              display: "grid", gridTemplateColumns: "minmax(130px, 180px) minmax(160px, 1.4fr) 60px 60px 1fr 110px", gap: 10,
               alignItems: "center", padding: "9px 10px",
               border: "1px solid var(--color-border)", borderRadius: 8, background: bg,
             }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 2, overflow: "hidden" }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {r.name}{isMe ? <span style={{ marginLeft: 6, fontSize: 10, color: "var(--color-brand-700)" }}>あなた</span> : null}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.name}{isMe ? <span style={{ marginLeft: 6, fontSize: 10, color: "var(--color-brand-700)" }}>あなた</span> : null}
+                  </span>
+                  {!r.reportYesterday && (
+                    <span title={`昨日(${yesterdayKey})の日報が未提出。最終提出: ${r.lastReportDate ?? "なし"}`}
+                      style={{ fontSize: 9.5, fontWeight: 800, padding: "1px 7px", borderRadius: 99, background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf" }}>
+                      📓 日報未提出
+                    </span>
+                  )}
+                </div>
                 <span className="muted" style={{ fontSize: 10.5 }}>
                   {r.department ?? "未所属"}{r.teamRole ? ` ・ ${labelOf(r.teamRole)}` : ""}
+                  {r.lastReportDate && <> ・ 最終日報 {r.lastReportDate}</>}
                 </span>
               </div>
               <KgiProgress placed={r.placedTotal} target={r.kgiTarget} pct={r.kgiPct} />
@@ -216,13 +267,23 @@ export async function TeamProgress({ scope, departmentName, myName }: { scope: S
                 <MiniBar label="提案" value={r.proposalsMonth} target={TARGET_PROPOSAL_MONTH} />
                 <MiniBar label="打合せ" value={r.meetingsWeek} target={TARGET_MEETING_WEEK} />
               </div>
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                {!isMe && (
+                  <TeamMemberMessage recipient={r.name} hint={
+                    !r.reportYesterday ? `📓 ${yesterdayKey} の日報が未提出です。リマインドを送りましょう。`
+                      : r.kgiTarget == null ? "個人KGIが未設定です。1on1で目標を設定しましょう。"
+                      : (r.kgiPct ?? 0) < 50 ? `KGI達成率が ${r.kgiPct}% と低めです。フォローのきっかけに。`
+                      : undefined
+                  } />
+                )}
+              </div>
             </div>
           );
         })}
       </div>
 
       <div className="muted" style={{ fontSize: 11, marginTop: 10 }}>
-        ※ KGI達成率＝今月の稼働化(提案者+クローザー合算) ÷ 個人月次KGI。<b>KGI未設定の部下</b>は <a href="/settings/person-kgi" style={{ color: "var(--color-brand-700)" }}>個人KGI設定</a> から目標を設定してください。
+        ※ KGI達成率＝今月の稼働化(提案者+クローザー合算) ÷ 個人月次KGI。日報未提出は <b>{yesterdayKey}</b>（直前営業日）基準。<b>KGI未設定の部下</b>は <a href="/settings/person-kgi" style={{ color: "var(--color-brand-700)" }}>個人KGI設定</a> から目標を設定してください。
       </div>
     </div>
   );
