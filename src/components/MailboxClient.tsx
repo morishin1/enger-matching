@@ -214,7 +214,7 @@ function MailboxDetailModal({ r, onClose }: { r: Row; onClose: () => void }) {
   const [data, setData] = useState<any>(r.extracted_data);
   const [kind, setKind] = useState<string | null>(r.extracted_kind);
   const [summary, setSummary] = useState<string | null>(r.extracted_summary);
-  const [msg, setMsg] = useState<{ ok?: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok?: boolean; text: string; nextHref?: string; nextLabel?: string } | null>(null);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -239,8 +239,18 @@ function MailboxDetailModal({ r, onClose }: { r: Row; onClose: () => void }) {
         : await registerInboxAsCandidate(r.id);
       if (!res.ok) { setMsg({ ok: false, text: res.error || "登録に失敗しました" }); return; }
       const no = asKind === "job" ? res.job_no : res.candidate_no;
-      setMsg({ ok: true, text: asKind === "job" ? `案件 #${no} として登録しました` : `人材 #${no} として登録しました` });
-      setTimeout(() => { router.refresh(); onClose(); }, 1000);
+      // 登録直後にマッチング画面へ直接遷移できる導線（次ステップ提示）。
+      const nextHref = asKind === "job"
+        ? `/matching?job=${no}`
+        : `/matching?person=${no}`;
+      setMsg({
+        ok: true,
+        text: asKind === "job" ? `案件 #${no} として登録しました` : `人材 #${no} として登録しました`,
+        nextHref,
+        nextLabel: asKind === "job" ? "→ この案件でマッチング" : "→ この人材でマッチング",
+      });
+      // モーダル自動閉鎖は無効化（次アクションを選んでもらう）。閉じる時に refresh。
+      router.refresh();
     });
   };
 
@@ -316,8 +326,14 @@ function MailboxDetailModal({ r, onClose }: { r: Row; onClose: () => void }) {
           </div>
 
           {msg && (
-            <div style={{ fontSize: 12.5, padding: "9px 12px", borderRadius: 8, background: msg.ok === false ? "#fdecef" : "#e7f7ee", color: msg.ok === false ? "var(--color-danger)" : "#067647", border: msg.ok === false ? "1px solid #f7c5cf" : "1px solid #bfe3cc" }}>
-              {msg.text}
+            <div style={{ fontSize: 12.5, padding: "9px 12px", borderRadius: 8, background: msg.ok === false ? "#fdecef" : "#e7f7ee", color: msg.ok === false ? "var(--color-danger)" : "#067647", border: msg.ok === false ? "1px solid #f7c5cf" : "1px solid #bfe3cc", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span>{msg.text}</span>
+              {msg.nextHref && msg.nextLabel && (
+                <a href={msg.nextHref}
+                  style={{ marginLeft: "auto", color: "var(--color-brand-700)", fontWeight: 800, textDecoration: "none", fontSize: 12.5, padding: "4px 10px", borderRadius: 6, background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)" }}>
+                  {msg.nextLabel}
+                </a>
+              )}
             </div>
           )}
         </div>

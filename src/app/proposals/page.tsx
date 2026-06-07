@@ -3,6 +3,7 @@ import { ProposalHistory } from "@/components/ProposalHistory";
 import { ProposalsTabs } from "@/components/ProposalsTabs";
 import { LostAnalytics } from "@/components/LostAnalytics";
 import { NewProposalButton } from "@/components/NewProposalButton";
+import { FlowSteps } from "@/components/FlowSteps";
 import { ProposalStartStats } from "@/components/ProposalStartStats";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -159,6 +160,8 @@ export default async function ProposalsPage() {
           <NewProposalButton />
         </div>
       </div>
+
+      <FlowSteps current="proposals" sub="ステージ進行・クロージング" />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 

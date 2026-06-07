@@ -1,4 +1,5 @@
 import { Workbench } from "@/components/Workbench";
+import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { maskEngagement } from "@/lib/engagement-access";
@@ -6,9 +7,10 @@ import { currentPeriod } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProgressPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
-  const { period: pRaw } = await searchParams;
+export default async function ProgressPage({ searchParams }: { searchParams: Promise<{ period?: string; engagement?: string }> }) {
+  const { period: pRaw, engagement: engagementId } = await searchParams;
   const period = /^\d{4}-\d{2}$/.test(pRaw ?? "") ? (pRaw as string) : currentPeriod();
+  const highlightEngagementId = (engagementId && /^[0-9a-f-]{8,}$/i.test(engagementId)) ? engagementId : null;
 
   let rows: any[] = [];
   let dbError: string | null = null;
@@ -77,6 +79,8 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
+      <FlowSteps current="progress" sub={`${period} の業務`} />
+
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {needSetup && (
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>
@@ -85,7 +89,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
       )}
 
       {!needSetup && (
-        <Workbench rows={masked} role={role} period={period} canManage={canManage} agentScoped={agentScoped} boardLastSynced={boardLastSynced} />
+        <Workbench rows={masked} role={role} period={period} canManage={canManage} agentScoped={agentScoped} boardLastSynced={boardLastSynced} highlightEngagementId={highlightEngagementId} />
       )}
     </div>
   );

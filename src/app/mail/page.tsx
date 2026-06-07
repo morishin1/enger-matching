@@ -9,6 +9,7 @@ import { gmailConfigured } from "@/lib/gmail-api";
 import { MailboxClient } from "@/components/MailboxClient";
 import { MailLogClient } from "@/components/MailLogClient";
 import { NextStepLink } from "@/components/NextStepLink";
+import { FlowSteps } from "@/components/FlowSteps";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +124,8 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
           <NextStepLink href="/jobs" label="案件を確認" hint="取込・登録された案件一覧へ" />
         )}
       </div>
+
+      <FlowSteps current="mail" sub={tab === "import" ? "Gmail取込中" : "送信履歴"} />
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", marginBottom: 14 }}>

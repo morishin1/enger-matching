@@ -490,7 +490,7 @@ export async function restoreProposal(id: string) {
 }
 
 /** 成約した提案を稼働(engagements)へ変換。提案は「成約」に更新。 */
-export async function convertToEngagement(proposalId: string) {
+export async function convertToEngagement(proposalId: string): Promise<{ ok: true; engagementId: string | null } | { ok: false; error: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const { data: p } = await admin.from("proposals").select("id, job_title, company, candidate_name, rate").eq("id", proposalId).maybeSingle();
@@ -500,16 +500,23 @@ export async function convertToEngagement(proposalId: string) {
   let affiliation: string | null = null;
   if (p.candidate_name) { try { const { data: c } = await admin.from("candidates").select("affiliation").eq("name", p.candidate_name).maybeSingle(); affiliation = (c as any)?.affiliation ?? null; } catch { /* 列なし無視 */ } }
 
+  let engagementId: string | null = null;
   const { data: existing } = await admin.from("engagements").select("id").eq("proposal_id", proposalId).maybeSingle();
-  if (!existing?.id) {
+  if (existing?.id) {
+    engagementId = existing.id;
+  } else {
     const row: Record<string, any> = {
       proposal_id: proposalId, job_title: p.job_title, company: p.company,
       candidate_name: p.candidate_name, monthly_rate: parseRateNum(p.rate), status: "予定",
     };
     if (affiliation) row.affiliation = affiliation;
-    let { error } = await admin.from("engagements").insert(row);
-    if (error && /affiliation/.test(error.message)) { delete row.affiliation; ({ error } = await admin.from("engagements").insert(row)); }
-    if (error) return { ok: false, error: error.message };
+    let ins: any = await admin.from("engagements").insert(row).select("id").maybeSingle();
+    if (ins.error && /affiliation/.test(ins.error.message)) {
+      delete row.affiliation;
+      ins = await admin.from("engagements").insert(row).select("id").maybeSingle();
+    }
+    if (ins.error) return { ok: false, error: ins.error.message };
+    engagementId = ins.data?.id ?? null;
   }
   {
     const now = new Date().toISOString();
@@ -521,7 +528,7 @@ export async function convertToEngagement(proposalId: string) {
   revalidatePath("/proposals");
   bustCounts();
   revalidatePath("/progress");
-  return { ok: true };
+  return { ok: true, engagementId };
 }
 
 /** 稼働ステータスの更新 (予定 / 稼働中 / 終了)。 */

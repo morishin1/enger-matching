@@ -12,6 +12,7 @@ import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
 import { ConfirmJobButton } from "@/components/ConfirmJobButton";
+import { FlowSteps } from "@/components/FlowSteps";
 
 export const dynamic = "force-dynamic";
 
@@ -518,6 +519,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <Link href="/people" className="btn ghost" style={{ textDecoration: "none", flexShrink: 0 }}>← 人材一覧へ</Link>
         </div>
 
+        <FlowSteps current="matching" sub="人材 → 案件" />
+
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
         {opennessBanner}
@@ -647,6 +650,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
+        <FlowSteps current="matching" sub="注力" />
         <JumpToMatching />
         {Tabs}
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
@@ -708,6 +712,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <button className="btn brand" type="submit"><Icons.matching /><span>マッチ</span></button>
         </form>
       </div>
+
+      <FlowSteps current="matching" sub="案件 → 人材" />
 
       <JumpToMatching />
 

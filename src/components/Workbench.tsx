@@ -149,8 +149,11 @@ function AffSelect({ e, isAdmin, onSave }: { e: Eng; isAdmin: boolean; onSave: (
 /** 当月の処理が完了か：請求書=送付完了 かつ 注文書=回収済。 */
 const isDone = (e: Eng) => (e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
 
-export function Workbench({ rows, role = "admin", period, canManage, agentScoped, boardLastSynced }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean; boardLastSynced?: string | null }) {
+export function Workbench({ rows, role = "admin", period, canManage, agentScoped, boardLastSynced, highlightEngagementId }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean; boardLastSynced?: string | null; highlightEngagementId?: string | null }) {
   const router = useRouter();
+  // 稼働化直後に提案ボードから ?engagement=<id> で飛んできた場合、その行をハイライトし、
+  // 元の提案カードに戻れる導線も上部に出す。
+  const highlighted = highlightEngagementId ? rows.find((r) => r.id === highlightEngagementId) : null;
   // 月初業務(tasks)＝勤怠/請求のチェックリスト。契約管理(contract)＝月額/原価/粗利/満了など。デフォルトは月初業務。
   const [tab, setTab] = useState<"tasks" | "contract">("tasks");
   const [view, setView] = useState<"list" | "card" | "graph">("list");
@@ -201,6 +204,15 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
 
   return (
     <>
+      {/* 提案ボードから稼働化直後の遷移：成功バナー＋元の提案カードへ戻る導線 */}
+      {highlighted && (
+        <div className="card" style={{ marginBottom: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#e7f7ee", border: "1px solid #bfe3cc", color: "#067647", fontSize: 12.5, fontWeight: 700 }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20 }}>celebration</span>
+          <span>稼働化しました：<b>{highlighted.candidate_name ?? "（人材名なし）"}</b>{highlighted.company ? ` × ${highlighted.company}` : ""}{highlighted.job_title ? ` / ${highlighted.job_title}` : ""}</span>
+          <a href={`/proposals${highlighted.proposal_id ? `?proposal=${highlighted.proposal_id}` : ""}`} className="btn ghost btn-xs" style={{ marginLeft: "auto", textDecoration: "none" }}>← 元の提案を見る</a>
+        </div>
+      )}
+
       {/* 主タブ：月初業務 / 契約管理 */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {mainTab("tasks", "🗓 月初業務", `${period} の勤怠・請求書`)}
@@ -248,7 +260,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
                   <th style={th}>状態</th>
                 </tr>
               </thead>
-              <tbody>{visible.map((e) => <TaskRow key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} onRowClick={onRowClick(e)} />)}</tbody>
+              <tbody>{visible.map((e) => <TaskRow key={e.id} e={e} role={role} period={period} onChanged={onChanged} done={isDone(e)} canManage={canManage} onRowClick={onRowClick(e)} highlighted={e.id === highlightEngagementId} />)}</tbody>
             </table>
           </div>
         )
@@ -266,7 +278,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
                 <th style={th}>案件No</th><th style={th}>人材 / 企業・案件</th><th style={th}>区分</th><th style={th}>月額(万)</th><th style={th}>原価(万)</th><th style={th}>粗利(万)</th><th style={th}>状態</th><th style={th}>満了日</th><th style={{ ...th, textAlign: "center" }}>操作</th>
               </tr>
             </thead>
-            <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} onRowClick={onRowClick(e)} />)}</tbody>
+            <tbody>{visible.map((e) => <ContractRow key={e.id} e={e} role={role} onChanged={onChanged} done={isDone(e)} canManage={canManage} onRowClick={onRowClick(e)} highlighted={e.id === highlightEngagementId} />)}</tbody>
           </table>
         </div>
       ) : (
@@ -288,7 +300,7 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
 }
 
 /** 月初業務タブ用：勤怠・契約書/注文書・請求書だけのスリムな行。 */
-function TaskRow({ e, role, period, onChanged, done, canManage, onRowClick }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean; onRowClick?: (ev: React.MouseEvent<HTMLTableRowElement>) => void }) {
+function TaskRow({ e, role, period, onChanged, done, canManage, onRowClick, highlighted }: { e: Eng; role: Role; period: string; onChanged: () => void; done?: boolean; canManage: boolean; onRowClick?: (ev: React.MouseEvent<HTMLTableRowElement>) => void; highlighted?: boolean }) {
   const [pending, start] = useTransition();
   const tone = TONE[e.status] ?? TONE["予定"];
   const save = (patch: Record<string, any>) => start(async () => { await updateEngagementFields(e.id, patch); onChanged(); });
@@ -301,9 +313,14 @@ function TaskRow({ e, role, period, onChanged, done, canManage, onRowClick }: { 
   return (
     <tr onClick={onRowClick}
       title="クリックで編集ドロワーを開く"
-      style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined, cursor: "pointer" }}
-      onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--color-brand-25, #f5fbff)")}
-      onMouseLeave={(ev) => (ev.currentTarget.style.background = done ? "var(--color-surface-soft)" : "")}>
+      style={{ opacity: pending ? 0.6 : 1,
+        background: highlighted ? "rgba(6,118,71,.08)" : done ? "var(--color-surface-soft)" : undefined,
+        cursor: "pointer",
+        outline: highlighted ? "2px solid #067647" : undefined,
+        outlineOffset: highlighted ? "-2px" : undefined,
+      }}
+      onMouseEnter={(ev) => { if (!highlighted) ev.currentTarget.style.background = "var(--color-brand-25, #f5fbff)"; }}
+      onMouseLeave={(ev) => { if (!highlighted) ev.currentTarget.style.background = done ? "var(--color-surface-soft)" : ""; }}>
       {/* 一番左に board案件No を編集可能で表示（同期はここを起点に行われる） */}
       <td style={{ ...td, whiteSpace: "nowrap" }}>{canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{e.board_project_id ?? "—"}</span>}</td>
       <td style={td}>
@@ -311,6 +328,7 @@ function TaskRow({ e, role, period, onChanged, done, canManage, onRowClick }: { 
           {e.candidate_name ?? "—"}
           <span title={`所属区分: ${e.affiliation ?? "未設定"}`} style={{ fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, background: affTone.bg, color: affTone.fg, border: `1px solid ${affTone.bd}`, lineHeight: 1.4 }}>{aff}</span>
           {done && <span style={{ fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}
+          {highlighted && <span style={{ fontSize: 10, fontWeight: 800, color: "#067647", background: "#e7f3ea", border: "1px solid #bfe3cc", borderRadius: 6, padding: "1px 6px" }}>🎉 稼働化したばかり</span>}
         </div>
         <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
       </td>
@@ -331,7 +349,7 @@ function TaskRow({ e, role, period, onChanged, done, canManage, onRowClick }: { 
 }
 
 /** 契約管理タブ用：月額・原価・粗利・満了日に絞った行（勤怠/請求は除外）。 */
-function ContractRow({ e, role, onChanged, done, canManage, onRowClick }: { e: Eng; role: Role; onChanged: () => void; done?: boolean; canManage: boolean; onRowClick?: (ev: React.MouseEvent<HTMLTableRowElement>) => void }) {
+function ContractRow({ e, role, onChanged, done, canManage, onRowClick, highlighted }: { e: Eng; role: Role; onChanged: () => void; done?: boolean; canManage: boolean; onRowClick?: (ev: React.MouseEvent<HTMLTableRowElement>) => void; highlighted?: boolean }) {
   const [pending, start] = useTransition();
   const isAdmin = role === "admin";
   const masked = e._maskMargin;
@@ -344,13 +362,22 @@ function ContractRow({ e, role, onChanged, done, canManage, onRowClick }: { e: E
   return (
     <tr onClick={onRowClick}
       title="クリックで編集ドロワーを開く"
-      style={{ opacity: pending ? 0.6 : 1, background: done ? "var(--color-surface-soft)" : undefined, cursor: "pointer" }}
-      onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--color-brand-25, #f5fbff)")}
-      onMouseLeave={(ev) => (ev.currentTarget.style.background = done ? "var(--color-surface-soft)" : "")}>
+      style={{ opacity: pending ? 0.6 : 1,
+        background: highlighted ? "rgba(6,118,71,.08)" : done ? "var(--color-surface-soft)" : undefined,
+        cursor: "pointer",
+        outline: highlighted ? "2px solid #067647" : undefined,
+        outlineOffset: highlighted ? "-2px" : undefined,
+      }}
+      onMouseEnter={(ev) => { if (!highlighted) ev.currentTarget.style.background = "var(--color-brand-25, #f5fbff)"; }}
+      onMouseLeave={(ev) => { if (!highlighted) ev.currentTarget.style.background = done ? "var(--color-surface-soft)" : ""; }}>
       {/* 一番左に board案件No を編集可能で表示 */}
       <td style={{ ...td, whiteSpace: "nowrap" }}>{canManage ? <BoardIdField e={e} onChanged={onChanged} /> : <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }}>{e.board_project_id ?? "—"}</span>}</td>
       <td style={td}>
-        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{e.candidate_name ?? "—"}{done && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}</div>
+        <div style={{ fontWeight: 700, fontSize: 12.5, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {e.candidate_name ?? "—"}
+          {done && <span style={{ fontSize: 10, fontWeight: 700, color: "#067647", background: "#e7f3ea", borderRadius: 6, padding: "1px 6px" }}>✓済</span>}
+          {highlighted && <span style={{ fontSize: 10, fontWeight: 800, color: "#067647", background: "#e7f3ea", border: "1px solid #bfe3cc", borderRadius: 6, padding: "1px 6px" }}>🎉 稼働化したばかり</span>}
+        </div>
         <div className="muted" style={{ fontSize: 10.5 }}>{e.company ?? ""}{e.job_title ? ` / ${e.job_title}` : ""}</div>
       </td>
       <td style={td}><AffSelect e={e} isAdmin={isAdmin} onSave={(v) => save({ affiliation: v })} /></td>

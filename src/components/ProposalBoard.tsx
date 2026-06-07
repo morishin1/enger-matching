@@ -331,7 +331,19 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
 
   const run = (id: string, fn: () => Promise<any>) => { setBusyId(id); start(async () => { await fn(); router.refresh(); setBusyId(null); }); };
   const onMove = (id: string, stage: string) => run(id, () => updateProposalStage(id, stage));
-  const onEngage = (id: string) => run(id, () => convertToEngagement(id));
+  const onEngage = (id: string) => {
+    setBusyId(id);
+    start(async () => {
+      const res: any = await convertToEngagement(id);
+      setBusyId(null);
+      if (res?.ok && res.engagementId) {
+        // 作成された engagement へ直接遷移。/progress 側でハイライト＋元提案リンクを出す。
+        router.push(`/progress?engagement=${res.engagementId}`);
+      } else {
+        router.refresh();
+      }
+    });
+  };
   const onSave = (id: string, fields: any) => run(id, () => updateProposalFields(id, fields));
   const onLose = (id: string, lost_phase: string, lost_reason: string, lost_reason_note?: string | null) =>
     run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason, lost_reason_note: lost_reason_note ?? null }));
