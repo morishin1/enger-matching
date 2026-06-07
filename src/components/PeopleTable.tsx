@@ -116,8 +116,24 @@ const PEOPLE_COLS: Col[] = [
       : <span className="muted" style={{ fontSize: 12 }}>—</span>,
   },
   { key: "affiliation", label: "所属区分", width: 130, filterKey: "affiliation", filterLabel: "所属区分", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
-  // 国籍・ランクは一覧では非表示・フィルタのみ
-  { key: "nationality", label: "国籍", filterOnly: true, filterKey: "nationality", filterLabel: "国籍" },
+  // 国籍・年代を一覧に常時表示（プロフィールを開かなくても判断できるように）
+  { key: "nationality", label: "国籍", width: 96, filterKey: "nationality", filterLabel: "国籍",
+    render: (p) => {
+      const v = (p as any).nationality as string | null | undefined;
+      if (!v) return <span className="muted" style={{ fontSize: 11.5 }}>—</span>;
+      const isJp = /日本|jp|japan/i.test(v);
+      return (
+        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+          background: isJp ? "#e7f7ee" : "#eef2ff", color: isJp ? "#067647" : "#3730a3", border: `1px solid ${isJp ? "#bfe3cc" : "#c7d2fe"}` }}>{v}</span>
+      );
+    },
+  },
+  { key: "age_band", label: "年代", width: 80,
+    render: (p) => {
+      const v = (p as any).age_band as string | null | undefined;
+      return v ? <span style={{ fontSize: 12, color: "var(--color-ink-2)" }}>{v}</span> : <span className="muted" style={{ fontSize: 11.5 }}>—</span>;
+    },
+  },
   { key: "rank", label: "ランク", filterOnly: true, filterKey: "rank", filterLabel: "ランク" },
 ];
 
@@ -426,6 +442,8 @@ export function PeopleTable({
               {([
                 ["ステータス", detail.status],
                 ["ランク", detail.rank],
+                ["年代", (detail as any).age_band],
+                ["国籍", (detail as any).nationality],
                 ["経験", detail.exp],
                 ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : null)],
                 ["稼働開始", detail.avail],

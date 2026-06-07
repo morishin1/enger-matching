@@ -98,7 +98,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     if (dbConfigured && scope.ownerKey) {
       try {
         const sb = engerClient();
-        const cols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at, owner_company, shared";
+        const cols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, is_focus, created_at, owner_company, shared";
         const ownedRes: any = await sb.from("candidates").select(cols).eq("owner_company", scope.ownerKey).order("candidate_no", { ascending: false }).limit(1000);
         const sharedRes: any = await sb.from("candidates").select(cols).eq("shared", true).order("candidate_no", { ascending: false }).limit(1000);
         if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
@@ -116,7 +116,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, is_focus, created_at";
+      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, is_focus, created_at";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;

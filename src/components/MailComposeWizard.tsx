@@ -359,8 +359,19 @@ export function MailComposeWizard({
             <button type="button" className="btn ghost" onClick={() => setStep(1)}>← 編集に戻る</button>
             {saved ? (
               <>
-                <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}>✓ 保存済み</span>
-                <Link href="/proposals" className="muted" style={{ fontSize: 11.5, textDecoration: "underline" }}>提案管理を開く</Link>
+                <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1", fontWeight: 700 }}>✓ 保存済み</span>
+                {/* 次の動線：色付き＋矢印アイコンで目立たせる */}
+                <Link href="/proposals" style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "9px 18px", borderRadius: 10, textDecoration: "none",
+                  background: "linear-gradient(135deg, var(--color-brand-600), #0b5cab)",
+                  color: "#fff", fontSize: 13.5, fontWeight: 800,
+                  boxShadow: "0 6px 14px rgba(0,149,217,.25)",
+                }}>
+                  提案管理へ
+                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>arrow_forward</span>
+                </Link>
+                <span className="muted" style={{ fontSize: 11 }}>← ここに記録されました</span>
               </>
             ) : (
               <button type="button" className="btn ghost" onClick={handleSave} disabled={saving}>
