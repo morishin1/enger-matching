@@ -345,6 +345,21 @@ export async function setAccountTeamRole(id: string, teamRole: "manager" | "lead
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** タイムカード対象（バイト/副業の本人打刻）を管理者が ON/OFF。 */
+export async function setAccountTimecard(id: string, enabled: boolean): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  if (!id) return { ok: false, error: "id がありません" };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_users").update({ is_timecard_user: enabled }).eq("id", id);
+    // is_timecard_user 列が未作成（マイグレ前）の場合はわかりやすいメッセージに。
+    if (error) return { ok: false, error: /is_timecard_user|column/i.test(error.message) ? "timecard 列が未作成です。supabase/timecard.sql を実行してください。" : error.message };
+    bustMembers(); revalidatePath("/"); revalidatePath("/timecard");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 営業区分（インサイド/アウトサイド）を管理者が設定。 */
 export async function setAccountPosition(id: string, position: "inside" | "outside" | null): Promise<Result> {
   const guard = await requireAdmin();

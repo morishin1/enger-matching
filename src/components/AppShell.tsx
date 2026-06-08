@@ -19,6 +19,7 @@ const CRUMBS: Record<string, string[]> = {
   "/companies": ["ENGER", "企業管理"],
   "/proposals": ["ENGER", "提案管理"],
   "/progress": ["ENGER", "稼働管理"],
+  "/timecard": ["ENGER", "タイムカード"],
   "/billing": ["ENGER", "請求・勤怠"],
   "/reports": ["ENGER", "日報"],
   "/notifications": ["ENGER", "お知らせ"],
@@ -50,7 +51,7 @@ const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
 
 const POSITION_LABEL: Record<string, string> = { inside: "インサイドセールス", outside: "アウトサイドセールス" };
 
-export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [], teamRole = null, menuPerms }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions }) {
+export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [], teamRole = null, menuPerms, showTimecard = false }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -83,7 +84,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
 
   return (
     <div className={"app" + (role === "client" ? " theme-client" : "")}>
-      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} teamRole={teamRole} menuPerms={menuPerms} />
+      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard} />
       <div className={"nav-overlay" + (navOpen ? " show" : "")} onClick={() => setNavOpen(false)} aria-hidden />
       <main className="main">
         <div className="topbar">

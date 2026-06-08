@@ -1,0 +1,61 @@
+// タイムカード（社内バイト/副業向け）。
+//   ・本人ビュー：月カレンダー＋出勤/退勤打刻＋月締申請
+//   ・マネージャー/admin ビュー：自部署の承認待ちタブ
+//   ・タイムカード対象でない通常ユーザーがアクセスしても、承認権限があれば
+//     「承認待ち一覧だけ」を表示する。両方無ければ案内のみ。
+
+import { redirect } from "next/navigation";
+import { currentAccess } from "@/lib/accounts";
+import { canManageDept } from "@/lib/roles";
+import { getMyMonth, getApprovalQueue, currentYm } from "@/lib/timecard";
+import { TimecardClient } from "@/components/TimecardClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function TimecardPage({ searchParams }: { searchParams: Promise<{ ym?: string }> }) {
+  const access = await currentAccess();
+  if (!access?.email) redirect("/login?next=/timecard");
+
+  const sp = await searchParams;
+  const ym = /^\d{4}-\d{2}$/.test(sp.ym ?? "") ? (sp.ym as string) : currentYm();
+
+  // 役割判定
+  const isAdmin = access.role === "admin";
+  const isManager = canManageDept(access.teamRole);
+  const isTimecardUser = access.isTimecardUser;
+
+  // タイムカード本人ビュー（誰でも自分の打刻はできる：is_timecard_user=true もしくは admin が自分用に試したい場合）
+  // ただしサイドバーには is_timecard_user=true / admin / manager のみに表示するので、ここでも案内に留める。
+  const showSelf = isTimecardUser || isAdmin;
+  const showApproval = isAdmin || isManager;
+
+  const myEntries = showSelf ? await getMyMonth(access.email, ym) : [];
+  const approvalQueue = showApproval
+    ? await getApprovalQueue({ department: isAdmin ? null : access.department, ym })
+    : [];
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div style={{ maxWidth: 820 }}>
+          <div className="meta">Timecard · 勤怠（バイト/副業向け）</div>
+          <h1>タイムカード</h1>
+          <div className="sub">予定と実績を月カレンダーで管理します。<b>本人が打刻 → マネージャーが月単位で承認</b>。打刻はワンクリック、編集はセルを開いて。</div>
+        </div>
+      </div>
+
+      <TimecardClient
+        me={{ email: access.email, name: access.name ?? "", isAdmin, isManager, isTimecardUser: showSelf }}
+        ym={ym}
+        myEntries={myEntries}
+        approvalQueue={approvalQueue}
+      />
+
+      {!showSelf && !showApproval && (
+        <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 13 }}>
+          タイムカードを使うには、管理者に「タイムカード対象」の有効化を依頼してください。
+        </div>
+      )}
+    </div>
+  );
+}
