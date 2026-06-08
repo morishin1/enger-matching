@@ -29,7 +29,8 @@ export default async function CompaniesPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at");
+      let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason");
+      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at");
       if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
       registered = res.data ?? [];
     } catch { /* companies-extend.sql 未実行などは無視 */ }
@@ -75,7 +76,12 @@ export default async function CompaniesPage() {
       )}
 
       {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
-      <CompanyTargetingBoard companies={companies} funnels={funnels} topSkillsByCompany={topSkillsByCompany} />
+      <CompanyTargetingBoard
+        companies={companies}
+        funnels={funnels}
+        topSkillsByCompany={topSkillsByCompany}
+        ngMap={Object.fromEntries(registered.filter((r) => r.is_ng).map((r) => [r.name, r.ng_reason ?? null]))}
+      />
 
       {/* 👤 担当者別の決定率：相手の窓口が誰かで結果が変わるため、相性をデータで提示 */}
       <CompanyContactBoard contactsByCompany={contactFunnels} />

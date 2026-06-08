@@ -846,6 +846,24 @@ export async function markCompanyContacted(name: string) {
   return { ok: true };
 }
 
+/** 取引NG（取引停止）フラグの設定/解除。撤退検討の根拠をもとに NG 指定する。 */
+export async function setCompanyNg(name: string, isNg: boolean, reason?: string | null, by?: string | null) {
+  const n = (name || "").trim();
+  if (!n) return { ok: false, error: "企業名がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const row: Record<string, any> = isNg
+    ? { name: n, is_ng: true, ng_reason: (reason ?? "").trim() || null, ng_at: new Date().toISOString(), ng_by: (by ?? "").trim() || null }
+    : { name: n, is_ng: false, ng_reason: null, ng_at: null, ng_by: null };
+  const { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  if (error) {
+    if (/is_ng|column/i.test(error.message)) return { ok: false, error: "NG列が未整備です（supabase/companies-ng.sql を実行してください）" };
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
 // ===================== 担当者マスタ (提案者/クロージング) =====================
 
 /** 担当者を追加（提案者/クロージングの役割フラグ + ログイン用メール）。 */

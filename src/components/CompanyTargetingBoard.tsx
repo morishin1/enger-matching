@@ -10,6 +10,7 @@
 import { lookupMarket } from "@/lib/market-rate";
 import type { CompanyRow } from "@/lib/companies";
 import type { CompanyFunnel } from "@/lib/company-funnel";
+import { CompanyNgButton } from "./CompanyNgButton";
 
 type Quadrant = "expand" | "rebuild" | "reignite" | "retreat" | "unknown";
 
@@ -65,7 +66,7 @@ function classify(c: CompanyRow, f: CompanyFunnel | undefined): { quad: Quadrant
   return { quad: "unknown", reasons, warnings };
 }
 
-export function CompanyTargetingBoard({ companies, funnels, topSkillsByCompany }: { companies: CompanyRow[]; funnels: Map<string, CompanyFunnel>; topSkillsByCompany: Map<string, { skill: string; n: number }[]> }) {
+export function CompanyTargetingBoard({ companies, funnels, topSkillsByCompany, ngMap = {} }: { companies: CompanyRow[]; funnels: Map<string, CompanyFunnel>; topSkillsByCompany: Map<string, { skill: string; n: number }[]>; ngMap?: Record<string, string | null> }) {
   type Item = {
     c: CompanyRow; f: CompanyFunnel | undefined; quad: Quadrant; reasons: string[];
     marketStance: { stance: "攻める" | "維持" | "縮小" | null; medianAvg: number | null; trendAvg: number | null; topSkills: { skill: string; n: number; market: ReturnType<typeof lookupMarket> }[] };
@@ -119,11 +120,20 @@ export function CompanyTargetingBoard({ companies, funnels, topSkillsByCompany }
           <span className="muted" style={{ fontSize: 11, marginLeft: "auto", color: t.fg }}>{t.hint}</span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-          {list.map((it) => (
-            <div key={it.c.name} style={{ padding: 12, borderRadius: 10, background: "#fff", border: `1px solid ${t.bd}` }}>
+          {list.map((it) => {
+            const ngActive = it.c.name in ngMap;
+            return (
+            <div key={it.c.name} style={{ padding: 12, borderRadius: 10, background: ngActive ? "#fff5f5" : "#fff", border: `1px solid ${ngActive ? "#f7c5cf" : t.bd}` }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.c.name}</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {ngActive && <span title="取引NG" style={{ marginRight: 4 }}>🚫</span>}{it.c.name}
+                </span>
                 <Stance s={it.marketStance} />
+              </div>
+              {/* NG指定/解除（撤退検討の根拠をもとに判断） */}
+              <div style={{ marginBottom: 6 }}>
+                <CompanyNgButton company={it.c.name} isNg={ngActive} ngReason={ngMap[it.c.name] ?? null}
+                  suggestedReason={key === "retreat" ? it.reasons.join(" / ") : undefined} />
               </div>
               {/* 根拠 */}
               <ul style={{ margin: "4px 0 6px", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -154,7 +164,8 @@ export function CompanyTargetingBoard({ companies, funnels, topSkillsByCompany }
                 {it.f?.lastProposedAt && <> ・ 最終提案 <b style={{ color: "var(--color-ink-2)" }}>{it.days}日前</b></>}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );

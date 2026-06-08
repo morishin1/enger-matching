@@ -340,7 +340,15 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
                   </div>
                 </td>
                 <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
-                <td style={td}><StageBadge stage={normStage(p.stage)} /></td>
+                <td style={td}>
+                  <StageBadge stage={normStage(p.stage)} />
+                  {/* 失注/見送りなら理由をその場に表示（前まで見えていた失注理由を復活） */}
+                  {(p.stage === "見送り" || p.stage === "失注") && p.lost_reason && (
+                    <div style={{ marginTop: 4, fontSize: 10.5, color: "#b42318" }} title={p.lost_reason_note ?? undefined}>
+                      💔 {p.lost_reason}{p.lost_phase ? `（${p.lost_phase}）` : ""}
+                    </div>
+                  )}
+                </td>
                 <td style={td}>
                   <span title={`緊急度: ${na.urgency}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>

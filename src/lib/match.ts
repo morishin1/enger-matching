@@ -27,7 +27,17 @@ export type Candidate = {
   remote_pref?: string | null; status?: string | null; exp?: string | null; rate?: string | null; rate_num?: number | null;
   avail?: string | null; affiliation?: string | null; age_band?: string | null; nationality?: string | null;
   note?: string | null; company?: string | null; location?: string | null;
+  created_at?: string | null; // 登録日（新着優先のランキングに使用）
 };
+
+// 候補の鮮度しきい値（日）。これ以内に登録された人材を「新着」として優先表示する。
+export const CAND_FRESH_DAYS = 5;
+export function candidateAgeDays(c: Candidate, nowMs = Date.now()): number | null {
+  if (!c.created_at) return null;
+  const t = new Date(c.created_at).getTime();
+  if (isNaN(t)) return null;
+  return Math.floor((nowMs - t) / 86400000);
+}
 
 export type Note = { level: "red" | "yellow" | "green"; text: string };
 export type Verdict = "提案推奨" | "条件付き提案推奨" | "条件付き提案検討" | "提案不可";
@@ -366,12 +376,20 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   };
 }
 
-/** 候補配列を job に対してスコアリングし降順に並べて返す */
+/** 候補配列を job に対してスコアリングし降順に並べて返す。
+ *  スコア同点は「新着（candidate.created_at が新しい）」を優先し、古い人材が上位に居座らないようにする。 */
 export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
+  const now = Date.now();
   const scored = candidates
     .map((c) => ({ candidate: c, ...scoreMatch(job, c) }))
     .filter((r) => !r.excluded)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      // 同点 → 新しい登録を優先（created_at 降順）。created_at 無しは後ろへ。
+      const ta = a.candidate.created_at ? new Date(a.candidate.created_at).getTime() : 0;
+      const tb = b.candidate.created_at ? new Date(b.candidate.created_at).getTime() : 0;
+      return tb - ta;
+    });
   return collapseSamePeople(scored).slice(0, limit);
 }
 

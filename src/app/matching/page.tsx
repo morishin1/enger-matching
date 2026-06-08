@@ -233,7 +233,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url, created_at";
       const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
@@ -291,9 +291,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
         if (person?.skills?.length) {
           const buildJ = (cols: string) => {
+            // 新着優先：job_no 降順（登録が新しい順）で取得。古い案件が上位に居座らないように。
             let q = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", person.skills);
             if (tab === "focus") q = q.eq("is_focus", true);
-            return q.limit(tab === "focus" ? 500 : 200);
+            return q.order("job_no", { ascending: false }).limit(tab === "focus" ? 500 : 200);
           };
           let jr: any = await buildJ(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`);
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
@@ -387,7 +388,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
 
         if (job?.skills?.length) {
-          const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).limit(200);
+          // 新着優先：candidate_no 降順（＝登録が新しい順）で取得。古い候補が上位に居座る問題の対策。
+          const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).order("candidate_no", { ascending: false }).limit(200);
           let cr: any = await buildC(CAND_RICH);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
