@@ -2,6 +2,7 @@ import { Icons } from "@/components/icons";
 import { DocumentTasks } from "@/components/DocumentTasks";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
+import { ProgressTabs } from "@/components/ProgressTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -45,9 +46,10 @@ export default async function DocumentsPage() {
 
   return (
     <div className="page">
+      <ProgressTabs />
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">Documents · 書類送付</div>
+          <div className="meta">Documents · 稼働管理 / 書類送付</div>
           <h1>書類送付</h1>
           <div className="sub">取引先（<b>上位／下位</b>）への契約書類（基本契約・個別契約・注文書・注文請書・NDA 等）の<b>送付期限と送付状況</b>を手動で管理。送付漏れ・期限超過を防ぎます。{canManage ? "" : "（閲覧のみ）"}</div>
         </div>

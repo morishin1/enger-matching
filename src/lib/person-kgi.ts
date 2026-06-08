@@ -14,7 +14,8 @@ export type PersonKgi = {
   owner_name: string | null;
   department: string | null;
   month: string;                    // YYYY-MM-01
-  placement_target: number | null;  // 月内稼働化目標
+  placement_target: number | null;  // 月内稼働化目標（= targets.placement のミラー）
+  targets: Record<string, number>;  // 複数KPIの月次目標（{metricKey: number}）
   note: string | null;
   updated_by_name: string | null;
   updated_at: string | null;
@@ -25,9 +26,19 @@ export type PersonKgiInput = {
   owner_name?: string | null;
   department?: string | null;
   month: string;                    // YYYY-MM-01
-  placement_target: number | null;
+  placement_target?: number | null; // 互換用（targets.placement が優先）
+  targets?: Record<string, number | null> | null;
   note?: string | null;
 };
+
+const PK_COLS = "id, owner_email, owner_name, department, month, placement_target, note, updated_by_name, updated_at";
+
+/** DB行を正規化：targets を必ずオブジェクトにし、placement_target を targets.placement に反映。 */
+function normalizeKgi(row: any): PersonKgi {
+  const t: Record<string, number> = (row?.targets && typeof row.targets === "object" && !Array.isArray(row.targets)) ? { ...row.targets } : {};
+  if (t.placement == null && row?.placement_target != null) t.placement = Number(row.placement_target);
+  return { ...(row as PersonKgi), targets: t };
+}
 
 /** 当月の月初。 */
 export function monthKey(d = new Date()): string {
@@ -52,11 +63,14 @@ export async function getPersonKgi(ownerEmail: string, month: string): Promise<P
   try {
     let sb: ReturnType<typeof engerClient>;
     try { sb = engerAdmin(); } catch { sb = engerClient(); }
-    const { data, error } = await sb.from("person_kgi")
-      .select("id, owner_email, owner_name, department, month, placement_target, note, updated_by_name, updated_at")
+    const run = (withTargets: boolean) => sb.from("person_kgi")
+      .select(withTargets ? `${PK_COLS}, targets` : PK_COLS)
       .eq("owner_email", ownerEmail.toLowerCase()).eq("month", month).maybeSingle();
-    if (error) return null;
-    return (data as PersonKgi) ?? null;
+    let { data, error } = await run(true);
+    // targets 列が未マイグレーションの環境ではフォールバック
+    if (error && /targets|column/i.test(error.message)) ({ data, error } = await run(false));
+    if (error || !data) return null;
+    return normalizeKgi(data);
   } catch { return null; }
 }
 
@@ -66,13 +80,15 @@ export async function listPersonKgi(month: string, scope?: { department?: string
   try {
     let sb: ReturnType<typeof engerClient>;
     try { sb = engerAdmin(); } catch { sb = engerClient(); }
-    let q: any = sb.from("person_kgi")
-      .select("id, owner_email, owner_name, department, month, placement_target, note, updated_by_name, updated_at")
-      .eq("month", month);
-    if (scope?.department) q = q.eq("department", scope.department);
-    const { data, error } = await q;
+    const run = (withTargets: boolean) => {
+      let q: any = sb.from("person_kgi").select(withTargets ? `${PK_COLS}, targets` : PK_COLS).eq("month", month);
+      if (scope?.department) q = q.eq("department", scope.department);
+      return q;
+    };
+    let { data, error } = await run(true);
+    if (error && /targets|column/i.test(error.message)) ({ data, error } = await run(false));
     if (error) return [];
-    return (data ?? []) as PersonKgi[];
+    return ((data ?? []) as any[]).map(normalizeKgi);
   } catch { return []; }
 }
 

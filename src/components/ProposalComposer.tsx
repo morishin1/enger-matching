@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, gmailMessageUrl, buildProposalPrompt } from "@/lib/gmail";
 import { createProposal, undoProposal } from "@/lib/actions";
+import { flowMatch, candDepthLabel, jobDepthLabel } from "@/lib/flow";
 import { MailBodyModal } from "./MailBodyModal";
 import { SendMailModalButton } from "./SendMailModalButton";
 
@@ -193,6 +194,14 @@ export function ProposalComposer({
   const proposeToBoard = async () => {
     if (saved) return;
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案できません（ID不足）"); return; }
+    // 商流NGなら提案前にワンクッション確認（架電後に商流ミスで気づく事故を防ぐ）。
+    const fm = flowMatch(job ?? {}, cand ?? {});
+    if (fm.compat === "ng") {
+      const ok = window.confirm(
+        `⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま提案を進めますか？`
+      );
+      if (!ok) { setMsg("商流NGのため提案を中止しました（提案前に確認してください）"); return; }
+    }
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(job.job_no, cand.candidate_no, score);

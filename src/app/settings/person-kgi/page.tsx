@@ -7,9 +7,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { currentAccess, listAccounts } from "@/lib/accounts";
 import { canManageDept, DEPARTMENTS } from "@/lib/roles";
-import { listPersonKgi, monthKey, planFromTarget } from "@/lib/person-kgi";
+import { listPersonKgi, monthKey, businessDaysInMonth } from "@/lib/person-kgi";
+import { loadTeamGoal } from "@/lib/team-kgi-goals";
 import { getFunnel, resolveFunnelPeriod, rate } from "@/lib/funnel";
-import { PersonKgiEditor } from "@/components/PersonKgiEditor";
+import { KgiWorkspace } from "@/components/KgiWorkspace";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,10 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
     .filter((a) => (a as any).department === department)
     .map((a) => ({ email: a.email!.toLowerCase(), name: a.name!, teamRole: (a as any).team_role ?? null }));
 
-  // 既存KGI＋全社転換率（同月のものを使う想定で当月ファネル）
-  const [kgis, funnel] = await Promise.all([
+  // 既存KGI＋チーム目標＋全社転換率（同月のものを使う想定で当月ファネル）
+  const [kgis, teamGoal, funnel] = await Promise.all([
     listPersonKgi(month, { department }),
+    loadTeamGoal(department, month),
     (async () => {
       const { start, end, label } = resolveFunnelPeriod("this_month");
       return getFunnel(start, end, label);
@@ -41,6 +43,16 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
   ]);
   const conv = rate(funnel.total.won, funnel.total.proposal); // 提案→稼働化
   const kgiByEmail = new Map(kgis.map((k) => [k.owner_email, k] as const));
+
+  // メンバーごとの初期値（複数KPIの targets を含む）
+  const initialPersons: Record<string, { targets: Record<string, number>; note: string | null; updated_at: string | null; updated_by_name: string | null }> = {};
+  for (const m of members) {
+    const k = kgiByEmail.get(m.email);
+    initialPersons[m.email] = k
+      ? { targets: k.targets ?? {}, note: k.note, updated_at: k.updated_at, updated_by_name: k.updated_by_name }
+      : { targets: {}, note: null, updated_at: null, updated_by_name: null };
+  }
+  const bizDays = businessDaysInMonth(month);
 
   // 月セレクタ
   const months: { key: string; label: string }[] = [];
@@ -58,7 +70,7 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
           <div className="meta">Settings · 個人KGI</div>
           <h1>個人月次KGI 設定</h1>
           <div className="sub">
-            マネージャーがメンバーごとに「今月の稼働化目標」を設定します。全社の総合転換率（提案→稼働化）から、月→週→日のKPIに自動逆算されます。
+            まず<b>チーム目標</b>（部署全体のKPI）を入力し、「メンバーへ均等配分」で各メンバーへKPIとして割り当てます。項目は稼働化・提案・架電などから複数追加でき、カスタム項目も作れます。稼働化は全社転換率から月→週→日の提案数に自動逆算されます。
             {isManager && !isAdmin && <> あなたは <b>{access?.department}</b> の {access?.teamRole === "manager" ? "マネージャー" : "リーダー"} です。</>}
           </div>
         </div>
@@ -103,32 +115,19 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
         </div>
       </div>
 
-      <div className="card">
-        <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700 }}>👥 {department} メンバーの月次KGI</h3>
-        {members.length === 0 ? (
-          <div className="muted" style={{ fontSize: 12 }}>{department} に所属する active なメンバーがいません。</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {members.map((m) => {
-              const existing = kgiByEmail.get(m.email);
-              const plan = planFromTarget(existing?.placement_target ?? 0, conv, month);
-              return (
-                <PersonKgiEditor
-                  key={m.email}
-                  member={m}
-                  month={month}
-                  initial={existing ?? null}
-                  conv={conv}
-                  bizDays={plan.bizDays}
-                />
-              );
-            })}
-          </div>
-        )}
-        <div className="muted" style={{ fontSize: 11, marginTop: 12 }}>
-          ※ 逆算式：月内必要提案数 = 稼働化目標 ÷ 全社転換率（{conv == null ? "—" : `${Math.round(conv * 100)}%`}）／週次 = ÷4.33／日次 = ÷月内営業日（{members.length > 0 ? planFromTarget(1, conv, month).bizDays : "—"}日）。
-          転換率はファネル画面で更新されます。<Link href="/funnel" style={{ marginLeft: 4, color: "var(--color-brand-700)", textDecoration: "none" }}>ファネル →</Link>
-        </div>
+      <KgiWorkspace
+        department={department}
+        month={month}
+        members={members}
+        conv={conv}
+        bizDays={bizDays}
+        initialTeamGoal={teamGoal}
+        initialPersons={initialPersons}
+      />
+
+      <div className="muted" style={{ fontSize: 11 }}>
+        ※ 逆算式：月内必要提案数 = 稼働化目標 ÷ 全社転換率（{conv == null ? "—" : `${Math.round(conv * 100)}%`}）／週次 = ÷4.33／日次 = ÷月内営業日（{bizDays}日）。
+        転換率はファネル画面で更新されます。<Link href="/funnel" style={{ marginLeft: 4, color: "var(--color-brand-700)", textDecoration: "none" }}>ファネル →</Link>
       </div>
     </div>
   );

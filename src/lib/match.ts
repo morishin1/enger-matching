@@ -10,6 +10,7 @@ export type Job = {
   skills?: string[] | null; salary_min?: number | null; salary_max?: number | null;
   remote_type?: string | null; start_date?: string | null;
   client_name?: string | null; detail?: string | null; flow_note?: string | null;
+  accept_flow_depth?: number | null;  // 受入商流の上限（0=PPのみ/1=一社先/2=二社先/null=不明）
   work_location?: string | null;
   // 鮮度・充足の判定用（任意。マッチング画面が付与）
   status?: string | null;             // 案件ステータス（募集中/募集終了 等）
@@ -26,6 +27,7 @@ export type Candidate = {
   skills?: string[] | null; salary_min?: number | null; salary_max?: number | null;
   remote_pref?: string | null; status?: string | null; exp?: string | null; rate?: string | null; rate_num?: number | null;
   avail?: string | null; affiliation?: string | null; age_band?: string | null; nationality?: string | null;
+  flow_depth?: number | null;         // 階層深さ（0=PP/1=一社下/2=二社下以降/null=不明）
   note?: string | null; company?: string | null; location?: string | null;
   created_at?: string | null; // 登録日（新着優先のランキングに使用）
 };
@@ -49,11 +51,13 @@ export type MatchResult = {
   notes: Note[];                          // 3段階の注意事項
   verdict: Verdict;
   excluded?: boolean;                     // 国籍NGなどでハード除外
+  flow?: { compat: FlowCompat; jobMaxDepth: 0 | 1 | 2 | null; candDepth: 0 | 1 | 2 | null };  // 商流（バッジ表示用）
   breakdown: { skill: number; salary: number; remote: number; timing: number; age: number; bonus: number };
 };
 
 // スキル正規化は正典辞書（skills.ts）に集約。
 import { canon, normToken as norm } from "./skills";
+import { flowMatch, candDepthLabel, jobDepthLabel, type FlowCompat } from "./flow";
 export { canon };
 
 /** 2つのスキル配列の一致スキル（candidate側の元表記で返す）。 */
@@ -198,17 +202,21 @@ function industryMatch(job: Job, c: Candidate): { match: string[]; jobInds: stri
   return { match, jobInds, candInds };
 }
 
-// ---- 商流（採点なし・注意事項のみ） ----
-function flowNotes(job: Job, c: Candidate): Note[] {
+// ---- 商流（採点なし・注意事項のみ。判定は flowMatch に集約） ----
+function flowNotes(job: Job, c: Candidate, fm: ReturnType<typeof flowMatch>): Note[] {
   const notes: Note[] = [];
-  const aff = (c.affiliation ?? "").toUpperCase();
-  const flow = job.flow_note ?? "";
-  if (/二社下不可|2社下不可|直請けのみ|直案件|エンド直/i.test(flow) && /(BP|二社|2社|3社)/i.test(aff)) {
-    notes.push({ level: "red", text: `商流NG懸念：案件は「直案件/二社下不可」、候補は「${c.affiliation}」` });
-  } else if (/二社下まで|2社下まで/i.test(flow) && /(三社|3社|多重)/i.test(aff)) {
-    notes.push({ level: "red", text: `商流NG懸念：案件は「二社下まで」、候補の階層が深い可能性` });
-  } else if (flow.trim()) {
-    notes.push({ level: "yellow", text: `商流：案件側「${flow.length > 40 ? flow.slice(0, 40) + "…" : flow}」／候補「${c.affiliation ?? "未設定"}」（要確認）` });
+  const jl = jobDepthLabel(fm.jobMaxDepth);
+  const cl = candDepthLabel(fm.candDepth);
+  if (fm.compat === "ng") {
+    notes.push({ level: "red", text: `商流NG：案件「${jl}」／候補「${cl}」（受入上限を超過）` });
+  } else if (fm.compat === "ok") {
+    notes.push({ level: "green", text: `商流OK：案件「${jl}」／候補「${cl}」` });
+  } else {
+    // どちらか不明
+    const why = fm.jobMaxDepth == null && fm.candDepth == null ? "両方不明"
+      : fm.jobMaxDepth == null ? "案件側の受入商流が不明"
+      : "候補の所属深さが不明";
+    notes.push({ level: "yellow", text: `商流要確認：${why}（案件「${jl}」／候補「${cl}」）` });
   }
   return notes;
 }
@@ -273,6 +281,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   const age = ageFit(job, c);
   const ind = industryMatch(job, c);
   const ngNat = nationalityHardNg(job, c);
+  const fm = flowMatch(job, c);
+  const flowNg = fm.compat === "ng";
 
   // ---- 100点配点 ----
   const skill100 = Math.round(skillPct * 100);            // 0-100（重み80）
@@ -344,8 +354,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (age.mismatch) notes.push({ level: "red", text: `年齢要件ミスマッチ（案件: ${age.jobRange ?? "—"} / 候補: ${c.age_band ?? "—"}）` });
   else if (age.jobRange && age.fit >= 0.9) notes.push({ level: "green", text: `年齢要件 適合（${c.age_band ?? "—"}）` });
 
-  // 商流（採点なし・注意事項のみ）
-  for (const n of flowNotes(job, c)) notes.push(n);
+  // 商流（採点なし・注意事項のみ。NGは下の verdict 引き下げで提案抑止）
+  for (const n of flowNotes(job, c, fm)) notes.push(n);
 
   // ボーナス系
   if (isPP) notes.push({ level: "green", text: "PPプロパー（+1）" });
@@ -360,11 +370,16 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // ---- 互換用 reasons ----
   const reasons = notes.map((n) => `${n.level === "red" ? "🔴" : n.level === "yellow" ? "🟡" : "🟢"} ${n.text}`);
 
-  // 充足/終了はハード除外。古い案件・送達不能は除外せず「提案推奨」への昇格だけ抑える（要確認のため）。
+  // 充足/終了はハード除外。古い案件・送達不能・商流NG は除外せず判定の引き下げで提案抑止する
+  //   （バッジ＋提案時確認の運用に合わせ、完全ブロックは避ける）。
   const hardExcluded = ngNat || open.closed;
   let verdict = verdictOf(score, hardExcluded);
   if (!hardExcluded && (open.stale || job.is_undeliverable) && (verdict === "提案推奨" || verdict === "条件付き提案推奨")) {
     verdict = "条件付き提案検討";
+  }
+  if (!hardExcluded && flowNg) {
+    // 商流NG は最も低い「条件付き提案検討」まで引き下げる（提案不可は出さないが推奨は剥がす）
+    if (verdict === "提案推奨" || verdict === "条件付き提案推奨") verdict = "条件付き提案検討";
   }
 
   return {
@@ -372,6 +387,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
     matchedSkills, missingSkills, reasons, notes,
     verdict,
     excluded: hardExcluded || undefined,
+    flow: { compat: fm.compat, jobMaxDepth: fm.jobMaxDepth, candDepth: fm.candDepth },
     breakdown: { skill: skill100, salary: salary100, remote: remote100, timing: timing100, age: age100, bonus },
   };
 }

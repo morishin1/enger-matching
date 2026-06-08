@@ -385,12 +385,19 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   const job_action_token  = (preTokens?.jobToken  && HEX48.test(preTokens.jobToken))  ? preTokens.jobToken  : randomBytes(24).toString("hex");
   const cand_action_token = (preTokens?.candToken && HEX48.test(preTokens.candToken)) ? preTokens.candToken : randomBytes(24).toString("hex");
 
+  // 提案者の既定＝作成者（ログイン中の本人）。明示指定が無いと proposer が null になり、
+  // 日報スコアカード/KPIに「自分の提案」が出なくなるため、ここで本人名を補完する。
+  let proposerName = (proposer ?? "").trim() || null;
+  if (!proposerName) {
+    try { const me = await currentAccess(); proposerName = (me?.name ?? "").trim() || null; } catch { /* 未ログインでも続行 */ }
+  }
+
   const insertBase = {
     job_id: job.id, candidate_id: cand.id, stage: "所属確認",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser,
-    proposer: proposer || null,
+    proposer: proposerName,
     job_action_type: "未回答", job_action_token,
     cand_action_type: "未回答", cand_action_token,
   } as Record<string, any>;
@@ -1495,11 +1502,15 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
   if ((fields as any).source_mail_url !== undefined) row.source_mail_url = trim((fields as any).source_mail_url);
   if ((fields as any).source_company !== undefined) row.source_company = trim((fields as any).source_company);
+  if ((fields as any).flow_depth !== undefined) {
+    const v = (fields as any).flow_depth;
+    row.flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
+  }
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|column/i.test(r.error.message)) {
     r = await admin.from("candidates").update(stripped(row)).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
@@ -1531,9 +1542,13 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
   if ((fields as any).source_mail_url !== undefined) row.source_mail_url = trim((fields as any).source_mail_url);
   if ((fields as any).is_published !== undefined) row.is_published = (fields as any).is_published;
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; return c; };
+  if ((fields as any).accept_flow_depth !== undefined) {
+    const v = (fields as any).accept_flow_depth;
+    row.accept_flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
+  }
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.accept_flow_depth; return c; };
   let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
-  if (r.error && /contact_email|contact_name|source_mail_url|column/i.test(r.error.message)) {
+  if (r.error && /contact_email|contact_name|source_mail_url|accept_flow_depth|column/i.test(r.error.message)) {
     r = await admin.from("jobs").update(stripped(row)).eq("job_no", jobNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };

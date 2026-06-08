@@ -6,6 +6,7 @@
 // JST 前提で week は月曜始まり、business days は月〜金で計算。
 
 import { engerAdmin } from "./supabase";
+import { ownerMatches } from "./owner-match";
 
 export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 
@@ -113,18 +114,17 @@ export async function getKpiSnapshot(opts: {
   const sb = engerAdmin();
   const start = iso(range.start), end = iso(range.end);
 
-  // 提案系: proposals テーブルから取得（多くても1000件想定で十分）
-  let q: any = sb.from("proposals")
+  // 提案系: proposals を広めに取得し、本人判定はJS側で（略称↔フルネームに耐性）。
+  const q: any = sb.from("proposals")
     .select("id, proposer, closer, stage, created_at, stage_updated_at, business_category")
     .or(`created_at.gte.${start},stage_updated_at.gte.${start}`)
     .limit(5000);
-  if (opts.ownerName) q = q.or(`proposer.eq.${opts.ownerName},closer.eq.${opts.ownerName}`);
   const r = await q;
   const props: any[] = r.error ? [] : (r.data ?? []);
 
   const inRange = (d: string | null) => !!d && d >= start && d < end;
   const isOwner = (p: any) =>
-    !opts.ownerName || p.proposer === opts.ownerName || p.closer === opts.ownerName;
+    !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
 
   let proposal = 0, cl = 0, won = 0, lost = 0, taku = 0, ec = 0;
   for (const p of props) {
@@ -141,15 +141,14 @@ export async function getKpiSnapshot(opts: {
     }
   }
 
-  // 打合せ: meetings.meeting_date が期間内
-  let mq: any = sb.from("meetings")
+  // 打合せ: meetings.meeting_date が期間内（本人判定はJS側で寛容に）
+  const mq: any = sb.from("meetings")
     .select("id, our_owner, meeting_date")
     .gte("meeting_date", start.slice(0, 10))
     .lt("meeting_date", end.slice(0, 10))
     .limit(5000);
-  if (opts.ownerName) mq = mq.eq("our_owner", opts.ownerName);
   const mr = await mq;
-  const meeting = mr.error ? 0 : (mr.data?.length ?? 0);
+  const meeting = mr.error ? 0 : (mr.data ?? []).filter((m: any) => !opts.ownerName || ownerMatches(opts.ownerName, m.our_owner)).length;
 
   const actuals: Record<Metric, number> = { proposal, cl, won, lost, taku, ec, meeting };
   const w = opts.weeklyTargets ?? {};
@@ -206,19 +205,17 @@ export async function getKpiHistory(opts: {
   const startIso = overallStart.toISOString();
   const endIso   = overallEnd.toISOString();
 
-  // 2) proposals / meetings / kpi_targets を一括取得（全期間ぶん）
-  let pq: any = sb.from("proposals")
+  // 2) proposals / meetings / kpi_targets を一括取得（全期間ぶん）。本人判定はJS側で寛容に。
+  const pq: any = sb.from("proposals")
     .select("id, proposer, closer, stage, created_at, stage_updated_at, business_category")
     .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
     .limit(20000);
-  if (opts.ownerName) pq = pq.or(`proposer.eq.${opts.ownerName},closer.eq.${opts.ownerName}`);
 
-  let mq: any = sb.from("meetings")
+  const mq: any = sb.from("meetings")
     .select("id, our_owner, meeting_date")
     .gte("meeting_date", startIso.slice(0, 10))
     .lt("meeting_date", endIso.slice(0, 10))
     .limit(20000);
-  if (opts.ownerName) mq = mq.eq("our_owner", opts.ownerName);
 
   const tq: any = sb.from("kpi_targets")
     .select("metric, target, week_start, scope, owner_email, team_key")
@@ -234,7 +231,8 @@ export async function getKpiHistory(opts: {
 
   // 3) 期間バケットに振り分けて指標を集計
   const isOwner = (p: any) =>
-    !opts.ownerName || p.proposer === opts.ownerName || p.closer === opts.ownerName;
+    !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
+  const isMyMeeting = (m: any) => !opts.ownerName || ownerMatches(opts.ownerName, m.our_owner);
   const targetMap = new Map<string, Partial<Record<Metric, number>>>();
   for (const t of targets) {
     const k = String(t.week_start);
@@ -260,7 +258,7 @@ export async function getKpiHistory(opts: {
     }
     if (metric === "meeting") {
       const sDate = sIso.slice(0, 10), eDate = eIso.slice(0, 10);
-      for (const m of meets) if (m.meeting_date >= sDate && m.meeting_date < eDate) actual++;
+      for (const m of meets) if (isMyMeeting(m) && m.meeting_date >= sDate && m.meeting_date < eDate) actual++;
     }
 
     const ws = rng.weekStart.toISOString().slice(0, 10);

@@ -15,6 +15,11 @@ export const hasSalesFunction = (functions?: string[] | null) => !functions || f
 // 組織：部署とチーム役職（日報の閲覧/返信権限に使用）
 export const DEPARTMENTS = ["ITS", "バックオフィス", "サポート", "開発", "経営", "フリーランス"] as const;
 export type Department = (typeof DEPARTMENTS)[number];
+
+// 経営部署は「全機能アクセス（管理者相当）」。役職別の細かな権限を気にせず、
+// 経営/管理側は全メニュー・全操作ができるようにするための単純化ルール。
+export const EXEC_DEPARTMENT = "経営";
+export const isExecDepartment = (dept?: string | null) => (dept ?? "").trim() === EXEC_DEPARTMENT;
 export const TEAM_ROLES = ["manager", "leader", "member"] as const;
 export type TeamRole = (typeof TEAM_ROLES)[number];
 export const TEAM_ROLE_LABEL: Record<TeamRole, string> = { manager: "マネージャー", leader: "リーダー", member: "メンバー" };

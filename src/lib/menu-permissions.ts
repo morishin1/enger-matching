@@ -18,15 +18,15 @@ export const MENU_ROLE_LABEL: Record<MenuRoleKey, string> = {
 
 // 設定対象のメニュー（href が安定キー）。サイドバーの主要項目に対応。
 //   ※ ダッシュボード・設定は土台のため対象外（常時表示）。承認(ユーザー管理)も管理操作なので対象外。
+//   ※ 稼働管理は「業務」と「書類送付」をまとめた1つの単位、分析は KPI推移/ファネル/パイプライン/詳細分析を
+//     まとめた1つの単位として管理する（シンプル化）。サブタブは無条件表示。
 export const MENU_ITEMS: { href: string; label: string }[] = [
   { href: "/mail",       label: "メール取込" },
   { href: "/companies",  label: "企業" },
   { href: "/matching",   label: "マッチング（案件/人材/LP登録）" },
   { href: "/proposals",  label: "提案管理" },
-  { href: "/progress",   label: "稼働管理" },
-  { href: "/kpi",        label: "KPI 推移" },
-  { href: "/funnel",     label: "ファネル（転換率）" },
-  { href: "/analytics",  label: "分析" },
+  { href: "/progress",   label: "稼働管理（業務/書類送付）" },
+  { href: "/kpi",        label: "分析（KPI推移/ファネル/パイプライン/詳細）" },
   { href: "/meetings",   label: "打合せ記録" },
   { href: "/reports",    label: "日報" },
   { href: "/pr",         label: "PR・X集客" },

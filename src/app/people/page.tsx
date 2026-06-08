@@ -39,7 +39,7 @@ const REMOTE_OPTIONS = [
 // 国籍は 3 区分の固定フィルタ。外国籍は「日本以外の国籍が入っている」を表すため、literal 一致ではなく
 // 「値あり かつ 日本を含まない」で判定（将来 data に具体的な国名が入っても拾えるように）。
 const NATIONALITY_OPTIONS = [
-  { value: "japan", label: "日本" },
+  { value: "japan", label: "日本国籍" },
   { value: "foreign", label: "外国籍" },
   { value: "unknown", label: "不明" },
 ];

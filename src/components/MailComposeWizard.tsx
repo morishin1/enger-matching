@@ -4,6 +4,7 @@ import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
+import { flowMatch, candDepthLabel, jobDepthLabel } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
@@ -240,6 +241,14 @@ export function MailComposeWizard({
 
   const handleSave = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
+    // 商流NGなら提案前にワンクッション確認。
+    const fm = flowMatch(job ?? {}, cand ?? {});
+    if (fm.compat === "ng") {
+      const ok = window.confirm(
+        `⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま保存を進めますか？`
+      );
+      if (!ok) { setSaving(false); setMsg("商流NGのため保存を中止しました（提案前に確認してください）"); return; }
+    }
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(

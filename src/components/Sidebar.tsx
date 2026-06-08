@@ -25,16 +25,22 @@ const NAV: NavItem[] = [
     { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
-  { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
+  // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
+  { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress", children: [
+    { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）" },
+    { href: "/documents", id: "documents",    label: "書類送付" },
+  ] },
 ];
 
 // 振り返り・分析（時間軸での見直しに使う画面）。
+//   「分析」1メニューに集約し、内部タブで KPI推移 / ファネル / パイプライン / 詳細分析 へ。
+//   サイドバーの肥大化を避け、誰が見ても「ここで分析する」が一目で分かる導線にする。
 const ANALYSIS: NavItem[] = [
-  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
-  { href: "/funnel", id: "funnel", label: "ファネル（転換率）", icon: "analytics" },
-  { href: "/analytics", id: "analytics", label: "分析", icon: "analytics", children: [
-    { href: "/pipeline", id: "pipeline", label: "パイプライン" },
-    { href: "/documents", id: "documents", label: "書類送付" },
+  { href: "/kpi", id: "analytics-hub", label: "分析", icon: "analytics", children: [
+    { href: "/kpi",       id: "kpi",       label: "KPI推移" },
+    { href: "/funnel",    id: "funnel",    label: "ファネル" },
+    { href: "/pipeline",  id: "pipeline",  label: "パイプライン" },
+    { href: "/analytics", id: "analytics", label: "詳細分析" },
   ] },
 ];
 
@@ -173,19 +179,24 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
             const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
             return (
               <Fragment key={n.id}>
-                <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
-                  style={{ position: "relative" }}>
-                  <span className="ico">{Ico && <Ico />}</span>
-                  <span>{n.label}</span>
-                  {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                {/* Link と トグルボタンを並べる（<a> 内に <button> を入れない＝HTML仕様準拠）。
+                    ネスト構造だとブラウザのDOM補正でハイドレーションがズレ、稀に
+                    サイドメニュークリックが効かなくなる事象が起きていた。 */}
+                <div style={{ position: "relative", display: "flex", alignItems: "stretch" }}>
+                  <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
+                    style={{ flex: 1, minWidth: 0, paddingRight: hasChildren ? 6 : undefined }}>
+                    <span className="ico">{Ico && <Ico />}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label}</span>
+                    {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                  </Link>
                   {hasChildren && (
-                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(n.id); }}
-                      aria-label={isOpen ? "閉じる" : "開く"} title={isOpen ? "閉じる" : "開く"}
-                      style={{ marginLeft: badge != null ? 4 : "auto", background: "transparent", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 4 }}>
+                    <button type="button" onClick={() => toggle(n.id)}
+                      aria-label={isOpen ? "閉じる" : "開く"} aria-expanded={isOpen} title={isOpen ? "閉じる" : "開く"}
+                      style={{ background: "transparent", border: 0, padding: "0 8px", marginLeft: 2, cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>chevron_right</span>
                     </button>
                   )}
-                </Link>
+                </div>
                 {isOpen && n.children?.map((c) => {
                   const total = c.count ? fmt(counts?.[c.count]) : null;
                   const newN = c.newCount ? counts?.[c.newCount] : undefined;

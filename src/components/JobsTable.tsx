@@ -11,6 +11,7 @@ import { EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs } from "@/lib/actions";
+import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -91,6 +92,19 @@ const JOB_COLS: Col[] = [
   { key: "client", label: "クライアント名", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
   { key: "role", label: "職種", filterKey: "role", filterLabel: "職種", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterKey: "remote", filterLabel: "リモート", render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
+  {
+    key: "nationality", label: "国籍要件", width: 116, filterKey: "nationality", filterLabel: "国籍要件",
+    render: (j) => {
+      const cat = classifyJobNationality(j.detail, j.title);
+      const tone = JOB_NAT_TONE[cat];
+      return (
+        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}
+          title={cat === "jp_only" ? "外国籍NG（日本国籍のみ）の可能性。提案前に必ず確認。" : cat === "open" ? "国籍不問の可能性。" : "本文に国籍の記載が見当たりません。"}>
+          {JOB_NAT_LABEL[cat]}
+        </span>
+      );
+    },
+  },
   { key: "salary", label: "単価", width: 110, num: true, render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span> },
   {
     key: "outside_owner", label: "エンド担当", width: 124, defaultHidden: true, filterKey: "outside_owner", filterLabel: "エンド担当",

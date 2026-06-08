@@ -2,6 +2,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { canSeeMargin } from "@/lib/engagement-access";
 import { normalizeStage } from "@/lib/proposal-constants";
+import { AnalyticsTabs } from "@/components/AnalyticsTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +80,7 @@ export default async function PipelinePage() {
 
   return (
     <div className="page">
+      <AnalyticsTabs />
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Pipeline · 売上フォーキャスト</div>
