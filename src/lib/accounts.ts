@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { engerAdmin, engerClient, dbConfigured, publicAdmin, authAdmin } from "./supabase";
 import { authServerClient, authConfigured } from "./supabase-auth";
-import { type Role, type AccountStatus, canAccess, roleHome } from "./roles";
+import { type Role, type AccountStatus, canAccess, roleHome, isExecDepartment } from "./roles";
 
 /** 1リクエスト内でログインユーザーのメールを1回だけ解決（layout と各ページの二重 getUser を防ぐ）。 */
 export const getSessionEmail = cache(async (): Promise<string> => {
@@ -89,7 +89,15 @@ export async function getAccountByEmail(email: string): Promise<Account | null> 
  */
 export const resolveAccess = cache(async (email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null } | null> => {
   const acc = await getAccountByEmail(email);
-  if (acc) return { role: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition, functions: (acc.functions ?? []) as string[], meetingDone: !!(acc as any).meeting_done, department: (acc as any).department ?? null, teamRole: (acc as any).team_role ?? null };
+  if (acc) {
+    const department = (acc as any).department ?? null;
+    // 経営部署の内部メンバー(agent/admin)は管理者相当に昇格（全メニュー・全機能）。
+    //   役職別権限の煩雑さを避け「経営＝全部できる」を単純に実現する。
+    //   外部ロール(client/candidate/partner/freelance)は対象外（誤って部署が入っても昇格しない）。
+    const isInternal = acc.role === "agent" || acc.role === "admin";
+    const role: Role = isExecDepartment(department) && isInternal ? "admin" : acc.role;
+    return { role, status: acc.status, companyName: acc.company_name, name: acc.name, position: (acc.position ?? null) as SalesPosition, functions: (acc.functions ?? []) as string[], meetingDone: !!(acc as any).meeting_done, department, teamRole: (acc as any).team_role ?? null };
+  }
 
   // フォールバック: 既存 staff 許可リストに載っている email のみ admin（移行期の救済）。
   // ※ 未登録の email を admin に“素通り”させない（Googleログイン等で勝手に管理者になる事故を防止）。

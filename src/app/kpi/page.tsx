@@ -8,7 +8,13 @@
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { getKpiSnapshot, getKpiHistory, getWeeklyTargets, jstStartOfWeek, type PeriodType, type Metric } from "@/lib/kpi";
+import { getTeamActivity } from "@/lib/team-activity";
 import { KpiDashboardClient } from "@/components/KpiDashboardClient";
+import { TeamActivityBoard } from "@/components/TeamActivityBoard";
+import { canManageDept } from "@/lib/roles";
+import { listAccounts } from "@/lib/accounts";
+
+const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
 export const dynamic = "force-dynamic";
 
@@ -63,18 +69,39 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
     type: historyType, periods: 12, metric: "proposal",
   });
 
+  // メンバー別アクティビティ（誰が何をやったか）。admin/経営=全員、マネージャー/リーダー=自部署。
+  let activityMembers: { name: string; email: string | null }[] = [];
+  if (access.role === "admin") {
+    activityMembers = members.map((m) => ({ name: m.name, email: m.email }));
+  } else if (canManageDept(access.teamRole) && access.department) {
+    const accs = await listAccounts();
+    activityMembers = accs
+      .filter((a) => a.status === "active" && (a.role === "agent" || a.role === "admin") && a.name && (a as any).department === access.department)
+      .map((a) => ({ name: a.name!, email: a.email ?? null }));
+  }
+  const activity = activityMembers.length > 0
+    ? await getTeamActivity({ start: range.start, end: range.end, members: activityMembers })
+    : [];
+
   return (
-    <KpiDashboardClient
-      access={{ email: access.email, name: access.name, role: access.role }}
-      target={{ email: targetEmail, name: targetName }}
-      members={members}
-      period={period}
-      range={{ start: range.start.toISOString(), end: range.end.toISOString() }}
-      custom={custom ?? null}
-      snapshot={snapshot}
-      weeklyTargets={weekly as Partial<Record<Metric, number>>}
-      weekStart={weekStart.toISOString().slice(0, 10)}
-      history={history}
-    />
+    <>
+      {activity.length > 0 && (
+        <div style={{ padding: "16px 18px 0" }}>
+          <TeamActivityBoard rows={activity} periodLabel={PERIOD_LABEL[period]} />
+        </div>
+      )}
+      <KpiDashboardClient
+        access={{ email: access.email, name: access.name, role: access.role }}
+        target={{ email: targetEmail, name: targetName }}
+        members={members}
+        period={period}
+        range={{ start: range.start.toISOString(), end: range.end.toISOString() }}
+        custom={custom ?? null}
+        snapshot={snapshot}
+        weeklyTargets={weekly as Partial<Record<Metric, number>>}
+        weekStart={weekStart.toISOString().slice(0, 10)}
+        history={history}
+      />
+    </>
   );
 }
