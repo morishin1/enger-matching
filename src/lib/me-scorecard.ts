@@ -7,6 +7,7 @@
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
 import { getFunnel, resolveFunnelPeriod, rate } from "./funnel";
 import { getPersonKgi, monthKey, planFromTarget, type KgiPlan } from "./person-kgi";
+import { ownerMatches } from "./owner-match";
 
 export type ScorecardCounts = { proposal: number; meeting: number; cl: number; won: number };
 
@@ -63,15 +64,13 @@ export async function getMyScorecard(name: string | null, email: string | null, 
   // 2) 個人月次KGI
   const kgiP = email ? getPersonKgi(email.toLowerCase(), monthKey(now)) : Promise.resolve(null);
 
-  // 3) 本人の proposals / meetings を今月ぶん取得（period内をJSで分配）
+  // 3) 今月の proposals / meetings を広めに取得（本人判定はJS側で略称↔フルネームに耐性を持たせる）
   const propsP = sb.from("proposals")
     .select("proposer, closer, stage, created_at, stage_updated_at")
     .or(`created_at.gte.${iso(monthStart)},stage_updated_at.gte.${iso(monthStart)}`)
-    .or(`proposer.eq.${name},closer.eq.${name}`)
     .limit(5000);
   const meetsP = sb.from("meetings")
     .select("our_owner, meeting_date")
-    .eq("our_owner", name)
     .gte("meeting_date", dateOnly(monthStart)).lt("meeting_date", dateOnly(monthEnd))
     .limit(2000);
   // 4) 今月の自分稼働化（提案者+クローザー合算）→ engagementsから引く
@@ -96,8 +95,10 @@ export async function getMyScorecard(name: string | null, email: string | null, 
       for (const e of engs) {
         const p = map.get(e.proposal_id);
         if (!p) continue;
-        if (p.proposer === name) monthPlacedTotal++;
-        if (p.closer === name && p.closer !== p.proposer) monthPlacedTotal++; // 同一人の二重カウント防止
+        const asProposer = ownerMatches(name, p.proposer);
+        const asCloser = ownerMatches(name, p.closer);
+        if (asProposer) monthPlacedTotal++;
+        if (asCloser && p.closer !== p.proposer) monthPlacedTotal++; // 同一人の二重カウント防止
       }
     }
   }
@@ -108,15 +109,17 @@ export async function getMyScorecard(name: string | null, email: string | null, 
     const sDate = dateOnly(range.s), eDate = dateOnly(range.e);
     const inRangeIso = (d: string | null) => !!d && d >= sIso && d < eIso;
     for (const p of props) {
-      const mine = p.proposer === name || p.closer === name;
+      const asProposer = ownerMatches(name, p.proposer);
+      const mine = asProposer || ownerMatches(name, p.closer);
       if (!mine) continue;
-      if (inRangeIso(p.created_at) && p.proposer === name) counts.proposal++;
+      if (inRangeIso(p.created_at) && asProposer) counts.proposal++;
       if (inRangeIso(p.stage_updated_at)) {
         if (p.stage === "クロージング中") counts.cl++;
         else if (p.stage === "稼働決定" || p.stage === "稼働") counts.won++;
       }
     }
     for (const m of meets) {
+      if (!ownerMatches(name, m.our_owner)) continue;
       if (m.meeting_date >= sDate && m.meeting_date < eDate) counts.meeting++;
     }
   };

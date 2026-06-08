@@ -385,12 +385,19 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   const job_action_token  = (preTokens?.jobToken  && HEX48.test(preTokens.jobToken))  ? preTokens.jobToken  : randomBytes(24).toString("hex");
   const cand_action_token = (preTokens?.candToken && HEX48.test(preTokens.candToken)) ? preTokens.candToken : randomBytes(24).toString("hex");
 
+  // 提案者の既定＝作成者（ログイン中の本人）。明示指定が無いと proposer が null になり、
+  // 日報スコアカード/KPIに「自分の提案」が出なくなるため、ここで本人名を補完する。
+  let proposerName = (proposer ?? "").trim() || null;
+  if (!proposerName) {
+    try { const me = await currentAccess(); proposerName = (me?.name ?? "").trim() || null; } catch { /* 未ログインでも続行 */ }
+  }
+
   const insertBase = {
     job_id: job.id, candidate_id: cand.id, stage: "所属確認",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser,
-    proposer: proposer || null,
+    proposer: proposerName,
     job_action_type: "未回答", job_action_token,
     cand_action_type: "未回答", cand_action_token,
   } as Record<string, any>;

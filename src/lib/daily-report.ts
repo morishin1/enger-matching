@@ -1,4 +1,5 @@
 import { engerClient, dbConfigured } from "./supabase";
+import { ownerMatches } from "./owner-match";
 
 export type Actuals = { proposalsToday: number; activeProps: number; meetingsToday: number; meetingsWeek: number };
 export type DailyReport = {
@@ -26,17 +27,20 @@ export async function getActuals(name: string | null): Promise<Actuals> {
   try {
     const sb = engerClient();
     const today = todayStr();
+    // 進行中ステージ or 本日作成の提案を広めに取得し、JS側で本人判定（略称↔フルネームに耐性）。
     const [pr, mr] = await Promise.all([
-      sb.from("proposals").select("stage, proposer, created_at").or(`proposer.eq.${name}`).limit(1000),
-      sb.from("meetings").select("our_owner, meeting_date").eq("our_owner", name).limit(1000),
+      sb.from("proposals").select("stage, proposer, closer, created_at").or(`stage.in.(${ACTIVE.join(",")}),created_at.gte.${today}`).limit(3000),
+      sb.from("meetings").select("our_owner, meeting_date").limit(2000),
     ]);
     const props = (pr.data ?? []) as any[];
     const meets = (mr.data ?? []) as any[];
+    const mineProp = (p: any) => ownerMatches(name, p.proposer);
+    const mineMeet = (m: any) => ownerMatches(name, m.our_owner);
     return {
-      proposalsToday: props.filter((p) => String(p.created_at ?? "").slice(0, 10) === today).length,
-      activeProps: props.filter((p) => ACTIVE.includes(p.stage)).length,
-      meetingsToday: meets.filter((m) => String(m.meeting_date ?? "").slice(0, 10) === today).length,
-      meetingsWeek: meets.filter((m) => String(m.meeting_date ?? "").slice(0, 10) >= weekAgoStr()).length,
+      proposalsToday: props.filter((p) => mineProp(p) && String(p.created_at ?? "").slice(0, 10) === today).length,
+      activeProps: props.filter((p) => mineProp(p) && ACTIVE.includes(p.stage)).length,
+      meetingsToday: meets.filter((m) => mineMeet(m) && String(m.meeting_date ?? "").slice(0, 10) === today).length,
+      meetingsWeek: meets.filter((m) => mineMeet(m) && String(m.meeting_date ?? "").slice(0, 10) >= weekAgoStr()).length,
     };
   } catch { return empty; }
 }
