@@ -292,6 +292,7 @@ export function MailComposeWizard({
               onChange={updateClientForm}
               badgeLabel={jobBadge}
               origMailUrl={jobOrigUrl}
+              origMailBody={(job?.detail ?? job?.description ?? null) as string | null}
             />
             <CandMailBodyCard
               form={candForm}
@@ -301,6 +302,7 @@ export function MailComposeWizard({
               onChange={updateCandForm}
               badgeLabel={candBadge}
               origMailUrl={candOrigUrl}
+              origMailBody={(cand?.note ?? cand?.exp ?? null) as string | null}
             />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>

@@ -869,7 +869,9 @@ function GmailBulkImportButton({ kind }: { kind: "candidates" | "jobs" }) {
                 <button className="btn ghost btn-xs" onClick={close} disabled={loading || pending}>閉じる</button>
               </div>
               <div className="muted" style={{ fontSize: 11.5 }}>
-                Gmail を同期して未抽出メールを Claude Haiku で判定し、{noun}に該当するもののみ表示します。AIコストは <b>抽出時のみ</b>（1通約 0.7円）。
+                ボタンを押した瞬間に Gmail を同期し、未取込メールのみを Claude Haiku で判定して{noun}に該当するもののみ表示します。
+                <b>重複は除外</b>（既に取込済みのメールは出ません）。AIコストは <b>抽出時のみ</b>（1通約 0.7円）。
+                既定で全件選択された状態になっています。
               </div>
               {meta && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11 }}>

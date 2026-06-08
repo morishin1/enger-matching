@@ -73,7 +73,7 @@ const errText: React.CSSProperties = { fontSize: 11, color: "var(--color-danger)
 const fieldLabel: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" };
 
 export function JobMailBodyCard({
-  form, errors, proposer, onProposerChange, onChange, badgeLabel, origMailUrl,
+  form, errors, proposer, onProposerChange, onChange, badgeLabel, origMailUrl, origMailBody,
 }: {
   form: MailForm;
   errors: MailErrors;
@@ -82,6 +82,8 @@ export function JobMailBodyCard({
   onChange: (field: keyof MailForm, v: string) => void;
   badgeLabel: string;
   origMailUrl?: string | null;
+  /** 取込元メール本文（あれば UI 内に全文プレビューを展開できる）。本当に合っているか目視確認用。 */
+  origMailBody?: string | null;
 }) {
   return (
     <div style={{ flex: 1, minWidth: 0, border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", boxShadow: "0 1px 3px rgba(15,23,42,.06)", display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", overflow: "hidden" }}>
@@ -147,6 +149,18 @@ export function JobMailBodyCard({
           {errors.subject && <div style={errText}>{errors.subject}</div>}
         </label> */}
       </div>
+
+      {/* 元メール本文プレビュー：本当に合っているか目視確認用（既定で閉、開けば全文表示・スクロール可） */}
+      {origMailBody && (
+        <details style={{ margin: "0 16px 8px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface-soft)" }}>
+          <summary style={{ cursor: "pointer", listStyle: "none", padding: "8px 12px", fontSize: 11.5, fontWeight: 700, color: "var(--color-ink-2)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, lineHeight: 1, color: "var(--color-ink-4)" }}>expand_more</span>
+            📨 元メール本文を見る（取込元の全文）
+            <span className="muted" style={{ fontSize: 10.5, fontWeight: 500, marginLeft: "auto" }}>{origMailBody.length.toLocaleString("ja-JP")} 文字</span>
+          </summary>
+          <pre style={{ margin: 0, padding: "8px 12px 12px", maxHeight: 240, overflow: "auto", fontFamily: "var(--font-sans)", fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--color-ink-2)" }}>{origMailBody}</pre>
+        </details>
+      )}
 
       {/* Body — splits at BUTTON_PLACEHOLDER: editable above, chip in middle, read-only signature below */}
       <div style={{ flex: 1, minHeight: 0, padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 4, overflow: "hidden" }}>
