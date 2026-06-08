@@ -10,6 +10,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskJobs } from "@/lib/tenant";
+import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,15 @@ const RANK_OPTIONS = [
   { value: "B", label: "B（70〜89万円）" },
   { value: "C", label: "C（〜69万円）" },
 ];
+// 国籍要件（案件本文から ilike 近似）。外国籍NG（=日本国籍のみ）を見落とさないため。
+const NATIONALITY_OPTIONS = [
+  { value: "jp_only", label: "日本国籍のみ" },
+  { value: "open", label: "国籍不問" },
+  { value: "unknown", label: "不明" },
+];
+const escapeLike = (s: string) => s.replace(/[%_]/g, (m) => "\\" + m);
+const ilikeOr = (keys: readonly string[], fields: string[]) =>
+  fields.flatMap((f) => keys.map((k) => `${f}.ilike.%${escapeLike(k)}%`)).join(",");
 
 // 鮮度ラベル → created_at の範囲（クライアント側の freshnessLabel と同じ境界）
 const freshRange = (label: string): { gte?: string; lt?: string } | null => {
@@ -67,7 +77,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_rank?: string; f_outside_owner?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -80,6 +90,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const fFlow = sp.f_flow ?? "";
   const fRank = sp.f_rank ?? "";
   const fOwner = sp.f_outside_owner ?? "";
+  const fNat = sp.f_nationality ?? "";
   const scope = await getViewerScope();
   // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
   const access = await currentAccess();
@@ -134,6 +145,15 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         if (fRemote) qb = qb.eq("remote_type", fRemote);
         if (fFlow) qb = fFlow === "不明" ? qb.or("flow_note.is.null,flow_note.eq.") : qb.eq("flow_note", fFlow);
         if (rOr) qb = qb.or(rOr);
+        // 国籍要件（案件本文の ilike 近似）。jp_only/open は該当語を含む、unknown は言及語を一切含まない。
+        //   unknown は本文が空(null)も含めたいので「is.null または 言及語をすべて含まない」で field 毎に絞る。
+        if (fNat === "jp_only") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.jp_only, ["detail", "title"]));
+        else if (fNat === "open") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.open, ["detail", "title"]));
+        else if (fNat === "unknown") {
+          const noMention = (field: string) =>
+            `${field}.is.null,and(${JOB_NAT_SQL_KEYS.mention.map((k) => `${field}.not.ilike.%${escapeLike(k)}%`).join(",")})`;
+          qb = qb.or(noMention("detail")).or(noMention("title"));
+        }
         if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
         if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
         return qb;
@@ -189,11 +209,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
 
   // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, rank: fRank, outside_owner: fOwner };
+  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, rank: fRank, outside_owner: fOwner, nationality: fNat };
   const jobFilterOptions = {
     status: FRESH_OPTIONS,
     role: roleOptionVals.map((v) => ({ value: v, label: v })),
     remote: REMOTE_OPTIONS,
+    nationality: NATIONALITY_OPTIONS,
     flow: ["不明", ...flowOptionVals].map((v) => ({ value: v, label: v })),
     rank: RANK_OPTIONS,
     outside_owner: ["未設定", ...ownerOptions].map((v) => ({ value: v, label: v })),

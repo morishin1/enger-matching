@@ -7,6 +7,7 @@ import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
+import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,19 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         <Row label="必要スキル" value={(j.skills ?? []).join(" / ") || "—"} />
         <Row label="単価" value={salaryLabel(j.salary_min, j.salary_max)} />
         <Row label="リモート可否" value={remoteLabel(j.remote_type)} />
+        {(() => {
+          const cat = classifyJobNationality(j.detail, j.title);
+          const tone = JOB_NAT_TONE[cat];
+          return (
+            <Row label="国籍要件" value={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{JOB_NAT_LABEL[cat]}</span>
+                {cat === "jp_only" && <span style={{ fontSize: 11, color: "#b42318" }}>外国籍NGの可能性。提案前に確認。</span>}
+                {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
+              </span>
+            } />
+          );
+        })()}
         <Row label="勤務地" value={j.work_location ?? "不明"} />
         <Row label="商流" value={j.flow_note} />
         <Row label="開始希望" value={j.start_date} />

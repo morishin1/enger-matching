@@ -10,6 +10,7 @@ import { AffiliationSelect } from "./AffiliationSelect";
 import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { bulkSetFocus, bulkDeleteCandidates } from "@/lib/actions";
+import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
 const dateLabel = (d: string | null) => {
@@ -117,14 +118,16 @@ const PEOPLE_COLS: Col[] = [
   },
   { key: "affiliation", label: "所属区分", width: 130, filterKey: "affiliation", filterLabel: "所属区分", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   // 国籍・年代を一覧に常時表示（プロフィールを開かなくても判断できるように）
-  { key: "nationality", label: "国籍", width: 96, filterKey: "nationality", filterLabel: "国籍",
+  { key: "nationality", label: "国籍", width: 100, filterKey: "nationality", filterLabel: "国籍",
     render: (p) => {
       const v = (p as any).nationality as string | null | undefined;
-      if (!v) return <span className="muted" style={{ fontSize: 11.5 }}>—</span>;
-      const isJp = /日本|jp|japan/i.test(v);
+      const cat = classifyCandNationality(v);
+      if (cat === "unknown") return <span className="muted" style={{ fontSize: 11.5 }}>不明</span>;
+      const tone = CAND_NAT_TONE[cat];
+      // カテゴリ（日本国籍/外国籍）を表示し、原文（国名など）は title に保持。
       return (
-        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
-          background: isJp ? "#e7f7ee" : "#eef2ff", color: isJp ? "#067647" : "#3730a3", border: `1px solid ${isJp ? "#bfe3cc" : "#c7d2fe"}` }}>{v}</span>
+        <span title={v ?? undefined} style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+          background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{CAND_NAT_LABEL[cat]}</span>
       );
     },
   },
