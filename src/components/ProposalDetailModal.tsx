@@ -213,8 +213,24 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             </div>
           </div>
 
-          {/* 人材情報 / 案件情報 */}
+          {/* 案件情報 / 人材情報（上の元メール並びと一致させて縦に揃える） */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
+                {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
+                  <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
+                    style={{ textDecoration: "none", opacity: url ? 1 : 0.35, pointerEvents: url ? "auto" : "none", cursor: url ? "pointer" : "not-allowed" }}
+                    title={url ? "案件の元メールを開く" : "元メールURLがありません"} aria-disabled={!url}>↗ 元メール</a>
+                ); })()}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+                {p.job_no != null ? <Link href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
+              </div>
+              <Info label="クライアント" value={p.company ?? "—"} />
+              <Info label="先方担当" value={p.client_contact ?? "—"} />
+              <Info label="企業担当" value={p.company_owner ?? "—"} />
+            </div>
             <div className="card" style={{ padding: 16 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
@@ -236,22 +252,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <Info label="想定単価" value={p.rate ?? "—"} />
               <Info label="マッチ度" value={matchPct != null ? `${matchPct}%` : "—"} />
               <Info label="架電進捗" value={p.caller_status ?? "—"} />
-            </div>
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
-                {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
-                  <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
-                    style={{ textDecoration: "none", opacity: url ? 1 : 0.35, pointerEvents: url ? "auto" : "none", cursor: url ? "pointer" : "not-allowed" }}
-                    title={url ? "案件の元メールを開く" : "元メールURLがありません"} aria-disabled={!url}>↗ 元メール</a>
-                ); })()}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
-                {p.job_no != null ? <Link href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
-              </div>
-              <Info label="クライアント" value={p.company ?? "—"} />
-              <Info label="先方担当" value={p.client_contact ?? "—"} />
-              <Info label="企業担当" value={p.company_owner ?? "—"} />
             </div>
           </div>
 
@@ -436,7 +436,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             onClick={() => { setLostOpen(true); setTimeout(() => document.getElementById("lost-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); }}
             title="失注理由（A〜E）を選んで見送りにする" style={{ color: "var(--color-danger)" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>do_not_disturb_on</span>
-            見送りにする
+            見送り内容を記入する
           </button>
           <button type="button" className="btn ghost" disabled={pending} onClick={removeProposal} title="提案を削除（記録ミスの取り消し・元に戻せません）" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>delete</span>
