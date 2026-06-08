@@ -4,6 +4,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
+import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function ProposalsPage() {
   // 提案開始件数（created_at 基準）。ステージ移動の影響を受けず一貫してカウントする。
   let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
 
-  const staff = await getStaff();
+  const [staff, proposalOwners] = await Promise.all([getStaff(), loadProposalOwners()]);
   let lostRows: any[] = [];
   let history: any[] = [];
   let analyticsRows: any[] = [];
@@ -175,6 +176,8 @@ export default async function ProposalsPage() {
             history={history}
             analyticsRows={analyticsRows}
             members={staff.members}
+            proposers={proposalOwners?.proposers}
+            closers={proposalOwners?.closers}
             fallbackBanner={
               <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
                 まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。

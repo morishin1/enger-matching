@@ -10,7 +10,7 @@ import { ProposalListView } from "./ProposalListView";
 
 type View = "kanban" | "list";
 
-export function ProposalBoardSwitcher({ proposals, members }: { proposals: any[]; members?: string[] }) {
+export function ProposalBoardSwitcher({ proposals, members, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
   // 既定はリスト表示（一覧性が高く運用に合いやすい）。ユーザーが切替えれば localStorage に保存される。
   const [view, setView] = useState<View>("list");
   useEffect(() => {
@@ -36,7 +36,7 @@ export function ProposalBoardSwitcher({ proposals, members }: { proposals: any[]
         <Btn v="list" icon="table_rows" label="リスト" />
         <Btn v="kanban" icon="view_kanban" label="カンバン" />
       </div>
-      {view === "kanban" ? <ProposalBoard proposals={proposals} members={members} /> : <ProposalListView proposals={proposals} members={members} />}
+      {view === "kanban" ? <ProposalBoard proposals={proposals} members={members} proposers={proposers} closers={closers} /> : <ProposalListView proposals={proposals} members={members} proposers={proposers} closers={closers} />}
     </div>
   );
 }

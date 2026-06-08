@@ -6,6 +6,7 @@ import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
 import { MENU_PERM_KEY, MENU_ITEMS, MENU_ROLE_KEYS, type MenuPermissions } from "@/lib/menu-permissions";
 import { REPORT_SCOPE_KEY, REPORT_ROLE_KEYS, type ReportScope, type ReportScopes } from "@/lib/report-scope";
+import { PROPOSAL_OWNERS_KEY, type ProposalOwners } from "@/lib/proposal-owners";
 
 type Result = { ok: boolean; error?: string };
 
@@ -58,6 +59,30 @@ export async function saveReportScopes(scopes: ReportScopes): Promise<Result> {
       return { ok: false, error: error.message };
     }
     revalidatePath("/reports");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+const trimUniq = (xs: any[]): string[] =>
+  Array.from(new Set((xs ?? []).map((x) => String(x ?? "").trim()).filter(Boolean)));
+
+/** 提案者・クロージング担当の名前リストを保存（管理者のみ）。 */
+export async function saveProposalOwners(owners: ProposalOwners): Promise<Result> {
+  const g = await requireAdmin(); if (!g.ok) return g;
+  const clean: ProposalOwners = {
+    proposers: trimUniq(owners?.proposers ?? []).slice(0, 50),
+    closers:   trimUniq(owners?.closers   ?? []).slice(0, 50),
+  };
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_settings").upsert({ key: PROPOSAL_OWNERS_KEY, value: clean }, { onConflict: "key" });
+    if (error) {
+      if (/app_settings|relation|column/i.test(error.message)) return { ok: false, error: "app_settings テーブルが未整備です（supabase/app-settings.sql を実行してください）" };
+      return { ok: false, error: error.message };
+    }
+    revalidatePath("/proposals");
+    revalidatePath("/matching");
+    revalidatePath("/settings");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }

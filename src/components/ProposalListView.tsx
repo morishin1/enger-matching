@@ -156,7 +156,7 @@ function ActionChip({ type, side }: { type?: string | null; side: "job" | "cand"
   );
 }
 
-export function ProposalListView({ proposals }: { proposals: any[]; members?: string[] }) {
+export function ProposalListView({ proposals, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
   const router = useRouter();
   const [busy, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -388,7 +388,7 @@ export function ProposalListView({ proposals }: { proposals: any[]; members?: st
 
       <div className="muted" style={{ fontSize: 11.5 }}>{rows.length} 件を表示中{stageFilter || ownerFilter || q ? "（絞り込み適用中）" : ""}</div>
 
-      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} />}
+      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} proposers={proposers} closers={closers} />}
     </div>
   );
 }

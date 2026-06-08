@@ -78,12 +78,12 @@ function Field({ label, value, options, onChange, placeholder }: { label: string
   );
 }
 
-function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, onDragStart, onDragEnd, isDragging, density = "normal", onOpen }: any) {
+function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, members, proposers, closers, onDragStart, onDragEnd, isDragging, density = "normal", onOpen }: any) {
   const [open, setOpen] = useState(false);
   const compact = density === "compact" && !open;
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
-  const [partner, setPartner] = useState(p.partner ?? "");
+  // パートナー機能は廃止。保存時は null で上書きする。
   // クロージング担当の既定 = 企業担当（案件の担当者）。未設定なら企業担当を初期表示。
   const [closer, setCloser] = useState(p.closer ?? p.company_owner ?? "");
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
@@ -217,10 +217,6 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             {p.proposer && (() => { const col = hashColor(p.proposer); return (
               <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>提案 {p.proposer}</span>
             ); })()}
-            {p.partner && (() => { const col = hashColor(p.partner); return (
-              <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55` }}>組 {p.partner}</span>
-            ); })()}
-            {p.proposer && !p.partner && <span className="tag" style={{ fontSize: 10, color: "#b45309", background: "#fff1e6" }}>パートナー未定</span>}
             {(p.closer ?? p.company_owner) && (p.closer ?? p.company_owner) !== "未割当" && (() => { const closer = p.closer ?? p.company_owner; const col = hashColor(closer); return (
               <span className="tag" style={{ fontSize: 10, background: `${col}1a`, color: col, border: `1px solid ${col}55`, fontWeight: 700 }}>CL {closer}</span>
             ); })()}
@@ -257,17 +253,12 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             </label>
           </div>
           <Field label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
-          {/* 2人1組（提案者＋パートナー）。区分に関係なく全員が担当できる */}
-          <div style={{ fontSize: 10.5, color: "#0b5cab", fontWeight: 600 }}>👥 2人1組</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            <Field label="提案者" value={proposer} options={members ?? PROPOSERS} onChange={setProposer} />
-            <Field label="パートナー" value={partner} options={members ?? PROPOSERS} onChange={setPartner} placeholder="相手を選ぶ" />
-          </div>
-          {/* クロージング担当：企業担当者がデフォルト。提案者・パートナー・他メンバーからも選べる */}
+          <Field label="提案者" value={proposer} options={(proposers && proposers.length > 0) ? proposers : (members ?? PROPOSERS)} onChange={setProposer} />
+          {/* クロージング担当：企業担当者を冒頭に、設定された候補リストを使う */}
           <Field
             label="クロージング担当"
             value={closer}
-            options={Array.from(new Set([p.company_owner, proposer, partner, ...(members ?? PROPOSERS)].filter((x) => x && x !== "")))}
+            options={Array.from(new Set([p.company_owner, ...((closers && closers.length > 0) ? closers : (members ?? PROPOSERS))].filter((x) => x && x !== "")))}
             onChange={setCloser}
             placeholder="未定（あとで決める）"
           />
@@ -275,7 +266,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             {p.company_owner ? <>※ 既定は企業担当の <b>{p.company_owner}</b> さん。ペアで相談して変更できます。</> : <>※ 企業担当が未設定です。案件管理で企業担当を設定すると既定になります。</>}
             <br />※ 会社名・先方担当者は<b>企業管理</b>にも紐づけ保存されます。
           </div>
-          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner, closer, company: company.trim() || null, client_contact: clientContact.trim() || null, source: source || null })}>保存</button>
+          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner: null, closer, company: company.trim() || null, client_contact: clientContact.trim() || null, source: source || null })}>保存</button>
 
           {/* 面談（これから捌く予定）— ファネルの面談到達率の素 */}
           <div style={{ paddingTop: 8, borderTop: "1px dashed var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -309,7 +300,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   );
 }
 
-export function ProposalBoard({ proposals, members }: { proposals: any[]; members?: string[] }) {
+export function ProposalBoard({ proposals, members, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -458,7 +449,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
             <div style={{ flex: "1 1 auto", overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column", gap: 8, paddingRight: 2 }}>
             {items.length === 0 && <div style={{ fontSize: 11, color: isOver ? tone : "var(--color-ink-4)", textAlign: "center", padding: "16px 0", fontWeight: isOver ? 700 : 400 }}>{isOver ? "ここにドロップ" : "—"}</div>}
             {items.map((p) => (
-              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members} density={density}
+              <Card key={p.id} p={p} stageIdx={STAGES.indexOf(stage)} busy={busyId === p.id && pending} members={members} proposers={proposers} closers={closers} density={density}
                 isDragging={draggingId === p.id}
                 onDragStart={(id: string) => setDraggingId(id)}
                 onDragEnd={() => { setDraggingId(null); setOverStage(null); }}
@@ -471,7 +462,7 @@ export function ProposalBoard({ proposals, members }: { proposals: any[]; member
       })}
       </div>
 
-      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} />}
+      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} proposers={proposers} closers={closers} />}
     </div>
   );
 }

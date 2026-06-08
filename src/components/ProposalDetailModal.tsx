@@ -69,12 +69,15 @@ function MailColumn({ title, side, body, url, accent }: { title: string; side: "
   );
 }
 
-export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => void }) {
+export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any; onClose: () => void; proposers?: string[]; closers?: string[] }) {
+  // 選択肢の優先順位：props → 既定の定数。"パートナー"は廃止。
+  const proposerOpts = (proposers && proposers.length > 0) ? proposers : PROPOSERS;
+  const closerOpts = (closers && closers.length > 0) ? closers : CLOSERS;
   const router = useRouter();
   const [pending, start] = useTransition();
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
-  const [partner, setPartner] = useState(p.partner ?? "");
+  // パートナー機能は廃止（互換のため保存は null で上書き）。
   const [closer, setCloser] = useState(p.closer ?? p.company_owner ?? "");
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
@@ -128,14 +131,14 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
 
   const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
   const moveTo = (stage: string) => { if (stage !== p.stage) run(() => updateProposalStage(p.id, stage)); };
-  const saveFields = () => run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: partner || null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null }));
+  const saveFields = () => run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null }));
   // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
   const pickStage = (stage: string) => {
     setStageMenuOpen(false);
     if (stage === "見送り") { setLostOpen(true); return; }
     run(() => updateProposalFields(p.id, {
       stage,
-      caller_status: caller || null, proposer: proposer || null, partner: partner || null, closer: closer || null,
+      caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null,
       meeting_date: meetingDate || null, meeting_status: meetingStatus || null,
     }));
   };
@@ -358,9 +361,8 @@ export function ProposalDetailModal({ p, onClose }: { p: any; onClose: () => voi
             <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>担当・進捗を更新</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
               <SelField label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
-              <SelField label="提案者" value={proposer} options={PROPOSERS} onChange={setProposer} />
-              <SelField label="パートナー" value={partner} options={PROPOSERS} onChange={setPartner} />
-              <SelField label="クロージング" value={closer} options={CLOSERS} onChange={setCloser} />
+              <SelField label="提案者" value={proposer} options={proposerOpts} onChange={setProposer} />
+              <SelField label="クロージング" value={closer} options={closerOpts} onChange={setCloser} />
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>面談予定日
                 <input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
               </label>

@@ -36,7 +36,7 @@ function startMs(p: Period): number {
 type TabKey = "board" | "history" | "lost";
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, fallbackBanner,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -45,6 +45,8 @@ export function ProposalsWorkspace({
   // analyticsRows: 終了系（見送り/失注/稼働/稼働決定）。LostAnalytics 用
   analyticsRows: any[];
   members?: string[];
+  proposers?: string[];
+  closers?: string[];
   fallbackBanner?: ReactNode;
 }) {
   const [period, setPeriod] = useState<Period>("today");
@@ -140,7 +142,7 @@ export function ProposalsWorkspace({
             この期間に進行中の提案はありません。
           </div>
         ) : (
-          <ProposalBoardSwitcher proposals={boardRows} members={members} />
+          <ProposalBoardSwitcher proposals={boardRows} members={members} proposers={proposers} closers={closers} />
         )}
       </div>
       <div style={{ display: tab === "history" ? "block" : "none" }}>

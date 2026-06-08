@@ -4,8 +4,11 @@ import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { MenuPermissionEditor } from "@/components/MenuPermissionEditor";
 import { ReportScopeEditor } from "@/components/ReportScopeEditor";
+import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { loadMenuPermissions } from "@/lib/menu-permissions";
 import { loadReportScopes } from "@/lib/report-scope";
+import { loadProposalOwners } from "@/lib/proposal-owners";
+import { getStaff } from "@/lib/staff";
 import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
@@ -47,6 +50,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const accounts = tab === "accounts" ? await listAccounts() : null;
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
   const reportScopes = tab === "menus" ? await loadReportScopes() : null;
+  const proposalOwnersData = tab === "menus" ? await Promise.all([loadProposalOwners(), getStaff()]).then(([po, staff]) => ({ initial: po ?? { proposers: staff.members, closers: staff.members }, suggestions: staff.members })) : null;
   const maxDaily = usage ? Math.max(0.0001, ...usage.daily.map((d) => d.usd)) : 1;
 
   const Icon = ({ name, size = 16 }: { name: string; size?: number }) => (
@@ -154,10 +158,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div id="accounts"><AccountManager accounts={accounts} /></div>
       )}
 
-      {tab === "menus" && menuPerms && reportScopes && (
+      {tab === "menus" && menuPerms && reportScopes && proposalOwnersData && (
         <div id="menus" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <MenuPermissionEditor initial={menuPerms} />
           <ReportScopeEditor initial={reportScopes} />
+          <ProposalOwnersEditor initial={proposalOwnersData.initial} suggestions={proposalOwnersData.suggestions} />
         </div>
       )}
     </div>
