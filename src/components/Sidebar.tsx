@@ -25,16 +25,22 @@ const NAV: NavItem[] = [
     { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
-  { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress" },
+  // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
+  { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress", children: [
+    { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）" },
+    { href: "/documents", id: "documents",    label: "書類送付" },
+  ] },
 ];
 
 // 振り返り・分析（時間軸での見直しに使う画面）。
+//   「分析」1メニューに集約し、内部タブで KPI推移 / ファネル / パイプライン / 詳細分析 へ。
+//   サイドバーの肥大化を避け、誰が見ても「ここで分析する」が一目で分かる導線にする。
 const ANALYSIS: NavItem[] = [
-  { href: "/kpi", id: "kpi", label: "KPI 推移", icon: "analytics" },
-  { href: "/funnel", id: "funnel", label: "ファネル（転換率）", icon: "analytics" },
-  { href: "/analytics", id: "analytics", label: "分析", icon: "analytics", children: [
-    { href: "/pipeline", id: "pipeline", label: "パイプライン" },
-    { href: "/documents", id: "documents", label: "書類送付" },
+  { href: "/kpi", id: "analytics-hub", label: "分析", icon: "analytics", children: [
+    { href: "/kpi",       id: "kpi",       label: "KPI推移" },
+    { href: "/funnel",    id: "funnel",    label: "ファネル" },
+    { href: "/pipeline",  id: "pipeline",  label: "パイプライン" },
+    { href: "/analytics", id: "analytics", label: "詳細分析" },
   ] },
 ];
 

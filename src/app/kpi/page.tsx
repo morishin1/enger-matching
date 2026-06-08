@@ -11,6 +11,7 @@ import { getKpiSnapshot, getKpiHistory, getWeeklyTargets, jstStartOfWeek, type P
 import { getTeamActivity } from "@/lib/team-activity";
 import { KpiDashboardClient } from "@/components/KpiDashboardClient";
 import { TeamActivityBoard } from "@/components/TeamActivityBoard";
+import { AnalyticsTabs } from "@/components/AnalyticsTabs";
 import { canManageDept } from "@/lib/roles";
 import { listAccounts } from "@/lib/accounts";
 
@@ -85,8 +86,11 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
 
   return (
     <>
+      <div style={{ padding: "16px 18px 0" }}>
+        <AnalyticsTabs />
+      </div>
       {activity.length > 0 && (
-        <div style={{ padding: "16px 18px 0" }}>
+        <div style={{ padding: "0 18px" }}>
           <TeamActivityBoard rows={activity} periodLabel={PERIOD_LABEL[period]} />
         </div>
       )}

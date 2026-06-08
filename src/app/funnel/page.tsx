@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { getFunnel, resolveFunnelPeriod, rate, pct, type FunnelPeriod, type FunnelCounts } from "@/lib/funnel";
+import { AnalyticsTabs } from "@/components/AnalyticsTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -55,13 +56,13 @@ export default async function FunnelPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="page">
+      <AnalyticsTabs />
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Funnel · 転換率分析</div>
           <h1>ファネル（転換率）</h1>
           <div className="sub">提案→面談→クロージング→稼働化の歩留まりを見ます。まず自社の転換率を知り、ボトルネックを特定し、KGI（稼働数）から必要な提案数を逆算します。</div>
         </div>
-        <Link href="/" className="btn ghost" style={{ textDecoration: "none", alignSelf: "flex-start" }}>← ダッシュボードへ</Link>
       </div>
 
       {/* 期間切替 */}

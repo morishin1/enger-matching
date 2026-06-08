@@ -1,5 +1,6 @@
 import { Workbench } from "@/components/Workbench";
 import { FlowSteps } from "@/components/FlowSteps";
+import { ProgressTabs } from "@/components/ProgressTabs";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { maskEngagement } from "@/lib/engagement-access";
@@ -73,6 +74,7 @@ export default async function ProgressPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="page">
+      <ProgressTabs />
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Engagements · 稼働管理</div>

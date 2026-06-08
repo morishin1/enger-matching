@@ -6,6 +6,7 @@ import { currentPeriod } from "@/lib/billing";
 import { Icons } from "@/components/icons";
 import { GripBoard } from "@/components/GripBoard";
 import { GrowthStrategy } from "@/components/GrowthStrategy";
+import { AnalyticsTabs } from "@/components/AnalyticsTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -219,11 +220,12 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="page">
+      <AnalyticsTabs />
       <div className="page-head">
         <div style={{ maxWidth: 820 }}>
-          <div className="meta">Analytics · {isAdmin ? "管理者ビュー" : "エージェントビュー"}</div>
-          <h1>分析 — 仮説立案ボード</h1>
-          <div className="sub">市場の<b>仮置きトレンド係数</b>と社内データを突き合わせ、<b>狙う領域・育てる領域</b>を見える化します。タブで切り替えて確認できます。</div>
+          <div className="meta">Analytics · 詳細分析（{isAdmin ? "管理者ビュー" : "エージェントビュー"}）</div>
+          <h1>詳細分析</h1>
+          <div className="sub">市場の<b>仮置きトレンド係数</b>と社内データを突き合わせ、<b>狙う領域・育てる領域</b>を見える化します。下のタブで切り替えて確認できます。</div>
         </div>
       </div>
 
