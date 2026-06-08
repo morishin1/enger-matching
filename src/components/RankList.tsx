@@ -8,7 +8,7 @@ function Stars({ score }: { score: number }) {
   return <span style={{ color: "#f0a92b", letterSpacing: 1, fontSize: 13 }}>{"★".repeat(n)}<span style={{ color: "var(--color-ink-5)" }}>{"★".repeat(5 - n)}</span></span>;
 }
 
-type Ranked = { candidate: any; score: number; dupCount?: number; dupNos?: number[] };
+type Ranked = { candidate: any; score: number; dupCount?: number; dupNos?: number[]; flow?: { compat: "ok" | "ng" | "unknown" } };
 
 export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, jobForAI }: {
   jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; jobForAI: any;
@@ -119,6 +119,9 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                   )}
                   {proposedCandIds?.has(c.id) && (
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
+                  )}
+                  {r.flow?.compat === "ng" && (
+                    <span title="案件の受入商流の上限を超えています。提案前に確認してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", lineHeight: 1.5, flexShrink: 0 }}>商流NG</span>
                   )}
                 </div>
                 {(() => {

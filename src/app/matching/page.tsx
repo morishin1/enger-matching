@@ -7,6 +7,7 @@ import { FocusList } from "@/components/FocusList";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { FLOW_LABEL, FLOW_TONE, candDepthLabel, jobDepthLabel } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
@@ -233,11 +234,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (dbConfigured) {
     try {
       const sb = engerClient();
+      // 注意：flow_depth / accept_flow_depth は supabase/flow-depth.sql 適用後のみ存在。
+      //   SELECTに含めると未マイグレ環境で全体が落ちるため、CAND_BASE/JOB_BASE には含めず、
+      //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url, created_at";
-      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary`;
+      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
-      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at`;
+      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth`;
 
       // 充足（枠が埋まった）案件 = 稼働決定/稼働 の提案がある job_id。マッチングから自動除外する。
       const filledJobIds = new Set<string>();
@@ -777,6 +781,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
                       <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                      {sel.flow && (() => {
+                        const compat = sel.flow.compat as "ok" | "ng" | "unknown";
+                        const t = FLOW_TONE[compat];
+                        const title = compat === "ng"
+                          ? `案件「${jobDepthLabel(sel.flow.jobMaxDepth)}」／候補「${candDepthLabel(sel.flow.candDepth)}」：受入上限を超過`
+                          : compat === "ok"
+                            ? `案件「${jobDepthLabel(sel.flow.jobMaxDepth)}」／候補「${candDepthLabel(sel.flow.candDepth)}」`
+                            : `案件「${jobDepthLabel(sel.flow.jobMaxDepth)}」／候補「${candDepthLabel(sel.flow.candDepth)}」（要確認）`;
+                        return (
+                          <span title={title} style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>
+                            {FLOW_LABEL[compat]}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div style={{ padding: 20 }}>
