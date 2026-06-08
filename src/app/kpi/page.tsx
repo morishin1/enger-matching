@@ -18,8 +18,9 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   if (!dbConfigured) return <div style={{ padding: 24 }}>DB 接続が設定されていません。</div>;
 
   const sp = await searchParams;
+  // 既定は「今日」。各メンバーの当日の動きをまず見せる。
   const period: PeriodType = (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any)
-    ? (sp.period as PeriodType) : "week";
+    ? (sp.period as PeriodType) : "day";
 
   // 管理者は ?owner=email で対象切替可能。それ以外は自分のみ。
   let targetEmail = access.email.toLowerCase();
