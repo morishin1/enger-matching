@@ -173,19 +173,24 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
             const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
             return (
               <Fragment key={n.id}>
-                <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
-                  style={{ position: "relative" }}>
-                  <span className="ico">{Ico && <Ico />}</span>
-                  <span>{n.label}</span>
-                  {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                {/* Link と トグルボタンを並べる（<a> 内に <button> を入れない＝HTML仕様準拠）。
+                    ネスト構造だとブラウザのDOM補正でハイドレーションがズレ、稀に
+                    サイドメニュークリックが効かなくなる事象が起きていた。 */}
+                <div style={{ position: "relative", display: "flex", alignItems: "stretch" }}>
+                  <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
+                    style={{ flex: 1, minWidth: 0, paddingRight: hasChildren ? 6 : undefined }}>
+                    <span className="ico">{Ico && <Ico />}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label}</span>
+                    {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                  </Link>
                   {hasChildren && (
-                    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(n.id); }}
-                      aria-label={isOpen ? "閉じる" : "開く"} title={isOpen ? "閉じる" : "開く"}
-                      style={{ marginLeft: badge != null ? 4 : "auto", background: "transparent", border: "none", padding: "2px 4px", cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 4 }}>
+                    <button type="button" onClick={() => toggle(n.id)}
+                      aria-label={isOpen ? "閉じる" : "開く"} aria-expanded={isOpen} title={isOpen ? "閉じる" : "開く"}
+                      style={{ background: "transparent", border: 0, padding: "0 8px", marginLeft: 2, cursor: "pointer", color: "var(--color-ink-4)", display: "inline-flex", alignItems: "center", borderRadius: 8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 16, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}>chevron_right</span>
                     </button>
                   )}
-                </Link>
+                </div>
                 {isOpen && n.children?.map((c) => {
                   const total = c.count ? fmt(counts?.[c.count]) : null;
                   const newN = c.newCount ? counts?.[c.newCount] : undefined;
