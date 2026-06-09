@@ -7,10 +7,11 @@
 import { useEffect, useState } from "react";
 import { ProposalBoard } from "./ProposalBoard";
 import { ProposalListView } from "./ProposalListView";
+import { ProposalCoach } from "./ProposalCoach";
 
 type View = "kanban" | "list";
 
-export function ProposalBoardSwitcher({ proposals, members, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
+export function ProposalBoardSwitcher({ proposals, members, proposers, closers, periodLabel = "本日" }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[]; periodLabel?: string }) {
   // 既定はリスト表示（一覧性が高く運用に合いやすい）。ユーザーが切替えれば localStorage に保存される。
   const [view, setView] = useState<View>("list");
   useEffect(() => {
@@ -31,10 +32,13 @@ export function ProposalBoardSwitcher({ proposals, members, proposers, closers }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span className="muted" style={{ fontSize: 11.5, marginRight: 2 }}>表示</span>
         <Btn v="list" icon="table_rows" label="リスト" />
         <Btn v="kanban" icon="view_kanban" label="カンバン" />
+        {/* カンバンの隣にAIコーチ。現在ボードに出ている提案を分析する */}
+        <span style={{ width: 1, height: 20, background: "var(--color-border)", margin: "0 2px" }} />
+        <ProposalCoach proposals={proposals} periodLabel={periodLabel} />
       </div>
       {view === "kanban" ? <ProposalBoard proposals={proposals} members={members} proposers={proposers} closers={closers} /> : <ProposalListView proposals={proposals} members={members} proposers={proposers} closers={closers} />}
     </div>
