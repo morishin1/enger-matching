@@ -92,14 +92,18 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
           <button className="nav-toggle" onClick={() => setNavOpen((v) => !v)} aria-label="メニュー">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
           </button>
-          <div className="crumbs">
-            {crumbs.map((c, i) => (
-              <span key={i} style={{ display: "contents" }}>
-                {i > 0 && <span className="sep">/</span>}
-                {i === crumbs.length - 1 ? <b>{c}</b> : <span>{c}</span>}
-              </span>
-            ))}
-          </div>
+          {/* パンくず: 現状すべて2階層（ENGER / ページ名）で .page-head の H1 と重複するため、
+              3階層以上のときだけ表示する（例: ENGER / 案件 / No.00123 のような深い導線が増えた場合）。 */}
+          {crumbs.length > 2 && (
+            <div className="crumbs">
+              {crumbs.map((c, i) => (
+                <span key={i} style={{ display: "contents" }}>
+                  {i > 0 && <span className="sep">/</span>}
+                  {i === crumbs.length - 1 ? <b>{c}</b> : <span>{c}</span>}
+                </span>
+              ))}
+            </div>
+          )}
           {/* マッチング/案件/人材/LP登録 のタブは各ページ本体上部（MatchingPeerTabs）に統一配置した */}
           <form className="search" onSubmit={submit}>
             <span style={{ display: "grid", placeItems: "center" }}><Icons.search /></span>
