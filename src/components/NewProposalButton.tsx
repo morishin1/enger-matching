@@ -124,24 +124,30 @@ export function NewProposalButton() {
               <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
             </div>
             <div className="muted" style={{ fontSize: 11.5 }}>
-              既存の案件・人材は「NO」を入力。新規（LINE/書面など）は下のフィールドに入力すると自動でマスタに追加されます。<br />
-              LINE/書面/メール本文を貼って <b>「✨ AIで自動抽出」</b> を押すと、各フィールドに自動入力（空欄の項目だけ埋まる）。
+              既存の案件・人材は「NO」を入力。新規（LINE/書面など）は下のフィールドに入力すると自動でマスタに追加されます。
             </div>
 
-            {/* ✨ 貼付→AI抽出（手入力の前に1回押すと下のフォームが自動で埋まる） */}
-            <div style={{ border: "1px dashed var(--color-border-strong)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6, background: "var(--color-surface-soft)" }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)" }}>📋 文章を貼り付けて自動入力（LINE / 書面 / メール本文 等）</label>
+            {/* LINE / メール 貼り付け取り込み（案件一覧・人材一覧の新規登録モーダルと同UI） */}
+            <div style={{ border: "1px solid #bfe7cd", borderRadius: 10, background: "#f1fbf4", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icons.line size={20} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#067647" }}>LINE / メールから貼り付けて自動入力</span>
+                <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>空欄のみ補完（入力済みは保持）</span>
+              </label>
               <textarea
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
                 placeholder="ここにテキストを貼り付け…&#10;例: 「○○案件のご紹介。クライアント=△△社、単価=80万、人材：山田太郎（弊社社員）希望70万…」"
                 rows={4}
-                style={{ fontSize: 12.5, padding: 8, border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", resize: "vertical", fontFamily: "var(--font-sans)" }}
+                style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, lineHeight: 1.6, padding: "8px 10px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", resize: "vertical", fontFamily: "var(--font-sans)" }}
               />
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <button type="button" className="btn brand btn-xs" disabled={aiBusy || !pasteText.trim()} onClick={extract}>{aiBusy ? "解析中…" : "✨ AIで自動抽出"}</button>
-                {pasteText && <button type="button" className="btn ghost btn-xs" onClick={() => setPasteText("")}>クリア</button>}
-                <span className="muted" style={{ fontSize: 10.5 }}>※ 既に入力済みのフィールドは上書きしません</span>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button type="button" className="btn brand btn-sm" disabled={aiBusy || !pasteText.trim()} onClick={extract}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {aiBusy && <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+                  {aiBusy ? "読み取り中…" : "✨ AIで読み取ってフォームに反映"}
+                </button>
+                {pasteText && <button type="button" className="btn ghost btn-sm" onClick={() => setPasteText("")} disabled={aiBusy}>クリア</button>}
               </div>
             </div>
 
