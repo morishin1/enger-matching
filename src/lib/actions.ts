@@ -281,26 +281,137 @@ export async function bulkSetFocus(
 
 /** 案件を一括削除（job_no の配列で指定）。 */
 export async function bulkDeleteJobs(jobNos: number[]) {
-  if (!jobNos.length) return { ok: true, deleted: 0 };
-  let admin: ReturnType<typeof engerAdmin>;
-  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const { error } = await admin.from("jobs").delete().in("job_no", jobNos);
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/jobs");
-  bustCounts();
-  return { ok: true, deleted: jobNos.length };
+  // 既存の「削除」呼び出しは互換のためそのまま動かしつつ、実体はゴミ箱（ソフトデリート）に変更。
+  // 完全削除は purgeJobs（ゴミ箱画面から admin が実行）から。
+  return moveJobsToTrash(jobNos);
 }
 
-/** 人材を一括削除（candidate_no の配列で指定）。 */
+/** 人材を一括削除（candidate_no の配列で指定）。実体はゴミ箱（ソフトデリート）へ。 */
 export async function bulkDeleteCandidates(candidateNos: number[]) {
-  if (!candidateNos.length) return { ok: true, deleted: 0 };
+  return moveCandidatesToTrash(candidateNos);
+}
+
+// ===================== ゴミ箱（ソフトデリート） =====================
+//   ・deleted_at をセット = ゴミ箱
+//   ・deleted_at を null に戻す = 復元
+//   ・purge* = ゴミ箱から完全削除
+//   ・bulkTrashBefore = 指定日より前の取込分をまとめてゴミ箱へ（提案紐付けは除外）
+//   未マイグレ時（deleted_at 列が無い）はフォールバックで従来通り delete する。
+
+async function trashItems(table: "jobs" | "candidates", noField: "job_no" | "candidate_no", nos: number[]) {
+  if (!nos.length) return { ok: true as const, moved: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const now = new Date().toISOString();
+  let r: any = await admin.from(table).update({ deleted_at: now, updated_at: now }).in(noField, nos).is("deleted_at", null);
+  if (r.error && /deleted_at|column/i.test(r.error.message)) {
+    // 未マイグレ：フォールバックでハード削除（従来動作）
+    r = await admin.from(table).delete().in(noField, nos);
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  return { ok: true as const, moved: nos.length };
+}
+
+async function restoreItems(table: "jobs" | "candidates", noField: "job_no" | "candidate_no", nos: number[]) {
+  if (!nos.length) return { ok: true as const, restored: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const r: any = await admin.from(table).update({ deleted_at: null, updated_at: new Date().toISOString() }).in(noField, nos);
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  return { ok: true as const, restored: nos.length };
+}
+
+async function purgeItems(table: "jobs" | "candidates", noField: "job_no" | "candidate_no", nos: number[]) {
+  if (!nos.length) return { ok: true as const, purged: 0 };
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false as const, error: "完全削除は管理者のみ可能です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  // 念のため、ゴミ箱(deleted_at not null)のものだけを完全削除
+  let r: any = await admin.from(table).delete().in(noField, nos).not("deleted_at", "is", null);
+  if (r.error && /deleted_at|column/i.test(r.error.message)) {
+    r = await admin.from(table).delete().in(noField, nos);
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  return { ok: true as const, purged: nos.length };
+}
+
+export async function moveJobsToTrash(nos: number[])       { return trashItems("jobs", "job_no", nos); }
+export async function moveCandidatesToTrash(nos: number[]) { return trashItems("candidates", "candidate_no", nos); }
+export async function restoreJobs(nos: number[])           { return restoreItems("jobs", "job_no", nos); }
+export async function restoreCandidates(nos: number[])     { return restoreItems("candidates", "candidate_no", nos); }
+export async function purgeJobs(nos: number[])             { return purgeItems("jobs", "job_no", nos); }
+export async function purgeCandidates(nos: number[])       { return purgeItems("candidates", "candidate_no", nos); }
+
+/** 指定日より前の「取込済みデータ」をプレビュー or 実行でゴミ箱へ。
+ *    cutoffIso 未満の created_at が対象。
+ *    提案レコードに紐づく id（job_id / candidate_id）は対象から除外（提案履歴があれば残す）。
+ *    dryRun=true で件数だけ返す（破壊的操作の前にユーザーに見せる）。 */
+export async function bulkTrashBefore(opts: {
+  kind: "jobs" | "candidates";
+  cutoffIso: string;
+  dryRun?: boolean;
+}): Promise<{ ok: true; targets: number; protectedCount: number; sampleTitles: string[] } | { ok: false; error: string }> {
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const { error } = await admin.from("candidates").delete().in("candidate_no", candidateNos);
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/people");
+  if (!/^\d{4}-\d{2}-\d{2}/.test(opts.cutoffIso)) return { ok: false, error: "cutoff の形式が不正です" };
+
+  const table = opts.kind === "jobs" ? "jobs" : "candidates";
+  const idCol = opts.kind === "jobs" ? "job_id" : "candidate_id";
+  const noCol = opts.kind === "jobs" ? "job_no" : "candidate_no";
+  const titleCol = opts.kind === "jobs" ? "title" : "name";
+
+  // 1) 提案で参照中の id 集合を取得（ステージは問わない＝失注/見送り含めて全て保護）
+  const protectedIds = new Set<string>();
+  try {
+    const p: any = await admin.from("proposals").select(idCol).not(idCol, "is", null).limit(20000);
+    for (const r of (p.data ?? []) as any[]) { const v = r[idCol]; if (v) protectedIds.add(String(v)); }
+  } catch { /* ignore: proposals 未整備でも処理続行（保護対象0扱い） */ }
+
+  // 2) 対象候補：cutoff 未満 ＆ ゴミ箱でない
+  let q: any = admin.from(table)
+    .select(`id, ${noCol}, ${titleCol}, created_at`)
+    .lt("created_at", opts.cutoffIso)
+    .order("created_at", { ascending: true })
+    .limit(50000);
+  try { q = q.is("deleted_at", null); } catch { /* 未マイグレ環境では deleted_at が無いので無視 */ }
+  let r: any = await q;
+  if (r.error && /deleted_at|column/i.test(r.error.message)) {
+    r = await admin.from(table).select(`id, ${noCol}, ${titleCol}, created_at`).lt("created_at", opts.cutoffIso).order("created_at", { ascending: true }).limit(50000);
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+  const rows = (r.data ?? []) as any[];
+
+  const targets = rows.filter((row) => !protectedIds.has(String(row.id)));
+  const protectedCount = rows.length - targets.length;
+  const sampleTitles = targets.slice(0, 5).map((row) => String(row[titleCol] ?? "(無題)"));
+
+  if (opts.dryRun || targets.length === 0) {
+    return { ok: true, targets: targets.length, protectedCount, sampleTitles };
+  }
+
+  // 3) 実行：1000件ずつチャンクして deleted_at をセット
+  const now = new Date().toISOString();
+  const nos: number[] = targets.map((row) => row[noCol]).filter((n) => typeof n === "number");
+  const CHUNK = 500;
+  for (let i = 0; i < nos.length; i += CHUNK) {
+    const slice = nos.slice(i, i + CHUNK);
+    let u: any = await admin.from(table).update({ deleted_at: now, updated_at: now }).in(noCol, slice);
+    if (u.error && /deleted_at|column/i.test(u.error.message)) {
+      // 未マイグレ：ハード削除にフォールバック（説明済み）
+      u = await admin.from(table).delete().in(noCol, slice);
+    }
+    if (u.error) return { ok: false, error: `${i}件目以降で失敗：${u.error.message}` };
+  }
+
+  revalidatePath(opts.kind === "jobs" ? "/jobs" : "/people");
   bustCounts();
-  return { ok: true, deleted: candidateNos.length };
+  return { ok: true, targets: targets.length, protectedCount, sampleTitles };
 }
 
 // ===================== 提案 / 稼働 =====================

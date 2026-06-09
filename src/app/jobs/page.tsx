@@ -135,6 +135,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       // 検索＋フィルタを 1 本のクエリに集約（outside_owner フィルタだけは列の有無に依存するため別関数）
       const buildBase = (selectCols: string) => {
         let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
+        // ゴミ箱（deleted_at not null）は一覧に出さない。列が無い旧環境ではフォールバックで is() を外す。
+        qb = qb.is("deleted_at", null);
         if (!showAll) qb = qb.eq("is_published", true);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
@@ -162,7 +164,30 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         fOwner ? (fOwner === "未設定" ? qb.is("outside_owner", null) : qb.eq("outside_owner", fOwner)) : qb;
       const order = (qb: any) => qb.order("job_no", { ascending: false }).range(from, to);
 
+      // deleted_at 列が未マイグレ環境では .is("deleted_at", null) がエラーになるので、
+      // フォールバックで buildBase 内のフィルタを取り除いた版を作る。
+      const buildBaseNoTrash = (selectCols: string) => {
+        let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
+        if (!showAll) qb = qb.eq("is_published", true);
+        if (needle) {
+          const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+          const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+          qb = qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
+        }
+        if (fRole) qb = qb.eq("role_label", fRole);
+        if (fRemote) qb = qb.eq("remote_type", fRemote);
+        if (fFlow) qb = fFlow === "不明" ? qb.or("flow_note.is.null,flow_note.eq.") : qb.eq("flow_note", fFlow);
+        if (rOr) qb = qb.or(rOr);
+        if (fNat === "jp_only") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.jp_only, ["detail", "title"]));
+        else if (fNat === "open") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.open, ["detail", "title"]));
+        if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
+        if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
+        return qb;
+      };
       let listRes: any = await order(withOwner(buildBase(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
+      if (listRes.error && /deleted_at|column/i.test(listRes.error.message)) {
+        listRes = await order(withOwner(buildBaseNoTrash(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
+      }
       if (listRes.error) listRes = await order(withOwner(buildBase(`${baseCols}, outside_owner`)));
       if (listRes.error) listRes = await order(buildBase(baseCols)); // outside_owner 列が無い環境では担当フィルタは無効
       jobs = listRes.data ?? [];
@@ -239,6 +264,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             </a>
           )}
           {!scope.isTenant && canExportCsv && <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />}
+          {!scope.isTenant && <a href="/trash?tab=jobs" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した案件の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
           <JobNewButton />
           {!scope.isTenant && <JobGmailBulkButton />}
           {!scope.isTenant && <JobBulkExtractButton />}
