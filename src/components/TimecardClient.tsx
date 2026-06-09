@@ -91,11 +91,11 @@ export function TimecardClient({ me, ym, myEntries, approvalQueue }: {
           </div>
           {me.isTimecardUser && isThisMonth && (
             <div style={{ display: "flex", gap: 6 }}>
-              <button className="btn brand" disabled={pending || !!todayEntry?.actual_start}
+              <button className="btn brand tc-clock-btn" disabled={pending || !!todayEntry?.actual_start}
                 onClick={() => run(() => clockIn(), "出勤しました")}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-3px" }}>login</span> 出勤
               </button>
-              <button className="btn" disabled={pending || !todayEntry?.actual_start || !!todayEntry?.actual_end}
+              <button className="btn tc-clock-btn" disabled={pending || !todayEntry?.actual_start || !!todayEntry?.actual_end}
                 onClick={() => run(() => clockOut(), "退勤しました")}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-3px" }}>logout</span> 退勤
               </button>
@@ -202,7 +202,7 @@ function CalendarGrid({ ym, entryByDate, today, onPick }: {
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+    <div className="tc-cal">
       {WD.map((w, i) => (
         <div key={w} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, padding: "2px 0", color: i === 0 ? "#b42318" : i === 6 ? "#0b5cab" : "var(--color-ink-3)" }}>{w}</div>
       ))}
@@ -216,29 +216,27 @@ function CalendarGrid({ ym, entryByDate, today, onPick }: {
         const planned = e ? plannedMinutesOf(e) : 0;
         const st = e ? STATUS_TONE[e.status] : null;
         return (
-          <button key={date} type="button" onClick={() => onPick(date)}
-            style={{
-              textAlign: "left", border: isToday ? "2px solid var(--color-brand-500)" : "1px solid var(--color-border)",
-              borderRadius: 8, background: "var(--color-surface)", padding: "6px 7px", minHeight: 72, cursor: "pointer",
-              display: "flex", flexDirection: "column", gap: 3,
-            }}>
+          <button key={date} type="button" onClick={() => onPick(date)} className={`tc-cell${isToday ? " today" : ""}`}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: wd === 0 ? "#b42318" : wd === 6 ? "#0b5cab" : "var(--color-ink-2)" }}>{dayNum}</span>
-              {st && <span style={{ fontSize: 8.5, fontWeight: 700, padding: "0 5px", borderRadius: 99, background: st.bg, color: st.fg }}>{st.label}</span>}
+              <span className="tc-daynum" style={{ fontSize: 12, fontWeight: 700, color: wd === 0 ? "#b42318" : wd === 6 ? "#0b5cab" : "var(--color-ink-2)" }}>{dayNum}</span>
+              {st && <span className="tc-statuschip" style={{ fontSize: 8.5, fontWeight: 700, padding: "0 5px", borderRadius: 99, background: st.bg, color: st.fg }}>{st.label}</span>}
             </div>
+            {/* スマホでは表示しないテキスト行（デスクトップのみ） */}
             {planned > 0 && (
-              <div style={{ fontSize: 10, color: "#0b5cab", background: "#eaf4fd", borderRadius: 4, padding: "1px 4px" }}>
-                予 {fmtHmJst(e!.planned_start)}–{fmtHmJst(e!.planned_end)}
-              </div>
+              <div className="tc-line plan">予 {fmtHmJst(e!.planned_start)}–{fmtHmJst(e!.planned_end)}</div>
             )}
             {labor > 0 && (
-              <div style={{ fontSize: 10.5, color: "#fff", background: "#067647", borderRadius: 4, padding: "1px 4px", fontWeight: 700 }}>
-                実 {fmtHm(labor)}
-              </div>
+              <div className="tc-line act">実 {fmtHm(labor)}</div>
             )}
             {e?.actual_start && !e?.actual_end && (
-              <div style={{ fontSize: 10, color: "#9a7b12" }}>出勤中…</div>
+              <div className="tc-line running">出勤中…</div>
             )}
+            {/* スマホで状態を最小情報で伝えるドット帯（デスクトップでは @media で非表示） */}
+            <div className="tc-dotrow">
+              {planned > 0 && <span className="tc-dot plan" title="予定あり" />}
+              {labor > 0 && <span className="tc-dot act" title="実績あり" />}
+              {e?.actual_start && !e?.actual_end && <span className="tc-dot" style={{ background: "#9a7b12" }} title="出勤中" />}
+            </div>
           </button>
         );
       })}
@@ -351,8 +349,8 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
   };
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div onClick={onClose} className="tc-modal-bg" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card tc-modal" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{workDate} の勤怠</h3>
           <button className="btn ghost btn-xs" onClick={onClose} disabled={pending}>閉じる</button>

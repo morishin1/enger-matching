@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts } from "@/lib/counts";
@@ -34,6 +34,14 @@ export const metadata: Metadata = {
   },
   robots: { index: true, follow: true },
   icons: { icon: "/enger-logo.png" },
+};
+
+// スマホで等倍表示するためのビューポート。これが無いと iOS Safari が 980px 幅で描画してしまい、
+// CSS の @media (max-width: 640px) 等の分岐が一切効かなくなる。
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 const fontsHref =
