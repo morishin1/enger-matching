@@ -6,6 +6,7 @@ import { CompanyTargetingBoard } from "@/components/CompanyTargetingBoard";
 import { CompanyContactBoard } from "@/components/CompanyContactBoard";
 import { getCompanyOverview } from "@/lib/companies";
 import { FlowSteps } from "@/components/FlowSteps";
+import { CompaniesTabs } from "@/components/CompaniesTabs";
 import { loadCompanyFunnels, loadCompanyContactFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
@@ -78,22 +79,30 @@ export default async function CompaniesPage() {
         </div>
       )}
 
-      {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
-      <CompanyTargetingBoard
-        companies={companies}
-        funnels={funnels}
-        topSkillsByCompany={topSkillsByCompany}
-        ngMap={Object.fromEntries(registered.filter((r) => r.is_ng).map((r) => [r.name, r.ng_reason ?? null]))}
+      {/* タブで分割してスクロールを削減（既定＝企業一覧） */}
+      <CompaniesTabs
+        followCount={followups.length}
+        list={!needSetup && <CompaniesView companies={companies} registered={registered} />}
+        target={
+          <>
+            {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
+            <CompanyTargetingBoard
+              companies={companies}
+              funnels={funnels}
+              topSkillsByCompany={topSkillsByCompany}
+              ngMap={Object.fromEntries(registered.filter((r) => r.is_ng).map((r) => [r.name, r.ng_reason ?? null]))}
+            />
+            {/* 👤 担当者別の決定率：相手の窓口が誰かで結果が変わるため、相性をデータで提示 */}
+            <CompanyContactBoard contactsByCompany={contactFunnels} />
+          </>
+        }
+        follow={
+          <>
+            {followups.length > 0 && <CompanyFollowups items={followups} />}
+            <CompanyProposalsRanking companies={companies} />
+          </>
+        }
       />
-
-      {/* 👤 担当者別の決定率：相手の窓口が誰かで結果が変わるため、相性をデータで提示 */}
-      <CompanyContactBoard contactsByCompany={contactFunnels} />
-
-      {followups.length > 0 && <CompanyFollowups items={followups} />}
-
-      <CompanyProposalsRanking companies={companies} />
-
-      {!needSetup && <CompaniesView companies={companies} registered={registered} />}
 
       <div className="muted" style={{ fontSize: 11, padding: "8px 4px", color: "var(--color-ink-4)" }}>
         🔒 情報漏洩防止のため、企業／案件／人材の CSV 書き出しは <b>管理者・バックオフィス</b> のみ操作できます。一般のエージェントには書き出しボタンは表示されません。
