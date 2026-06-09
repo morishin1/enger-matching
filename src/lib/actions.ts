@@ -421,11 +421,22 @@ export async function updateProposalFields(id: string, fields: Record<string, an
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "meeting_time", "meeting_format", "meeting_url", "meeting_attendees", "meeting_note", "company", "source", "job_notify_status", "cand_notify_status"];
-  const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const patch: Record<string, any> = { updated_at: now };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
+  // ステージが変わるときは滞留日数・失注日の起点となる stage_updated_at も更新する。
+  if ("stage" in fields) patch.stage_updated_at = now;
   let { error } = await admin.from("proposals").update(patch).eq("id", id);
-  // source 列が未追加の環境でも落ちないようフォールバック（proposals-source.sql 未実行時）
-  if (error && /source|column/i.test(error.message) && "source" in patch) {
+  // stage_updated_at 列が未追加の環境では外して再試行（proposals-stage-updated-at.sql 未実行時）
+  if (error && /stage_updated_at|column/i.test(error.message) && "stage_updated_at" in patch) {
+    const { stage_updated_at: _d, ...rest } = patch;
+    ({ error } = await admin.from("proposals").update(rest).eq("id", id));
+    if (error && /source|column/i.test(error.message) && "source" in rest) {
+      const { source: _s, ...rest2 } = rest;
+      ({ error } = await admin.from("proposals").update(rest2).eq("id", id));
+    }
+  } else if (error && /source|column/i.test(error.message) && "source" in patch) {
+    // source 列が未追加の環境でも落ちないようフォールバック（proposals-source.sql 未実行時）
     const { source: _drop, ...rest } = patch;
     ({ error } = await admin.from("proposals").update(rest).eq("id", id));
   }
