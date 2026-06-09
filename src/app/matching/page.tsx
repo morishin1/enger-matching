@@ -547,7 +547,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         {selectedJobWarning(sel?.job)}
 
         {person && (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+          <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
             {/* 左: 案件ランキング */}
             <div className="card flush" style={{ position: "sticky", top: 80 }}>
               <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -638,7 +638,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                               {reds > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fdecef", color: "#b42318" }}>🔴 {reds}</span>}
                               {yels > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fff6e0", color: "#9a7b12" }}>🟡 {yels}</span>}
                             </summary>
-                            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start", marginTop: 12 }}>
+                            <div className="match-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start", marginTop: 12 }}>
                               <div>
                                 <div style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル評価</div>
                                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -745,7 +745,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {selectedJobWarning(job)}
 
       {job && (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
+        <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
           <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds}
             jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type }} />
