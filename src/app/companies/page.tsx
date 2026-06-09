@@ -31,7 +31,8 @@ export default async function CompaniesPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason");
+      let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason, meeting_done, meeting_done_at");
+      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason");
       if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at");
       if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
       registered = res.data ?? [];

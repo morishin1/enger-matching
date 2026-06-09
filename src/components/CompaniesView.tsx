@@ -5,13 +5,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";
-import { saveCompany, deleteCompany } from "@/lib/actions";
+import { saveCompany, deleteCompany, setCompanyMeetingDone } from "@/lib/actions";
 
 type Registered = {
   name: string; industry?: string | null; tier?: string | null; status?: string | null;
   owner_staff?: string | null; contact_name?: string | null; contact_email?: string | null;
   phone?: string | null; website?: string | null; address?: string | null; note?: string | null;
+  meeting_done?: boolean | null; meeting_done_at?: string | null;
 };
+
+// 「打合せ済」判定：打合せ記録がある（自動） or 手動の打合せ完了フラグ（詳細でチェック）。
+const isMeetingDone = (c: { meeting_count?: number; reg?: Registered }) =>
+  (c.meeting_count ?? 0) > 0 || !!c.reg?.meeting_done;
 type Merged = CompanyRow & { score: number; reasons: string[]; reg?: Registered; registered: boolean; action: ProspectAction };
 
 const sentTone = (s?: string | null) => !s ? null : s.includes("ポジ") ? { c: "#1aa260", t: s } : s.includes("ネガ") ? { c: "#d23f57", t: s } : s.includes("競合") ? { c: "#d98a2b", t: s } : { c: "#6b7280", t: s };
@@ -68,7 +73,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
     const rows = merged.filter((c) =>
       (tier === "ALL" || c.tier === tier)
       && (act === "ALL" || c.action?.key === act)
-      && (mtg === "ALL" || (mtg === "done" ? (c.meeting_count ?? 0) > 0 : (c.meeting_count ?? 0) === 0))
+      && (mtg === "ALL" || (mtg === "done" ? isMeetingDone(c) : !isMeetingDone(c)))
       // 企業名・業種・窓口担当者でも検索できるように（企業検索を簡単に）
       && (!needle || c.name.toLowerCase().includes(needle)
         || (c.reg?.industry ?? "").toLowerCase().includes(needle)
@@ -174,7 +179,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
               </thead>
               <tbody>
                 {visible.map((c) => {
-                  const ts = tierStyle(c.tier); const done = (c.meeting_count ?? 0) > 0;
+                  const ts = tierStyle(c.tier); const done = isMeetingDone(c); const manual = !!c.reg?.meeting_done;
                   return (
                     <tr key={c.name} onClick={() => setModal(c)} style={{ cursor: "pointer" }}>
                       <td>
@@ -186,7 +191,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
                       </td>
                       <td>
                         {done
-                          ? <span className="pill" style={{ fontSize: 10.5, background: "#e7f7ee", color: "#067647", borderColor: "transparent", fontWeight: 700 }}>✓ 済 {c.meeting_count}</span>
+                          ? <span className="pill" style={{ fontSize: 10.5, background: "#e7f7ee", color: "#067647", borderColor: "transparent", fontWeight: 700 }}>✓ 済{manual && (c.meeting_count ?? 0) === 0 ? "（手動）" : ` ${c.meeting_count}`}</span>
                           : <span className="pill" style={{ fontSize: 10.5, background: "#fdecef", color: "#b42318", borderColor: "transparent", fontWeight: 700 }}>未</span>}
                       </td>
                       <td><span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.border}` }}>{c.tier}</span></td>
@@ -220,7 +225,7 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
                     <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14.5, color: "var(--color-ink)", lineHeight: 1.3 }}>{c.name}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
-                      {(c.meeting_count ?? 0) > 0
+                      {isMeetingDone(c)
                         ? <span className="pill" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647", borderColor: "transparent", fontWeight: 700 }}>✓ 打合せ済</span>
                         : <span className="pill" style={{ fontSize: 10, background: "#fdecef", color: "#b42318", borderColor: "transparent", fontWeight: 700 }}>未打合せ</span>}
                       {c.action && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${c.action.tone}1a`, color: c.action.tone, fontWeight: 700 }}>{c.action.label}</span>}
@@ -285,6 +290,19 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
   const isNew = !data;
 
+  // 打ち合わせ完了の手動フラグ。打合せ記録(meeting_count>0)があれば常に「済」扱い。
+  const autoDone = (data?.meeting_count ?? 0) > 0;
+  const [meetingDone, setMeetingDone] = useState<boolean>(!!reg?.meeting_done);
+  const [mdBusy, setMdBusy] = useState(false);
+  const toggleMeetingDone = async (next: boolean) => {
+    if (!data) return; // 新規作成時は保存後に
+    setMeetingDone(next); setMdBusy(true); setMsg(null);
+    const res = await setCompanyMeetingDone(data.name, next);
+    setMdBusy(false);
+    if (!res.ok) { setMeetingDone(!next); setMsg(res.error || "更新に失敗しました"); }
+    else router.refresh();
+  };
+
   const save = async () => {
     if (!f.name.trim()) { setMsg("企業名を入力してください"); return; }
     setSaving(true); setMsg(null);
@@ -322,6 +340,21 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
         )}
         {data && (data.last_sentiment || data.last_relation) && (
           <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>温度感：{data.last_sentiment ?? "—"} / 関係性：{data.last_relation ?? "—"}（最終打合せ {dateLabel(data.last_meeting_at)}）</div>
+        )}
+
+        {/* 打ち合わせ完了の手動チェック（詳細から印を付ける） */}
+        {data && (
+          <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: autoDone ? "default" : "pointer",
+            background: (autoDone || meetingDone) ? "#e7f7ee" : "var(--color-surface-inset)", border: `1px solid ${(autoDone || meetingDone) ? "#bfe3cc" : "var(--color-border)"}` }}>
+            <input type="checkbox" checked={autoDone || meetingDone} disabled={autoDone || mdBusy}
+              onChange={(e) => toggleMeetingDone(e.target.checked)} style={{ width: 16, height: 16 }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: (autoDone || meetingDone) ? "#067647" : "var(--color-ink-2)" }}>
+              {(autoDone || meetingDone) ? "✓ 打ち合わせ完了" : "打ち合わせ完了にする"}
+            </span>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+              {autoDone ? `打合せ記録${data.meeting_count}件あり（自動で済）` : meetingDone ? "手動でチェック済" : "顔合わせ・商談が済んだらチェック"}
+            </span>
+          </label>
         )}
 
         {/* 編集フォーム */}
