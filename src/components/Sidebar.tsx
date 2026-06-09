@@ -73,7 +73,7 @@ const CLIENT_NAV: NavItem[] = [
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions }) {
+export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms, showTimecard = false }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean }) {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
   const [logoOk, setLogoOk] = useState(true);
@@ -107,9 +107,12 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   const analysis0 = (isClient || isTenant) ? []
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;
-  const tools0 = (isClient || isTenant) ? []
+  const tools0base = (isClient || isTenant) ? []
     : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings" && n.href !== "/settings/approvals") // 設定・ユーザー管理は admin のみ
     : TOOLS; // admin は設定・ユーザー管理含む全部
+  // タイムカード（バイト/副業）。本人入力対象 or 承認者のみに表示（menuPerms の対象外＝常に出す）。
+  const TIMECARD_ITEM: NavItem = { href: "/timecard", id: "timecard", label: "タイムカード", icon: "cal" };
+  const tools0 = showTimecard ? [TIMECARD_ITEM, ...tools0base] : tools0base;
 
   // 役職(team_role)別メニュー表示権限の適用。
   //   ・管理者(admin)・クライアント・テナントは対象外（adminは常に全表示でロックアウト防止）。

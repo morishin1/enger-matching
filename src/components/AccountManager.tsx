@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, deleteAccount, createAgent, resetAccountPassword, bulkDeleteAccounts } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, setAccountTimecard, deleteAccount, createAgent, resetAccountPassword, bulkDeleteAccounts } from "@/app/settings/account-actions";
 import type { Account, Role } from "@/lib/accounts";
 import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
 
@@ -254,6 +254,10 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
                         <option value="">役職なし</option>
                         {TEAM_ROLES.map((r) => <option key={r} value={r}>{TEAM_ROLE_LABEL[r]}</option>)}
                       </select>
+                      <label title="バイト/副業向けのタイムカード（本人打刻）を有効化" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-ink-3)", cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!(a as any).is_timecard_user} disabled={pending} onChange={(e) => run(() => setAccountTimecard(a.id, e.target.checked))} />
+                        タイムカード
+                      </label>
                     </div>
                   )}
                   {(a.role === "agent" || a.role === "admin") && (

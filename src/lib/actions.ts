@@ -281,26 +281,137 @@ export async function bulkSetFocus(
 
 /** 案件を一括削除（job_no の配列で指定）。 */
 export async function bulkDeleteJobs(jobNos: number[]) {
-  if (!jobNos.length) return { ok: true, deleted: 0 };
-  let admin: ReturnType<typeof engerAdmin>;
-  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const { error } = await admin.from("jobs").delete().in("job_no", jobNos);
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/jobs");
-  bustCounts();
-  return { ok: true, deleted: jobNos.length };
+  // 既存の「削除」呼び出しは互換のためそのまま動かしつつ、実体はゴミ箱（ソフトデリート）に変更。
+  // 完全削除は purgeJobs（ゴミ箱画面から admin が実行）から。
+  return moveJobsToTrash(jobNos);
 }
 
-/** 人材を一括削除（candidate_no の配列で指定）。 */
+/** 人材を一括削除（candidate_no の配列で指定）。実体はゴミ箱（ソフトデリート）へ。 */
 export async function bulkDeleteCandidates(candidateNos: number[]) {
-  if (!candidateNos.length) return { ok: true, deleted: 0 };
+  return moveCandidatesToTrash(candidateNos);
+}
+
+// ===================== ゴミ箱（ソフトデリート） =====================
+//   ・deleted_at をセット = ゴミ箱
+//   ・deleted_at を null に戻す = 復元
+//   ・purge* = ゴミ箱から完全削除
+//   ・bulkTrashBefore = 指定日より前の取込分をまとめてゴミ箱へ（提案紐付けは除外）
+//   未マイグレ時（deleted_at 列が無い）はフォールバックで従来通り delete する。
+
+async function trashItems(table: "jobs" | "candidates", noField: "job_no" | "candidate_no", nos: number[]) {
+  if (!nos.length) return { ok: true as const, moved: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const now = new Date().toISOString();
+  let r: any = await admin.from(table).update({ deleted_at: now, updated_at: now }).in(noField, nos).is("deleted_at", null);
+  if (r.error && /deleted_at|column/i.test(r.error.message)) {
+    // 未マイグレ：フォールバックでハード削除（従来動作）
+    r = await admin.from(table).delete().in(noField, nos);
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  return { ok: true as const, moved: nos.length };
+}
+
+async function restoreItems(table: "jobs" | "candidates", noField: "job_no" | "candidate_no", nos: number[]) {
+  if (!nos.length) return { ok: true as const, restored: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const r: any = await admin.from(table).update({ deleted_at: null, updated_at: new Date().toISOString() }).in(noField, nos);
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  return { ok: true as const, restored: nos.length };
+}
+
+async function purgeItems(table: "jobs" | "candidates", noField: "job_no" | "candidate_no", nos: number[]) {
+  if (!nos.length) return { ok: true as const, purged: 0 };
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false as const, error: "完全削除は管理者のみ可能です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  // 念のため、ゴミ箱(deleted_at not null)のものだけを完全削除
+  let r: any = await admin.from(table).delete().in(noField, nos).not("deleted_at", "is", null);
+  if (r.error && /deleted_at|column/i.test(r.error.message)) {
+    r = await admin.from(table).delete().in(noField, nos);
+  }
+  if (r.error) return { ok: false as const, error: r.error.message };
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  return { ok: true as const, purged: nos.length };
+}
+
+export async function moveJobsToTrash(nos: number[])       { return trashItems("jobs", "job_no", nos); }
+export async function moveCandidatesToTrash(nos: number[]) { return trashItems("candidates", "candidate_no", nos); }
+export async function restoreJobs(nos: number[])           { return restoreItems("jobs", "job_no", nos); }
+export async function restoreCandidates(nos: number[])     { return restoreItems("candidates", "candidate_no", nos); }
+export async function purgeJobs(nos: number[])             { return purgeItems("jobs", "job_no", nos); }
+export async function purgeCandidates(nos: number[])       { return purgeItems("candidates", "candidate_no", nos); }
+
+/** 指定日より前の「取込済みデータ」をプレビュー or 実行でゴミ箱へ。
+ *    cutoffIso 未満の created_at が対象。
+ *    提案レコードに紐づく id（job_id / candidate_id）は対象から除外（提案履歴があれば残す）。
+ *    dryRun=true で件数だけ返す（破壊的操作の前にユーザーに見せる）。 */
+export async function bulkTrashBefore(opts: {
+  kind: "jobs" | "candidates";
+  cutoffIso: string;
+  dryRun?: boolean;
+}): Promise<{ ok: true; targets: number; protectedCount: number; sampleTitles: string[] } | { ok: false; error: string }> {
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false, error: "管理者のみ実行できます" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const { error } = await admin.from("candidates").delete().in("candidate_no", candidateNos);
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/people");
+  if (!/^\d{4}-\d{2}-\d{2}/.test(opts.cutoffIso)) return { ok: false, error: "cutoff の形式が不正です" };
+
+  const table = opts.kind === "jobs" ? "jobs" : "candidates";
+  const idCol = opts.kind === "jobs" ? "job_id" : "candidate_id";
+  const noCol = opts.kind === "jobs" ? "job_no" : "candidate_no";
+  const titleCol = opts.kind === "jobs" ? "title" : "name";
+
+  // 1) 提案で参照中の id 集合を取得（ステージは問わない＝失注/見送り含めて全て保護）
+  const protectedIds = new Set<string>();
+  try {
+    const p: any = await admin.from("proposals").select(idCol).not(idCol, "is", null).limit(20000);
+    for (const r of (p.data ?? []) as any[]) { const v = r[idCol]; if (v) protectedIds.add(String(v)); }
+  } catch { /* ignore: proposals 未整備でも処理続行（保護対象0扱い） */ }
+
+  // 2) 対象候補：cutoff 未満 ＆ ゴミ箱でない
+  let q: any = admin.from(table)
+    .select(`id, ${noCol}, ${titleCol}, created_at`)
+    .lt("created_at", opts.cutoffIso)
+    .order("created_at", { ascending: true })
+    .limit(50000);
+  try { q = q.is("deleted_at", null); } catch { /* 未マイグレ環境では deleted_at が無いので無視 */ }
+  let r: any = await q;
+  if (r.error && /deleted_at|column/i.test(r.error.message)) {
+    r = await admin.from(table).select(`id, ${noCol}, ${titleCol}, created_at`).lt("created_at", opts.cutoffIso).order("created_at", { ascending: true }).limit(50000);
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+  const rows = (r.data ?? []) as any[];
+
+  const targets = rows.filter((row) => !protectedIds.has(String(row.id)));
+  const protectedCount = rows.length - targets.length;
+  const sampleTitles = targets.slice(0, 5).map((row) => String(row[titleCol] ?? "(無題)"));
+
+  if (opts.dryRun || targets.length === 0) {
+    return { ok: true, targets: targets.length, protectedCount, sampleTitles };
+  }
+
+  // 3) 実行：1000件ずつチャンクして deleted_at をセット
+  const now = new Date().toISOString();
+  const nos: number[] = targets.map((row) => row[noCol]).filter((n) => typeof n === "number");
+  const CHUNK = 500;
+  for (let i = 0; i < nos.length; i += CHUNK) {
+    const slice = nos.slice(i, i + CHUNK);
+    let u: any = await admin.from(table).update({ deleted_at: now, updated_at: now }).in(noCol, slice);
+    if (u.error && /deleted_at|column/i.test(u.error.message)) {
+      // 未マイグレ：ハード削除にフォールバック（説明済み）
+      u = await admin.from(table).delete().in(noCol, slice);
+    }
+    if (u.error) return { ok: false, error: `${i}件目以降で失敗：${u.error.message}` };
+  }
+
+  revalidatePath(opts.kind === "jobs" ? "/jobs" : "/people");
   bustCounts();
-  return { ok: true, deleted: candidateNos.length };
+  return { ok: true, targets: targets.length, protectedCount, sampleTitles };
 }
 
 // ===================== 提案 / 稼働 =====================
@@ -2300,5 +2411,244 @@ export async function saveKpiTargets(input: {
   const ir = await admin.from("kpi_targets").insert(rows);
   if (ir.error) return { ok: false, error: ir.error.message };
   revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+// ────────────────────────────────────────────────────────
+// タイムカード（社内バイト/副業向け）
+// ────────────────────────────────────────────────────────
+//   ・本人が日ごとに「予定登録」と「出勤/退勤打刻」
+//   ・月締めで申請（status: open → submitted）
+//   ・マネージャー（自部署のみ）/ admin が承認・差し戻し
+//
+//   セキュリティ：操作は currentAccess() で本人 or 承認権を確認。
+//   本人 = 自分の email、または admin/経営。承認 = admin/経営 または team_role が manager/leader で
+//   かつエントリの department と自分の department が一致する場合。
+
+type TimecardActionResult = { ok: true } | { ok: false; error: string };
+
+async function timecardMe() {
+  const me = await currentAccess();
+  if (!me?.email) return null;
+  return me;
+}
+
+function canApprove(me: { role: string; teamRole: string | null; department: string | null }, entryDept: string | null): boolean {
+  if (me.role === "admin") return true;
+  const isLead = me.teamRole === "manager" || me.teamRole === "leader";
+  if (!isLead) return false;
+  if (!me.department) return false;
+  // department が空のエントリは「部署未設定の人」。マネージャーは触れない（adminのみ）。
+  if (!entryDept) return false;
+  return me.department === entryDept;
+}
+
+/** 本人または管理者がエントリを upsert（編集モーダルから）。 */
+export async function upsertTimeEntry(input: {
+  userEmail: string;          // 対象ユーザー（通常は本人）
+  workDate: string;            // YYYY-MM-DD
+  plannedStart?: string | null;
+  plannedEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  breakMinutes?: number | null;
+  note?: string | null;
+}): Promise<TimecardActionResult> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const isSelf = me.email.toLowerCase() === input.userEmail.toLowerCase();
+  const isAdmin = me.role === "admin";
+  if (!isSelf && !isAdmin) return { ok: false, error: "他のメンバーのタイムカードを編集する権限がありません" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.workDate)) return { ok: false, error: "日付の形式が不正です" };
+
+  // 既存行を取得（status と user_name/department のキャッシュ更新のため）
+  const existing: any = await admin.from("time_entries").select("id, status, user_name, department")
+    .eq("user_email", input.userEmail).eq("work_date", input.workDate).maybeSingle();
+  // submitted/approved の編集はマネージャー（自部署）/admin のみ。本人は open/rejected のみ編集可。
+  if (existing.data && !isAdmin) {
+    const s = existing.data.status as string;
+    if (s === "submitted" || s === "approved") {
+      return { ok: false, error: "申請中・承認済の打刻は編集できません（管理者に差し戻しを依頼してください）" };
+    }
+  }
+
+  // department は app_users から引く（初回作成時のキャッシュ）。失敗してもエントリ作成は続行。
+  let department: string | null = existing.data?.department ?? null;
+  let userName: string | null = existing.data?.user_name ?? null;
+  if (!department || !userName) {
+    try {
+      const u: any = await admin.from("app_users").select("name, department").eq("email", input.userEmail).maybeSingle();
+      if (!u.error && u.data) { department = department ?? (u.data.department ?? null); userName = userName ?? (u.data.name ?? null); }
+    } catch { /* ignore */ }
+  }
+
+  const row: Record<string, any> = {
+    user_email: input.userEmail,
+    user_name: userName,
+    department,
+    work_date: input.workDate,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.plannedStart !== undefined) row.planned_start = input.plannedStart || null;
+  if (input.plannedEnd   !== undefined) row.planned_end   = input.plannedEnd   || null;
+  if (input.actualStart  !== undefined) row.actual_start  = input.actualStart  || null;
+  if (input.actualEnd    !== undefined) row.actual_end    = input.actualEnd    || null;
+  if (input.breakMinutes !== undefined) row.break_minutes = Math.max(0, Math.floor(Number(input.breakMinutes) || 0));
+  if (input.note         !== undefined) row.note          = (input.note ?? "").trim() || null;
+
+  // rejected の行を編集したら open に戻す（再申請できるように）
+  if (existing.data?.status === "rejected" && !isAdmin) row.status = "open";
+
+  const r: any = await admin.from("time_entries").upsert(row, { onConflict: "user_email,work_date" });
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true };
+}
+
+/** 出勤打刻（actual_start を今に）。同日に既にあれば上書きしない（上書きしたいときは編集モーダルから）。 */
+export async function clockIn(userEmail?: string): Promise<TimecardActionResult> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const target = (userEmail || me.email).toLowerCase();
+  if (target !== me.email.toLowerCase() && me.role !== "admin") return { ok: false, error: "本人のみが打刻できます" };
+
+  const now = new Date();
+  const workDate = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  const iso = now.toISOString();
+
+  const existing: any = await admin.from("time_entries").select("id, actual_start, status")
+    .eq("user_email", target).eq("work_date", workDate).maybeSingle();
+
+  if (existing.data) {
+    if (existing.data.actual_start) return { ok: false, error: "本日はすでに出勤打刻済みです" };
+    const r: any = await admin.from("time_entries").update({ actual_start: iso, updated_at: iso }).eq("id", existing.data.id);
+    if (r.error) return { ok: false, error: r.error.message };
+  } else {
+    // department/user_name を引いてキャッシュ
+    let department: string | null = null, userName: string | null = null;
+    try {
+      const u: any = await admin.from("app_users").select("name, department").eq("email", target).maybeSingle();
+      if (!u.error && u.data) { department = u.data.department ?? null; userName = u.data.name ?? null; }
+    } catch { /* ignore */ }
+    const r: any = await admin.from("time_entries").insert({
+      user_email: target, user_name: userName, department,
+      work_date: workDate, actual_start: iso, created_at: iso, updated_at: iso,
+    });
+    if (r.error) return { ok: false, error: r.error.message };
+  }
+  revalidatePath("/timecard");
+  return { ok: true };
+}
+
+/** 退勤打刻。 */
+export async function clockOut(userEmail?: string): Promise<TimecardActionResult> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const target = (userEmail || me.email).toLowerCase();
+  if (target !== me.email.toLowerCase() && me.role !== "admin") return { ok: false, error: "本人のみが打刻できます" };
+
+  const now = new Date();
+  const workDate = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  const iso = now.toISOString();
+  const existing: any = await admin.from("time_entries").select("id, actual_start, actual_end")
+    .eq("user_email", target).eq("work_date", workDate).maybeSingle();
+  if (!existing.data || !existing.data.actual_start) return { ok: false, error: "先に出勤打刻してください" };
+  if (existing.data.actual_end) return { ok: false, error: "本日はすでに退勤打刻済みです" };
+  const r: any = await admin.from("time_entries").update({ actual_end: iso, updated_at: iso }).eq("id", existing.data.id);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true };
+}
+
+/** 月締め申請：当月の open エントリをすべて submitted に。 */
+export async function submitMonthForApproval(userEmail: string, ym: string): Promise<TimecardActionResult & { count?: number }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  if (me.email.toLowerCase() !== userEmail.toLowerCase() && me.role !== "admin") return { ok: false, error: "本人のみが申請できます" };
+  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, error: "対象月の形式が不正です" };
+
+  const [y, m] = ym.split("-").map(Number);
+  const start = `${y}-${String(m).padStart(2, "0")}-01`;
+  const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+  const end = `${ny}-${String(nm).padStart(2, "0")}-01`;
+  const r: any = await admin.from("time_entries").update({ status: "submitted", updated_at: new Date().toISOString() })
+    .eq("user_email", userEmail).gte("work_date", start).lt("work_date", end).in("status", ["open", "rejected"]).select("id");
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true, count: (r.data ?? []).length };
+}
+
+/** 承認（マネージャー/admin が submitted のエントリを approved に）。複数IDをまとめて。 */
+export async function approveTimeEntries(ids: string[]): Promise<TimecardActionResult & { count?: number }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  if (!ids.length) return { ok: true, count: 0 };
+
+  // 取得して権限チェック（自部署のみ）。
+  const list: any = await admin.from("time_entries").select("id, department, status").in("id", ids);
+  if (list.error) return { ok: false, error: list.error.message };
+  const targets: string[] = [];
+  for (const row of (list.data ?? []) as any[]) {
+    if (row.status !== "submitted") continue;
+    if (!canApprove(me as any, row.department ?? null)) continue;
+    targets.push(row.id);
+  }
+  if (!targets.length) return { ok: false, error: "承認可能な対象がありません（権限・状態を確認）" };
+  const r: any = await admin.from("time_entries").update({
+    status: "approved", approver_email: me.email, approver_name: me.name ?? null,
+    approved_at: new Date().toISOString(), reject_reason: null, updated_at: new Date().toISOString(),
+  }).in("id", targets);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true, count: targets.length };
+}
+
+/** 差し戻し。reason 必須。 */
+export async function rejectTimeEntries(ids: string[], reason: string): Promise<TimecardActionResult & { count?: number }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  if (!ids.length) return { ok: true, count: 0 };
+  const r0 = (reason ?? "").trim();
+  if (!r0) return { ok: false, error: "差し戻し理由を入力してください" };
+
+  const list: any = await admin.from("time_entries").select("id, department, status").in("id", ids);
+  if (list.error) return { ok: false, error: list.error.message };
+  const targets: string[] = [];
+  for (const row of (list.data ?? []) as any[]) {
+    if (row.status !== "submitted") continue;
+    if (!canApprove(me as any, row.department ?? null)) continue;
+    targets.push(row.id);
+  }
+  if (!targets.length) return { ok: false, error: "差し戻し可能な対象がありません" };
+  const r: any = await admin.from("time_entries").update({
+    status: "rejected", approver_email: me.email, approver_name: me.name ?? null,
+    approved_at: null, reject_reason: r0, updated_at: new Date().toISOString(),
+  }).in("id", targets);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true, count: targets.length };
+}
+
+/** タイムカード対象ユーザーの ON/OFF を切り替え（設定画面・admin限定）。 */
+export async function setTimecardEnabled(email: string, enabled: boolean): Promise<TimecardActionResult> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me || me.role !== "admin") return { ok: false, error: "管理者のみ変更できます" };
+  const r: any = await admin.from("app_users").update({ is_timecard_user: enabled }).eq("email", email);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/settings");
   return { ok: true };
 }

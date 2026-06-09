@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts } from "@/lib/counts";
 import { getStaff } from "@/lib/staff";
 import { getSessionEmail, resolveAccess, type Role } from "@/lib/accounts";
+import { canManageDept } from "@/lib/roles";
 import { loadMenuPermissions } from "@/lib/menu-permissions";
 
 export const metadata: Metadata = {
@@ -60,11 +61,14 @@ export default async function RootLayout({
   let userEmail = "";
   let functions: string[] = [];
   let teamRole: string | null = null;
+  let isTimecardUser = false;
   if (auth.email) {
     userEmail = auth.email;
     defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === auth.email)?.name ?? "";
-    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
+    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; isTimecardUser = auth.access.isTimecardUser ?? false; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
   }
+  // タイムカードのメニューは、本人入力対象 or 承認者（マネージャー/リーダー/admin）のみ表示。
+  const showTimecard = isTimecardUser || role === "admin" || canManageDept(teamRole);
   return (
     <html lang="ja" data-density="regular">
       <head>
@@ -74,7 +78,7 @@ export default async function RootLayout({
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
       </head>
       <body suppressHydrationWarning>
-        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms}>{children}</AppShell>
+        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard}>{children}</AppShell>
       </body>
     </html>
   );

@@ -127,8 +127,10 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const rOr = fRank ? rankOr(fRank) : null;
 
       // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
-      const buildBase = (selectCols: string, withSheetFilter: boolean) => {
+      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true) => {
         let qb: any = sb.from("candidates").select(selectCols, { count: "exact" });
+        // ゴミ箱（deleted_at not null）は一覧に出さない。未マイグレ環境では includeTrashFilter=false で外す。
+        if (includeTrashFilter) qb = qb.is("deleted_at", null);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
           const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
@@ -166,6 +168,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
 
       let res: any = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true));
+      if (res.error && /deleted_at|column/i.test(res.error.message)) {
+        res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false));
+      }
       if (res.error) res = await order(buildBase(baseCols, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
       people = res.data ?? [];
       total = res.count ?? people.length;
@@ -216,6 +221,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで案件を探す" hint="人材×案件のマッチング画面へ" />}
           {!scope.isTenant && canExportCsv && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
+          {!scope.isTenant && <a href="/trash?tab=candidates" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した人材の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
           <CandidateNewButton />
           {!scope.isTenant && <CandidateGmailBulkButton />}
           {!scope.isTenant && <CandidateBulkExtractButton />}

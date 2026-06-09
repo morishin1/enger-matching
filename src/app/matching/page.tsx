@@ -91,6 +91,8 @@ const isProper = (a: any) => /\bPP\b|プロパー|自社/i.test(String(a || ""))
 function curateFocus(kind: "jobs" | "cands", rows: any[]): any[] {
   const seen = new Set<number>(); const out: any[] = [];
   for (const r of rows) {
+    // ゴミ箱に入っているレコードはマッチング対象から除外（未マイグレ環境では undefined のまま通る）
+    if (r?.deleted_at) continue;
     const id = kind === "jobs" ? r.job_no : r.candidate_no;
     if (id == null || seen.has(id)) continue;
     const d = ageDays(r.created_at);
@@ -238,10 +240,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       //   SELECTに含めると未マイグレ環境で全体が落ちるため、CAND_BASE/JOB_BASE には含めず、
       //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url, created_at";
-      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth`;
+      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
-      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth`;
+      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth, deleted_at`;
 
       // 充足（枠が埋まった）案件 = 稼働決定/稼働 の提案がある job_id。マッチングから自動除外する。
       const filledJobIds = new Set<string>();
@@ -268,6 +270,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         let filledCount = 0, staleHidden = 0;
         const kept: any[] = [];
         for (const j of jobs) {
+          if (j?.deleted_at) continue; // ゴミ箱
           j.is_filled = !!(j.id && filledJobIds.has(j.id));
           markBounce(j);
           const op = jobOpenness(j as Job);
@@ -323,7 +326,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               }
             } catch { /* noop */ }
           }
-          rankedJobs = rankJobs(person as any, jobList as Job[], 10);
+          rankedJobs = rankJobs(person as any, (jobList as Job[]).filter((j: any) => !j?.deleted_at), 10);
         }
         // この人材が既に提案済みの案件（提案済み表示用）
         if (person?.id) {
@@ -423,7 +426,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               }
             } catch { /* noop */ }
           }
-          ranked = rankCandidates(job as Job, candList, 10);
+          ranked = rankCandidates(job as Job, candList.filter((c: any) => !c?.deleted_at), 10);
           // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
           const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
           if (reqCandNo2 && !ranked.find((r: any) => r.candidate.candidate_no === reqCandNo2)) {

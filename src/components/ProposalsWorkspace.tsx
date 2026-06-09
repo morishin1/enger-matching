@@ -49,7 +49,7 @@ export function ProposalsWorkspace({
   closers?: string[];
   fallbackBanner?: ReactNode;
 }) {
-  const [period, setPeriod] = useState<Period>("today");
+  const [period, setPeriod] = useState<Period>("week");
   const [tab, setTab] = useState<TabKey>("board");
 
   // 期間で created_at を絞り込み（all のときは全件）
