@@ -3,6 +3,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MailComposeWizard } from "@/components/MailComposeWizard";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
+import { FlowSteps } from "@/components/FlowSteps";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,9 @@ export default async function MailComposePage({
           <h1>メール作成</h1>
         </div>
       </div>
+
+      <FlowSteps current="proposals" sub="提案メール作成（案件×人材）" />
+
       <MailComposeWizard
         job={jr.data} cand={cr.data} score={score}
         initialSaved={!!existingProposalId}

@@ -1,4 +1,5 @@
 import { ReportsClient } from "@/components/ReportsClient";
+import { FlowSteps } from "@/components/FlowSteps";
 import { MyDailyScorecard } from "@/components/MyDailyScorecard";
 import { getActuals, listReports } from "@/lib/daily-report";
 import { getMyScorecard } from "@/lib/me-scorecard";
@@ -67,6 +68,8 @@ export default async function ReportsPage() {
           </div>
         </div>
       </div>
+
+      <FlowSteps current="progress" sub="日報（行動の振り返り）" />
 
       {effective !== "all" && !author && (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>

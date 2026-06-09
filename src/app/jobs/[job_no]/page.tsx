@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
+import { FlowSteps } from "@/components/FlowSteps";
 import { MailButton } from "@/components/MailButton";
 import { EditJobButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
@@ -76,6 +77,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
           <Link href="/jobs" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>
       </div>
+
+      <FlowSteps current="data" sub="案件詳細" />
 
       <div className="card">
         <Row label="案件名" value={j.title} />
