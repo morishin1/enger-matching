@@ -1,9 +1,10 @@
 "use client";
 
-// 提案ボードの「AIコーチ」。リスト/カンバン切替の隣に置くボタン。
-//   押すと当日（=現在ボードに出ている）提案リストを /api/proposals-coach に送り、
-//   Haiku が「総評 / 優先対応 / リスク / 担当者別助言 / 次の一手」を返す。
-//   毎日20件規模でもコストは1回約1円。
+// 提案ボードの「AIコーチ」と「コピー」ボタンのペア。
+//   - 🧠 AIコーチ : 押すと /api/proposals-coach を呼び、Sonnet が当日の提案を分析した
+//     講評（総評/優先/リスク/担当者別/次の一手）をモーダルで表示。1回 約3円。
+//   - 📋 コピー   : クリックでクリップボードへプロンプトをコピー。そのまま claude.ai
+//     （Opus 等）に貼り付ければ深い分析が得られる。API課金は発生しない。
 
 import { useState } from "react";
 
@@ -20,8 +21,8 @@ function daysSince(iso?: string | null): number | null {
 }
 
 // Claude（Opus 等）にそのまま貼り付けて分析させるためのプロンプトを組み立てる。
-//   API経由（Sonnet）より深い分析が欲しいときに、ご自身のClaudeで使う想定。
-function buildOpusPrompt(proposals: any[], periodLabel: string): string {
+//   提案者・案件名・滞留日数 等を含めるが、氏名はイニシャルなど匿名寄りに留める。
+function buildCoachPrompt(proposals: any[], periodLabel: string): string {
   const compact = proposals.slice(0, 80).map((p) => ({
     案件: (p.job_title ?? "").slice(0, 40) || "—",
     企業: (p.company ?? "").slice(0, 24) || "—",
@@ -51,21 +52,24 @@ function buildOpusPrompt(proposals: any[], periodLabel: string): string {
   ].join("\n");
 }
 
+/** AIコーチ＋コピーの2ボタンを並べて返すまとまり。ProposalBoardSwitcher から1個だけ呼べばOK。 */
 export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals: any[]; periodLabel?: string }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      <ProposalCoachAiButton proposals={proposals} periodLabel={periodLabel} />
+      <ProposalCoachCopyButton proposals={proposals} periodLabel={periodLabel} />
+    </span>
+  );
+}
+
+/** 🧠 AIコーチボタン：API（Sonnet）で分析しモーダル表示。 */
+function ProposalCoachAiButton({ proposals, periodLabel }: { proposals: any[]; periodLabel: string }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<CoachResult | null>(null);
   const [meta, setMeta] = useState<{ analyzed: number; costJpy: number } | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  // Opus等にそのまま貼れるプロンプトをクリップボードへ
-  const copyForOpus = async () => {
-    try {
-      await navigator.clipboard.writeText(buildOpusPrompt(proposals, periodLabel));
-      setCopied(true); setTimeout(() => setCopied(false), 2000);
-    } catch { setErr("コピーに失敗しました（手動で選択してコピーしてください）"); }
-  };
+  const disabled = proposals.length === 0;
 
   const run = async () => {
     setOpen(true); setLoading(true); setErr(null); setResult(null);
@@ -84,10 +88,10 @@ export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals
 
   return (
     <>
-      <button type="button" onClick={run} disabled={loading || proposals.length === 0}
-        title={proposals.length === 0 ? "分析対象の提案がありません" : "AIが当日の提案リストを分析して講評します"}
+      <button type="button" onClick={run} disabled={loading || disabled}
+        title={disabled ? "分析対象の提案がありません" : "AIが当日の提案リストを分析して講評します（Sonnet・約3円/回）"}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "inherit", fontSize: 12.5, fontWeight: 700, padding: "6px 12px", borderRadius: 8,
-          border: "1px solid #7c5cff", background: "linear-gradient(135deg,#7c5cff,#5b8cff)", color: "#fff", cursor: proposals.length === 0 ? "not-allowed" : "pointer", opacity: proposals.length === 0 ? 0.5 : 1 }}>
+          border: "1px solid #7c5cff", background: "linear-gradient(135deg,#7c5cff,#5b8cff)", color: "#fff", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1 }}>
         <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>neurology</span>
         {loading ? "分析中…" : "AIコーチ"}
       </button>
@@ -100,13 +104,7 @@ export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals
                 <span className="material-symbols-outlined" style={{ fontSize: 22, color: "#7c5cff" }}>neurology</span>
                 AIコーチ <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>（{periodLabel}の提案分析）</span>
               </h3>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <button className="btn ghost btn-xs" onClick={copyForOpus}
-                  title="Claude（Opus等）に貼り付けて分析するためのプロンプトをコピーします。より深い分析が欲しいとき用。">
-                  {copied ? "✓ コピー済" : "📋 Opus用にコピー"}
-                </button>
-                <button className="btn ghost btn-xs" onClick={() => setOpen(false)}>閉じる</button>
-              </div>
+              <button className="btn ghost btn-xs" onClick={() => setOpen(false)}>閉じる</button>
             </div>
 
             {loading && (
@@ -144,6 +142,39 @@ export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals
         </div>
       )}
     </>
+  );
+}
+
+/** 📋 コピー：プロンプトをクリップボードへ。そのまま claude.ai 等に貼り付け可。 */
+function ProposalCoachCopyButton({ proposals, periodLabel }: { proposals: any[]; periodLabel: string }) {
+  const [copied, setCopied] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const disabled = proposals.length === 0;
+
+  const onClick = async () => {
+    setErr(null);
+    try {
+      await navigator.clipboard.writeText(buildCoachPrompt(proposals, periodLabel));
+      setCopied(true); setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setErr("コピーに失敗しました（ブラウザの権限を確認してください）");
+    }
+  };
+
+  return (
+    <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+      <button type="button" onClick={onClick} disabled={disabled}
+        title={disabled ? "コピー対象の提案がありません" : "そのまま claude.ai（Opus 等）に貼り付けて分析できるプロンプトをコピーします"}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "inherit", fontSize: 12.5, fontWeight: 700, padding: "6px 12px", borderRadius: 8,
+          border: "1px solid " + (copied ? "#bfe3cc" : "var(--color-border-strong)"),
+          background: copied ? "#eef8f1" : "var(--color-surface)",
+          color: copied ? "#067647" : "var(--color-ink-2)",
+          cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1 }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>{copied ? "check" : "content_copy"}</span>
+        {copied ? "コピー済" : "コピー"}
+      </button>
+      {err && <span style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, fontSize: 11, color: "var(--color-danger)", whiteSpace: "nowrap" }}>{err}</span>}
+    </span>
   );
 }
 
