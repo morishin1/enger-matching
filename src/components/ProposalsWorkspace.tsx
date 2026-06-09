@@ -142,7 +142,7 @@ export function ProposalsWorkspace({
             この期間に進行中の提案はありません。
           </div>
         ) : (
-          <ProposalBoardSwitcher proposals={boardRows} members={members} proposers={proposers} closers={closers} />
+          <ProposalBoardSwitcher proposals={boardRows} members={members} proposers={proposers} closers={closers} periodLabel={PERIOD_LABEL[period]} />
         )}
       </div>
       <div style={{ display: tab === "history" ? "block" : "none" }}>
