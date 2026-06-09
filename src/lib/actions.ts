@@ -496,6 +496,26 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     return { ok: true, id: dups[0].id, existed: true };
   }
 
+  // 打ち合わせ/顔合わせ未実施の企業への提案ゲート。
+  //   先方と一度も打合せていない企業へは、管理者/マネージャー以外は提案できない
+  //   （無闇な提案で信用を損なわないため）。打合せ記録（meetings）が無い & 提案者が
+  //   admin/manager でない場合はブロックして、先に打合せ記録か上長対応を促す。
+  {
+    const me = await currentAccess();
+    const { canManageDept } = await import("./roles");
+    const privileged = !me || me.role === "admin" || canManageDept(me.teamRole ?? null);
+    if (!privileged && (job.client_name ?? "").trim()) {
+      let hasMeeting = false;
+      try {
+        const { data: mtg } = await admin.from("meetings").select("id").ilike("company_name", job.client_name).limit(1);
+        hasMeeting = (mtg?.length ?? 0) > 0;
+      } catch { hasMeeting = true; /* meetings 未整備の環境ではゲートを無効化（誤ブロック防止） */ }
+      if (!hasMeeting) {
+        return { ok: false, error: "この企業はまだ打ち合わせ・顔合わせの記録がありません。提案には管理者またはマネージャーの操作（許可）が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。" };
+      }
+    }
+  }
+
   // デフォルトのクロージング担当 = 案件企業の担当者（案件の outside_owner、無ければ企業マスタの owner）。後で変更可。
   let defaultCloser: string | null = (job.outside_owner ?? "").trim() || null;
   if (!defaultCloser && job.client_name) {

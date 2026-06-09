@@ -33,6 +33,10 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   const [sort, setSort] = useState<SortKey>("target");
   const [modal, setModal] = useState<Merged | "new" | null>(null);
   const [showAll, setShowAll] = useState(false);
+  // 表示形式：既定はリスト（件数が多く一覧性が高いため）。カードに切替可。
+  const [view, setView] = useState<"list" | "card">("list");
+  // 打合せ状況フィルタ：全て / 打合せ済 / 未打合せ
+  const [mtg, setMtg] = useState<"ALL" | "done" | "none">("ALL");
 
   const regMap = useMemo(() => new Map(registered.map((r) => [r.name, r])), [registered]);
 
@@ -60,10 +64,18 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
     recover: merged.filter((c) => c.action?.key === "recover").length,
   }), [merged]);
   const filtered = useMemo(() => {
-    const needle = search.trim();
-    const rows = merged.filter((c) => (tier === "ALL" || c.tier === tier) && (act === "ALL" || c.action?.key === act) && (!needle || c.name.includes(needle)));
+    const needle = search.trim().toLowerCase();
+    const rows = merged.filter((c) =>
+      (tier === "ALL" || c.tier === tier)
+      && (act === "ALL" || c.action?.key === act)
+      && (mtg === "ALL" || (mtg === "done" ? (c.meeting_count ?? 0) > 0 : (c.meeting_count ?? 0) === 0))
+      // 企業名・業種・窓口担当者でも検索できるように（企業検索を簡単に）
+      && (!needle || c.name.toLowerCase().includes(needle)
+        || (c.reg?.industry ?? "").toLowerCase().includes(needle)
+        || (c.reg?.contact_name ?? "").toLowerCase().includes(needle)
+        || (c.reg?.owner_staff ?? "").toLowerCase().includes(needle)));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
-  }, [merged, tier, act, search, sort]);
+  }, [merged, tier, act, search, sort, mtg]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
   const PAGE = 20;
@@ -114,16 +126,87 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
             </button>
           ))}
         </div>
-        <div className="tbl-search" style={{ width: 220, flex: "0 0 220px" }}><Icons.search /><input placeholder="企業名で検索…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        <div className="tbl-search" style={{ width: 240, flex: "0 0 240px" }}><Icons.search /><input placeholder="企業名・業種・担当者で検索…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        {/* 打合せ状況フィルタ */}
+        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+          {[{ id: "ALL", label: "全て" }, { id: "done", label: "打合せ済" }, { id: "none", label: "未打合せ" }].map((m) => (
+            <button key={m.id} onClick={() => { setMtg(m.id as any); setShowAll(false); }} style={{ padding: "6px 12px", borderRadius: 99, border: 0, background: mtg === m.id ? "var(--color-surface)" : "transparent", color: mtg === m.id ? (m.id === "none" ? "#b42318" : m.id === "done" ? "#067647" : "var(--color-ink)") : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: mtg === m.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 12px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
             <option value="target">狙い目スコア</option><option value="active_jobs">進行中案件</option><option value="job_count">案件数</option><option value="avg_rate">平均単価</option><option value="last_job_at">最終更新</option>
           </select>
+          {/* リスト / カード 切替（既定リスト） */}
+          <div style={{ display: "flex", gap: 2, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+            <button onClick={() => setView("list")} title="リスト表示" style={{ padding: "5px 9px", borderRadius: 99, border: 0, cursor: "pointer", background: view === "list" ? "var(--color-surface)" : "transparent", color: view === "list" ? "var(--color-brand-700)" : "var(--color-ink-4)", boxShadow: view === "list" ? "0 1px 2px rgba(15,23,42,0.06)" : "none", display: "grid", placeItems: "center" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>view_list</span>
+            </button>
+            <button onClick={() => setView("card")} title="カード表示" style={{ padding: "5px 9px", borderRadius: 99, border: 0, cursor: "pointer", background: view === "card" ? "var(--color-surface)" : "transparent", color: view === "card" ? "var(--color-brand-700)" : "var(--color-ink-4)", boxShadow: view === "card" ? "0 1px 2px rgba(15,23,42,0.06)" : "none", display: "grid", placeItems: "center" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>grid_view</span>
+            </button>
+          </div>
           <button className="btn brand btn-xs" onClick={() => setModal("new")}><Icons.plus /><span>新規登録</span></button>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
+      {/* ── リスト表示（既定） ── */}
+      {view === "list" && (
+        filtered.length === 0 ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>該当する企業がありません。</div>
+        ) : (
+          <div className="card flush" style={{ overflowX: "auto" }}>
+            <table className="tbl" style={{ minWidth: 760 }}>
+              <thead>
+                <tr style={{ fontSize: 11, color: "var(--color-ink-4)" }}>
+                  <th style={{ textAlign: "left" }}>企業名</th>
+                  <th style={{ textAlign: "left", width: 96 }}>打合せ</th>
+                  <th style={{ textAlign: "left", width: 64 }}>ティア</th>
+                  <th className="num" style={{ width: 72 }}>進行中</th>
+                  <th className="num" style={{ width: 80 }}>平均単価</th>
+                  <th className="num" style={{ width: 60 }}>稼働</th>
+                  <th className="num" style={{ width: 60 }}>失注</th>
+                  <th className="num" style={{ width: 64 }}>狙い目</th>
+                  <th style={{ textAlign: "left", width: 96 }}>最終案件</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((c) => {
+                  const ts = tierStyle(c.tier); const done = (c.meeting_count ?? 0) > 0;
+                  return (
+                    <tr key={c.name} onClick={() => setModal(c)} style={{ cursor: "pointer" }}>
+                      <td>
+                        <div style={{ fontWeight: 700, color: "var(--color-ink)" }}>{c.name}</div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
+                          <span style={{ fontSize: 10.5, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
+                          {c.reg?.industry && <span className="muted" style={{ fontSize: 10.5 }}>{c.reg.industry}</span>}
+                        </div>
+                      </td>
+                      <td>
+                        {done
+                          ? <span className="pill" style={{ fontSize: 10.5, background: "#e7f7ee", color: "#067647", borderColor: "transparent", fontWeight: 700 }}>✓ 済 {c.meeting_count}</span>
+                          : <span className="pill" style={{ fontSize: 10.5, background: "#fdecef", color: "#b42318", borderColor: "transparent", fontWeight: 700 }}>未</span>}
+                      </td>
+                      <td><span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.border}` }}>{c.tier}</span></td>
+                      <td className="num tnum" style={{ fontWeight: 700 }}>{c.active_jobs}</td>
+                      <td className="num tnum">{c.avg_rate != null ? `¥${c.avg_rate}万` : "—"}</td>
+                      <td className="num tnum" style={{ color: "#1aa260" }}>{c.won}</td>
+                      <td className="num tnum" style={{ color: c.lost > 0 ? "#d23f57" : "var(--color-ink-3)" }}>{c.lost}</td>
+                      <td className="num"><span className="display tnum" style={{ fontWeight: 800, color: scoreColor(c.score) }}>{c.score}</span></td>
+                      <td className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>{dateLabel(c.last_job_at)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {/* ── カード表示 ── */}
+      <div style={{ display: view === "card" ? "grid" : "none", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
         {filtered.length === 0 ? (
           <div className="card" style={{ gridColumn: "1 / -1", textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>該当する企業がありません。</div>
         ) : visible.map((c) => {
@@ -137,6 +220,9 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
                     <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14.5, color: "var(--color-ink)", lineHeight: 1.3 }}>{c.name}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
+                      {(c.meeting_count ?? 0) > 0
+                        ? <span className="pill" style={{ fontSize: 10, background: "#e7f7ee", color: "#067647", borderColor: "transparent", fontWeight: 700 }}>✓ 打合せ済</span>
+                        : <span className="pill" style={{ fontSize: 10, background: "#fdecef", color: "#b42318", borderColor: "transparent", fontWeight: 700 }}>未打合せ</span>}
                       {c.action && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${c.action.tone}1a`, color: c.action.tone, fontWeight: 700 }}>{c.action.label}</span>}
                       {c.reg?.industry && <span className="tag" style={{ fontSize: 10 }}>{c.reg.industry}</span>}
                       {c.focus_jobs > 0 && <span className="tag" style={{ fontSize: 10, color: "#e0567f" }}>♥ 注力{c.focus_jobs}</span>}
