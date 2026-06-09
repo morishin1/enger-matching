@@ -16,7 +16,8 @@ function daysSince(iso?: string | null): number | null {
 }
 
 /** 提案ボードの当日リストをAIコーチが分析し、講評・優先対応・リスク・担当者別アドバイスを返す。
- *  Haiku 固定で安価（1回 約1円）。入力は要約済みの軽量JSONのみで個人情報は最小限。 */
+ *  分析（優先順位付け・傾向判断）の質を優先して Sonnet 固定（1回 約3円）。
+ *  入力は要約済みの軽量JSONのみで個人情報は最小限。 */
 export async function POST(req: Request) {
   const me = await currentAccess();
   if (!me) return json({ ok: false, error: "未ログインです" }, 401);
@@ -66,9 +67,10 @@ export async function POST(req: Request) {
     JSON.stringify(compact),
   ].join("\n");
 
-  // Haiku 固定（安価）。env が Sonnet 等でもこの分析は Haiku を選好。
+  // Sonnet 固定。優先順位付け・傾向判断という推論寄りのタスクなので、
+  // Haiku より分析の質が明確に高い Sonnet を選好（コストは1回 約3円で誤差）。
   const prev = process.env.LLM_MODEL;
-  if (!prev || !/haiku/i.test(prev)) process.env.LLM_MODEL = "claude-haiku-4-5";
+  if (!prev || !/sonnet/i.test(prev)) process.env.LLM_MODEL = "claude-sonnet-4-6";
   const r = await callLLM({ system, prompt, maxTokens: 1100, temperature: 0.3 });
   if (prev) process.env.LLM_MODEL = prev; else delete process.env.LLM_MODEL;
 

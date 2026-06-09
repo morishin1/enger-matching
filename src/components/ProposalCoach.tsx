@@ -12,12 +12,60 @@ type CoachResult = {
   priorities: string[]; risks: string[]; by_proposer: string[]; next_actions: string[];
 };
 
+function daysSince(iso?: string | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+}
+
+// Claude（Opus 等）にそのまま貼り付けて分析させるためのプロンプトを組み立てる。
+//   API経由（Sonnet）より深い分析が欲しいときに、ご自身のClaudeで使う想定。
+function buildOpusPrompt(proposals: any[], periodLabel: string): string {
+  const compact = proposals.slice(0, 80).map((p) => ({
+    案件: (p.job_title ?? "").slice(0, 40) || "—",
+    企業: (p.company ?? "").slice(0, 24) || "—",
+    人材: (p.c_init ?? p.candidate_name ?? "—"),
+    ステージ: p.stage ?? "—",
+    提案者: p.proposer ?? "未割当",
+    CL: p.closer ?? "未割当",
+    架電: p.caller_status ?? "—",
+    面談: p.meeting_status ?? "—",
+    スコア: p.score ?? null,
+    単価: p.rate ?? null,
+    滞留日数: daysSince(p.stage_updated_at ?? p.created_at),
+  }));
+  return [
+    "あなたはSES/エンジニア人材事業の営業マネージャーです。以下は当社の提案管理ボードの一覧です。",
+    `対象期間: ${periodLabel} / 提案 ${compact.length}件。`,
+    "次の観点で、現場がすぐ動ける具体的な講評をしてください：",
+    "1) 全体の総評（良い点と課題）",
+    "2) 🔥 今すぐ着手すべき提案（滞留日数が大きい・未架電・CL未割当・スコアが高いのに動いていない 等を優先）",
+    "3) ⚠ 放置リスク・取りこぼし懸念",
+    "4) 👤 提案者ごとの傾向と助言",
+    "5) ✅ チームの次の一手",
+    "案件名・企業名を挙げ、なぜ優先かを一言添えてください。",
+    "",
+    "── 提案リスト(JSON) ──",
+    JSON.stringify(compact, null, 1),
+  ].join("\n");
+}
+
 export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals: any[]; periodLabel?: string }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<CoachResult | null>(null);
   const [meta, setMeta] = useState<{ analyzed: number; costJpy: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Opus等にそのまま貼れるプロンプトをクリップボードへ
+  const copyForOpus = async () => {
+    try {
+      await navigator.clipboard.writeText(buildOpusPrompt(proposals, periodLabel));
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch { setErr("コピーに失敗しました（手動で選択してコピーしてください）"); }
+  };
 
   const run = async () => {
     setOpen(true); setLoading(true); setErr(null); setResult(null);
@@ -52,7 +100,13 @@ export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals
                 <span className="material-symbols-outlined" style={{ fontSize: 22, color: "#7c5cff" }}>neurology</span>
                 AIコーチ <span className="muted" style={{ fontSize: 12, fontWeight: 500 }}>（{periodLabel}の提案分析）</span>
               </h3>
-              <button className="btn ghost btn-xs" onClick={() => setOpen(false)}>閉じる</button>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <button className="btn ghost btn-xs" onClick={copyForOpus}
+                  title="Claude（Opus等）に貼り付けて分析するためのプロンプトをコピーします。より深い分析が欲しいとき用。">
+                  {copied ? "✓ コピー済" : "📋 Opus用にコピー"}
+                </button>
+                <button className="btn ghost btn-xs" onClick={() => setOpen(false)}>閉じる</button>
+              </div>
             </div>
 
             {loading && (
