@@ -192,7 +192,8 @@ export async function draftReportMessage(reportId: string): Promise<{ ok: boolea
     `明日の一手: ${(r as any).next_action ?? "（なし）"}`,
     `手応え: ${(r as any).mood ?? ""}`,
   ].join("\n");
-  const res = await callLLM({ system, prompt, maxTokens: 220, temperature: 0.6 });
+  // 220 だと日本語で 110字程度で頭打ち→文末で切れていた。実運用に必要な分まで余裕を持たせる。
+  const res = await callLLM({ system, prompt, maxTokens: 700, temperature: 0.6 });
   if (!res.ok) return { ok: false, error: res.error };
   await logUsage("report_message_draft", res.model, res.usage);
   return { ok: true, text: res.text };
