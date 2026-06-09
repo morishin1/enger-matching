@@ -18,6 +18,7 @@ import { MatchingModeTabs } from "@/components/MatchingModeTabs";
 import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
+import { loadMatchWindow, withinWindow } from "@/lib/match-window";
 
 export const dynamic = "force-dynamic";
 
@@ -179,8 +180,13 @@ async function loadTenantData(company: string, meetingDone: boolean = true) {
 
 export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string; stale?: string }> }) {
   const sp = await searchParams;
-  // 古い案件（配信から JOB_STALE_DAYS 超）を含めて表示するか。既定は false（隠す）。
+  // 古い案件（配信から JOB_STALE_DAYS 超）/ 期間外を含めて表示するか。既定は false（隠す）。
   const showStale = sp.stale === "1";
+  // マッチング対象期間（鮮度ウィンドウ）。取込日が直近 days 日以内のみ対象。showStale=1 で期間外も表示。
+  const matchWindow = await loadMatchWindow();
+  const windowActive = matchWindow.enabled && !showStale;
+  const windowNow = Date.now();
+  const inWindow = (createdAt: string | null | undefined) => !windowActive || withinWindow(createdAt, matchWindow.days, windowNow);
   // 関連タブのカウント（マッチング/案件/人材/LP登録）。ヘッダーから本体に移したため
   // ページ側で取得して MatchingPeerTabs に渡す。
   const peerCounts = await getSidebarCounts();
@@ -282,6 +288,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           markBounce(j);
           const op = jobOpenness(j as Job);
           if (op.closed) { filledCount++; continue; }            // 充足/終了 → 常に除外
+          if (!inWindow(j?.created_at)) { staleHidden++; continue; } // マッチング対象期間外 → 隠す
           if (op.stale && !showStale) { staleHidden++; continue; } // 古い → 既定で隠す
           kept.push(j);
         }
@@ -433,7 +440,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               }
             } catch { /* noop */ }
           }
-          ranked = rankCandidates(job as Job, candList.filter((c: any) => !c?.deleted_at), 10);
+          // マッチング対象期間外（取込が古い）の人材は除外。明示指定された候補(reqCandNo)は残す。
+          const candInWindow = candList.filter((c: any) => !c?.deleted_at && (inWindow(c?.created_at) || c.candidate_no === reqCandNo));
+          ranked = rankCandidates(job as Job, candInWindow, 10);
           // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
           const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
           if (reqCandNo2 && !ranked.find((r: any) => r.candidate.candidate_no === reqCandNo2)) {
@@ -480,15 +489,16 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     ...(job ? [job] : []),
   ].filter((j: any) => j?.is_undeliverable).length;
 
-  const opennessBanner = (hiddenFilledCount > 0 || hiddenStaleCount > 0 || showStale || undeliverableShown > 0) ? (
+  const opennessBanner = (windowActive || hiddenFilledCount > 0 || hiddenStaleCount > 0 || showStale || undeliverableShown > 0) ? (
     <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 12.5 }}>
       <span style={{ fontWeight: 700 }}>🛡 鮮度ガード</span>
+      {windowActive && <span style={{ color: "#0b5cab" }}>📅 直近<b>{matchWindow.days}日</b>でマッチング中</span>}
       {hiddenFilledCount > 0 && <span style={{ color: "#b42318" }}>🔒 充足/終了 <b>{hiddenFilledCount}</b>件を除外</span>}
-      {hiddenStaleCount > 0 && <span style={{ color: "#b45309" }}>🕓 配信{JOB_STALE_DAYS}日超の古い案件 <b>{hiddenStaleCount}</b>件を{showStale ? "表示中" : "非表示"}</span>}
-      {showStale && hiddenStaleCount === 0 && <span style={{ color: "#b45309" }}>🕓 古い案件も表示中（在否確認のうえ提案を）</span>}
+      {hiddenStaleCount > 0 && <span style={{ color: "#b45309" }}>🕓 期間外/古い <b>{hiddenStaleCount}</b>件を{showStale ? "表示中" : "非表示"}</span>}
+      {showStale && hiddenStaleCount === 0 && <span style={{ color: "#b45309" }}>🕓 期間外も表示中（在否確認のうえ提案を）</span>}
       {undeliverableShown > 0 && <span style={{ color: "#b42318" }}>📭 宛先が送達不能の案件 <b>{undeliverableShown}</b>件あり（提案前に連絡先確認）</span>}
       <Link href={buildToggleHref(!showStale)} className="btn ghost btn-xs" style={{ marginLeft: "auto", textDecoration: "none" }}>
-        {showStale ? "古い案件を隠す" : "古い案件も表示する"}
+        {showStale ? "期間内のみ表示" : "期間外も表示する"}
       </Link>
     </div>
   ) : null;
