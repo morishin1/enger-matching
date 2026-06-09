@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { engerClient, dbConfigured } from "@/lib/supabase";
+import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { TrashClient } from "@/components/TrashClient";
 
@@ -27,15 +27,25 @@ export default async function TrashPage({ searchParams }: { searchParams: Promis
 
   if (dbConfigured) {
     try {
-      const sb = engerClient();
+      // ゴミ箱は admin（service role）で読む。公開クライアントだと RLS が deleted_at
+      //   付きの行を隠す設定の場合に「0件」になる事故があるため（人材で発生）。
+      let sb: ReturnType<typeof engerClient>;
+      try { sb = engerAdmin(); } catch { sb = engerClient(); }
       const j: any = await sb.from("jobs")
         .select("job_no, title, client_name, created_at, deleted_at")
         .not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(1000);
-      const c: any = await sb.from("candidates")
+      // 人材は列構成の差異（initials/source_company が無い環境）でも落ちないようフォールバック。
+      let c: any = await sb.from("candidates")
         .select("candidate_no, name, initials, source_company, company, created_at, deleted_at")
         .not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(1000);
+      if (c.error) c = await sb.from("candidates")
+        .select("candidate_no, name, company, created_at, deleted_at")
+        .not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(1000);
+      if (c.error) c = await sb.from("candidates")
+        .select("candidate_no, name, created_at, deleted_at")
+        .not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(1000);
       if (j.error && /deleted_at|column/i.test(j.error.message)) needSetup = true;
-      else { jobsTrash = j.data ?? []; candsTrash = c.data ?? []; }
+      else { jobsTrash = j.data ?? []; candsTrash = c.error ? [] : (c.data ?? []); }
     } catch { /* ignore */ }
   }
 
