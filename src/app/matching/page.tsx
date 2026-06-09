@@ -16,6 +16,8 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { MatchingModeTabs } from "@/components/MatchingModeTabs";
 import { getSidebarCounts } from "@/lib/counts";
+import { loadProposalOwners } from "@/lib/proposal-owners";
+import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -182,6 +184,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   // 関連タブのカウント（マッチング/案件/人材/LP登録）。ヘッダーから本体に移したため
   // ページ側で取得して MatchingPeerTabs に渡す。
   const peerCounts = await getSidebarCounts();
+  // 提案ボタン押下時の「提案者／承認者」プルダウンの選択肢。manual list（admin編集）優先、無ければ社内メンバーの自動リスト。
+  const [proposalOwners, staffData] = await Promise.all([loadProposalOwners(), getStaff()]);
+  const proposerMembers: string[] = (proposalOwners?.proposers && proposalOwners.proposers.length > 0)
+    ? proposalOwners.proposers
+    : staffData.members;
   // パートナー企業はテナント隔離のため別画面（自社＋共有のみ・他社匿名・提案/メール無効）
   const scope = await getViewerScope();
   if (scope.isTenant) {
@@ -617,7 +624,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), j.work_location, salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
                       {/* 提案フォームを最上部に（すぐ送れるように） */}
-                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null} />
+                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null} members={proposerMembers} />
 
                       {/* マッチ詳細はアコーディオン（既定は閉。注意件数はサマリに表示） */}
                       {(() => {
@@ -815,7 +822,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     </div>
 
                     {/* 提案フォームを最上部に（すぐ送れるように） */}
-                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null} />
+                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null} members={proposerMembers} />
 
                     {/* マッチ詳細はアコーディオンで折りたたみ（既定は閉。注意件数はサマリに出す） */}
                     {(() => {

@@ -10,8 +10,8 @@ import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { MailComposeWizard } from "./MailComposeWizard";
 
-export function SendMailModalButton({ job, cand, score, label = "📤 送信する（クライアント＋人材へ）", style }:
-  { job: any; cand: any; score: number; label?: string; style?: CSSProperties }) {
+export function SendMailModalButton({ job, cand, score, label = "📤 送信する（クライアント＋人材へ）", style, members = [] }:
+  { job: any; cand: any; score: number; label?: string; style?: CSSProperties; members?: string[] }) {
   const [open, setOpen] = useState(false);
   // ESCで閉じる
   useEffect(() => {
@@ -57,7 +57,7 @@ export function SendMailModalButton({ job, cand, score, label = "📤 送信す�
               </div>
             </div>
             <div style={{ padding: 16, maxHeight: "calc(100vh - 140px)", overflowY: "auto" }}>
-              <MailComposeWizard job={job} cand={cand} score={score} />
+              <MailComposeWizard job={job} cand={cand} score={score} members={members} />
             </div>
           </div>
         </div>

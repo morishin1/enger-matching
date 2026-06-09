@@ -458,8 +458,10 @@ const parseRateNum = (rate?: string | null): number | null => {
   return nums.length ? Math.max(...nums) : null;
 };
 
-/** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。 */
-export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }) {
+/** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。
+ *   ※ 承認チェック：approver（承認者の氏名）必須。stage="承認待ち" で作成され、
+ *      承認者（admin or 本人）が approveProposal を呼ぶと "所属確認" へ遷移する。 */
+export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }, approver?: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   let job: any = null, cand: any = null;
@@ -503,16 +505,28 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     try { const me = await currentAccess(); proposerName = (me?.name ?? "").trim() || null; } catch { /* 未ログインでも続行 */ }
   }
 
+  // 承認者：必須（ハードゲート）。提案者と同じ社内メンバーリストから選択する想定。
+  const approverName = (approver ?? "").trim();
+  if (!approverName) return { ok: false, error: "承認者を選択してください（提案者と承認者の両方が必要です）" };
+
   const insertBase = {
-    job_id: job.id, candidate_id: cand.id, stage: "所属確認",
+    job_id: job.id, candidate_id: cand.id, stage: "承認待ち",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser,
     proposer: proposerName,
+    approver: approverName,
+    approval_status: "pending",
     job_action_type: "未回答", job_action_token,
     cand_action_type: "未回答", cand_action_token,
   } as Record<string, any>;
+  // approver/approval_status 列が無い旧環境では落とし、既存通り 所属確認 で作成
   let ins: any = await admin.from("proposals").insert({ ...insertBase, stage_updated_at: new Date().toISOString() }).select("id").single();
+  if (ins.error && /approver|approval_status|column/i.test(ins.error.message)) {
+    const fallback = { ...insertBase, stage: "所属確認" } as Record<string, any>;
+    delete fallback.approver; delete fallback.approval_status;
+    ins = await admin.from("proposals").insert({ ...fallback, stage_updated_at: new Date().toISOString() }).select("id").single();
+  }
   if (ins.error && /stage_updated_at|column/i.test(ins.error.message)) {
     ins = await admin.from("proposals").insert(insertBase).select("id").single();
   }
@@ -522,6 +536,62 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   revalidatePath("/matching");
   bustCounts();
   return { ok: true, id: data.id, existed: false, job_action_token, cand_action_token };
+}
+
+/** 提案を承認（承認待ち → 所属確認 へ遷移）。承認できるのは admin か、approver と現在ユーザー名が一致する人。 */
+export async function approveProposal(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const cur: any = await admin.from("proposals").select("id, approver, approval_status, stage").eq("id", id).maybeSingle();
+  if (cur.error) return { ok: false, error: cur.error.message };
+  if (!cur.data) return { ok: false, error: "提案が見つかりません" };
+  if (cur.data.approval_status === "approved") return { ok: true }; // 冪等
+  // 権限：admin or 自分が approver
+  const { ownerMatches } = await import("./owner-match");
+  const isApprover = me.name && ownerMatches(me.name, cur.data.approver ?? "");
+  if (me.role !== "admin" && !isApprover) return { ok: false, error: "承認権限がありません（指定された承認者のみ承認できます）" };
+  const now = new Date().toISOString();
+  const r: any = await admin.from("proposals").update({
+    approval_status: "approved",
+    approved_at: now,
+    approver_email: me.email,
+    reject_reason: null,
+    stage: "所属確認",
+    stage_updated_at: now,
+    updated_at: now,
+  }).eq("id", id);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/proposals"); bustCounts();
+  return { ok: true };
+}
+
+/** 提案を差戻し（承認者→提案者へ）。stage は「承認待ち」のままで approval_status のみ rejected。 */
+export async function rejectProposal(id: string, reason: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const r0 = (reason ?? "").trim();
+  if (!r0) return { ok: false, error: "差戻し理由を入力してください" };
+  const cur: any = await admin.from("proposals").select("id, approver, approval_status").eq("id", id).maybeSingle();
+  if (cur.error) return { ok: false, error: cur.error.message };
+  if (!cur.data) return { ok: false, error: "提案が見つかりません" };
+  const { ownerMatches } = await import("./owner-match");
+  const isApprover = me.name && ownerMatches(me.name, cur.data.approver ?? "");
+  if (me.role !== "admin" && !isApprover) return { ok: false, error: "差戻し権限がありません（指定された承認者のみ操作できます）" };
+  const now = new Date().toISOString();
+  const r: any = await admin.from("proposals").update({
+    approval_status: "rejected",
+    reject_reason: r0,
+    approver_email: me.email,
+    stage: "承認待ち",
+    updated_at: now,
+  }).eq("id", id);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/proposals");
+  return { ok: true };
 }
 
 /** 提案ステージの変更 (カンバン移動)。 */
