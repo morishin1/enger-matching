@@ -383,9 +383,12 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
                 </label>
               )}
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button type="button" className="btn ghost btn-sm" onClick={() => setLostOpen(false)}>キャンセル</button>
-                <button type="button" className="btn btn-sm" style={{ background: "var(--color-danger)", color: "#fff", borderColor: "var(--color-danger)", opacity: lostReady ? 1 : 0.5 }} disabled={pending || !lostReady} onClick={lose}>見送りを確定</button>
+              <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+                <button type="button" className="btn ghost btn-sm" onClick={() => setLostOpen(false)} disabled={pending}>キャンセル</button>
+                <button type="button" className="btn btn-sm" style={{ background: "var(--color-danger)", color: "#fff", borderColor: "var(--color-danger)", opacity: lostReady ? 1 : 0.5, display: "inline-flex", alignItems: "center", gap: 6 }} disabled={pending || !lostReady} onClick={lose}>
+                  {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+                  {pending ? "保存中…" : "見送りを確定"}
+                </button>
               </div>
             </div>
           )}
@@ -395,10 +398,19 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
         <div style={{ position: "sticky", bottom: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)", padding: "14px 22px", display: "flex", gap: 10, alignItems: "center" }}>
           {/* ステータス更新ドロップダウン（クリックでステージ選択メニュー） */}
           <div ref={stageMenuRef} style={{ position: "relative" }}>
-            <button type="button" className="btn brand" disabled={pending} onClick={() => setStageMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={stageMenuOpen}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>check</span>
-              ステータス更新
-              <span className="material-symbols-outlined" style={{ fontSize: 16, marginLeft: 4, verticalAlign: "-3px" }}>{stageMenuOpen ? "expand_more" : "expand_less"}</span>
+            <button type="button" className="btn brand" disabled={pending} onClick={() => setStageMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={stageMenuOpen} style={{ display: "inline-flex", alignItems: "center" }}>
+              {pending ? (
+                <>
+                  <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", marginRight: 6, animation: "spin .8s linear infinite" }} />
+                  保存中…
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>check</span>
+                  ステータス更新
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, marginLeft: 4, verticalAlign: "-3px" }}>{stageMenuOpen ? "expand_more" : "expand_less"}</span>
+                </>
+              )}
             </button>
             {stageMenuOpen && (
               <div role="listbox" aria-label="ステータス選択" style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, minWidth: 220, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, boxShadow: "0 12px 28px rgba(15,36,64,.18)", zIndex: 3, overflow: "hidden" }}>
@@ -428,7 +440,10 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               </div>
             )}
           </div>
-          <button type="button" className="btn ghost" disabled={pending} onClick={saveFields} title="ステージは変更せず編集内容のみ保存">編集を保存</button>
+          <button type="button" className="btn ghost" disabled={pending} onClick={saveFields} title="ステージは変更せず編集内容のみ保存" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+            {pending ? "保存中…" : "編集を保存"}
+          </button>
           {normalizeStage(p.stage) === "合格" && (
             <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}

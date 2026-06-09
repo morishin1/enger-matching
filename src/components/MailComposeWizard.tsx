@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment, type CSSProperties } from "react";
+import { useState, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal } from "@/lib/actions";
@@ -173,8 +173,6 @@ function validateSide(
   return Object.keys(errors).length === 0;
 }
 
-const emptyForm = (): MailForm => ({ email: "", cc: "", subject: "", body: "" });
-
 export function MailComposeWizard({
   job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null,
 }: {
@@ -183,11 +181,24 @@ export function MailComposeWizard({
 }) {
   const [step, setStep] = useState<1 | 2>(initialSaved ? 2 : 1);
   const [proposer, setProposer] = useState(initialProposer ?? "");
-  const [clientForm, setClientForm] = useState<MailForm>(emptyForm);
-  const [candForm, setCandForm] = useState<MailForm>(emptyForm);
+  // useState の初期値で定型文を入れて、最初のレンダリングから本文が見える状態にする。
+  //   以前は useEffect で後追いで body をセットしていたため、初期マウント時に空のテキストエリアが
+  //   見え（auto-resize の高さ計算が空状態で行われ）、結果として本文が見えない事故が発生していた。
+  const [clientForm, setClientForm] = useState<MailForm>(() => ({
+    email: job?.contact_email ?? "",
+    cc: "",
+    subject: buildJobMailSubject(job),
+    body: buildJobMailContent(job, cand),
+  }));
+  const [candForm, setCandForm] = useState<MailForm>(() => ({
+    email: cand?.email || cand?.contact_email || "",
+    cc: "",
+    subject: buildCandMailSubject(),
+    body: buildCandMailContent(job, cand),
+  }));
   const [clientErrors, setClientErrors] = useState<MailErrors>({});
   const [candErrors, setCandErrors] = useState<MailErrors>({});
-  const [initialized, setInitialized] = useState(false);
+  const [initialized, setInitialized] = useState(true); // 初期値で済んでいるので true で開始
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(initialSaved);
   const [_savedId, setSavedId] = useState<string | null>(initialSavedId);
@@ -203,22 +214,7 @@ export function MailComposeWizard({
   const candOrigUrl = gmailMessageUrl(cand?.source_mail_url)
     || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
 
-  useEffect(() => {
-    if (initialized) return;
-    setClientForm({
-      email: job.contact_email ?? "",
-      cc: "",
-      subject: buildJobMailSubject(job),
-      body: buildJobMailContent(job, cand),
-    });
-    setCandForm({
-      email: cand.email || cand.contact_email || "",
-      cc: "",
-      subject: buildCandMailSubject(),
-      body: buildCandMailContent(job, cand),
-    });
-    setInitialized(true);
-  }, [job, cand, initialized]);
+  // 初期値で本文をセット済みのため、フォーム初期化用の useEffect は不要。
 
   const updateClientForm = (field: keyof MailForm, v: string) => {
     setClientForm((prev) => ({ ...prev, [field]: v }));

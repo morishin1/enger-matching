@@ -95,7 +95,14 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
   const rows: ValRow[] = [];
   const seen = new Map<string, number>();
   // 生GAS人材CSVは「所属」=雇用形態・「会社名」=会社名。会社名列がある場合は所属を区分として解釈する。
-  const candRaw = kind === "candidates" && header.includes("会社名");
+  //   ただし「会社名」列があっても実データが全て空のときは、ユーザーが手で項目を足しただけで
+  //   実際の会社名は「所属」に入っているケースが多い。その場合は所属→company の解釈を維持する
+  //   （会社名が落ちる不具合への対応）。
+  const companyColIdx = header.indexOf("会社名");
+  const candRaw = kind === "candidates" && companyColIdx >= 0 && grid.slice(1).some((cols) => (cols[companyColIdx] ?? "").trim().length > 0);
+  // 列数の整合性チェック：行のセル数 > ヘッダ列数 のとき、未引用カンマで列ズレしている可能性が高い
+  // （氏名にスキルが入る事象の典型原因）。後段で各行の警告に出す。
+  const headerLen = header.length;
   const rateText = (lo: number | null, hi: number | null) =>
     lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "";
   grid.slice(1).forEach((cols, idx) => {
@@ -138,6 +145,10 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
       if (!rec.skills?.length) warnings.push("スキル空");
     }
     if (rawGarbled) warnings.push("文字化けの可能性");
+    // 列ズレ検出：行のセル数がヘッダより多い／少ない、または氏名にスキル様の連結語が入っている場合
+    if (cols.length > headerLen) warnings.push(`列ズレ（セル${cols.length}個 vs ヘッダ${headerLen}個）。引用符のないカンマでズレている可能性`);
+    else if (cols.length < headerLen && cols.some((c) => (c || "").trim())) warnings.push(`列不足（セル${cols.length}個 vs ヘッダ${headerLen}個）`);
+    if (kind === "candidates" && rec.name && /[,、\/／]/.test(rec.name) && rec.name.length >= 8) warnings.push("氏名にカンマ/スラッシュ含む（スキルが氏名列に入っている可能性）");
     if (dupKey.replace("|", "")) {
       if (seen.has(dupKey)) warnings.push(`重複(行${seen.get(dupKey)})`);
       else seen.set(dupKey, idx + 2);
