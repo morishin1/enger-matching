@@ -2,6 +2,8 @@ import Link from "next/link";
 import { AccountManager } from "@/components/AccountManager";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
+import { MatchWindowEditor } from "@/components/MatchWindowEditor";
+import { loadMatchWindow } from "@/lib/match-window";
 import { MenuPermissionEditor } from "@/components/MenuPermissionEditor";
 import { ReportScopeEditor } from "@/components/ReportScopeEditor";
 import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
@@ -21,7 +23,7 @@ const yen = (usd: number) => `¥${Math.round(usd * YEN_PER_USD).toLocaleString("
 // 設定タブの定義。URL ?tab=... で切替。
 const TABS = [
   { key: "ai",        label: "AI使用量",          icon: "smart_toy",       desc: "各AIの呼び出し回数と概算コスト" },
-  { key: "focus",     label: "注力定義",          icon: "target",          desc: "「注力」に出す案件・人材の閾値" },
+  { key: "focus",     label: "マッチング設定",    icon: "target",          desc: "マッチング対象期間・「注力」の閾値" },
   { key: "quality",   label: "品質ルール",        icon: "rule",            desc: "提案の自動失格・警告ルール" },
   { key: "accounts",  label: "アカウント・権限",  icon: "manage_accounts", desc: "メンバーの権限・部署・職能" },
   { key: "menus",     label: "メニュー権限",      icon: "lock",            desc: "役職別にサイドバーの表示メニューを設定" },
@@ -46,6 +48,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   // アクティブタブだけ取得（縦量だけでなく無駄な往復も削減）
   const usage = tab === "ai" ? await getUsageStats() : null;
   const focusCriteria = tab === "focus" ? await loadFocusCriteria() : null;
+  const matchWindow = tab === "focus" ? await loadMatchWindow() : null;
   const quality = tab === "quality" ? await getQuality() : null;
   const accounts = tab === "accounts" ? await listAccounts() : null;
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
@@ -147,7 +150,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       )}
 
       {tab === "focus" && focusCriteria && (
-        <div id="focus"><FocusCriteriaEditor initial={focusCriteria} /></div>
+        <div id="focus" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {matchWindow && <MatchWindowEditor initial={matchWindow} />}
+          <FocusCriteriaEditor initial={focusCriteria} />
+        </div>
       )}
 
       {tab === "quality" && quality && (

@@ -2615,10 +2615,28 @@ export async function saveKpiTargets(input: {
   return { ok: true };
 }
 
+/** マッチング対象期間（鮮度ウィンドウ）の保存（admin限定）。 */
+export async function saveMatchWindow(input: { enabled: boolean; days: number }): Promise<{ ok: boolean; error?: string }> {
+  const access = await currentAccess();
+  if (!access || access.role !== "admin") return { ok: false, error: "管理者のみ変更できます" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "DB 接続できません" }; }
+  const days = Math.min(365, Math.max(1, Math.floor(Number(input.days) || 7)));
+  const value = { enabled: !!input.enabled, days };
+  const { MATCH_WINDOW_KEY } = await import("./match-window");
+  const r: any = await admin.from("app_settings").upsert({ key: MATCH_WINDOW_KEY, value }, { onConflict: "key" });
+  if (r.error) {
+    if (/app_settings|relation|column/i.test(r.error.message)) return { ok: false, error: "app_settings テーブルが未整備です（supabase/app-settings.sql を実行してください）" };
+    return { ok: false, error: r.error.message };
+  }
+  revalidatePath("/matching");
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 // ────────────────────────────────────────────────────────
 // タイムカード（社内バイト/副業向け）
 // ────────────────────────────────────────────────────────
-//   ・本人が日ごとに「予定登録」と「出勤/退勤打刻」
 //   ・月締めで申請（status: open → submitted）
 //   ・マネージャー（自部署のみ）/ admin が承認・差し戻し
 //
