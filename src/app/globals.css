@@ -346,6 +346,44 @@ button { font-family: inherit; }
   .duo-grid, .kpi-grid { gap: 12px; }
 }
 
+/* ── タイムカード（スマホ最適化） ──────────────────────────────────
+   ・カレンダー：7列を維持しつつ各セルを小さく。横スクロールにすると親指で月を見渡せないため。
+   ・予定/実績テキストはスマホで非表示→色帯のみで状態を伝達（タップで編集モーダル）。
+   ・出退勤ボタンはタップ領域を確保（44px 以上）。
+   ※ デスクトップ既存挙動を変えないよう全て @media クエリでのみ調整する。 */
+.tc-cal     { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.tc-cell    { display: flex; flex-direction: column; gap: 3px; padding: 6px 7px; min-height: 72px;
+              text-align: left; border: 1px solid var(--color-border); border-radius: 8px;
+              background: var(--color-surface); cursor: pointer; }
+.tc-cell.today    { border: 2px solid var(--color-brand-500); }
+.tc-cell .tc-line { font-size: 10px; padding: 1px 4px; border-radius: 4px; }
+.tc-cell .tc-line.plan { background: #eaf4fd; color: #0b5cab; }
+.tc-cell .tc-line.act  { background: #067647; color: #fff; font-weight: 700; font-size: 10.5px; }
+.tc-cell .tc-line.running { background: transparent; color: #9a7b12; padding: 0; }
+.tc-cell .tc-dotrow { display: flex; gap: 3px; align-items: center; }
+.tc-cell .tc-dot   { width: 8px; height: 8px; border-radius: 99px; display: inline-block; flex-shrink: 0; }
+.tc-cell .tc-dot.plan { background: #4a8fd6; }
+.tc-cell .tc-dot.act  { background: #067647; }
+
+@media (max-width: 640px) {
+  /* カレンダーセルを縮めて1画面に収める。テキスト行は隠してドット表示のみ。 */
+  .tc-cal     { gap: 4px; }
+  .tc-cell    { min-height: 54px; padding: 5px 4px; gap: 2px; }
+  .tc-cell .tc-daynum { font-size: 11.5px; }
+  .tc-cell .tc-statuschip { font-size: 7.5px; padding: 0 4px; }
+  .tc-cell .tc-line { display: none; }     /* 予 09:00–18:00 のような行は非表示 */
+  .tc-cell .tc-dotrow { display: flex; }
+  /* 出退勤ボタン：タップ領域確保 */
+  .tc-clock-btn { min-height: 44px; padding-left: 14px; padding-right: 14px; font-size: 14px; }
+  /* 編集モーダル：画面端まで余白少なめで広く使う */
+  .tc-modal-bg  { padding: 12px !important; }
+  .tc-modal     { max-width: 100% !important; }
+}
+@media (min-width: 641px) {
+  /* デスクトップではドットは隠して、従来の予定/実績ピル行を表示 */
+  .tc-cell .tc-dotrow { display: none; }
+}
+
 /* 通知ステータスの未処理ドットの脈動。やってないと光って「早くやって」と促す。 */
 @keyframes engerNotifyPulse {
   0%   { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.55); }
