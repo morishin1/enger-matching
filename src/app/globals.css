@@ -400,6 +400,7 @@ button { font-family: inherit; }
   .match-2col { grid-template-columns: 1fr !important; gap: 12px !important; }
 }
 
+
 /* 通知ステータスの未処理ドットの脈動。やってないと光って「早くやって」と促す。 */
 @keyframes engerNotifyPulse {
   0%   { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.55); }
