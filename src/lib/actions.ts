@@ -1016,6 +1016,29 @@ export async function saveCompany(input: CompanyInput) {
   return { ok: true };
 }
 
+/** 企業の「打ち合わせ完了」手動フラグを切替（詳細画面のチェック用）。
+ *  companies 行が無ければ name で作成（upsert）。meeting_done 列が未追加なら案内を返す。 */
+export async function setCompanyMeetingDone(name: string, done: boolean): Promise<{ ok: boolean; error?: string }> {
+  const n = (name ?? "").trim();
+  if (!n) return { ok: false, error: "企業名が空です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await currentAccess();
+  const row: Record<string, any> = {
+    name: n,
+    meeting_done: !!done,
+    meeting_done_at: done ? new Date().toISOString() : null,
+    meeting_done_by: done ? ((me?.name ?? "").trim() || null) : null,
+  };
+  const { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  if (error) {
+    if (/meeting_done|column/i.test(error.message)) return { ok: false, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/companies");
+  return { ok: true };
+}
+
 /** 企業マスタ登録を削除（案件由来の集計表示は残る）。 */
 export async function deleteCompany(name: string) {
   let admin: ReturnType<typeof engerAdmin>;
