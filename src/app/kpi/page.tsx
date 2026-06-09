@@ -29,17 +29,20 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const period: PeriodType = (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any)
     ? (sp.period as PeriodType) : "day";
 
-  // 管理者は ?owner=email で対象切替可能。それ以外は自分のみ。
-  let targetEmail = access.email.toLowerCase();
+  // 管理者は ?owner=email で対象切替可能。?owner=__team__ でチーム全体。それ以外は自分のみ。
+  const isTeam = access.role === "admin" && sp.owner === "__team__";
+  let targetEmail: string | null = access.email.toLowerCase();
   let targetName  = access.name ?? "";
-  if (access.role === "admin" && sp.owner) {
+  if (isTeam) {
+    targetEmail = null; targetName = "チーム全体";
+  } else if (access.role === "admin" && sp.owner) {
     const sb = engerAdmin();
     const r: any = await sb.from("staff").select("name, email").ilike("email", sp.owner).maybeSingle();
     if (r.data) { targetEmail = (r.data.email ?? "").toLowerCase(); targetName = r.data.name ?? ""; }
   }
 
   // 名前未解決（app_users.name が空の場合）→ staff から email で引く
-  if (!targetName) {
+  if (!isTeam && !targetName && targetEmail) {
     const sb = engerAdmin();
     const r: any = await sb.from("staff").select("name").ilike("email", targetEmail).maybeSingle();
     targetName = r.data?.name ?? "";
@@ -59,14 +62,14 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const weekly = await getWeeklyTargets({ ownerEmail: targetEmail, weekStart });
   const custom = (period === "custom" && sp.from && sp.to) ? { from: sp.from, to: sp.to } : undefined;
   const { range, snapshot } = await getKpiSnapshot({
-    ownerName: targetName || null,
+    ownerName: isTeam ? null : (targetName || null),
     type: period, custom, weeklyTargets: weekly,
   });
 
   // 推移グラフ（custom は推移を取らない）
   const historyType: Exclude<PeriodType, "custom"> = period === "custom" ? "week" : period;
   const history = await getKpiHistory({
-    ownerName: targetName || null, ownerEmail: targetEmail,
+    ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,
     type: historyType, periods: 12, metric: "proposal",
   });
 
@@ -96,7 +99,8 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
       )}
       <KpiDashboardClient
         access={{ email: access.email, name: access.name, role: access.role }}
-        target={{ email: targetEmail, name: targetName }}
+        target={{ email: isTeam ? "__team__" : (targetEmail ?? ""), name: targetName }}
+        scope={isTeam ? "team" : "person"}
         members={members}
         period={period}
         range={{ start: range.start.toISOString(), end: range.end.toISOString() }}
