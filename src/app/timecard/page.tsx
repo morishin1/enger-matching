@@ -7,7 +7,7 @@
 import { redirect } from "next/navigation";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
-import { getMyMonth, getApprovalQueue, currentYm } from "@/lib/timecard";
+import { getMyMonth, getApprovalQueue, getShiftApprovalQueue, currentYm } from "@/lib/timecard";
 import { TimecardClient } from "@/components/TimecardClient";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,10 @@ export default async function TimecardPage({ searchParams }: { searchParams: Pro
   const approvalQueue = showApproval
     ? await getApprovalQueue({ department: isAdmin ? null : access.department, ym })
     : [];
+  // シフト申請（事前承認）の承認待ち。月に縛られないため ym は使わず全件。
+  const shiftQueue = showApproval
+    ? await getShiftApprovalQueue({ department: isAdmin ? null : access.department })
+    : [];
 
   return (
     <div className="page">
@@ -40,7 +44,7 @@ export default async function TimecardPage({ searchParams }: { searchParams: Pro
         <div style={{ maxWidth: 820 }}>
           <div className="meta">Timecard · 勤怠（バイト/副業向け）</div>
           <h1>タイムカード</h1>
-          <div className="sub">予定と実績を月カレンダーで管理します。<b>本人が打刻 → マネージャーが月単位で承認</b>。打刻はワンクリック、編集はセルを開いて。</div>
+          <div className="sub">先に <b>シフト（予定）を申請</b>し、マネージャーが承認 → そのシフトに沿って打刻 → 月末に <b>月締申請</b> → 月単位で承認。承認シフトと異なる時間で働いた日は「シフト外で働いた理由」を入力してください。</div>
         </div>
       </div>
 
@@ -49,6 +53,7 @@ export default async function TimecardPage({ searchParams }: { searchParams: Pro
         ym={ym}
         myEntries={myEntries}
         approvalQueue={approvalQueue}
+        shiftQueue={shiftQueue}
       />
 
       {!showSelf && !showApproval && (

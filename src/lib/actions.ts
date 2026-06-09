@@ -2634,6 +2634,8 @@ export async function upsertTimeEntry(input: {
   actualEnd?: string | null;
   breakMinutes?: number | null;
   note?: string | null;
+  /** シフト外で働いた理由。承認済シフトと実績が異なるときに必要。 */
+  deviationReason?: string | null;
 }): Promise<TimecardActionResult> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
@@ -2672,17 +2674,36 @@ export async function upsertTimeEntry(input: {
     work_date: input.workDate,
     updated_at: new Date().toISOString(),
   };
+  // シフト（予定）：申請中/承認済のときは本人は予定を変更できない（admin のみ）。
+  const shiftStatus = existing.data?.shift_status as string | null | undefined;
+  const shiftLocked = !isAdmin && (shiftStatus === "submitted" || shiftStatus === "approved");
+  if (shiftLocked && (input.plannedStart !== undefined || input.plannedEnd !== undefined)) {
+    return { ok: false, error: "申請中・承認済のシフト（予定）は本人では編集できません（管理者に差戻しを依頼してください）" };
+  }
+
   if (input.plannedStart !== undefined) row.planned_start = input.plannedStart || null;
   if (input.plannedEnd   !== undefined) row.planned_end   = input.plannedEnd   || null;
   if (input.actualStart  !== undefined) row.actual_start  = input.actualStart  || null;
   if (input.actualEnd    !== undefined) row.actual_end    = input.actualEnd    || null;
   if (input.breakMinutes !== undefined) row.break_minutes = Math.max(0, Math.floor(Number(input.breakMinutes) || 0));
   if (input.note         !== undefined) row.note          = (input.note ?? "").trim() || null;
+  // シフト外で働いた理由（任意項目）。空文字は null として保存。
+  if (input.deviationReason !== undefined) row.deviation_reason = (input.deviationReason ?? "").trim() || null;
 
   // rejected の行を編集したら open に戻す（再申請できるように）
   if (existing.data?.status === "rejected" && !isAdmin) row.status = "open";
+  // 差し戻されたシフトを編集したら open に戻す
+  if (shiftStatus === "rejected" && !isAdmin && (input.plannedStart !== undefined || input.plannedEnd !== undefined)) {
+    row.shift_status = "open";
+    row.shift_reject_reason = null;
+  }
 
-  const r: any = await admin.from("time_entries").upsert(row, { onConflict: "user_email,work_date" });
+  let r: any = await admin.from("time_entries").upsert(row, { onConflict: "user_email,work_date" });
+  // 旧スキーマ（shift_status / deviation_reason 列無し）は列ドロップで再試行
+  if (r.error && /shift_status|deviation_reason|column/i.test(r.error.message)) {
+    const { shift_status: _s, shift_reject_reason: _r, deviation_reason: _d, ...rest } = row;
+    r = await admin.from("time_entries").upsert(rest, { onConflict: "user_email,work_date" });
+  }
   if (r.error) return { ok: false, error: r.error.message };
   revalidatePath("/timecard");
   return { ok: true };
@@ -2760,6 +2781,26 @@ export async function submitMonthForApproval(userEmail: string, ym: string): Pro
   const start = `${y}-${String(m).padStart(2, "0")}-01`;
   const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
   const end = `${ny}-${String(nm).padStart(2, "0")}-01`;
+
+  // シフト外で働いた日（承認済シフトと実績がずれている日）に deviation_reason が
+  // 空のものがあれば、月締申請をブロックして本人に修正を促す。
+  // shift_status / deviation_reason 列が未マイグレ環境ではチェックをスキップ。
+  try {
+    const monthRows: any = await admin.from("time_entries")
+      .select("work_date, shift_status, planned_start, planned_end, actual_start, actual_end, deviation_reason")
+      .eq("user_email", userEmail).gte("work_date", start).lt("work_date", end);
+    if (!monthRows.error) {
+      const { deviatesFromShift } = await import("./timecard");
+      const missing: string[] = [];
+      for (const e of (monthRows.data ?? []) as any[]) {
+        if (deviatesFromShift(e) && !(e.deviation_reason ?? "").trim()) missing.push(e.work_date);
+      }
+      if (missing.length > 0) {
+        return { ok: false, error: `シフト外で働いた日に理由が未入力です（${missing.length}日）。先頭：${missing[0]}。各日の編集画面で「シフト外で働いた理由」を入力してください。` };
+      }
+    }
+  } catch { /* 列未追加環境では握りつぶす */ }
+
   const r: any = await admin.from("time_entries").update({ status: "submitted", updated_at: new Date().toISOString() })
     .eq("user_email", userEmail).gte("work_date", start).lt("work_date", end).in("status", ["open", "rejected"]).select("id");
   if (r.error) return { ok: false, error: r.error.message };
@@ -2816,6 +2857,98 @@ export async function rejectTimeEntries(ids: string[], reason: string): Promise<
   const r: any = await admin.from("time_entries").update({
     status: "rejected", approver_email: me.email, approver_name: me.name ?? null,
     approved_at: null, reject_reason: r0, updated_at: new Date().toISOString(),
+  }).in("id", targets);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true, count: targets.length };
+}
+
+// ── シフト申請（予定）の承認フロー ───────────────────────────────
+//   1) 本人がシフト申請タブで planned_start/end を入力
+//   2) submitShiftForApproval で当月の予定だけある行を shift_status='submitted' に
+//   3) approveShifts / rejectShifts でマネージャー/admin が承認・差戻し
+
+/** 当月のシフト（予定）を一括で申請する。planned_start/end が入っている行のみ対象。 */
+export async function submitShiftForApproval(userEmail: string, ym: string): Promise<TimecardActionResult & { count?: number }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  if (me.email.toLowerCase() !== userEmail.toLowerCase() && me.role !== "admin") return { ok: false, error: "本人のみが申請できます" };
+  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, error: "対象月の形式が不正です" };
+
+  const [y, m] = ym.split("-").map(Number);
+  const start = `${y}-${String(m).padStart(2, "0")}-01`;
+  const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+  const end = `${ny}-${String(nm).padStart(2, "0")}-01`;
+  const now = new Date().toISOString();
+  // open/rejected かつ planned 両方そろっている日を submitted へ。
+  let r: any = await admin.from("time_entries").update({
+    shift_status: "submitted", shift_submitted_at: now, shift_reject_reason: null, updated_at: now,
+  })
+    .eq("user_email", userEmail).gte("work_date", start).lt("work_date", end)
+    .in("shift_status", ["open", "rejected"])
+    .not("planned_start", "is", null).not("planned_end", "is", null)
+    .select("id");
+  if (r.error && /shift_status|shift_submitted_at|column/i.test(r.error.message)) {
+    return { ok: false, error: "シフト申請の列が未追加です。supabase/timecard-shift.sql を実行してください。" };
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true, count: (r.data ?? []).length };
+}
+
+/** シフト申請の承認（マネージャー/admin）。 */
+export async function approveShifts(ids: string[]): Promise<TimecardActionResult & { count?: number }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  if (!ids.length) return { ok: true, count: 0 };
+  const list: any = await admin.from("time_entries").select("id, department, shift_status").in("id", ids);
+  if (list.error) return { ok: false, error: list.error.message };
+  const targets: string[] = [];
+  for (const row of (list.data ?? []) as any[]) {
+    if (row.shift_status !== "submitted") continue;
+    if (!canApprove(me as any, row.department ?? null)) continue;
+    targets.push(row.id);
+  }
+  if (!targets.length) return { ok: false, error: "承認可能なシフトがありません（権限・状態を確認）" };
+  const now = new Date().toISOString();
+  const r: any = await admin.from("time_entries").update({
+    shift_status: "approved", shift_approved_at: now,
+    shift_approver_email: me.email, shift_approver_name: me.name ?? null,
+    shift_reject_reason: null, updated_at: now,
+  }).in("id", targets);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/timecard");
+  return { ok: true, count: targets.length };
+}
+
+/** シフトを差し戻し。 */
+export async function rejectShifts(ids: string[], reason: string): Promise<TimecardActionResult & { count?: number }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await timecardMe();
+  if (!me) return { ok: false, error: "未ログインです" };
+  if (!ids.length) return { ok: true, count: 0 };
+  const r0 = (reason ?? "").trim();
+  if (!r0) return { ok: false, error: "差戻し理由を入力してください" };
+
+  const list: any = await admin.from("time_entries").select("id, department, shift_status").in("id", ids);
+  if (list.error) return { ok: false, error: list.error.message };
+  const targets: string[] = [];
+  for (const row of (list.data ?? []) as any[]) {
+    if (row.shift_status !== "submitted") continue;
+    if (!canApprove(me as any, row.department ?? null)) continue;
+    targets.push(row.id);
+  }
+  if (!targets.length) return { ok: false, error: "差戻し可能なシフトがありません" };
+  const now = new Date().toISOString();
+  const r: any = await admin.from("time_entries").update({
+    shift_status: "rejected", shift_reject_reason: r0,
+    shift_approver_email: me.email, shift_approver_name: me.name ?? null,
+    shift_approved_at: null, updated_at: now,
   }).in("id", targets);
   if (r.error) return { ok: false, error: r.error.message };
   revalidatePath("/timecard");

@@ -9,11 +9,12 @@ import { useState, useMemo, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   type TimeEntry, summarizeMonth, laborMinutesOf, plannedMinutesOf,
-  fmtHm, fmtHmJst, monthRange, lastDayOf,
+  fmtHm, fmtHmJst, monthRange, lastDayOf, deviatesFromShift,
 } from "@/lib/timecard";
 import {
   clockIn, clockOut, upsertTimeEntry, submitMonthForApproval,
   approveTimeEntries, rejectTimeEntries,
+  submitShiftForApproval, approveShifts, rejectShifts,
 } from "@/lib/actions";
 
 type Me = { email: string; name: string; isAdmin: boolean; isManager: boolean; isTimecardUser: boolean };
@@ -35,14 +36,14 @@ function toIso(workDate: string, hm: string): string | null {
   return isNaN(dt.getTime()) ? null : dt.toISOString();
 }
 
-export function TimecardClient({ me, ym, myEntries, approvalQueue }: {
-  me: Me; ym: string; myEntries: TimeEntry[]; approvalQueue: TimeEntry[];
+export function TimecardClient({ me, ym, myEntries, approvalQueue, shiftQueue = [] }: {
+  me: Me; ym: string; myEntries: TimeEntry[]; approvalQueue: TimeEntry[]; shiftQueue?: TimeEntry[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const canApprove = me.isAdmin || me.isManager;
-  const [tab, setTab] = useState<"self" | "approve">(me.isTimecardUser ? "self" : "approve");
+  const [tab, setTab] = useState<"self" | "shift" | "approve">(me.isTimecardUser ? "self" : "approve");
 
   const entryByDate = useMemo(() => {
     const m = new Map<string, TimeEntry>();
@@ -114,11 +115,18 @@ export function TimecardClient({ me, ym, myEntries, approvalQueue }: {
 
       {msg && <div className="card" style={{ borderColor: msg.ok ? "var(--color-success)" : "var(--color-danger)", color: msg.ok ? "var(--color-success)" : "var(--color-danger)", fontSize: 13 }}>{msg.text}</div>}
 
-      {/* タブ */}
-      {me.isTimecardUser && canApprove && (
+      {/* タブ。本人ビューだけでも「自分の勤怠／シフト申請」の2タブで運用するように。
+          シフト申請：先に予定（シフト）を申請→承認後に実績打刻、という運用フローのため。 */}
+      {me.isTimecardUser && (
         <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)" }}>
           <TabBtn on={tab === "self"} onClick={() => setTab("self")} label="自分の勤怠" />
-          <TabBtn on={tab === "approve"} onClick={() => setTab("approve")} label={`承認待ち${approvalQueue.length ? `（${approvalQueue.length}）` : ""}`} />
+          <TabBtn on={tab === "shift"} onClick={() => setTab("shift")} label="シフト申請" />
+          {canApprove && <TabBtn on={tab === "approve"} onClick={() => setTab("approve")} label={`承認待ち${(approvalQueue.length + shiftQueue.length) ? `（${approvalQueue.length + shiftQueue.length}）` : ""}`} />}
+        </div>
+      )}
+      {!me.isTimecardUser && canApprove && (
+        <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)" }}>
+          <TabBtn on={tab === "approve"} onClick={() => setTab("approve")} label={`承認待ち${(approvalQueue.length + shiftQueue.length) ? `（${approvalQueue.length + shiftQueue.length}）` : ""}`} />
         </div>
       )}
 
@@ -147,9 +155,42 @@ export function TimecardClient({ me, ym, myEntries, approvalQueue }: {
         </div>
       )}
 
+      {/* === シフト申請（予定の事前申請） === */}
+      {tab === "shift" && me.isTimecardUser && (
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button className="btn ghost btn-xs" onClick={() => shiftMonth(-1)} disabled={pending}>← 前月</button>
+              <b style={{ fontSize: 15 }}>{ym.replace("-", "年")}月のシフト</b>
+              <button className="btn ghost btn-xs" onClick={() => shiftMonth(1)} disabled={pending}>翌月 →</button>
+            </div>
+            <button className="btn brand btn-xs" disabled={pending}
+              onClick={() => run(() => submitShiftForApproval(me.email, ym), "シフトを申請しました")}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>send</span> 今月のシフトを申請
+            </button>
+          </div>
+
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 10, lineHeight: 1.6 }}>
+            各日のセルをタップして<b>働く予定（シフト）</b>を入れてください。入力後「今月のシフトを申請」でマネージャーに承認依頼。
+            <br />
+            承認後のシフト変更は管理者へ差戻し依頼が必要です。承認シフトと違う時間で働いた日は「シフト外で働いた理由」を後から入力してください。
+          </div>
+
+          <CalendarGrid ym={ym} entryByDate={entryByDate} today={todayJst} onPick={(d) => setEditDate(d)} />
+
+          <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)" }}>
+            <ShiftLegend tone="open" label="未申請" />
+            <ShiftLegend tone="submitted" label="申請中" />
+            <ShiftLegend tone="approved" label="承認済" />
+            <ShiftLegend tone="rejected" label="差戻し" />
+            <span>セルをクリックでシフトを編集</span>
+          </div>
+        </div>
+      )}
+
       {/* === 承認待ち === */}
       {tab === "approve" && canApprove && (
-        <ApprovalList queue={approvalQueue} pending={pending} run={run} />
+        <ApprovalList queue={approvalQueue} shiftQueue={shiftQueue} pending={pending} run={run} />
       )}
 
       {/* 編集モーダル */}
@@ -188,6 +229,21 @@ function Legend({ swatch, label }: { swatch: string; label: string }) {
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: swatch, display: "inline-block" }} />{label}</span>;
 }
 
+// シフトステータスの凡例（シフト申請タブ用）
+const SHIFT_TONE: Record<string, { bg: string; fg: string }> = {
+  open:      { bg: "#eef2ff", fg: "#3730a3" },
+  submitted: { bg: "#fff6e0", fg: "#9a7b12" },
+  approved:  { bg: "#e7f7ee", fg: "#067647" },
+  rejected:  { bg: "#fdecef", fg: "#b42318" },
+};
+function ShiftLegend({ tone, label }: { tone: keyof typeof SHIFT_TONE; label: string }) {
+  const t = SHIFT_TONE[tone];
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+    <span style={{ width: 16, height: 12, borderRadius: 3, background: t.bg, border: `1px solid ${t.fg}30`, display: "inline-block" }} />
+    {label}
+  </span>;
+}
+
 // ── 月カレンダー ─────────────────────────────────────────────
 function CalendarGrid({ ym, entryByDate, today, onPick }: {
   ym: string; entryByDate: Map<string, TimeEntry>; today: string; onPick: (d: string) => void;
@@ -215,12 +271,26 @@ function CalendarGrid({ ym, entryByDate, today, onPick }: {
         const labor = e ? laborMinutesOf(e) : 0;
         const planned = e ? plannedMinutesOf(e) : 0;
         const st = e ? STATUS_TONE[e.status] : null;
+        // シフト状況：未申請=open, 申請中=submitted, 承認済=approved, 差戻し=rejected。色帯と隅マークで表示。
+        const shiftSt = e?.shift_status ?? "open";
+        const sst = SHIFT_TONE[shiftSt];
+        const deviation = e ? deviatesFromShift(e) : false;
         return (
-          <button key={date} type="button" onClick={() => onPick(date)} className={`tc-cell${isToday ? " today" : ""}`}>
+          <button key={date} type="button" onClick={() => onPick(date)} className={`tc-cell${isToday ? " today" : ""}`}
+            style={planned > 0 || sst ? { background: sst?.bg ?? "var(--color-surface)" } : undefined}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span className="tc-daynum" style={{ fontSize: 12, fontWeight: 700, color: wd === 0 ? "#b42318" : wd === 6 ? "#0b5cab" : "var(--color-ink-2)" }}>{dayNum}</span>
               {st && <span className="tc-statuschip" style={{ fontSize: 8.5, fontWeight: 700, padding: "0 5px", borderRadius: 99, background: st.bg, color: st.fg }}>{st.label}</span>}
             </div>
+            {/* シフト承認状態をピル表示（未申請以外） */}
+            {sst && shiftSt !== "open" && (
+              <div className="tc-line" style={{ background: sst.bg, color: sst.fg, fontWeight: 700 }}>
+                シフト {shiftSt === "submitted" ? "申請中" : shiftSt === "approved" ? "承認済" : "差戻し"}
+              </div>
+            )}
+            {deviation && (
+              <div className="tc-line" style={{ background: "#fdecef", color: "#b42318", fontWeight: 700 }}>⚠ シフト外</div>
+            )}
             {/* スマホでは表示しないテキスト行（デスクトップのみ） */}
             {planned > 0 && (
               <div className="tc-line plan">予 {fmtHmJst(e!.planned_start)}–{fmtHmJst(e!.planned_end)}</div>
@@ -245,8 +315,8 @@ function CalendarGrid({ ym, entryByDate, today, onPick }: {
 }
 
 // ── 承認待ち一覧 ─────────────────────────────────────────────
-function ApprovalList({ queue, pending, run }: {
-  queue: TimeEntry[]; pending: boolean; run: (fn: () => Promise<any>, ok: string) => void;
+function ApprovalList({ queue, shiftQueue, pending, run }: {
+  queue: TimeEntry[]; shiftQueue: TimeEntry[]; pending: boolean; run: (fn: () => Promise<any>, ok: string) => void;
 }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -269,10 +339,20 @@ function ApprovalList({ queue, pending, run }: {
     byUser.get(k)!.push(e);
   }
 
-  if (queue.length === 0) return <div className="card"><div className="muted" style={{ fontSize: 13 }}>承認待ちはありません。</div></div>;
+  if (queue.length === 0 && shiftQueue.length === 0) {
+    return <div className="card"><div className="muted" style={{ fontSize: 13 }}>承認待ちはありません。</div></div>;
+  }
+  // シフト申請の承認セクション（事前申請）：勤怠とは別の一覧として上に出す。
+  const ShiftSection = shiftQueue.length > 0 ? <ShiftApprovalList queue={shiftQueue} pending={pending} run={run} /> : null;
+  if (queue.length === 0) {
+    return <>{ShiftSection}</>;
+  }
 
   return (
+    <>
+    {ShiftSection}
     <div className="card">
+      <div style={{ marginBottom: 10, fontWeight: 700, fontSize: 13 }}>📝 勤怠（月締）承認待ち</div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
           <input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(allIds))} />
@@ -315,6 +395,74 @@ function ApprovalList({ queue, pending, run }: {
         </div>
       ))}
     </div>
+    </>
+  );
+}
+
+// ── シフト承認待ち一覧（事前申請の承認） ─────────────────────────
+function ShiftApprovalList({ queue, pending, run }: {
+  queue: TimeEntry[]; pending: boolean; run: (fn: () => Promise<any>, ok: string) => void;
+}) {
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const allIds = queue.map((e) => e.id);
+  const allOn = allIds.length > 0 && allIds.every((id) => sel.has(id));
+  const ids = [...sel];
+
+  const doReject = () => {
+    const reason = window.prompt("シフト差戻し理由を入力してください（本人に表示されます）");
+    if (reason == null) return;
+    run(() => rejectShifts(ids, reason), "差し戻しました");
+    setSel(new Set());
+  };
+
+  const byUser = new Map<string, TimeEntry[]>();
+  for (const e of queue) {
+    const k = e.user_name || e.user_email;
+    if (!byUser.has(k)) byUser.set(k, []);
+    byUser.get(k)!.push(e);
+  }
+
+  return (
+    <div className="card" style={{ borderColor: "#fde9b0", background: "#fffbeb", marginBottom: 12 }}>
+      <div style={{ marginBottom: 10, fontWeight: 700, fontSize: 13, color: "#9a5b1a" }}>📅 シフト（予定）承認待ち</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+          <input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(allIds))} />
+          全選択（{queue.length}件）
+        </label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn brand btn-xs" disabled={pending || ids.length === 0}
+            onClick={() => { run(() => approveShifts(ids), "シフトを承認しました"); setSel(new Set()); }}>
+            選択シフトを承認（{ids.length}）
+          </button>
+          <button className="btn btn-xs" disabled={pending || ids.length === 0} onClick={doReject}
+            style={{ color: "#b42318", borderColor: "#f7c5cf" }}>選択を差戻し</button>
+        </div>
+      </div>
+      {[...byUser.entries()].map(([name, rows]) => (
+        <div key={name} style={{ marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, display: "flex", gap: 8, alignItems: "baseline" }}>
+            {name}
+            <span className="muted" style={{ fontSize: 11 }}>{rows[0].department ?? "部署未設定"} ・ {rows.length}件</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table className="tbl tbl-compact" style={{ minWidth: 460 }}>
+              <thead><tr><th></th><th>日付</th><th>シフト</th><th className="num">時間</th></tr></thead>
+              <tbody>
+                {rows.map((e) => (
+                  <tr key={e.id}>
+                    <td><input type="checkbox" checked={sel.has(e.id)} onChange={() => setSel((s) => { const n = new Set(s); n.has(e.id) ? n.delete(e.id) : n.add(e.id); return n; })} /></td>
+                    <td>{e.work_date.slice(5)}（{WD[new Date(e.work_date + "T00:00:00+09:00").getDay()]}）</td>
+                    <td style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{e.planned_start ? `${fmtHmJst(e.planned_start)}–${fmtHmJst(e.planned_end) || "?"}` : "—"}</td>
+                    <td className="num" style={{ fontWeight: 700, color: "#0b5cab" }}>{fmtHm(plannedMinutesOf(e))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -330,18 +478,40 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
   const [ae, setAe] = useState(entry?.actual_end ? fmtHmJst(entry.actual_end) : "");
   const [brk, setBrk] = useState(String(entry?.break_minutes ?? 0));
   const [note, setNote] = useState(entry?.note ?? "");
+  const [devReason, setDevReason] = useState(entry?.deviation_reason ?? "");
   const locked = entry?.status === "submitted" || entry?.status === "approved";
+  // シフト承認済の場合は予定（planned）を本人ロック。差し戻されたシフト or 未申請のみ編集可。
+  const shiftStatus = entry?.shift_status ?? "open";
+  const plannedLocked = shiftStatus === "submitted" || shiftStatus === "approved";
+  // 現在の入力値で「シフト外（実績がずれている）」かどうかを動的判定
+  const livePlannedStart = toIso(workDate, ps), livePlannedEnd = toIso(workDate, pe);
+  const liveActualStart = toIso(workDate, as), liveActualEnd = toIso(workDate, ae);
+  const isDeviating = shiftStatus === "approved" && deviatesFromShift({
+    shift_status: "approved",
+    planned_start: livePlannedStart ?? entry?.planned_start ?? null,
+    planned_end:   livePlannedEnd   ?? entry?.planned_end   ?? null,
+    actual_start:  liveActualStart  ?? null,
+    actual_end:    liveActualEnd    ?? null,
+  });
 
   const save = () => {
     setErr(null);
+    // 承認済シフトと違う時間で働いた場合は理由を必須に
+    if (isDeviating && !devReason.trim()) {
+      setErr("承認シフトと違う時間で働いた日は「シフト外で働いた理由」が必須です");
+      return;
+    }
     start(async () => {
       // 本人のカレンダー編集。既存行があればその user_email、新規日は自分(meEmail)。
+      // shift がロック中（申請中/承認済）の場合、planned は送らない（サーバ側もブロック）。
       const res = await upsertTimeEntry({
         userEmail: entry?.user_email || meEmail,
         workDate,
-        plannedStart: toIso(workDate, ps), plannedEnd: toIso(workDate, pe),
+        plannedStart: plannedLocked ? undefined : toIso(workDate, ps),
+        plannedEnd:   plannedLocked ? undefined : toIso(workDate, pe),
         actualStart: toIso(workDate, as), actualEnd: toIso(workDate, ae),
         breakMinutes: Number(brk) || 0, note,
+        deviationReason: devReason,
       });
       if (res.ok) onSaved();
       else setErr(res.error);
@@ -355,16 +525,27 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{workDate} の勤怠</h3>
           <button className="btn ghost btn-xs" onClick={onClose} disabled={pending}>閉じる</button>
         </div>
-        {entry && <div><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: STATUS_TONE[entry.status].bg, color: STATUS_TONE[entry.status].fg }}>{STATUS_TONE[entry.status].label}</span>{entry.reject_reason && <span style={{ marginLeft: 8, fontSize: 11.5, color: "#b42318" }}>差戻し理由：{entry.reject_reason}</span>}</div>}
-        {locked && <div className="muted" style={{ fontSize: 11.5 }}>※ 申請中・承認済のため編集できません（管理者に差し戻しを依頼してください）。</div>}
+        {entry && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: STATUS_TONE[entry.status].bg, color: STATUS_TONE[entry.status].fg }}>勤怠 {STATUS_TONE[entry.status].label}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: SHIFT_TONE[shiftStatus]?.bg, color: SHIFT_TONE[shiftStatus]?.fg }}>
+              シフト {shiftStatus === "open" ? "未申請" : shiftStatus === "submitted" ? "申請中" : shiftStatus === "approved" ? "承認済" : "差戻し"}
+            </span>
+            {entry.reject_reason && <span style={{ fontSize: 11.5, color: "#b42318" }}>勤怠差戻し：{entry.reject_reason}</span>}
+            {entry.shift_reject_reason && <span style={{ fontSize: 11.5, color: "#b42318" }}>シフト差戻し：{entry.shift_reject_reason}</span>}
+          </div>
+        )}
+        {locked && <div className="muted" style={{ fontSize: 11.5 }}>※ 勤怠が申請中・承認済のため編集できません（管理者に差し戻しを依頼してください）。</div>}
 
         <fieldset disabled={locked || pending} style={{ border: 0, padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
-            <div className="meta" style={{ fontSize: 11, marginBottom: 4, color: "#0b5cab" }}>働く予定</div>
+            <div className="meta" style={{ fontSize: 11, marginBottom: 4, color: "#0b5cab" }}>
+              働く予定（シフト）{plannedLocked && <span style={{ marginLeft: 6, color: "#9a7b12" }}>🔒 {shiftStatus === "approved" ? "承認済のため変更不可" : "申請中のため変更不可"}</span>}
+            </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="time" value={ps} onChange={(e) => setPs(e.target.value)} style={inp} />
+              <input type="time" value={ps} onChange={(e) => setPs(e.target.value)} style={inp} disabled={plannedLocked} />
               <span>〜</span>
-              <input type="time" value={pe} onChange={(e) => setPe(e.target.value)} style={inp} />
+              <input type="time" value={pe} onChange={(e) => setPe(e.target.value)} style={inp} disabled={plannedLocked} />
             </div>
           </div>
           <div>
@@ -378,6 +559,16 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
               </label>
             </div>
           </div>
+          {/* シフト外で働いた理由：承認シフトと実績がずれているときに必須化 */}
+          {(shiftStatus === "approved" || (entry?.deviation_reason ?? "")) && (
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className="meta" style={{ fontSize: 11, color: isDeviating ? "#b42318" : "var(--color-ink-4)" }}>
+                シフト外で働いた理由 {isDeviating && <b style={{ color: "#b42318" }}>※必須（承認シフトと違う時間で働いたため）</b>}
+              </span>
+              <input type="text" value={devReason} onChange={(e) => setDevReason(e.target.value)} style={{ ...inp, border: `1px solid ${isDeviating && !devReason.trim() ? "var(--color-danger)" : "var(--color-border-strong)"}` }}
+                placeholder="例：終電遅れにより残業／開店準備で早出 など" />
+            </label>
+          )}
           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span className="meta" style={{ fontSize: 11 }}>メモ</span>
             <input type="text" value={note} onChange={(e) => setNote(e.target.value)} style={inp} placeholder="任意" />
