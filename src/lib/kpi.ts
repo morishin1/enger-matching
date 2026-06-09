@@ -10,19 +10,45 @@ import { ownerMatches } from "./owner-match";
 
 export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 
-export type Metric = "proposal" | "cl" | "won" | "lost" | "taku" | "ec" | "meeting";
+// 指標（2026/06 改訂）。提案以外は CL担当（closer）に加算する。
+//   proposal  : 新規提案（created_at が期間内）。提案者 or CL のどちらかが本人なら加算（従来通り）。
+//   contact   : コンタクト数。架電状況が「未架電」「空白」以外＝接触済。CL に加算。
+//   adjusting : 調整中。案件/人材の通知が両方「未処理」以外＝処理着手/完了。CL に加算。
+//   schedule  : 日程確定。ステージが「面談」。CL に加算。
+//   deal      : 成約数。ステージが「合格」。CL に加算。
+export type Metric = "proposal" | "contact" | "adjusting" | "schedule" | "deal";
 
 export const METRIC_LABELS: Record<Metric, { short: string; long: string; tone: string }> = {
-  proposal: { short: "提案",   long: "新規提案",     tone: "#0095D9" },
-  cl:       { short: "CL",     long: "クロージング", tone: "#7c3aed" },
-  won:      { short: "○",      long: "受注",         tone: "#067647" },
-  lost:     { short: "×",      long: "失注",         tone: "#b42318" },
-  taku:     { short: "PC",     long: "受託",         tone: "#0e7490" },
-  ec:       { short: "N",      long: "EC",           tone: "#b45309" },
-  meeting:  { short: "打合せ", long: "打合せ",       tone: "#475569" },
+  proposal:  { short: "提案",       long: "新規提案",   tone: "#0095D9" },
+  contact:   { short: "コンタクト", long: "架電・接触", tone: "#7c3aed" },
+  adjusting: { short: "調整中",     long: "処理着手",   tone: "#0e7490" },
+  schedule:  { short: "日程確定",   long: "面談設定",   tone: "#b45309" },
+  deal:      { short: "成約",       long: "合格・成約", tone: "#067647" },
 };
 
-export const METRIC_ORDER: Metric[] = ["proposal", "cl", "won", "lost", "taku", "ec", "meeting"];
+export const METRIC_ORDER: Metric[] = ["proposal", "contact", "adjusting", "schedule", "deal"];
+
+// 各指標の「この提案は該当するか」を判定する条件（snapshot/history で共通利用）。
+//   ※ 集計タイミングは呼び出し側で created_at / stage_updated_at / updated_at を期間判定する。
+const NOT_CONTACTED = new Set(["", "未架電", "—"]);
+const PENDING = new Set(["", "未処理"]);
+export const metricFlags = {
+  // コンタクト：架電状況が「未架電/空白」以外＝接触済み
+  isContact: (p: any) => {
+    const c = String(p.caller_status ?? "").trim();
+    return c !== "" && !NOT_CONTACTED.has(c);
+  },
+  // 調整中：案件/人材の通知ステータスが両方とも「未処理」以外（処理中 or 完了）
+  isAdjusting: (p: any) => {
+    const j = String(p.job_notify_status ?? "").trim();
+    const k = String(p.cand_notify_status ?? "").trim();
+    return j !== "" && k !== "" && !PENDING.has(j) && !PENDING.has(k);
+  },
+  // 日程確定：ステージが「面談」
+  isSchedule: (p: any) => String(p.stage ?? "").trim() === "面談",
+  // 成約：ステージが「合格」
+  isDeal: (p: any) => String(p.stage ?? "").trim() === "合格",
+};
 
 // ── 期間ヘルパ ────────────────────────────────────────────────────────
 const JST_OFFSET_MIN = 9 * 60;
@@ -115,42 +141,38 @@ export async function getKpiSnapshot(opts: {
   const start = iso(range.start), end = iso(range.end);
 
   // 提案系: proposals を広めに取得し、本人判定はJS側で（略称↔フルネームに耐性）。
-  const q: any = sb.from("proposals")
-    .select("id, proposer, closer, stage, created_at, stage_updated_at, business_category")
+  //   旧スキーマ（通知/架電列なし）でも落ちないよう列をフォールバック。
+  let r: any = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .or(`created_at.gte.${start},stage_updated_at.gte.${start},updated_at.gte.${start}`)
+    .limit(8000);
+  if (r.error) r = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at")
     .or(`created_at.gte.${start},stage_updated_at.gte.${start}`)
-    .limit(5000);
-  const r = await q;
+    .limit(8000);
   const props: any[] = r.error ? [] : (r.data ?? []);
 
   const inRange = (d: string | null) => !!d && d >= start && d < end;
-  const isOwner = (p: any) =>
+  // 提案は「提案者 or CL」のどちらかが本人なら計上（従来通り）。
+  const isOwnerAny = (p: any) =>
     !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
+  // それ以外の指標は CL担当（closer）に計上。
+  const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
+  const a = metricFlags;
 
-  let proposal = 0, cl = 0, won = 0, lost = 0, taku = 0, ec = 0;
+  let proposal = 0, contact = 0, adjusting = 0, schedule = 0, deal = 0;
   for (const p of props) {
-    if (!isOwner(p)) continue;
-    if (inRange(p.created_at)) {
-      proposal++;
-      if (p.business_category === "受託") taku++;
-      else if (p.business_category === "EC") ec++;
-    }
-    if (inRange(p.stage_updated_at)) {
-      if (p.stage === "クロージング中") cl++;
-      else if (p.stage === "稼働決定" || p.stage === "稼働") won++;
-      else if (p.stage === "失注") lost++;
-    }
+    if (isOwnerAny(p) && inRange(p.created_at)) proposal++;
+    if (!isCloser(p)) continue;
+    const ev = p.stage_updated_at ?? p.updated_at ?? null;     // ステージ変化の起点
+    const evAny = p.updated_at ?? p.stage_updated_at ?? null;  // 任意更新（架電/通知）の起点
+    if (a.isContact(p)   && inRange(evAny)) contact++;
+    if (a.isAdjusting(p) && inRange(evAny)) adjusting++;
+    if (a.isSchedule(p)  && inRange(ev))    schedule++;
+    if (a.isDeal(p)      && inRange(ev))    deal++;
   }
 
-  // 打合せ: meetings.meeting_date が期間内（本人判定はJS側で寛容に）
-  const mq: any = sb.from("meetings")
-    .select("id, our_owner, meeting_date")
-    .gte("meeting_date", start.slice(0, 10))
-    .lt("meeting_date", end.slice(0, 10))
-    .limit(5000);
-  const mr = await mq;
-  const meeting = mr.error ? 0 : (mr.data ?? []).filter((m: any) => !opts.ownerName || ownerMatches(opts.ownerName, m.our_owner)).length;
-
-  const actuals: Record<Metric, number> = { proposal, cl, won, lost, taku, ec, meeting };
+  const actuals: Record<Metric, number> = { proposal, contact, adjusting, schedule, deal };
   const w = opts.weeklyTargets ?? {};
   const snapshot = {} as KpiSnapshot;
   for (const m of METRIC_ORDER) {
@@ -174,7 +196,7 @@ export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekSt
   const got: Partial<Record<Metric, number>> = {};
   if (!r.error) for (const row of (r.data ?? [])) got[row.metric as Metric] = row.target;
   // ITS デフォルト（未設定指標のみ補填）
-  const def: Partial<Record<Metric, number>> = { proposal: 20, meeting: 3 };
+  const def: Partial<Record<Metric, number>> = { proposal: 20 };
   for (const m of METRIC_ORDER) if (got[m] == null && def[m] != null) got[m] = def[m];
   return got;
 }
@@ -205,17 +227,15 @@ export async function getKpiHistory(opts: {
   const startIso = overallStart.toISOString();
   const endIso   = overallEnd.toISOString();
 
-  // 2) proposals / meetings / kpi_targets を一括取得（全期間ぶん）。本人判定はJS側で寛容に。
-  const pq: any = sb.from("proposals")
-    .select("id, proposer, closer, stage, created_at, stage_updated_at, business_category")
+  // 2) proposals / kpi_targets を一括取得（全期間ぶん）。本人判定はJS側で寛容に。
+  let pq: any = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
+    .limit(30000);
+  if (pq.error) pq = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at")
     .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
-    .limit(20000);
-
-  const mq: any = sb.from("meetings")
-    .select("id, our_owner, meeting_date")
-    .gte("meeting_date", startIso.slice(0, 10))
-    .lt("meeting_date", endIso.slice(0, 10))
-    .limit(20000);
+    .limit(30000);
 
   const tq: any = sb.from("kpi_targets")
     .select("metric, target, week_start, scope, owner_email, team_key")
@@ -224,22 +244,21 @@ export async function getKpiHistory(opts: {
     .eq("scope", opts.ownerEmail ? "person" : "team")
     .eq(opts.ownerEmail ? "owner_email" : "team_key", opts.ownerEmail ? opts.ownerEmail.toLowerCase() : "its");
 
-  const [pr, mr, tr] = await Promise.all([pq, mq, tq]);
+  const [pr, tr] = await Promise.all([Promise.resolve(pq), tq]);
   const props: any[]   = pr.error ? [] : (pr.data ?? []);
-  const meets: any[]   = mr.error ? [] : (mr.data ?? []);
   const targets: any[] = tr.error ? [] : (tr.data ?? []);
 
   // 3) 期間バケットに振り分けて指標を集計
-  const isOwner = (p: any) =>
+  const isOwnerAny = (p: any) =>
     !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
-  const isMyMeeting = (m: any) => !opts.ownerName || ownerMatches(opts.ownerName, m.our_owner);
+  const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
   const targetMap = new Map<string, Partial<Record<Metric, number>>>();
   for (const t of targets) {
     const k = String(t.week_start);
     if (!targetMap.has(k)) targetMap.set(k, {});
     targetMap.get(k)![t.metric as Metric] = t.target;
   }
-  const def: Partial<Record<Metric, number>> = { proposal: 20, meeting: 3 };
+  const def: Partial<Record<Metric, number>> = { proposal: 20 };
 
   const out: { label: string; pct: number; actual: number; target: number }[] = [];
   for (const rng of ranges) {
@@ -248,17 +267,14 @@ export async function getKpiHistory(opts: {
 
     let actual = 0;
     for (const p of props) {
-      if (!isOwner(p)) continue;
-      if (metric === "proposal" && inRange(p.created_at)) actual++;
-      else if (metric === "taku" && inRange(p.created_at) && p.business_category === "受託") actual++;
-      else if (metric === "ec"   && inRange(p.created_at) && p.business_category === "EC")   actual++;
-      else if (metric === "cl"   && inRange(p.stage_updated_at) && p.stage === "クロージング中") actual++;
-      else if (metric === "won"  && inRange(p.stage_updated_at) && (p.stage === "稼働決定" || p.stage === "稼働")) actual++;
-      else if (metric === "lost" && inRange(p.stage_updated_at) && p.stage === "失注") actual++;
-    }
-    if (metric === "meeting") {
-      const sDate = sIso.slice(0, 10), eDate = eIso.slice(0, 10);
-      for (const m of meets) if (isMyMeeting(m) && m.meeting_date >= sDate && m.meeting_date < eDate) actual++;
+      if (metric === "proposal") { if (isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
+      if (!isCloser(p)) continue;
+      const ev = p.stage_updated_at ?? p.updated_at ?? null;
+      const evAny = p.updated_at ?? p.stage_updated_at ?? null;
+      if (metric === "contact"   && metricFlags.isContact(p)   && inRange(evAny)) actual++;
+      else if (metric === "adjusting" && metricFlags.isAdjusting(p) && inRange(evAny)) actual++;
+      else if (metric === "schedule"  && metricFlags.isSchedule(p)  && inRange(ev))    actual++;
+      else if (metric === "deal"      && metricFlags.isDeal(p)      && inRange(ev))    actual++;
     }
 
     const ws = rng.weekStart.toISOString().slice(0, 10);
