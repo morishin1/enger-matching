@@ -394,6 +394,40 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
           )}
         </div>
 
+        {/* 承認チェックバー：承認待ちの提案だけ表示。承認者本人 or admin だけが操作可。 */}
+        {((p as any).approval_status === "pending" || (p as any).approval_status === "rejected" || p.stage === "承認待ち") && (
+          <div style={{ borderTop: "1px solid var(--color-border)", padding: "12px 22px", background: (p as any).approval_status === "rejected" ? "#fdecef" : "#fff6e0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: (p as any).approval_status === "rejected" ? "#b42318" : "#9a7b12" }}>
+              {(p as any).approval_status === "rejected" ? "🔴 差戻し" : "⏳ 承認待ち"}
+            </span>
+            <span style={{ fontSize: 12, color: "var(--color-ink-2)" }}>
+              提案者：<b>{p.proposer ?? "未設定"}</b> ／ 承認者：<b>{(p as any).approver ?? "未設定"}</b>
+            </span>
+            {(p as any).reject_reason && <span style={{ fontSize: 12, color: "#b42318" }}>理由：{(p as any).reject_reason}</span>}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              <button type="button" className="btn brand btn-sm" disabled={pending}
+                onClick={async () => {
+                  const { approveProposal } = await import("@/lib/actions");
+                  start(async () => {
+                    const r = await approveProposal(p.id);
+                    if (!r.ok) alert(r.error); else router.refresh();
+                  });
+                }}>✓ 承認する</button>
+              <button type="button" className="btn btn-sm" disabled={pending}
+                style={{ color: "#b42318", borderColor: "#f7c5cf" }}
+                onClick={async () => {
+                  const reason = window.prompt("差戻し理由を入力してください（提案者に表示されます）");
+                  if (reason == null) return;
+                  const { rejectProposal } = await import("@/lib/actions");
+                  start(async () => {
+                    const r = await rejectProposal(p.id, reason);
+                    if (!r.ok) alert(r.error); else router.refresh();
+                  });
+                }}>差戻し</button>
+            </div>
+          </div>
+        )}
+
         {/* フッタ（操作） */}
         <div style={{ position: "sticky", bottom: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)", padding: "14px 22px", display: "flex", gap: 10, alignItems: "center" }}>
           {/* ステータス更新ドロップダウン（クリックでステージ選択メニュー） */}

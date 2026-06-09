@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MailComposeWizard } from "@/components/MailComposeWizard";
+import { loadProposalOwners } from "@/lib/proposal-owners";
+import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,10 @@ export default async function MailComposePage({
     existingProposer = pr.data?.proposer ?? null;
   } catch { /* proposals テーブル未整備でも続行 */ }
 
+  // 承認者プルダウンの選択肢（社内メンバー）
+  const [po, staffData] = await Promise.all([loadProposalOwners(), getStaff()]);
+  const members: string[] = (po?.proposers && po.proposers.length > 0) ? po.proposers : staffData.members;
+
   return (
     <div className="page">
       <div className="page-head">
@@ -59,6 +65,7 @@ export default async function MailComposePage({
         initialSaved={!!existingProposalId}
         initialSavedId={existingProposalId}
         initialProposer={existingProposer}
+        members={members}
       />
     </div>
   );

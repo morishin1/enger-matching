@@ -174,13 +174,17 @@ function validateSide(
 }
 
 export function MailComposeWizard({
-  job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null,
+  job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null, members = [],
 }: {
   job: any; cand: any; score: number;
   initialSaved?: boolean; initialSavedId?: string | null; initialProposer?: string | null;
+  /** 承認者プルダウンの選択肢（社内メンバー名）。空のときは下の保存ボタンは無効。 */
+  members?: string[];
 }) {
   const [step, setStep] = useState<1 | 2>(initialSaved ? 2 : 1);
   const [proposer, setProposer] = useState(initialProposer ?? "");
+  // 承認者（必須）：保存時に approver として createProposal に渡す
+  const [approver, setApprover] = useState("");
   // useState の初期値で定型文を入れて、最初のレンダリングから本文が見える状態にする。
   //   以前は useEffect で後追いで body をセットしていたため、初期マウント時に空のテキストエリアが
   //   見え（auto-resize の高さ計算が空状態で行われ）、結果として本文が見えない事故が発生していた。
@@ -245,11 +249,16 @@ export function MailComposeWizard({
       );
       if (!ok) { setSaving(false); setMsg("商流NGのため保存を中止しました（提案前に確認してください）"); return; }
     }
+    // 承認者必須チェック（ハードゲート）
+    const approverName = (approver ?? "").trim();
+    if (!approverName) { setMsg("承認者を選択してください（承認者の指定が必要です）"); return; }
+    if ((proposer ?? "").trim() === approverName) { setMsg("承認者は提案者と別の人を選んでください"); return; }
     setSaving(true); setMsg(null);
     try {
       const res = await createProposal(
         job.job_no, cand.candidate_no, score, proposer || undefined,
         { jobToken, candToken },
+        approverName,
       );
       if (res.ok) {
         setSaved(true); setSavedId(res.id ?? null);
@@ -381,9 +390,20 @@ export function MailComposeWizard({
                 <span className="muted" style={{ fontSize: 11 }}>← ここに記録されました</span>
               </>
             ) : (
-              <button type="button" className="btn ghost" onClick={handleSave} disabled={saving}>
-                {saving ? "処理中…" : "💾 保存する"}
-              </button>
+              <>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--color-ink-3)" }} title="承認者（必須）：選んだ人が提案ボードで承認するまで「承認待ち」になります">
+                  承認者
+                  <select value={approver} onChange={(e) => setApprover(e.target.value)} disabled={saving}
+                    style={{ fontFamily: "inherit", fontSize: 12, padding: "4px 6px", borderRadius: 6, border: `1px solid ${approver ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", minWidth: 110 }}>
+                    <option value="">— 選択 —</option>
+                    {members.filter((m) => m && m !== proposer).map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="btn ghost" onClick={handleSave} disabled={saving || !approver}
+                  title={!approver ? "承認者を選択してください" : `${approver}さんに承認をお願いします`}>
+                  {saving ? "処理中…" : "💾 承認に出して保存"}
+                </button>
+              </>
             )}
           </div>
           {msg && <div style={{ fontSize: 12, color: saved && !msg.includes("既に") ? "#067647" : "var(--color-danger)", textAlign: "center" }}>{msg}</div>}

@@ -3,11 +3,12 @@
 //   定数(配列)はこの通常モジュールに置き、クライアント/サーバ双方から import する。
 
 // 提案ステージ（実業務フローに整理）。
+//   承認待ち : 提案ボタン押下直後。承認者の承認が必要。承認されると「所属確認」へ遷移
 //   所属確認 : 情報が届いて最初に、案件先「まだ募集中？」＋人材先「まだ営業できる？」を確認
 //   提案中   : 両方OK→提案を実施し反応待ち（社外のLINE/メール活動はメモにコピペ記録）
 //   面談     : 双方マッチ→面談調整・実施
 //   合格     : 内定（→ 稼働化で稼働管理へ）
-export const PROPOSAL_STAGES = ["所属確認", "提案中", "面談", "合格"] as const;
+export const PROPOSAL_STAGES = ["承認待ち", "所属確認", "提案中", "面談", "合格"] as const;
 
 /** DB stage を新ステージに正規化。
  *   旧名（提案済/返信待ち/提案中/返信あり/面談調整/クロージング中/面談合格）も新名へマップ。
@@ -19,7 +20,7 @@ export function normalizeStage(s: string | null | undefined): typeof PROPOSAL_ST
     case "提案済": case "返信待ち": case "提案中": case "返信あり": return "提案中";
     case "面談調整": case "クロージング中": return "面談";
     case "面談合格": return "合格";
-    default: return "提案中";
+    default: return "所属確認"; // 承認後の既定（提案中ではなくフロー先頭の所属確認へ）
   }
 }
 
