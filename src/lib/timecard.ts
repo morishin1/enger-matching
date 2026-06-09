@@ -7,6 +7,8 @@ import { engerAdmin, engerClient, dbConfigured } from "./supabase";
 
 export type TimecardStatus = "open" | "submitted" | "approved" | "rejected";
 
+export type ShiftStatus = "open" | "submitted" | "approved" | "rejected";
+
 export type TimeEntry = {
   id: string;
   user_email: string;
@@ -24,7 +26,32 @@ export type TimeEntry = {
   approver_name: string | null;
   approved_at: string | null;
   reject_reason: string | null;
+  // シフト申請（予定）の承認フロー。timecard-shift.sql 未実行の環境では null/undefined。
+  shift_status?: ShiftStatus | null;
+  shift_submitted_at?: string | null;
+  shift_approved_at?: string | null;
+  shift_approver_email?: string | null;
+  shift_approver_name?: string | null;
+  shift_reject_reason?: string | null;
+  deviation_reason?: string | null;   // シフト外で働いた理由
 };
+
+/** 実績が承認済シフトから外れているかの判定。
+ *   shift_status='approved' のときだけ判定対象。planned が無い or 実績が無い場合は false。
+ *   許容しきい値（分）以内のずれは「シフト通り」と見なす（既定±10分）。 */
+export function deviatesFromShift(e: Pick<TimeEntry,
+  "shift_status" | "planned_start" | "planned_end" | "actual_start" | "actual_end">,
+  toleranceMin = 10): boolean {
+  if (e.shift_status !== "approved") return false;
+  if (!e.planned_start || !e.planned_end) return false;
+  if (!e.actual_start && !e.actual_end) return false;
+  const ps = new Date(e.planned_start).getTime();
+  const pe = new Date(e.planned_end).getTime();
+  const as = e.actual_start ? new Date(e.actual_start).getTime() : ps;
+  const ae = e.actual_end ? new Date(e.actual_end).getTime() : pe;
+  const tol = toleranceMin * 60_000;
+  return Math.abs(as - ps) > tol || Math.abs(ae - pe) > tol;
+}
 
 export type MonthSummary = {
   days: number;                       // 実績がある日数
@@ -128,6 +155,20 @@ export async function getMyMonth(userEmail: string, ym: string): Promise<TimeEnt
   const r: any = await sb.from("time_entries").select("*")
     .eq("user_email", userEmail).gte("work_date", start).lt("work_date", end)
     .order("work_date", { ascending: true });
+  if (r.error) return [];
+  return (r.data ?? []) as TimeEntry[];
+}
+
+/** シフト申請の承認待ち（マネージャー/admin 用）。部署で絞り込み可能。
+ *   shift_status 列が未マイグレ環境では空配列を返す。 */
+export async function getShiftApprovalQueue(opts: { department?: string | null } = {}): Promise<TimeEntry[]> {
+  if (!dbConfigured) return [];
+  let sb: ReturnType<typeof engerClient>;
+  try { sb = engerAdmin(); } catch { sb = engerClient(); }
+  let q: any = sb.from("time_entries").select("*").eq("shift_status", "submitted");
+  if (opts.department) q = q.eq("department", opts.department);
+  q = q.order("work_date", { ascending: true });
+  const r: any = await q;
   if (r.error) return [];
   return (r.data ?? []) as TimeEntry[];
 }
