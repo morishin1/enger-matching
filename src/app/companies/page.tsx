@@ -5,6 +5,7 @@ import { CompanyProposalsRanking } from "@/components/CompanyProposalsRanking";
 import { CompanyTargetingBoard } from "@/components/CompanyTargetingBoard";
 import { CompanyContactBoard } from "@/components/CompanyContactBoard";
 import { getCompanyOverview } from "@/lib/companies";
+import { FlowSteps } from "@/components/FlowSteps";
 import { loadCompanyFunnels, loadCompanyContactFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
@@ -68,6 +69,8 @@ export default async function CompaniesPage() {
         </div>
         <div style={{ flexShrink: 0 }}><CompanyCsv registered={registered} isAdmin={isAdmin} /></div>
       </div>
+
+      <FlowSteps current="data" sub="企業マスタ（案件・人材の所属企業を整える）" />
 
       {needSetup && (
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>

@@ -1,4 +1,5 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { FlowSteps } from "@/components/FlowSteps";
 import { currentAccess } from "@/lib/accounts";
 import { canSeeMargin } from "@/lib/engagement-access";
 import { normalizeStage } from "@/lib/proposal-constants";
@@ -88,6 +89,8 @@ export default async function PipelinePage() {
           <div className="sub">進行中提案を<b>確度で加重</b>した見込みと、稼働の<b>確定月額</b>から着地を予測します。確度はステージで自動設定（提案中25%→面談50%→クロージング70%→面談合格90%）。</div>
         </div>
       </div>
+
+      <FlowSteps current="progress" sub="売上予測（パイプライン）" />
 
       {setup && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>提案・稼働のデータがありません。</div>}
 

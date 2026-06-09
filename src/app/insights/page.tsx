@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentAccess } from "@/lib/accounts";
+import { FlowSteps } from "@/components/FlowSteps";
 import { getCompanyMatrix } from "@/lib/companies";
 import { AdminGrowthBoard } from "@/components/AdminGrowthBoard";
 import { CostReport } from "@/components/CostReport";
@@ -36,6 +37,7 @@ export default async function InsightsPage() {
           </div>
           <Link href="/" className="btn ghost" style={{ textDecoration: "none", alignSelf: "flex-start" }}>← ダッシュボードへ</Link>
         </div>
+        <FlowSteps current="progress" sub="詳細インサイト" />
         <RecentActivity />
       </div>
       <DashboardInbox />

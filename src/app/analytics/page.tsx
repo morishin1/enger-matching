@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { FlowSteps } from "@/components/FlowSteps";
 import { currentAccess } from "@/lib/accounts";
 import { GripBoard } from "@/components/GripBoard";
 import { GrowthStrategy } from "@/components/GrowthStrategy";
@@ -154,6 +155,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           <div className="sub">市場の<b>仮置きトレンド係数</b>と社内データを突き合わせ、<b>狙う領域・育てる領域</b>を見える化します。下のタブで切り替えて確認できます。</div>
         </div>
       </div>
+
+      <FlowSteps current="progress" sub="詳細分析（狙う領域・育てる領域）" />
 
       {setup && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>データがまだありません。案件・提案が入るとここに集計が表示されます。</div>}
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
+import { FlowSteps } from "@/components/FlowSteps";
 import { MailButton } from "@/components/MailButton";
 import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
@@ -80,6 +81,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
           <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>
       </div>
+
+      <FlowSteps current="data" sub="人材詳細（スキルシート）" />
 
       {c.skills?.length > 0 && (
         <div className="card">

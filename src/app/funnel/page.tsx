@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentAccess } from "@/lib/accounts";
+import { FlowSteps } from "@/components/FlowSteps";
 import { canManageDept } from "@/lib/roles";
 import { getFunnel, resolveFunnelPeriod, rate, pct, type FunnelPeriod, type FunnelCounts } from "@/lib/funnel";
 import { AnalyticsTabs } from "@/components/AnalyticsTabs";
@@ -64,6 +65,8 @@ export default async function FunnelPage({ searchParams }: { searchParams: Promi
           <div className="sub">提案→面談→クロージング→稼働化の歩留まりを見ます。まず自社の転換率を知り、ボトルネックを特定し、KGI（稼働数）から必要な提案数を逆算します。</div>
         </div>
       </div>
+
+      <FlowSteps current="progress" sub="ファネル分析（転換率）" />
 
       {/* 期間切替 */}
       <div className="card" style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
