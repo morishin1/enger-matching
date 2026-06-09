@@ -309,7 +309,7 @@ async function trashItems(table: "jobs" | "candidates", noField: "job_no" | "can
     r = await admin.from(table).delete().in(noField, nos);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
-  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); revalidatePath("/trash"); bustCounts();
   return { ok: true as const, moved: nos.length };
 }
 
@@ -319,7 +319,7 @@ async function restoreItems(table: "jobs" | "candidates", noField: "job_no" | "c
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const r: any = await admin.from(table).update({ deleted_at: null, updated_at: new Date().toISOString() }).in(noField, nos);
   if (r.error) return { ok: false as const, error: r.error.message };
-  revalidatePath(table === "jobs" ? "/jobs" : "/people"); bustCounts();
+  revalidatePath(table === "jobs" ? "/jobs" : "/people"); revalidatePath("/trash"); bustCounts();
   return { ok: true as const, restored: nos.length };
 }
 
@@ -410,6 +410,7 @@ export async function bulkTrashBefore(opts: {
   }
 
   revalidatePath(opts.kind === "jobs" ? "/jobs" : "/people");
+  revalidatePath("/trash");
   bustCounts();
   return { ok: true, targets: targets.length, protectedCount, sampleTitles };
 }
