@@ -288,8 +288,8 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
         </div>
       )}
 
-      {/* ① 日報リマインダー（提出義務のある一般職・営業のみ。管理者は全体管理が目的のため除外） */}
-      {role !== "admin" && myName && !reportToday && (
+      {/* ① 日報リマインダー（提出する役職の人に表示。管理者/マネージャーも自分の日報を書けるよう対象に含める） */}
+      {myName && !reportToday && (
         <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", background: "#fff5e6", border: "1px solid #f6d9a7" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>📝 今日の日報がまだ未提出です。1日の振り返りを記録しましょう。</span>
           <Link href="/reports" className="btn brand btn-xs" style={{ textDecoration: "none" }}>日報を書く →</Link>

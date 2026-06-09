@@ -466,6 +466,32 @@ function ShiftApprovalList({ queue, pending, run }: {
   );
 }
 
+// HH:MM 形式の時刻を「時」「分」の2つの select で入力する。
+//   HTML5 の <input type="time"> のネイティブピッカーは、Chrome系で初回クリックが
+//   ピッカーのスクロールに釣られて選択ズレが発生する（1クリックで意図した数字が選べない）。
+//   ネイティブピッカーを使わず select 2つに分けることで、確実にタップ1回で選べるようにする。
+function HmSelect({ value, onChange, disabled = false, step = 5 }: { value: string; onChange: (v: string) => void; disabled?: boolean; step?: 1 | 5 | 10 | 15 | 30 }) {
+  const [h = "", m = ""] = (value || "").split(":");
+  const hours: string[] = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  const minutes: string[] = Array.from({ length: Math.floor(60 / step) }, (_, i) => String(i * step).padStart(2, "0"));
+  const setH = (nh: string) => onChange(nh ? `${nh}:${m || "00"}` : "");
+  const setM = (nm: string) => onChange(h ? `${h}:${nm || "00"}` : "");
+  const baseSel: React.CSSProperties = { fontSize: 13, padding: "6px 6px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", fontFamily: "inherit", minWidth: 56 };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <select aria-label="時" value={h} onChange={(e) => setH(e.target.value)} disabled={disabled} style={baseSel}>
+        <option value="">--</option>
+        {hours.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>:</span>
+      <select aria-label="分" value={m} onChange={(e) => setM(e.target.value)} disabled={disabled} style={baseSel}>
+        <option value="">--</option>
+        {minutes.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+    </span>
+  );
+}
+
 // ── 編集モーダル ─────────────────────────────────────────────
 function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
   meEmail: string; workDate: string; entry: TimeEntry | null; onClose: () => void; onSaved: () => void;
@@ -543,17 +569,17 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
               働く予定（シフト）{plannedLocked && <span style={{ marginLeft: 6, color: "#9a7b12" }}>🔒 {shiftStatus === "approved" ? "承認済のため変更不可" : "申請中のため変更不可"}</span>}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="time" value={ps} onChange={(e) => setPs(e.target.value)} style={inp} disabled={plannedLocked} />
+              <HmSelect value={ps} onChange={setPs} disabled={plannedLocked} />
               <span>〜</span>
-              <input type="time" value={pe} onChange={(e) => setPe(e.target.value)} style={inp} disabled={plannedLocked} />
+              <HmSelect value={pe} onChange={setPe} disabled={plannedLocked} />
             </div>
           </div>
           <div>
             <div className="meta" style={{ fontSize: 11, marginBottom: 4, color: "#067647" }}>実績</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="time" value={as} onChange={(e) => setAs(e.target.value)} style={inp} />
+              <HmSelect value={as} onChange={setAs} />
               <span>〜</span>
-              <input type="time" value={ae} onChange={(e) => setAe(e.target.value)} style={inp} />
+              <HmSelect value={ae} onChange={setAe} />
               <label style={{ fontSize: 11.5, color: "var(--color-ink-3)", display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
                 休憩 <input type="number" min={0} value={brk} onChange={(e) => setBrk(e.target.value)} style={{ ...inp, width: 64 }} />分
               </label>
