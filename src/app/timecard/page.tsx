@@ -24,9 +24,9 @@ export default async function TimecardPage({ searchParams }: { searchParams: Pro
   const isManager = canManageDept(access.teamRole);
   const isTimecardUser = access.isTimecardUser;
 
-  // タイムカード本人ビュー（誰でも自分の打刻はできる：is_timecard_user=true もしくは admin が自分用に試したい場合）
-  // ただしサイドバーには is_timecard_user=true / admin / manager のみに表示するので、ここでも案内に留める。
-  const showSelf = isTimecardUser || isAdmin;
+  // タイムカード本人ビュー：「タイムカード対象」だけでなく、admin/マネージャー/リーダーも
+  //   自分のシフト申請・勤怠を入力できるよう開放（承認者だけど自分の予定も入れる運用に対応）。
+  const showSelf = isTimecardUser || isAdmin || isManager;
   const showApproval = isAdmin || isManager;
 
   const myEntries = showSelf ? await getMyMonth(access.email, ym) : [];
