@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
 import { gmailMessageUrl } from "@/lib/gmail";
-import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, bulkPreviewFromGmail, bulkRegisterFromGmail, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate, type BulkPreviewItem } from "@/lib/actions";
+import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, bulkPreviewFromGmail, bulkRegisterFromGmail, parseEntityText, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate, type BulkPreviewItem } from "@/lib/actions";
 import { Icons } from "./icons";
 
 const salaryShort = (lo: number | null, hi: number | null) => lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -452,7 +452,35 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
   const [similarJobs, setSimilarJobs] = useState<SimilarJob[]>([]);
   const [similarCands, setSimilarCands] = useState<SimilarCandidate[]>([]);
   const [checking, setChecking] = useState(false);
-  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); setSimilarJobs([]); setSimilarCands([]); } };
+  // LINE/メール 貼り付け取り込み
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); setSimilarJobs([]); setSimilarCands([]); setPasteOpen(false); setPasteText(""); } };
+
+  // 貼り付けテキストを AI 解析してフォームへ反映（既存入力は上書きしない＝空欄のみ補完）
+  const runParse = async () => {
+    const text = pasteText.trim();
+    if (text.length < 4) { setMsg({ ok: false, text: "本文を貼り付けてください" }); return; }
+    setParsing(true); setMsg(null);
+    try {
+      const res = await parseEntityText(kind, text);
+      if (res.ok) {
+        const got = res.fields;
+        // 元メール参照用に source_mail へは入れず、抽出結果のみフォームへ。既存入力済みは保持。
+        setF((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(got)) { if (v && !(next[k] ?? "").trim()) next[k] = v; }
+          return next;
+        });
+        const n = Object.keys(got).length;
+        setMsg({ ok: true, text: n > 0 ? `AIが${n}項目を読み取りました。内容を確認して登録してください。` : "読み取れる項目がありませんでした。手入力してください。" });
+        setPasteOpen(false);
+      } else setMsg({ ok: false, text: res.error });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "解析に失敗しました" });
+    } finally { setParsing(false); }
+  };
 
   // 入力に応じて既存の似た案件/人材を検索（デバウンス）。非公開も対象。
   const key1 = kind === "jobs" ? (f.title ?? "") : (f.name ?? "");
@@ -558,6 +586,39 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{kind === "candidates" ? "人材を新規登録" : "案件を新規登録"}</h3>
               <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
             </div>
+
+            {/* LINE / メール 貼り付け取り込み */}
+            <div style={{ border: "1px solid #bfe7cd", borderRadius: 10, background: "#f1fbf4", overflow: "hidden" }}>
+              <button type="button" onClick={() => setPasteOpen((v) => !v)} disabled={pending}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: "transparent", border: 0, cursor: "pointer", textAlign: "left" }}>
+                <Icons.line size={20} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#067647" }}>LINE / メールから貼り付けて自動入力</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: "auto", color: "#067647", transform: pasteOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}>expand_more</span>
+              </button>
+              {pasteOpen && (
+                <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    rows={5}
+                    placeholder={kind === "candidates"
+                      ? "LINE/メールで届いた人材情報をそのまま貼り付け（氏名・スキル・単価・稼働時期など）"
+                      : "LINE/メールで届いた案件情報をそのまま貼り付け（案件名・必要スキル・単価・勤務地・商流など）"}
+                    style={{ width: "100%", boxSizing: "border-box", fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.6, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button type="button" className="btn brand btn-sm" onClick={runParse} disabled={parsing || pending || pasteText.trim().length < 4}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      {parsing && <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+                      {parsing ? "読み取り中…" : "✨ AIで読み取ってフォームに反映"}
+                    </button>
+                    {pasteText && <button type="button" className="btn ghost btn-sm" onClick={() => setPasteText("")} disabled={parsing}>クリア</button>}
+                    <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>空欄のみ補完（入力済みは保持）</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
               {kind === "candidates" ? (
                 <>

@@ -64,4 +64,22 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   loc: makeIcon("location_on"),
   clock: makeIcon("schedule"),
   doc: makeIcon("description"),
+  // LINE ブランドマーク（緑の角丸＋吹き出し）。コピペ取り込みの導線で「LINE/メールから」を分かりやすく示す。
+  line: function Line({ size = 18 }: IconProps = {}) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden style={{ verticalAlign: "middle", flexShrink: 0 }}>
+        <rect width="24" height="24" rx="6" fill="#06C755" />
+        <path
+          d="M12 5.2c-3.9 0-7 2.5-7 5.6 0 2.8 2.5 5.1 5.9 5.5.2 0 .5.1.6.3.1.2 0 .5 0 .6l-.1.6c0 .2-.1.7.6.4 .7-.3 3.9-2.3 5.3-3.9 1-1 1.7-2.2 1.7-3.5 0-3.1-3.1-5.6-7-5.6z"
+          fill="#fff"
+        />
+        <g fill="#06C755">
+          <rect x="8" y="9.4" width="0.95" height="3.3" rx="0.4" />
+          <rect x="14.6" y="9.4" width="0.95" height="3.3" rx="0.4" />
+          <rect x="10.1" y="9.4" width="0.95" height="3.3" rx="0.4" />
+          <rect x="12.2" y="9.4" width="0.95" height="3.3" rx="0.4" />
+        </g>
+      </svg>
+    );
+  },
 };
