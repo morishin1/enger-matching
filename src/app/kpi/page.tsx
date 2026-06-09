@@ -7,7 +7,7 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getWeeklyTargets, jstStartOfWeek, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { KpiDashboardClient } from "@/components/KpiDashboardClient";
 import { TeamActivityBoard } from "@/components/TeamActivityBoard";
@@ -72,6 +72,12 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
     ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,
     type: historyType, periods: 12, metric: "proposal",
   });
+  // 推移テーブル（全指標 × 期間の実績/目標）。日/週は12期間、月は12ヶ月、四半期は8期間。
+  const tablePeriods = historyType === "day" ? 14 : historyType === "month" ? 12 : historyType === "quarter" ? 8 : 12;
+  const historyTable = await getKpiHistoryTable({
+    ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,
+    type: historyType, periods: tablePeriods,
+  });
 
   // メンバー別アクティビティ（誰が何をやったか）。admin/経営=全員、マネージャー/リーダー=自部署。
   let activityMembers: { name: string; email: string | null }[] = [];
@@ -109,6 +115,8 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
         weeklyTargets={weekly as Partial<Record<Metric, number>>}
         weekStart={weekStart.toISOString().slice(0, 10)}
         history={history}
+        historyTable={historyTable}
+        historyPeriodLabel={PERIOD_LABEL[historyType]}
       />
     </>
   );
