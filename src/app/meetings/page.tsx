@@ -1,5 +1,6 @@
 import { Icons } from "@/components/icons";
 import { MeetingsClient } from "@/components/MeetingsClient";
+import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getCompanyOverview } from "@/lib/companies";
 
@@ -56,6 +57,8 @@ export default async function MeetingsPage() {
           <div className="sub">企業ごとの温度感（FB感情）・刺さった訴求点・競合言及・次回アクションを蓄積し、今後の対応に反映します。Geminiメモは要約欄に貼り付け、Drive原本はリンクで紐付けます。</div>
         </div>
       </div>
+
+      <FlowSteps current="proposals" sub="顧客との打合せ記録（提案改善の材料）" />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {needSetup && (
