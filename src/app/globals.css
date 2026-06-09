@@ -384,6 +384,22 @@ button { font-family: inherit; }
   .tc-cell .tc-dotrow { display: none; }
 }
 
+/* ── マッチング画面のスマホ対応 ──────────────────────────────────
+   ・案件×人材の2カラム比較や、一覧サイドバー＋詳細の2カラムは、
+     スマホでは縦積みにして「提案ボタンまで辿り着けるように」する。
+   ・デスクトップでは inline style がそのまま効くので変化なし。 */
+@media (max-width: 880px) {
+  /* 一覧（左）＋詳細（右）の固定2カラムを縦積みに。
+     対象：matching/page.tsx の `.match-side-grid`（人材→案件、案件→人材モード）。 */
+  .match-side-grid { grid-template-columns: 1fr !important; }
+  /* リスト側は画面に張り付かせず通常スクロールに（縦積み時の sticky/70vh は邪魔）。 */
+  .match-side-grid > :first-child { max-height: none !important; position: static !important; }
+}
+@media (max-width: 640px) {
+  /* 案件詳細／人材詳細の 1fr 1fr 比較カラムも縦積み（スマホはスクロールで読む）。 */
+  .match-2col { grid-template-columns: 1fr !important; gap: 12px !important; }
+}
+
 /* 通知ステータスの未処理ドットの脈動。やってないと光って「早くやって」と促す。 */
 @keyframes engerNotifyPulse {
   0%   { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.55); }
