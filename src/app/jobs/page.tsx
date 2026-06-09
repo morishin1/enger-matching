@@ -6,6 +6,7 @@ import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { NextStepLink } from "@/components/NextStepLink";
+import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
@@ -271,6 +272,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           {!scope.isTenant && <JobImportButton />}
         </div>
       </div>
+
+      <FlowSteps current="data" sub="案件マスタの整備" />
 
       {!scope.isTenant && <MatchingPeerTabsServer />}
 

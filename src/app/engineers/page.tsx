@@ -1,5 +1,6 @@
 import { EngineersClient } from "@/components/EngineersClient";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
+import { FlowSteps } from "@/components/FlowSteps";
 import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,8 @@ export default async function EngineersPage() {
           </div>
         </div>
       </div>
+
+      <FlowSteps current="mail" sub="LP経由のエンジニア取込" />
 
       <MatchingPeerTabsServer />
 
