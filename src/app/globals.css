@@ -142,10 +142,12 @@ button { font-family: inherit; }
 .topbar .icon-btn .dot { position: absolute; width: 8px; height: 8px; border-radius:99px; background: var(--color-brand-600); top: 6px; right: 6px; border: 2px solid var(--color-surface-soft); }
 
 .page { padding: 32px; display: flex; flex-direction: column; gap: var(--gap, 20px); }
-.page-head { display:flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: 4px; }
-.page-head h1 { font-family: var(--font-display); font-weight: 700; font-size: 32px; letter-spacing: -0.022em; margin: 0; color: var(--color-ink); line-height: 1.2; }
-.page-head .sub { color: var(--color-ink-3); font-size: 14px; margin-top: 8px; line-height: 1.6; max-width: 760px; }
-.page-head .meta { color: var(--color-ink-4); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8px; font-weight: 600; }
+.page-head { display:flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 4px; }
+/* ページ名は AppShell のトップバー（パンくず）で識別するため、page-head の H1 は非表示。
+   旧コード（多数）で <h1> がそのまま書かれていてもデザインに影響しないよう CSS 側で隠す。 */
+.page-head h1 { display: none; }
+.page-head .sub { color: var(--color-ink-3); font-size: 14px; margin-top: 4px; line-height: 1.6; max-width: 760px; }
+.page-head .meta { color: var(--color-ink-4); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0; font-weight: 600; }
 
 .btn { display:inline-flex; align-items:center; gap: 7px; padding: 9px 16px; border-radius: 99px; font: 500 13px/1 var(--font-sans); border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-ink); cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s, color .12s; }
 .btn:hover { background: var(--color-surface-soft); }
