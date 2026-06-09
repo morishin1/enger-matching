@@ -8,7 +8,6 @@ import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
 import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { currentAccess } from "@/lib/accounts";
-import { canManageDept } from "@/lib/roles";
 import { Collapsible } from "@/components/Collapsible";
 
 export const dynamic = "force-dynamic";
@@ -22,9 +21,10 @@ export default async function ProposalsPage() {
   let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
 
   const [staff, proposalOwners, access] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess()]);
-  // 担当者（提案者・クロージング）の名前を追加/削除できるのは管理者・マネージャーのみ。
-  //   設定画面だけでなく、この提案管理画面からも編集できるようにする（運用導線をここに集約）。
-  const canEditOwners = !access || access.role === "admin" || canManageDept(access.teamRole ?? null);
+  // 担当者（提案者・クロージング）の名前を追加/削除できるのは管理者のみ
+  //   （保存 saveProposalOwners が admin 限定のため、表示もそれに合わせる）。
+  //   設定画面だけでなく、この提案管理画面からも編集できるようにする（運用導線の集約）。
+  const canEditOwners = !access || access.role === "admin";
   const ownersInitial = proposalOwners ?? { proposers: staff.members, closers: staff.members };
   let lostRows: any[] = [];
   let history: any[] = [];
@@ -196,8 +196,10 @@ export default async function ProposalsPage() {
             history={history}
             analyticsRows={analyticsRows}
             members={staff.members}
-            proposers={proposalOwners?.proposers}
-            closers={proposalOwners?.closers}
+            // 編集UI（ProposalOwnersEditor）と提案詳細の割当ドロップダウンで
+            // 選択肢が食い違わないよう、同じ ownersInitial（未保存時は members に統一）を渡す。
+            proposers={ownersInitial.proposers}
+            closers={ownersInitial.closers}
             fallbackBanner={
               <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
                 まだ提案がありません。<b style={{ color: "var(--color-ink-2)" }}>マッチング</b>画面でペアを選び、「提案ボードに記録」を押すとここに表示されます。
