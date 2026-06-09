@@ -1949,6 +1949,106 @@ export async function extractInboxEmail(inboxId: string): Promise<{ ok: boolean;
   return { ok: true, kind: parsed.kind, summary: parsed.summary, data: parsed.data };
 }
 
+// ── LINE / メール 貼り付け取り込み ─────────────────────────────
+//   LINEやメールで送られてきた素のテキストを貼り付けて、AIで案件/人材フィールドに整形する。
+//   新規登録モーダルの「LINE/メールから貼り付け」で使用。Haiku 固定で安価。
+const PASTE_EXTRACT_SYSTEM = "あなたはエンジニア人材紹介エージェントの入力補助アシスタントです。LINEやメールで送られてきた自由文から、案件または人材の情報を構造化して抽出します。出力は指定の JSON のみ（説明文・コードブロック不要）。分からない項目は null。";
+
+const PASTE_JOB_PROMPT = (text: string) => `次の文章は「案件（求人）」の情報です。JSON のみ出力してください。
+形式:
+{
+  "title": "案件名(短く)",
+  "client_name": "クライアント企業名" | null,
+  "role_label": "職種(SE/PM/インフラ等)" | null,
+  "skills": ["スキル名(最大10)"],
+  "salary_min": 数値(万) | null,
+  "salary_max": 数値(万) | null,
+  "remote_type": "full_remote" | "partial_remote" | "onsite" | null,
+  "flow_note": "商流の制限(例: 二社下まで)" | null,
+  "work_location": "勤務地" | null,
+  "start_date": "YYYY-MM-DD または 自由文(例: 即日/6月)" | null,
+  "detail": "求められる経験・スキル要件など本文の要点",
+  "contact_name": "窓口担当者名" | null
+}
+単価は「万」単位の数値に正規化（例: 70万→70, 700,000円→70）。範囲があれば min/max 両方。
+--- 文章 ---
+${text}`;
+
+const PASTE_CAND_PROMPT = (text: string) => `次の文章は「人材（エンジニア）」の情報です。JSON のみ出力してください。
+形式:
+{
+  "name": "氏名(イニシャル可)",
+  "company": "現所属企業" | null,
+  "affiliation": "所属区分(例: 一社下社員/フリーランス/二社下以降)" | null,
+  "title": "職種" | null,
+  "skills": ["スキル名(最大15)"],
+  "rate": "希望単価(例: 80万 / ¥70〜90万)" | null,
+  "exp": "経験年数や経歴サマリ" | null,
+  "avail": "稼働開始(例: 即日/6月〜)" | null,
+  "location": "希望勤務地" | null,
+  "remote_pref": "希望リモート区分(自由文)" | null,
+  "status": "ステータス(例: 提案可)" | null
+}
+--- 文章 ---
+${text}`;
+
+/** 貼り付けテキストを AI で構造化（kind=candidates|jobs）。フォーム初期値用の文字列マップを返す。 */
+export async function parseEntityText(kind: "candidates" | "jobs", text: string): Promise<{ ok: true; fields: Record<string, string>; summary?: string } | { ok: false; error: string }> {
+  const raw = (text ?? "").trim();
+  if (raw.length < 4) return { ok: false, error: "テキストが短すぎます。LINE/メールの本文を貼り付けてください。" };
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+
+  const { callLLM, parseJsonLoose } = await import("./llm");
+  const { logUsage } = await import("./ai-usage");
+
+  // Haiku 固定（安価）。
+  const previousModel = process.env.LLM_MODEL;
+  if (!previousModel || !/haiku/i.test(previousModel)) process.env.LLM_MODEL = "claude-haiku-4-5";
+  const body = raw.slice(0, 8000);
+  const prompt = kind === "jobs" ? PASTE_JOB_PROMPT(body) : PASTE_CAND_PROMPT(body);
+  const r = await callLLM({ system: PASTE_EXTRACT_SYSTEM, prompt, maxTokens: 1000, temperature: 0.1 });
+  if (previousModel) process.env.LLM_MODEL = previousModel; else delete process.env.LLM_MODEL;
+  if (!r.ok) return { ok: false, error: r.error };
+  try { await logUsage("paste-extract", r.model, r.usage); } catch { /* noop */ }
+
+  const d = parseJsonLoose<any>(r.text);
+  if (!d || typeof d !== "object") return { ok: false, error: "AI 応答の解析に失敗しました。手入力してください。" };
+
+  // フォームの field キーに合わせて文字列化（skills は配列→カンマ区切り、数値→文字列）
+  const s = (v: any) => (v == null ? "" : String(v).trim());
+  const arr = (v: any) => Array.isArray(v) ? v.map((x) => String(x ?? "").trim()).filter(Boolean).join(", ") : s(v);
+  const fields: Record<string, string> = {};
+  if (kind === "jobs") {
+    fields.title = s(d.title);
+    fields.client_name = s(d.client_name);
+    fields.role_label = s(d.role_label);
+    fields.skills = arr(d.skills);
+    fields.salary_min = d.salary_min != null ? String(d.salary_min) : "";
+    fields.salary_max = d.salary_max != null ? String(d.salary_max) : "";
+    fields.remote_type = ["full_remote", "partial_remote", "onsite"].includes(d.remote_type) ? d.remote_type : "";
+    fields.flow_note = s(d.flow_note);
+    fields.work_location = s(d.work_location);
+    fields.start_date = s(d.start_date);
+    fields.detail = s(d.detail);
+    fields.contact_name = s(d.contact_name);
+  } else {
+    fields.name = s(d.name);
+    fields.company = s(d.company);
+    fields.affiliation = s(d.affiliation);
+    fields.title = s(d.title);
+    fields.skills = arr(d.skills);
+    fields.rate = s(d.rate);
+    fields.exp = s(d.exp);
+    fields.avail = s(d.avail);
+    fields.location = s(d.location);
+    fields.status = s(d.status);
+  }
+  // 空キーは落とす（既存入力を上書きしないため）
+  for (const k of Object.keys(fields)) if (!fields[k]) delete fields[k];
+  return { ok: true, fields };
+}
+
 export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>): Promise<{ ok: boolean; job_no?: number; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
