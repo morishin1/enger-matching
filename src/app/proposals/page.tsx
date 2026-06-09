@@ -6,6 +6,10 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
+import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
+import { currentAccess } from "@/lib/accounts";
+import { canManageDept } from "@/lib/roles";
+import { Collapsible } from "@/components/Collapsible";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +21,11 @@ export default async function ProposalsPage() {
   // 提案開始件数（created_at 基準）。ステージ移動の影響を受けず一貫してカウントする。
   let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
 
-  const [staff, proposalOwners] = await Promise.all([getStaff(), loadProposalOwners()]);
+  const [staff, proposalOwners, access] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess()]);
+  // 担当者（提案者・クロージング）の名前を追加/削除できるのは管理者・マネージャーのみ。
+  //   設定画面だけでなく、この提案管理画面からも編集できるようにする（運用導線をここに集約）。
+  const canEditOwners = !access || access.role === "admin" || canManageDept(access.teamRole ?? null);
+  const ownersInitial = proposalOwners ?? { proposers: staff.members, closers: staff.members };
   let lostRows: any[] = [];
   let history: any[] = [];
   let analyticsRows: any[] = [];
@@ -173,6 +181,12 @@ export default async function ProposalsPage() {
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>
           <b>提案テーブルが未作成です。</b> 中央 Supabase の SQL Editor で <span className="mono">supabase/schema-matching.sql</span> を実行すると、提案管理・稼働管理が使えるようになります。
         </div>
+      )}
+
+      {!needSetup && canEditOwners && (
+        <Collapsible label="👥 提案者・クロージング担当を編集（名前の追加・削除・並び替え）">
+          <ProposalOwnersEditor initial={ownersInitial} suggestions={staff.members} />
+        </Collapsible>
       )}
 
       {!needSetup && (
