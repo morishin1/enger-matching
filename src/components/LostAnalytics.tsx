@@ -10,6 +10,7 @@
 // 「そもそも連絡する意味あるのか？」を score = 勝率×0.7 + 接触の新しさ×0.3 で判定。
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 
 type HItem = {
   id: string;
@@ -25,6 +26,9 @@ type HItem = {
   created_at?: string | null;
   updated_at?: string | null;
   stage_updated_at?: string | null;
+  // 提案画面（マッチング）へ戻すための識別子
+  job_no?: number | null;
+  candidate_no?: number | null;
 };
 
 const LOST_STAGES = new Set(["見送り", "失注"]);
@@ -132,7 +136,7 @@ type Aggregated = {
   lagBuckets: Array<{ label: string; range: [number, number]; n: number }>;
   lagStats: { avg: number | null; median: number | null; p90: number | null; total: number };
   // 失注ログ（担当者・理由・日数・コメント）。テーブル表示用。
-  lostRows: Array<{ id: string; company: string; job_title: string; candidate_name: string; proposer: string; closer: string; reason: string; phase: string; note: string | null; created_at: number; lost_at: number; lagDays: number | null }>;
+  lostRows: Array<{ id: string; company: string; job_title: string; candidate_name: string; proposer: string; closer: string; reason: string; phase: string; note: string | null; created_at: number; lost_at: number; lagDays: number | null; job_no: number | null; candidate_no: number | null }>;
 };
 
 function analyze(items: HItem[]): Aggregated {
@@ -183,12 +187,14 @@ function analyze(items: HItem[]): Aggregated {
           id: p.id, company, job_title: (p.job_title ?? "—") || "—", candidate_name: (p.candidate_name ?? "—") || "—",
           proposer, closer: (p.closer ?? "—") || "—", reason: r, phase: p.lost_phase || "（未入力）",
           note: p.lost_reason_note ?? null, created_at: createdT, lost_at: lostT, lagDays: days,
+          job_no: p.job_no ?? null, candidate_no: p.candidate_no ?? null,
         });
       } else {
         lostRowsRaw.push({
           id: p.id, company, job_title: (p.job_title ?? "—") || "—", candidate_name: (p.candidate_name ?? "—") || "—",
           proposer, closer: (p.closer ?? "—") || "—", reason: r, phase: p.lost_phase || "（未入力）",
           note: p.lost_reason_note ?? null, created_at: createdT, lost_at: lostT, lagDays: null,
+          job_no: p.job_no ?? null, candidate_no: p.candidate_no ?? null,
         });
       }
     } else {
@@ -644,7 +650,7 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{filtered.length}件 / 全{rows.length}件（最大200件表示）</span>
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 880 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 980 }}>
           <thead>
             <tr>
               <th style={th}>提案日</th><th style={th}>失注日</th>
@@ -654,6 +660,7 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
               <th style={th}>人材</th>
               <th style={th}>失注フェーズ</th>
               <th style={th}>失注理由</th>
+              <th style={{ ...th, textAlign: "right" }}>再提案</th>
             </tr>
           </thead>
           <tbody>
@@ -675,6 +682,14 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
                 <td style={td}>
                   <div>{r.reason}</div>
                   {r.note && <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginTop: 2, whiteSpace: "pre-wrap" }}>「{r.note}」</div>}
+                </td>
+                <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                  {/* 上位/下位企業から再提案・再エントリーがあったとき、提案画面（マッチング）へ直行 */}
+                  {r.job_no != null ? (
+                    <Link href={`/matching?job=${r.job_no}${r.candidate_no != null ? `&cand=${r.candidate_no}` : ""}`}
+                      className="btn ghost btn-xs" style={{ textDecoration: "none" }}
+                      title="この案件×人材で提案画面（マッチング）を開く">→ 提案画面</Link>
+                  ) : <span className="muted">—</span>}
                 </td>
               </tr>
             ))}
