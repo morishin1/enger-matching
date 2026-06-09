@@ -13,6 +13,7 @@ import { saveKpiTargets } from "@/lib/actions";
 
 type Snapshot = Record<Metric, { target: number; actual: number; pct: number }>;
 type HistoryPoint = { label: string; pct: number; actual: number; target: number };
+type HistoryRow = { label: string; start: string; cells: Record<Metric, { actual: number; target: number }> };
 
 const PERIODS: { key: PeriodType; label: string }[] = [
   { key: "day", label: "日" },
@@ -42,6 +43,8 @@ export function KpiDashboardClient(props: {
   weeklyTargets: Partial<Record<Metric, number>>;
   weekStart: string;
   history: HistoryPoint[];
+  historyTable?: HistoryRow[];
+  historyPeriodLabel?: string;
 }) {
   const router = useRouter();
   const isAdmin = props.access.role === "admin";
@@ -179,6 +182,11 @@ export function KpiDashboardClient(props: {
         <HistoryChart data={props.history} />
       </div>
 
+      {/* 推移テーブル（全指標 × 期間の実績/目標）。月次/年次の数値を表で確認できる。 */}
+      {props.historyTable && props.historyTable.length > 0 && (
+        <HistoryTable rows={props.historyTable} periodLabel={props.historyPeriodLabel ?? ""} teamName={isTeam ? "チーム全体" : props.target.name} />
+      )}
+
       {showEdit && (
         <EditTargetModal
           weekStart={props.weekStart}
@@ -188,6 +196,48 @@ export function KpiDashboardClient(props: {
           onClose={() => setShowEdit(false)}
         />
       )}
+    </div>
+  );
+}
+
+// 全指標 × 期間の実績/目標を一覧表で表示。新しい期間が右に来るよう逆順に並べる。
+function HistoryTable({ rows, periodLabel, teamName }: { rows: HistoryRow[]; periodLabel: string; teamName: string }) {
+  const ordered = [...rows].reverse(); // 直近を上に
+  const th: React.CSSProperties = { padding: "7px 10px", textAlign: "right", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700, whiteSpace: "nowrap", background: "var(--color-surface-soft)" };
+  const td: React.CSSProperties = { padding: "6px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12, whiteSpace: "nowrap" };
+  return (
+    <div className="card flush" style={{ overflowX: "auto" }}>
+      <div style={{ padding: "12px 16px", display: "flex", alignItems: "baseline", gap: 8, borderBottom: "1px solid var(--color-border)" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>📋 実績の推移表</span>
+        <span className="muted" style={{ fontSize: 11 }}>{teamName} ／ {periodLabel}ごと（実績 / 目標）。月次・年次の集計に。</span>
+      </div>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: "left" }}>期間</th>
+            {METRIC_ORDER.map((m) => (
+              <th key={m} style={{ ...th, color: METRIC_LABELS[m].tone }}>{METRIC_LABELS[m].short}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((r) => (
+            <tr key={r.start}>
+              <td style={{ ...td, textAlign: "left", fontFamily: "inherit", fontWeight: 700 }}>{r.label}</td>
+              {METRIC_ORDER.map((m) => {
+                const c = r.cells[m];
+                const hit = c.target > 0 && c.actual >= c.target;
+                return (
+                  <td key={m} style={{ ...td, color: hit ? "#067647" : "var(--color-ink)" }}>
+                    <b>{c.actual}</b>
+                    <span style={{ color: "var(--color-ink-4)", fontSize: 10.5 }}> / {c.target || "—"}</span>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -201,6 +201,87 @@ export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekSt
   return got;
 }
 
+// ── 履歴テーブル（全指標 × 期間の実績/目標） ───────────────────────
+export type KpiHistoryRow = {
+  label: string;          // 期間ラベル（例: 6/9, 6/2〜, 2026/6）
+  start: string;          // ISO（その期間の開始）
+  cells: Record<Metric, { actual: number; target: number }>;
+};
+
+/** 直近 N 期間 × 全指標の実績/目標をまとめて返す（推移テーブル用）。
+ *  proposals / kpi_targets を1往復ずつで取得し、JS側で期間バケットに振り分ける。 */
+export async function getKpiHistoryTable(opts: {
+  ownerName: string | null; ownerEmail: string | null;
+  type: Exclude<PeriodType, "custom">; periods: number;
+}): Promise<KpiHistoryRow[]> {
+  const ranges: { start: Date; end: Date; base: Date; weekStart: Date; label: string }[] = [];
+  for (let i = opts.periods - 1; i >= 0; i--) {
+    const base = shiftPeriod(new Date(), opts.type, -i);
+    const range = resolveRange(opts.type, base);
+    ranges.push({ ...range, base, weekStart: jstStartOfWeek(base), label: labelOfPeriod(opts.type, base) });
+  }
+  const overallStart = ranges[0].start;
+  const overallEnd   = ranges[ranges.length - 1].end;
+
+  const sb = engerAdmin();
+  const startIso = overallStart.toISOString(), endIso = overallEnd.toISOString();
+
+  let pq: any = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
+    .limit(30000);
+  if (pq.error) pq = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at")
+    .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
+    .limit(30000);
+
+  const tq: any = await sb.from("kpi_targets")
+    .select("metric, target, week_start")
+    .gte("week_start", overallStart.toISOString().slice(0, 10))
+    .lt("week_start", overallEnd.toISOString().slice(0, 10))
+    .eq("scope", opts.ownerEmail ? "person" : "team")
+    .eq(opts.ownerEmail ? "owner_email" : "team_key", opts.ownerEmail ? opts.ownerEmail.toLowerCase() : "its");
+
+  const props: any[] = pq.error ? [] : (pq.data ?? []);
+  const targets: any[] = tq.error ? [] : (tq.data ?? []);
+
+  const isOwnerAny = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
+  const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
+  const targetMap = new Map<string, Partial<Record<Metric, number>>>();
+  for (const t of targets) {
+    const k = String(t.week_start);
+    if (!targetMap.has(k)) targetMap.set(k, {});
+    targetMap.get(k)![t.metric as Metric] = t.target;
+  }
+  const def: Partial<Record<Metric, number>> = { proposal: 20 };
+
+  const out: KpiHistoryRow[] = [];
+  for (const rng of ranges) {
+    const sIso = rng.start.toISOString(), eIso = rng.end.toISOString();
+    const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
+    const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+    for (const p of props) {
+      if (isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
+      if (!isCloser(p)) continue;
+      const ev = p.stage_updated_at ?? p.updated_at ?? null;
+      const evAny = p.updated_at ?? p.stage_updated_at ?? null;
+      if (metricFlags.isContact(p)   && inRange(evAny)) act.contact++;
+      if (metricFlags.isAdjusting(p) && inRange(evAny)) act.adjusting++;
+      if (metricFlags.isSchedule(p)  && inRange(ev))    act.schedule++;
+      if (metricFlags.isDeal(p)      && inRange(ev))    act.deal++;
+    }
+    const ws = rng.weekStart.toISOString().slice(0, 10);
+    const w = targetMap.get(ws) ?? {};
+    const cells = {} as Record<Metric, { actual: number; target: number }>;
+    for (const m of METRIC_ORDER) {
+      const weekly = w[m] ?? def[m] ?? 0;
+      cells[m] = { actual: act[m], target: scaleWeeklyTarget(weekly, opts.type, rng) };
+    }
+    out.push({ label: rng.label, start: sIso, cells });
+  }
+  return out;
+}
+
 /**
  * 直近 N 期間の達成率推移（推移グラフ用）。
  * 期間ごとに別クエリすると 12 期間 × 数クエリで遅いため、全期間を含む 1 つのクエリで
