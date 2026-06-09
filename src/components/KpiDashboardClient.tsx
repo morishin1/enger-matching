@@ -33,6 +33,7 @@ function fmtRange(startIso: string, endIso: string) {
 export function KpiDashboardClient(props: {
   access: { email: string; name: string | null; role: string };
   target: { email: string; name: string };
+  scope?: "person" | "team";
   members: { name: string; email: string }[];
   period: PeriodType;
   range: { start: string; end: string };
@@ -44,7 +45,8 @@ export function KpiDashboardClient(props: {
 }) {
   const router = useRouter();
   const isAdmin = props.access.role === "admin";
-  const isSelf = props.access.email.toLowerCase() === props.target.email.toLowerCase();
+  const isTeam = props.scope === "team";
+  const isSelf = !isTeam && props.access.email.toLowerCase() === props.target.email.toLowerCase();
   const [showEdit, setShowEdit] = useState(false);
   const [from, setFrom] = useState(props.custom?.from ?? "");
   const [to, setTo]     = useState(props.custom?.to   ?? "");
@@ -80,8 +82,9 @@ export function KpiDashboardClient(props: {
           {props.target.name || "(担当未設定)"} ／ {fmtRange(props.range.start, props.range.end)}
         </span>
         {isAdmin && props.members.length > 0 && (
-          <select value={props.target.email} onChange={(e) => setParam("owner", e.target.value)}
+          <select value={isTeam ? "__team__" : props.target.email} onChange={(e) => setParam("owner", e.target.value)}
             style={{ marginLeft: 6, fontSize: 12.5, padding: "5px 8px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+            <option value="__team__">👥 チーム全体</option>
             {props.members.map((m) => <option key={m.email} value={m.email}>{m.name}</option>)}
           </select>
         )}
@@ -179,7 +182,8 @@ export function KpiDashboardClient(props: {
       {showEdit && (
         <EditTargetModal
           weekStart={props.weekStart}
-          ownerEmail={props.target.email} ownerName={props.target.name}
+          scope={isTeam ? "team" : "person"}
+          ownerEmail={isTeam ? "" : props.target.email} ownerName={props.target.name}
           initial={props.weeklyTargets}
           onClose={() => setShowEdit(false)}
         />
@@ -221,6 +225,7 @@ function HistoryChart({ data }: { data: HistoryPoint[] }) {
 
 function EditTargetModal(props: {
   weekStart: string;
+  scope?: "person" | "team";
   ownerEmail: string; ownerName: string;
   initial: Partial<Record<Metric, number>>;
   onClose: () => void;
@@ -241,10 +246,9 @@ function EditTargetModal(props: {
         const n = Number(vals[m]);
         if (Number.isFinite(n) && n >= 0) targets[m] = Math.floor(n);
       }
-      const r = await saveKpiTargets({
-        scope: "person", ownerEmail: props.ownerEmail, ownerName: props.ownerName,
-        weekStart: props.weekStart, targets,
-      });
+      const r = props.scope === "team"
+        ? await saveKpiTargets({ scope: "team", teamKey: "its", weekStart: props.weekStart, targets })
+        : await saveKpiTargets({ scope: "person", ownerEmail: props.ownerEmail, ownerName: props.ownerName, weekStart: props.weekStart, targets });
       if (!r.ok) { setMsg(`保存失敗: ${r.error}`); return; }
       setMsg("✓ 保存しました");
       router.refresh();
