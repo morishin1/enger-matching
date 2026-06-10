@@ -261,7 +261,20 @@ button { font-family: inherit; }
 .col-menu-item { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px; font-size: 13px; color: var(--color-ink); cursor: pointer; }
 .col-menu-item:hover { background: var(--color-surface-soft); }
 .col-menu-item.disabled { color: var(--color-ink-4); cursor: default; }
-.bulk-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--color-ink); color: #fff; font-size: 13px; }
+/* 選択中の一括操作バー：画面下部中央にフローティング固定。
+   スクロール中も常に画面内に出続けるため、ページ末まで行かなくても操作できる。 */
+.bulk-bar {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  z-index: 50;
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 14px 10px 18px;
+  background: var(--color-ink); color: #fff; font-size: 13px;
+  border-radius: 999px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.28), 0 2px 8px rgba(0,0,0,.18);
+  max-width: calc(100vw - 32px);
+  animation: bulk-bar-in .18s ease-out;
+}
+@keyframes bulk-bar-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .bulk-bar b { font-size: 15px; }
 /* 濃色バー上のゴーストボタンが黒文字で見えない問題を解消（白文字＋半透明枠） */
 .bulk-bar .btn.ghost { color: #fff; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.10); }
