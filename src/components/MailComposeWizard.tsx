@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, Fragment, type CSSProperties } from "react";
+import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
-import { createProposal } from "@/lib/actions";
+import { createProposal, isProposerPrivileged } from "@/lib/actions";
 import { flowMatch, candDepthLabel, jobDepthLabel } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
@@ -210,6 +210,36 @@ export function MailComposeWizard({
   const [candToken, setCandToken] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   // 新フロー：メール送信は承認者が提案管理から行うため、Wizard 側から送信モーダルは開かない。
+  // ただし admin / マネージャー / リーダーは承認スキップで自分が直接送信できる。
+  const [privileged, setPrivileged] = useState<boolean | null>(null); // 取得中=null, true=権限あり
+  const [autoOpenSend, setAutoOpenSend] = useState(false);
+  useEffect(() => { isProposerPrivileged().then((r) => setPrivileged(!!r.privileged)).catch(() => setPrivileged(false)); }, []);
+
+  // 権限者用：承認者選択なしで保存→送信モーダル自動オープン
+  const handleSelfApproveAndSend = async () => {
+    if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
+    const fm = flowMatch(job ?? {}, cand ?? {});
+    if (fm.compat === "ng") {
+      const ok = window.confirm(`⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま送信を進めますか？`);
+      if (!ok) { setMsg("商流NGのため送信を中止しました"); return; }
+    }
+    setSaving(true); setMsg(null);
+    // 権限者は pending_mail に下書き保存不要（直接送信するため）。トークンだけ保存される。
+    try {
+      const res = await createProposal(
+        job.job_no, cand.candidate_no, score, proposer || undefined,
+        { jobToken, candToken },
+        "",  // approver空：サーバ側で権限者と判定し承認スキップ＋所属確認で作成
+      );
+      if (res.ok) {
+        setSaved(true); setSavedId(res.id ?? null);
+        setMsg(res.existed ? "既存提案を更新しました。メール送信を開きます。" : "提案を作成しました。メール送信を開きます。");
+        setAutoOpenSend(true);  // SendBothMailsButton を自動オープン
+      } else setMsg(res.error || "保存に失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally { setSaving(false); }
+  };
 
   // 元メールリンク：保存済みメッセージIDが無効/未登録の場合でも開けるよう、
   // 関連キーワード(会社名・案件名・人材名)で Gmail 検索URLにフォールバックする。
@@ -346,12 +376,11 @@ export function MailComposeWizard({
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
-          {/* メインの操作行：承認者プルダウン＋送信ボタンを1段にまとめる。
-              未保存：承認者を選んで「📨 承認に出して送信」を押すと、内部で承認に出す→
-                      自動でメール送信モーダルを開く（1クリックで完結）。
-              保存済：すぐ「📨 メールを送信」が押せる。 */}
+          {/* メインの操作行：
+              ・通常エージェント（権限なし）：承認者を選んで「📨 承認申請」（メール送信は承認者が行う）
+              ・admin/マネージャー/リーダー   ：承認スキップで「📨 メールを送信」を直接押せる */}
           <div style={{ display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {!saved && (
+            {!saved && !privileged && (
               <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--color-ink-3)" }}
                 title="承認者（必須）：選んだ人が提案ボードで承認するまで「承認待ち」になります">
                 承認者
@@ -363,16 +392,50 @@ export function MailComposeWizard({
               </label>
             )}
             {!saved ? (
-              <button type="button" className="btn brand" onClick={handleRequestApproval}
-                disabled={saving || !approver}
-                title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
-                style={{ fontWeight: 800 }}>
-                {saving ? "処理中…" : "📨 承認申請"}
-              </button>
+              privileged ? (
+                // 権限者：そのまま送信
+                <button type="button" className="btn brand" onClick={handleSelfApproveAndSend}
+                  disabled={saving || privileged === null}
+                  title="承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"
+                  style={{ fontWeight: 800 }}>
+                  {saving ? "処理中…" : "📨 メールを送信"}
+                </button>
+              ) : (
+                // 一般エージェント：承認申請のみ
+                <button type="button" className="btn brand" onClick={handleRequestApproval}
+                  disabled={saving || !approver}
+                  title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
+                  style={{ fontWeight: 800 }}>
+                  {saving ? "処理中…" : "📨 承認申請"}
+                </button>
+              )
             ) : (
-              <span className="muted" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
-                ✉️ メール送信は <b>{approver || "承認者"}</b> さんが提案管理画面から行います。
-              </span>
+              privileged ? (
+                <SendBothMailsButton
+                  label="📨 メールを送信"
+                  className="btn brand"
+                  autoOpen={autoOpenSend}
+                  onAutoOpened={() => setAutoOpenSend(false)}
+                  jobSide={{
+                    label: "案件側メール", dotColor: "#ef4444",
+                    to: clientForm.email, cc: clientForm.cc, subject: clientForm.subject, body: clientForm.body,
+                    buttonHtml: jobButtonHtml ?? undefined,
+                    relatedKind: "proposal_job",
+                    relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
+                  }}
+                  candSide={{
+                    label: "人材側メール", dotColor: "#3b82f6",
+                    to: candForm.email, cc: candForm.cc, subject: candForm.subject, body: candForm.body,
+                    buttonHtml: candButtonHtml ?? undefined,
+                    relatedKind: "proposal_cand",
+                    relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
+                  }}
+                />
+              ) : (
+                <span className="muted" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+                  ✉️ メール送信は <b>{approver || "承認者"}</b> さんが提案管理画面から行います。
+                </span>
+              )
             )}
           </div>
           {/* 補助操作（編集に戻る・次の導線）は下段に控えめに配置 */}

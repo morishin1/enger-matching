@@ -476,6 +476,18 @@ const parseRateNum = (rate?: string | null): number | null => {
 export type PendingMailSide = { to?: string; cc?: string; subject?: string; body?: string };
 export type PendingMail = { job?: PendingMailSide; cand?: PendingMailSide };
 
+/** ログイン中ユーザーが「承認スキップで直接提案できる権限者」か。
+ *  admin / マネージャー / リーダーが true。クライアントで UI 分岐に使う。 */
+export async function isProposerPrivileged(): Promise<{ ok: boolean; privileged: boolean; role?: string | null; name?: string | null }> {
+  try {
+    const me = await currentAccess();
+    if (!me) return { ok: true, privileged: false };
+    const { canManageDept } = await import("./roles");
+    const privileged = me.role === "admin" || canManageDept(me.teamRole ?? null);
+    return { ok: true, privileged, role: me.role, name: me.name ?? null };
+  } catch { return { ok: true, privileged: false }; }
+}
+
 export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }, approver?: string, pendingMail?: PendingMail | null) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
@@ -562,22 +574,31 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   // 提案者の既定＝作成者（ログイン中の本人）。明示指定が無いと proposer が null になり、
   // 日報スコアカード/KPIに「自分の提案」が出なくなるため、ここで本人名を補完する。
   let proposerName = (proposer ?? "").trim() || null;
-  if (!proposerName) {
-    try { const me = await currentAccess(); proposerName = (me?.name ?? "").trim() || null; } catch { /* 未ログインでも続行 */ }
-  }
+  let proposerIsPrivileged = false;   // admin / マネージャー / リーダーは承認スキップで直接送信可
+  try {
+    const me = await currentAccess();
+    if (me) {
+      if (!proposerName) proposerName = (me.name ?? "").trim() || null;
+      const { canManageDept } = await import("./roles");
+      proposerIsPrivileged = me.role === "admin" || canManageDept(me.teamRole ?? null);
+    }
+  } catch { /* 未ログインでも続行 */ }
 
-  // 承認者：必須（ハードゲート）。提案者と同じ社内メンバーリストから選択する想定。
+  // 承認者：通常エージェントは必須。管理者/マネージャー/リーダーは自分で承認＝直接送信のため省略可。
   const approverName = (approver ?? "").trim();
-  if (!approverName) return { ok: false, error: "承認者を選択してください（提案者と承認者の両方が必要です）" };
+  if (!proposerIsPrivileged && !approverName) return { ok: false, error: "承認者を選択してください（提案者と承認者の両方が必要です）" };
 
   const insertBase = {
-    job_id: job.id, candidate_id: cand.id, stage: "承認待ち",
+    job_id: job.id, candidate_id: cand.id,
+    // 権限者は「承認待ち」をスキップして所属確認から開始（自己承認扱い）。
+    stage: proposerIsPrivileged ? "所属確認" : "承認待ち",
     job_title: job.title, company: job.client_name, candidate_name: cand.name,
     c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
     closer: defaultCloser,
     proposer: proposerName,
-    approver: approverName,
-    approval_status: "pending",
+    approver: approverName || (proposerIsPrivileged ? proposerName : null),
+    approval_status: proposerIsPrivileged ? "approved" : "pending",
+    approved_at: proposerIsPrivileged ? new Date().toISOString() : null,
     job_action_type: "未回答", job_action_token,
     cand_action_type: "未回答", cand_action_token,
     ...(pendingMail ? { pending_mail: pendingMail } : {}),
