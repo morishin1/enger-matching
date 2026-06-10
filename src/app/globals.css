@@ -97,7 +97,15 @@ button { font-family: inherit; }
   background: var(--color-surface); color: var(--color-ink-2);
   padding: 22px 14px 22px; position: sticky; top: 0; height: 100vh;
   display: flex; flex-direction: column; border-right: 1px solid var(--color-border);
+  /* メニュー数が縦に増えて画面に入りきらない端末（ノートPC・低い高さ）でも
+     全項目に到達できるよう、サイドバー内をスクロール可能にする。
+     overscroll-behavior でメインスクロールへのチェーンを抑止。 */
+  overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
+.side::-webkit-scrollbar { width: 6px; }
+.side::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 99px; }
+.side::-webkit-scrollbar-thumb:hover { background: var(--color-ink-5); }
 .side-brand { display:flex; align-items:center; gap: 11px; padding: 4px 10px 22px; margin-bottom: 8px; }
 .side-brand .logo {
   width: 34px; height: 34px; border-radius: 10px;
