@@ -10,8 +10,13 @@ import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { MailComposeWizard } from "./MailComposeWizard";
 
-export function SendMailModalButton({ job, cand, score, label = "📤 送信する（クライアント＋人材へ）", style, members = [] }:
-  { job: any; cand: any; score: number; label?: string; style?: CSSProperties; members?: string[] }) {
+export function SendMailModalButton({ job, cand, score, label = "📤 送信する（クライアント＋人材へ）", style, members = [], alreadyProposed = false, proposalId = null, proposer = null }:
+  { job: any; cand: any; score: number; label?: string; style?: CSSProperties; members?: string[];
+    /** 既に提案済みか（マッチング画面の判定を引き継ぐ）。true ならモーダルでも「保存済み」扱いで承認者UIは出さない。 */
+    alreadyProposed?: boolean;
+    proposalId?: string | null;
+    proposer?: string | null;
+  }) {
   const [open, setOpen] = useState(false);
   // ESCで閉じる
   useEffect(() => {
@@ -57,7 +62,8 @@ export function SendMailModalButton({ job, cand, score, label = "📤 送信す�
               </div>
             </div>
             <div style={{ padding: 16, maxHeight: "calc(100vh - 140px)", overflowY: "auto" }}>
-              <MailComposeWizard job={job} cand={cand} score={score} members={members} />
+              <MailComposeWizard job={job} cand={cand} score={score} members={members}
+                initialSaved={alreadyProposed} initialSavedId={proposalId} initialProposer={proposer ?? null} />
             </div>
           </div>
         </div>

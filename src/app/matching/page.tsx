@@ -245,6 +245,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const proposedCandIds = new Set<string>();  // この案件で既に提案済みの人材id（案件→人材モード）
   const proposalIdByJob = new Map<string, string>();   // job_id → proposal_id
   const proposalIdByCand = new Map<string, string>();  // candidate_id → proposal_id
+  // 「誰がいつ提案したか」を表示するための補助マップ。
+  const proposalInfoByJob = new Map<string, { proposer: string | null; createdAt: string | null }>();
+  const proposalInfoByCand = new Map<string, { proposer: string | null; createdAt: string | null }>();
 
   if (dbConfigured) {
     try {
@@ -344,7 +347,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
         // この人材が既に提案済みの案件（提案済み表示用）
         if (person?.id) {
-          try { const { data } = await sb.from("proposals").select("id, job_id").eq("candidate_id", person.id); for (const r of (data ?? []) as any[]) { if (r.job_id) { proposedJobIds.add(r.job_id); proposalIdByJob.set(r.job_id, r.id); } } } catch { /* proposals未整備でも続行 */ }
+          try { const { data } = await sb.from("proposals").select("id, job_id, proposer, created_at").eq("candidate_id", person.id); for (const r of (data ?? []) as any[]) { if (r.job_id) { proposedJobIds.add(r.job_id); proposalIdByJob.set(r.job_id, r.id); proposalInfoByJob.set(r.job_id, { proposer: r.proposer ?? null, createdAt: r.created_at ?? null }); } } } catch { /* proposals未整備でも続行 */ }
         }
       } else if (tab === "focus") {
         // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
@@ -455,7 +458,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
         // この案件で既に提案済みの人材（提案済み表示用）
         if (job?.id) {
-          try { const { data } = await sb.from("proposals").select("id, candidate_id").eq("job_id", job.id); for (const r of (data ?? []) as any[]) { if (r.candidate_id) { proposedCandIds.add(r.candidate_id); proposalIdByCand.set(r.candidate_id, r.id); } } } catch { /* proposals未整備でも続行 */ }
+          try { const { data } = await sb.from("proposals").select("id, candidate_id, proposer, created_at").eq("job_id", job.id); for (const r of (data ?? []) as any[]) { if (r.candidate_id) { proposedCandIds.add(r.candidate_id); proposalIdByCand.set(r.candidate_id, r.id); proposalInfoByCand.set(r.candidate_id, { proposer: r.proposer ?? null, createdAt: r.created_at ?? null }); } } } catch { /* proposals未整備でも続行 */ }
         }
       }
     } catch (e) {
@@ -634,7 +637,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), j.work_location, salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
 
                       {/* 提案フォームを最上部に（すぐ送れるように） */}
-                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null} members={proposerMembers} />
+                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score}
+                        alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null}
+                        proposedBy={proposalInfoByJob.get(j.id)?.proposer ?? null}
+                        proposedAt={proposalInfoByJob.get(j.id)?.createdAt ?? null}
+                        members={proposerMembers} />
 
                       {/* マッチ詳細はアコーディオン（既定は閉。注意件数はサマリに表示） */}
                       {(() => {
@@ -832,7 +839,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     </div>
 
                     {/* 提案フォームを最上部に（すぐ送れるように） */}
-                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null} members={proposerMembers} />
+                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score}
+                      alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null}
+                      proposedBy={proposalInfoByCand.get(c.id)?.proposer ?? null}
+                      proposedAt={proposalInfoByCand.get(c.id)?.createdAt ?? null}
+                      members={proposerMembers} />
 
                     {/* マッチ詳細はアコーディオンで折りたたみ（既定は閉。注意件数はサマリに出す） */}
                     {(() => {

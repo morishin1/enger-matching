@@ -13,11 +13,14 @@ type Job = any;
 type Cand = any;
 
 export function ProposalComposer({
-  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, members = [],
+  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, members = [],
 }: {
   job: Job; cand: Cand; matchedSkills: string[]; missingSkills?: string[]; score: number;
   alreadyProposed?: boolean;
   proposalId?: string | null;
+  /** 「誰がいつ提案したか」表示用（提案済の場合のみ使用）。 */
+  proposedBy?: string | null;
+  proposedAt?: string | null;
   /** 提案者・承認者の選択肢（社内メンバー名）。空のときはローカルストレージの担当名のみ入力可能。 */
   members?: string[];
 }) {
@@ -267,7 +270,8 @@ export function ProposalComposer({
       {/* ② シンプル送信操作：1つのメインCTAで両方送信＋確認プレビュー */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {job?.job_no != null && cand?.candidate_no != null ? (
-          <SendMailModalButton job={job} cand={cand} score={score} members={members} />
+          <SendMailModalButton job={job} cand={cand} score={score} members={members}
+            alreadyProposed={saved} proposalId={savedId} proposer={sender || null} />
         ) : (
           <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
             style={{ fontSize: 13, padding: "0 22px", height: 38 }}
@@ -287,6 +291,12 @@ export function ProposalComposer({
           <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 承認に出した</span>
         ))}
         <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
+        {saved && (proposedBy || proposedAt) && (
+          <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-3)", marginLeft: 4 }}>
+            {proposedBy ? <>提案者：<b style={{ color: "var(--color-ink-2)" }}>{proposedBy}</b></> : null}
+            {proposedAt ? <>{proposedBy ? " ／ " : ""}{new Date(proposedAt).toLocaleString("ja-JP", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</> : null}
+          </span>
+        )}
         {saved && <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline", marginLeft: 4 }}>提案管理を開く</Link>}
       </div>
       {msg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{msg}</div>}
