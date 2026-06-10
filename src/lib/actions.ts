@@ -487,11 +487,33 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
+  // 応答リンクのトークン。メールに埋め込んだものを優先（HEX48）。無ければ新規生成。
+  //   ※ 重複チェックより前に計算するのは、既存提案に再送する場合でも「最新メールの
+  //     トークンが必ず有効になる」ようDB側を更新するため（旧トークンのままだとリンク切れ）。
+  const HEX48 = /^[0-9a-f]{48}$/;
+  const hasMailTokens = !!(preTokens?.jobToken && HEX48.test(preTokens.jobToken)) || !!(preTokens?.candToken && HEX48.test(preTokens.candToken));
+  const job_action_token  = (preTokens?.jobToken  && HEX48.test(preTokens.jobToken))  ? preTokens.jobToken  : randomBytes(24).toString("hex");
+  const cand_action_token = (preTokens?.candToken && HEX48.test(preTokens.candToken)) ? preTokens.candToken : randomBytes(24).toString("hex");
+
   // 重複チェック (同一 job × candidate)。
   //   maybeSingle() は2件以上ヒット時にエラーで null を返し「未登録」と誤判定→二重登録が雪だるま式に増える。
   //   limit(1) で先頭を取り、既存があれば必ず existed として返す（冪等）。
   const { data: dups } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
   if (dups && dups.length > 0) {
+    // 既存提案に「新しいメールを送り直す」ケース：メールのトークンをDBへ反映し、
+    //   回答も「未回答」にリセットする。これをしないと、
+    //   ① 新メールのリンクが旧トークンと一致せず「URL無効」になる
+    //   ② 過去の回答（見送り等）が残り、相手が「話を進める」を押しても旧回答が表示される
+    //   という不具合になる（再提案・失注からの再送で発生）。
+    if (hasMailTokens) {
+      try {
+        await admin.from("proposals").update({
+          job_action_token, cand_action_token,
+          job_action_type: "未回答", cand_action_type: "未回答",
+          updated_at: new Date().toISOString(),
+        }).eq("id", dups[0].id);
+      } catch { /* token列が未整備でも既存返却は続行 */ }
+    }
     revalidatePath("/proposals");
     bustCounts();
     return { ok: true, id: dups[0].id, existed: true };
@@ -526,9 +548,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     } catch { /* companies 未整備 */ }
   }
 
-  const HEX48 = /^[0-9a-f]{48}$/;
-  const job_action_token  = (preTokens?.jobToken  && HEX48.test(preTokens.jobToken))  ? preTokens.jobToken  : randomBytes(24).toString("hex");
-  const cand_action_token = (preTokens?.candToken && HEX48.test(preTokens.candToken)) ? preTokens.candToken : randomBytes(24).toString("hex");
+  // job_action_token / cand_action_token は重複チェック前に計算済み（再送時のトークン整合のため）。
 
   // 提案者の既定＝作成者（ログイン中の本人）。明示指定が無いと proposer が null になり、
   // 日報スコアカード/KPIに「自分の提案」が出なくなるため、ここで本人名を補完する。
