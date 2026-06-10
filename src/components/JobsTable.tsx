@@ -11,7 +11,7 @@ import { EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs } from "@/lib/actions";
-import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE } from "@/lib/nationality";
+import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -438,6 +438,8 @@ export function JobsTable({
                 ["必要スキル", (detail.skills ?? []).join(" / ") || null],
                 ["単価", salaryLabel(detail.salary_min, detail.salary_max)],
                 ["リモート可否", remoteLabel(detail.remote_type)],
+                ["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />],
+                ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />],
                 ["勤務地", detail.work_location ?? "不明"],
                 ["商流", detail.flow_note],
                 ["開始希望", detail.start_date],
@@ -485,5 +487,30 @@ export function JobsTable({
         </div>
       )}
     </div>
+  );
+}
+
+// 案件本文から判定した国籍要件バッジ（詳細ドロワー用）。
+function JobNatBadge({ detail, title }: { detail?: string | null; title?: string | null }) {
+  const cat = classifyJobNationality(detail, title);
+  const tone = JOB_NAT_TONE[cat];
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{JOB_NAT_LABEL[cat]}</span>
+      {cat === "jp_only" && <span style={{ fontSize: 11, color: "#b42318" }}>外国籍NGの可能性。提案前に確認。</span>}
+      {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
+    </span>
+  );
+}
+
+// 案件本文から判定した年代（年齢）制限バッジ（詳細ドロワー用）。
+function JobAgeBadge({ detail, title }: { detail?: string | null; title?: string | null }) {
+  const { cat, label } = classifyJobAge(detail, title);
+  const tone = JOB_AGE_TONE[cat];
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{label}</span>
+      {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
+    </span>
   );
 }
