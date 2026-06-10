@@ -473,7 +473,10 @@ const parseRateNum = (rate?: string | null): number | null => {
 /** マッチングのペアを提案ボードに記録 (service role)。重複は既存を返す。
  *   ※ 承認チェック：approver（承認者の氏名）必須。stage="承認待ち" で作成され、
  *      承認者（admin or 本人）が approveProposal を呼ぶと "所属確認" へ遷移する。 */
-export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }, approver?: string) {
+export type PendingMailSide = { to?: string; cc?: string; subject?: string; body?: string };
+export type PendingMail = { job?: PendingMailSide; cand?: PendingMailSide };
+
+export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }, approver?: string, pendingMail?: PendingMail | null) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   let job: any = null, cand: any = null;
@@ -506,12 +509,18 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     //   ② 過去の回答（見送り等）が残り、相手が「話を進める」を押しても旧回答が表示される
     //   という不具合になる（再提案・失注からの再送で発生）。
     if (hasMailTokens) {
+      const upd: Record<string, any> = {
+        job_action_token, cand_action_token,
+        job_action_type: "未回答", cand_action_type: "未回答",
+        updated_at: new Date().toISOString(),
+      };
+      if (pendingMail) upd.pending_mail = pendingMail; // 承認者送信用に最新メール下書きを保存
       try {
-        await admin.from("proposals").update({
-          job_action_token, cand_action_token,
-          job_action_type: "未回答", cand_action_type: "未回答",
-          updated_at: new Date().toISOString(),
-        }).eq("id", dups[0].id);
+        let r: any = await admin.from("proposals").update(upd).eq("id", dups[0].id);
+        if (r.error && /pending_mail|column/i.test(r.error.message)) {
+          const { pending_mail: _drop, ...rest } = upd;
+          await admin.from("proposals").update(rest).eq("id", dups[0].id);
+        }
       } catch { /* token列が未整備でも既存返却は続行 */ }
     }
     revalidatePath("/proposals");
@@ -571,12 +580,18 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     approval_status: "pending",
     job_action_type: "未回答", job_action_token,
     cand_action_type: "未回答", cand_action_token,
+    ...(pendingMail ? { pending_mail: pendingMail } : {}),
   } as Record<string, any>;
-  // approver/approval_status 列が無い旧環境では落とし、既存通り 所属確認 で作成
+  // pending_mail 列が無い旧環境ではドロップして再試行（フォールバック）。
   let ins: any = await admin.from("proposals").insert({ ...insertBase, stage_updated_at: new Date().toISOString() }).select("id").single();
+  if (ins.error && /pending_mail|column/i.test(ins.error.message)) {
+    const { pending_mail: _drop, ...withoutPending } = insertBase;
+    ins = await admin.from("proposals").insert({ ...withoutPending, stage_updated_at: new Date().toISOString() }).select("id").single();
+  }
+  // approver/approval_status 列が無い旧環境では落とし、既存通り 所属確認 で作成
   if (ins.error && /approver|approval_status|column/i.test(ins.error.message)) {
     const fallback = { ...insertBase, stage: "所属確認" } as Record<string, any>;
-    delete fallback.approver; delete fallback.approval_status;
+    delete fallback.approver; delete fallback.approval_status; delete fallback.pending_mail;
     ins = await admin.from("proposals").insert({ ...fallback, stage_updated_at: new Date().toISOString() }).select("id").single();
   }
   if (ins.error && /stage_updated_at|column/i.test(ins.error.message)) {
@@ -614,6 +629,67 @@ export async function approveProposal(id: string): Promise<{ ok: true } | { ok: 
     stage_updated_at: now,
     updated_at: now,
   }).eq("id", id);
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/proposals"); bustCounts();
+  return { ok: true };
+}
+
+/** 承認者用：保存されたメール下書きを取得（承認画面でプレビュー用）。 */
+export async function getProposalPendingMail(id: string): Promise<{ ok: true; mail: PendingMail | null; jobToken: string | null; candToken: string | null; jobTitle: string | null; company: string | null; candName: string | null } | { ok: false; error: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  let r: any = await admin.from("proposals").select("id, approver, approval_status, pending_mail, job_action_token, cand_action_token, job_title, company, candidate_name").eq("id", id).maybeSingle();
+  if (r.error && /pending_mail|column/i.test(r.error.message)) {
+    r = await admin.from("proposals").select("id, approver, approval_status, job_action_token, cand_action_token, job_title, company, candidate_name").eq("id", id).maybeSingle();
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+  if (!r.data) return { ok: false, error: "提案が見つかりません" };
+  const { ownerMatches } = await import("./owner-match");
+  const isApprover = me.name && ownerMatches(me.name, r.data.approver ?? "");
+  if (me.role !== "admin" && !isApprover) return { ok: false, error: "閲覧権限がありません（承認者のみ）" };
+  return {
+    ok: true,
+    mail: (r.data.pending_mail ?? null) as PendingMail | null,
+    jobToken: r.data.job_action_token ?? null,
+    candToken: r.data.cand_action_token ?? null,
+    jobTitle: r.data.job_title ?? null,
+    company: r.data.company ?? null,
+    candName: r.data.candidate_name ?? null,
+  };
+}
+
+/** 承認者がメール送信した直後に呼ぶ：送信時刻を記録し、承認＋ステージ進行。 */
+export async function markProposalMailSentAndApprove(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const cur: any = await admin.from("proposals").select("id, approver").eq("id", id).maybeSingle();
+  if (cur.error) return { ok: false, error: cur.error.message };
+  if (!cur.data) return { ok: false, error: "提案が見つかりません" };
+  const { ownerMatches } = await import("./owner-match");
+  const isApprover = me.name && ownerMatches(me.name, cur.data.approver ?? "");
+  if (me.role !== "admin" && !isApprover) return { ok: false, error: "送信権限がありません（承認者のみ）" };
+  const now = new Date().toISOString();
+  const upd: Record<string, any> = {
+    approval_status: "approved",
+    approved_at: now,
+    approver_email: me.email,
+    reject_reason: null,
+    stage: "所属確認",
+    stage_updated_at: now,
+    updated_at: now,
+    mail_sent_at: now,
+    mail_sent_by: me.email,
+    pending_mail: null,
+  };
+  let r: any = await admin.from("proposals").update(upd).eq("id", id);
+  if (r.error && /pending_mail|mail_sent|column/i.test(r.error.message)) {
+    const { pending_mail: _a, mail_sent_at: _b, mail_sent_by: _c, ...rest } = upd;
+    r = await admin.from("proposals").update(rest).eq("id", id);
+  }
   if (r.error) return { ok: false, error: r.error.message };
   revalidatePath("/proposals"); bustCounts();
   return { ok: true };

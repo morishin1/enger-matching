@@ -209,9 +209,7 @@ export function MailComposeWizard({
   const [jobToken, setJobToken] = useState<string | null>(null);
   const [candToken, setCandToken] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  // 「承認に出してから送信モーダルを開く」フロー用。保存成功時に true にすると
-  // SendBothMailsButton が autoOpen で送信モーダルを自動で開く。
-  const [autoOpenSend, setAutoOpenSend] = useState(false);
+  // 新フロー：メール送信は承認者が提案管理から行うため、Wizard 側から送信モーダルは開かない。
 
   // 元メールリンク：保存済みメッセージIDが無効/未登録の場合でも開けるよう、
   // 関連キーワード(会社名・案件名・人材名)で Gmail 検索URLにフォールバックする。
@@ -242,38 +240,41 @@ export function MailComposeWizard({
     setStep(2);
   };
 
-  // 「承認に出して送信」用：保存（=承認に出す）に成功したら、送信モーダルを自動オープン。
-  const handleSaveAndSend = async (openSendAfter: boolean) => {
+  // 「📨 承認申請」：メール本文・宛先を pending_mail として保存する。送信は承認者が行う。
+  const handleRequestApproval = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
-    // 商流NGなら提案前にワンクッション確認。
     const fm = flowMatch(job ?? {}, cand ?? {});
     if (fm.compat === "ng") {
       const ok = window.confirm(
-        `⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま保存を進めますか？`
+        `⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま申請を進めますか？`
       );
-      if (!ok) { setSaving(false); setMsg("商流NGのため保存を中止しました（提案前に確認してください）"); return; }
+      if (!ok) { setSaving(false); setMsg("商流NGのため申請を中止しました"); return; }
     }
-    // 承認者必須チェック（ハードゲート）
     const approverName = (approver ?? "").trim();
-    if (!approverName) { setMsg("承認者を選択してください（承認者の指定が必要です）"); return; }
+    if (!approverName) { setMsg("承認者を選択してください"); return; }
     if ((proposer ?? "").trim() === approverName) { setMsg("承認者は提案者と別の人を選んでください"); return; }
     setSaving(true); setMsg(null);
+    // メール下書きを保存：承認者が「✓ 承認して送信」したときに、この内容＋トークンから送信される。
+    const pendingMail = {
+      job:  { to: clientForm.email, cc: clientForm.cc || "", subject: clientForm.subject, body: clientForm.body },
+      cand: { to: candForm.email,   cc: candForm.cc   || "", subject: candForm.subject,   body: candForm.body   },
+    };
     try {
       const res = await createProposal(
         job.job_no, cand.candidate_no, score, proposer || undefined,
         { jobToken, candToken },
         approverName,
+        pendingMail,
       );
       if (res.ok) {
         setSaved(true); setSavedId(res.id ?? null);
         if (res.existed) {
           setJobToken(null);
           setCandToken(null);
-          setMsg("既に提案済みです" + (openSendAfter ? "（メール送信を開きます）" : ""));
+          setMsg(`既に提案済みです。メール下書きを更新しました（${approverName}さんが承認して送信します）`);
         } else {
-          setMsg("承認に出しました" + (openSendAfter ? "（メール送信を開きます）" : "（提案ボードに追加）"));
+          setMsg(`承認申請しました。${approverName}さんがメール内容を確認し、承認して送信します。`);
         }
-        if (openSendAfter) setAutoOpenSend(true);
       } else {
         setMsg(res.error || "保存に失敗しました");
       }
@@ -362,40 +363,16 @@ export function MailComposeWizard({
               </label>
             )}
             {!saved ? (
-              <button type="button" className="btn brand" onClick={() => handleSaveAndSend(true)}
+              <button type="button" className="btn brand" onClick={handleRequestApproval}
                 disabled={saving || !approver}
-                title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認を依頼してから送信モーダルを開きます`}
+                title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
                 style={{ fontWeight: 800 }}>
-                {saving ? "処理中…" : "📨 承認に出して送信"}
+                {saving ? "処理中…" : "📨 承認申請"}
               </button>
             ) : (
-              <SendBothMailsButton
-                label="📨 メールを送信"
-                className="btn brand"
-                autoOpen={autoOpenSend}
-                onAutoOpened={() => setAutoOpenSend(false)}
-                jobSide={{
-                  label: "案件側メール", dotColor: "#ef4444",
-                  to: clientForm.email, cc: clientForm.cc, subject: clientForm.subject, body: clientForm.body,
-                  buttonHtml: jobButtonHtml ?? undefined,
-                  relatedKind: "proposal_job",
-                  relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
-                }}
-                candSide={{
-                  label: "人材側メール", dotColor: "#3b82f6",
-                  to: candForm.email, cc: candForm.cc, subject: candForm.subject, body: candForm.body,
-                  buttonHtml: candButtonHtml ?? undefined,
-                  relatedKind: "proposal_cand",
-                  relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
-                }}
-              />
-            )}
-            {/* 送信せずに「承認に出すだけ」をしたい場合の補助ボタン（控えめ） */}
-            {!saved && (
-              <button type="button" className="btn ghost btn-sm" onClick={() => handleSaveAndSend(false)} disabled={saving || !approver}
-                title="メール送信せず、提案ボードに承認待ちで登録のみ">
-                承認に出すだけ
-              </button>
+              <span className="muted" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+                ✉️ メール送信は <b>{approver || "承認者"}</b> さんが提案管理画面から行います。
+              </span>
             )}
           </div>
           {/* 補助操作（編集に戻る・次の導線）は下段に控えめに配置 */}

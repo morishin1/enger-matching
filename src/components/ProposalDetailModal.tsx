@@ -13,6 +13,7 @@ import { updateProposalStage, convertToEngagement, updateProposalFields, deleteP
 import { gmailMessageUrl } from "@/lib/gmail";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
+import { ApproveAndSendButton } from "./ApproveAndSendButton";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage } from "@/lib/proposal-constants";
 
@@ -405,14 +406,19 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             </span>
             {(p as any).reject_reason && <span style={{ fontSize: 12, color: "#b42318" }}>理由：{(p as any).reject_reason}</span>}
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button type="button" className="btn brand btn-sm" disabled={pending}
+              {/* 推奨：メール内容を確認してから送信＝承認。下書きが無いときは内部でエラー表示。 */}
+              <ApproveAndSendButton proposalId={p.id} jobNo={p.job_no ?? null} candNo={p.candidate_no ?? null} />
+              {/* メール送信を伴わない承認（下書きが無い旧データ・手動入力分の救済用） */}
+              <button type="button" className="btn ghost btn-sm" disabled={pending}
+                title="メール下書きが無い場合のみ使用（既に他経路で送信済みの提案を承認）"
                 onClick={async () => {
+                  if (!confirm("メール下書きを使わずに承認だけしますか？（通常は『メール内容を確認して送信』をお使いください）")) return;
                   const { approveProposal } = await import("@/lib/actions");
                   start(async () => {
                     const r = await approveProposal(p.id);
                     if (!r.ok) alert(r.error); else router.refresh();
                   });
-                }}>✓ 承認する</button>
+                }}>承認のみ</button>
               <button type="button" className="btn btn-sm" disabled={pending}
                 style={{ color: "#b42318", borderColor: "#f7c5cf" }}
                 onClick={async () => {
