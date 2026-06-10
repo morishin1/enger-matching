@@ -9,7 +9,7 @@ import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { TalentRequests } from "@/components/TalentRequests";
 import { DashboardInbox } from "@/components/DashboardInbox";
-import { TeamProgress } from "@/components/TeamProgress";
+import { MemberActivitySection } from "@/components/MemberActivitySection";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction, canManageDept } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
@@ -87,13 +87,13 @@ export default async function DashboardPage() {
   }
 
   // マネージャー/リーダー：部署メンバーの進捗管理を中心に。
-  //   ・上：自部署メンバーの個人KGI達成率・要対応の可視化（TeamProgress）
+  //   ・上：自部署メンバーの「メンバー別アクティビティ（今日）」（KPI推移と同じ表）
   //   ・下：従来の運用情報（受信箱・人材リクエスト）も保持
   return (
     <>
       <ReplyAlertBanner name={access?.name ?? null} />
       <div className="page" style={{ paddingBottom: 0 }}>
-        <TeamProgress scope="department" departmentName={access?.department ?? null} myName={access?.name ?? null} />
+        <MemberActivitySection access={{ role: access?.role ?? "agent", teamRole: access?.teamRole ?? null, department: access?.department ?? null }} />
       </div>
       {talentRequests.length > 0 && (
         <div className="page" style={{ paddingBottom: 0 }}>

@@ -1,37 +1,37 @@
-// メンバー別アクティビティ集計（KPIダッシュボードの「誰が何をやったか」一覧用）。
-//   指定期間 [start, end) について、各メンバーの動きを1パスで集計する。
+// メンバー別アクティビティ集計（ダッシュボード／KPI推移の「誰が何をやったか」一覧）。
+//   指標は KPI推移と同じ5つに統一（提案 / コンタクト / 調整中 / 日程確定 / 成約）。
 //     ・提案     : proposals.proposer（created_at が期間内）
-//     ・面談     : meetings.our_owner（meeting_date が期間内）
-//     ・人材登録 : candidates.operator（created_at が期間内）
-//     ・案件登録 : jobs.operator（created_at が期間内）
-//     ・稼働化   : proposals.stage∈(稼働決定/稼働)（stage_updated_at が期間内・proposer/closer合算）
-//   担当名は略称↔フルネームに寛容な ownerMatches で突き合わせる。
+//     ・コンタクト: 架電状況が未架電/空白以外（closer に加算・updated_at 起点）
+//     ・調整中   : 案件/人材の通知が両方「未処理」以外（closer に加算・updated_at 起点）
+//     ・日程確定 : ステージ=面談（closer に加算・stage_updated_at 起点）
+//     ・成約     : ステージ=合格（closer に加算・stage_updated_at 起点）
+//   各メンバーの週次目標（kpi_targets person scope）も取得し、期間に按分して達成率を出す。
 
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
 import { ownerMatches } from "./owner-match";
+import { metricFlags, METRIC_ORDER, jstStartOfWeek, businessDaysInRange, type Metric } from "./kpi";
 
 export type ActivityRow = {
   name: string;
   email: string | null;
-  proposals: number;   // 新規提案
-  meetings: number;    // 面談
-  candRegs: number;    // 人材登録
-  jobRegs: number;     // 案件登録
-  won: number;         // 稼働化
-  total: number;       // 合計（一目の活動量）
+  actual: Record<Metric, number>;
+  target: Record<Metric, number>; // 期間に按分した目標
+  total: number;                  // 実績合計（一目の活動量）
+  targetTotal: number;            // 目標合計
 };
 
 export type Member = { name: string; email?: string | null };
 
 const iso = (d: Date) => d.toISOString();
-const dateOnly = (d: Date) => d.toISOString().slice(0, 10);
 
-/** 期間内の各メンバーのアクティビティを集計。 */
+const zeroMetrics = (): Record<Metric, number> => ({ proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 });
+
+/** 期間内の各メンバーのアクティビティ（5指標）と按分目標を集計。 */
 export async function getTeamActivity(opts: { start: Date; end: Date; members: Member[] }): Promise<ActivityRow[]> {
   const { start, end, members } = opts;
   const rows: ActivityRow[] = members.map((m) => ({
     name: m.name, email: m.email ?? null,
-    proposals: 0, meetings: 0, candRegs: 0, jobRegs: 0, won: 0, total: 0,
+    actual: zeroMetrics(), target: zeroMetrics(), total: 0, targetTotal: 0,
   }));
   if (!dbConfigured || members.length === 0) return rows;
 
@@ -39,53 +39,57 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   try { sb = engerAdmin(); } catch { sb = engerClient(); }
 
   const sIso = iso(start), eIso = iso(end);
-  const sDate = dateOnly(start), eDate = dateOnly(end);
 
-  // operator 列は attribution-operator.sql 適用後のみ存在。失敗時は登録系を 0 のままにする。
-  const safeOperator = async (table: "candidates" | "jobs") => {
-    try {
-      const r: any = await sb.from(table).select("operator, created_at").gte("created_at", sIso).lt("created_at", eIso).limit(20000);
-      if (r.error) return [];
-      return (r.data ?? []) as any[];
-    } catch { return []; }
-  };
-
-  const [pr, mr, cr, jr] = await Promise.all([
-    sb.from("proposals").select("proposer, closer, stage, created_at, stage_updated_at")
-      .or(`created_at.gte.${sIso},stage_updated_at.gte.${sIso}`).limit(20000),
-    sb.from("meetings").select("our_owner, meeting_date").gte("meeting_date", sDate).lt("meeting_date", eDate).limit(20000),
-    safeOperator("candidates"),
-    safeOperator("jobs"),
-  ]);
-
-  const props: any[] = (pr as any).error ? [] : ((pr as any).data ?? []);
-  const meets: any[] = (mr as any).error ? [] : ((mr as any).data ?? []);
-  const cands: any[] = cr;
-  const jobs: any[] = jr;
+  // 提案（広めに取得して本人判定はJS側で）
+  let pr: any = await sb.from("proposals")
+    .select("proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .or(`created_at.gte.${sIso},stage_updated_at.gte.${sIso},updated_at.gte.${sIso}`).limit(20000);
+  if (pr.error) pr = await sb.from("proposals")
+    .select("proposer, closer, stage, created_at, stage_updated_at").or(`created_at.gte.${sIso},stage_updated_at.gte.${sIso}`).limit(20000);
+  const props: any[] = pr.error ? [] : (pr.data ?? []);
 
   const inIso = (d: string | null) => !!d && d >= sIso && d < eIso;
-  // 担当名 → 行 の対応（最初に一致したメンバーへ加算）
-  const bump = (value: string | null | undefined, key: keyof ActivityRow) => {
+  // proposer / closer どちらかが一致する行を見つけて加算
+  const bumpByName = (value: string | null | undefined, metric: Metric) => {
     if (!value) return;
-    for (const row of rows) {
-      if (ownerMatches(row.name, value)) { (row[key] as number)++; return; }
-    }
+    for (const row of rows) if (ownerMatches(row.name, value)) { row.actual[metric]++; return; }
   };
 
   for (const p of props) {
-    if (inIso(p.created_at)) bump(p.proposer, "proposals");
-    if (inIso(p.stage_updated_at) && (p.stage === "稼働決定" || p.stage === "稼働")) {
-      // proposer と closer の双方に計上（同一人物の二重計上は避ける）
-      bump(p.proposer, "won");
-      if (p.closer && !ownerMatches(p.proposer ?? "", p.closer)) bump(p.closer, "won");
-    }
+    // 提案＝提案者
+    if (inIso(p.created_at)) bumpByName(p.proposer, "proposal");
+    // それ以外＝CL担当（closer）
+    const ev = p.stage_updated_at ?? p.updated_at ?? null;
+    const evAny = p.updated_at ?? p.stage_updated_at ?? null;
+    if (metricFlags.isContact(p)   && inIso(evAny)) bumpByName(p.closer, "contact");
+    if (metricFlags.isAdjusting(p) && inIso(evAny)) bumpByName(p.closer, "adjusting");
+    if (metricFlags.isSchedule(p)  && inIso(ev))    bumpByName(p.closer, "schedule");
+    if (metricFlags.isDeal(p)      && inIso(ev))    bumpByName(p.closer, "deal");
   }
-  for (const m of meets) {
-    if (m.meeting_date >= sDate && m.meeting_date < eDate) bump(m.our_owner, "meetings");
-  }
-  for (const c of cands) if (inIso(c.created_at)) bump(c.operator, "candRegs");
-  for (const j of jobs) if (inIso(j.created_at)) bump(j.operator, "jobRegs");
 
-  for (const row of rows) row.total = row.proposals + row.meetings + row.candRegs + row.jobRegs + row.won;
+  // 各メンバーの週次目標（person scope）を取得して期間に按分。
+  const emails = members.map((m) => (m.email ?? "").toLowerCase()).filter(Boolean);
+  if (emails.length > 0) {
+    const ws = jstStartOfWeek(start).toISOString().slice(0, 10);
+    const bd = Math.max(1, businessDaysInRange(start, end));
+    try {
+      const tr: any = await sb.from("kpi_targets")
+        .select("owner_email, metric, target").eq("scope", "person").eq("week_start", ws).in("owner_email", emails);
+      if (!tr.error) {
+        for (const t of (tr.data ?? []) as any[]) {
+          const row = rows.find((r) => (r.email ?? "").toLowerCase() === String(t.owner_email ?? "").toLowerCase());
+          if (row && METRIC_ORDER.includes(t.metric)) {
+            // 週次 → 期間按分（営業日比）。日/週/月いずれでも自然に効く。
+            row.target[t.metric as Metric] = Math.round((Number(t.target) * bd) / 5);
+          }
+        }
+      }
+    } catch { /* kpi_targets 未整備でも続行 */ }
+  }
+
+  for (const row of rows) {
+    row.total = METRIC_ORDER.reduce((s, m) => s + row.actual[m], 0);
+    row.targetTotal = METRIC_ORDER.reduce((s, m) => s + row.target[m], 0);
+  }
   return rows;
 }
