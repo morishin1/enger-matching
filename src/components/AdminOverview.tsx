@@ -9,9 +9,9 @@ import { engerAdmin, engerClient, dbConfigured } from "@/lib/supabase";
 import { listAccounts } from "@/lib/accounts";
 import { DEPARTMENTS } from "@/lib/roles";
 import { currentMonthKey, projectKgi, type TeamKgi } from "@/lib/team-kgi";
-import { listPersonKgi, planFromTarget } from "@/lib/person-kgi";
-import { getFunnel, resolveFunnelPeriod, rate } from "@/lib/funnel";
+import { listPersonKgi } from "@/lib/person-kgi";
 import { getBounceSummary } from "@/lib/bounces";
+import { MemberActivitySection } from "@/components/MemberActivitySection";
 
 type Account = { name: string; email: string | null; department: string | null; teamRole: string | null; role: string };
 type Issue = { tone: "danger" | "warn"; icon: string; title: string; detail: string; action: string; href?: string };
@@ -48,18 +48,16 @@ export async function AdminOverview() {
   const now = new Date();
   const month = currentMonthKey(now);
   const monthStartIso = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const monthPrefix = now.toISOString().slice(0, 7);
   const yesterday = lastBusinessDay(now);
   const staleBefore = new Date(Date.now() - STALE_DAYS * 86400000).toISOString();
   const renewalDeadline = new Date(Date.now() + RENEWAL_SOON_DAYS * 86400000).toISOString().slice(0, 10);
 
   // ---- まとめてフェッチ（同列パラレル） ----
-  const [accs, kgiRes, engAllRes, engMonthRes, propMonthRes, propStaleRes, dailyRecentRes, dailyYesterdayRes] = await Promise.all([
+  const [accs, kgiRes, engAllRes, engMonthRes, propStaleRes, dailyRecentRes, dailyYesterdayRes] = await Promise.all([
     listAccounts(),
     sb.from("team_kgi").select("department, month, active_current, active_add, rate_per_head_man, gross_per_head_man, dropout_allowed").eq("month", month),
     sb.from("engagements").select("id, status, end_date, renewal_status").limit(2000),
     sb.from("engagements").select("proposal_id, created_at").gte("created_at", monthStartIso).limit(2000),
-    sb.from("proposals").select("proposer, closer, created_at").gte("created_at", monthStartIso).limit(3000),
     sb.from("proposals").select("id, stage, updated_at").in("stage", ACTIVE_PROP_STAGES as any).lt("updated_at", staleBefore).limit(500),
     sb.from("daily_reports").select("author, team, report_date, learned, next_action, good, problem, mood, created_at").order("report_date", { ascending: false }).order("created_at", { ascending: false }).limit(5),
     sb.from("daily_reports").select("author").eq("report_date", yesterday),
@@ -72,14 +70,9 @@ export async function AdminOverview() {
   const kgis: TeamKgi[] = ((kgiRes.data ?? []) as any[]);
   const kgiByDept = new Map<string, TeamKgi>(kgis.map((k) => [k.department, k] as const));
 
-  // 個人KGI（当月）＋全社転換率（提案→稼働化）＋メール送達状況（bounce_records）。
-  const [personKgis, convThisMonth, bounceSummary] = await Promise.all([
+  // 個人KGI（当月）＋メール送達状況（bounce_records）。
+  const [personKgis, bounceSummary] = await Promise.all([
     listPersonKgi(month),
-    (async () => {
-      const { start, end, label } = resolveFunnelPeriod("this_month", now);
-      const f = await getFunnel(start, end, label);
-      return rate(f.total.won, f.total.proposal);
-    })(),
     getBounceSummary(5),
   ]);
   const personKgiByEmail = new Map(personKgis.map((k) => [k.owner_email, k] as const));
@@ -113,23 +106,12 @@ export async function AdminOverview() {
   }
   const deptByName = new Map<string, string | null>(members.map((m) => [m.name, m.department]));
   const placedByDept = new Map<string, number>();
-  const placedAsProposerByName = new Map<string, number>();
-  const placedAsCloserByName = new Map<string, number>();
   for (const e of monthEngs) {
     const p = propMap.get(e.proposal_id);
     if (!p) continue;
     const bump = (dept: string | null | undefined) => { if (!dept) return; placedByDept.set(dept, (placedByDept.get(dept) ?? 0) + 1); };
-    if (p.proposer) { placedAsProposerByName.set(p.proposer, (placedAsProposerByName.get(p.proposer) ?? 0) + 1); bump(deptByName.get(p.proposer) ?? null); }
-    if (p.closer)   { placedAsCloserByName.set(p.closer,   (placedAsCloserByName.get(p.closer)   ?? 0) + 1); bump(deptByName.get(p.closer)   ?? null); }
-  }
-
-  // 提案数（今月）
-  const propsMonth = (propMonthRes.data ?? []) as any[];
-  const proposalsByName = new Map<string, number>();
-  for (const p of propsMonth) {
-    if (!p.proposer) continue;
-    if (String(p.created_at ?? "").slice(0, 7) !== monthPrefix) continue;
-    proposalsByName.set(p.proposer, (proposalsByName.get(p.proposer) ?? 0) + 1);
+    if (p.proposer) bump(deptByName.get(p.proposer) ?? null);
+    if (p.closer)   bump(deptByName.get(p.closer)   ?? null);
   }
 
   // 日報未提出メンバー（昨日分・営業職能のいる admin/agent）
@@ -245,29 +227,6 @@ export async function AdminOverview() {
   }
   const shownIssues = issues.slice(0, 4);
 
-  // ---- メンバー進捗（コンパクト） ----
-  //   KGI(=個人の月次稼働化目標)があれば「実績/目標」と日次提案KPIを併記して進捗管理できるようにする。
-  type MemberRow = {
-    name: string; department: string | null; isAgent: boolean; placedTotal: number; placedProp: number; placedClose: number; proposals: number;
-    kgiTarget: number | null; dailyProposalTarget: number | null; hasKgi: boolean;
-  };
-  const rows: MemberRow[] = members.map((m) => {
-    const pp = placedAsProposerByName.get(m.name) ?? 0;
-    const pc = placedAsCloserByName.get(m.name) ?? 0;
-    const isAgent = m.role === "agent";
-    const k = m.email ? personKgiByEmail.get((m.email).toLowerCase()) : undefined;
-    const kgiTarget = isAgent ? (k?.placement_target ?? null) : null; // 個人KGIは営業エージェントのみ評価
-    const plan = kgiTarget && convThisMonth ? planFromTarget(kgiTarget, convThisMonth, month) : null;
-    return {
-      name: m.name, department: m.department, isAgent, placedTotal: pp + pc, placedProp: pp, placedClose: pc,
-      proposals: proposalsByName.get(m.name) ?? 0,
-      kgiTarget, dailyProposalTarget: plan?.dailyProposals ?? null, hasKgi: kgiTarget != null && kgiTarget > 0,
-    };
-  });
-  // KGI未設定のエージェントを上に出して「決める」を促す。その次に実績順。
-  rows.sort((a, b) => (Number(!a.isAgent) - Number(!b.isAgent)) || (Number(a.hasKgi) - Number(b.hasKgi)) || (b.placedTotal - a.placedTotal) || (b.proposals - a.proposals));
-  const topRows = rows.slice(0, 12); // 上位12名（スクロール抑制）
-
   // ---- 日報（最新5件） ----
   const dailies = ((dailyRecentRes.data ?? []) as any[]).slice(0, 5);
 
@@ -320,40 +279,13 @@ export async function AdminOverview() {
         </div>
       </div>
 
-      {/* 下段：2カラム（メンバー進捗 / 今日の日報） */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(320px, 1.5fr) minmax(280px, 1fr)", gap: 14, alignItems: "start" }}>
-        {/* メンバー進捗（コンパクト） */}
-        <div className="card" style={{ padding: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>👥 メンバー進捗（今月）</h3>
-            <Link href="/settings/person-kgi" style={{ fontSize: 11, color: "var(--color-brand-700)", textDecoration: "none" }}>🎯 個人KGI設定 →</Link>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(96px, 1.4fr) 54px 54px minmax(96px, 1.3fr) 58px", gap: 8, padding: "4px 8px", fontSize: 10, fontWeight: 700, color: "var(--color-ink-4)" }}>
-              <span>メンバー</span><span style={{ textAlign: "center" }}>提案者</span><span style={{ textAlign: "center" }}>クローザー</span><span>稼働化 / KGI</span><span style={{ textAlign: "center" }} title="日次の提案目標（KGIから逆算）">提案/日目標</span>
-            </div>
-            {topRows.length === 0 && <div className="muted" style={{ fontSize: 12, padding: 8 }}>メンバーがいません</div>}
-            {topRows.map((r) => (
-              <div key={r.name} style={{ display: "grid", gridTemplateColumns: "minmax(96px, 1.4fr) 54px 54px minmax(96px, 1.3fr) 58px", gap: 8, alignItems: "center", padding: "5px 8px", borderRadius: 6, background: r.isAgent && !r.hasKgi ? "rgba(217,119,6,.05)" : "var(--color-surface)" }}>
-                <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700 }}>{r.name}</span>
-                  {r.department && <span className="muted" style={{ fontSize: 10, marginLeft: 6 }}>{r.department}</span>}
-                </div>
-                <NumPill value={r.placedProp} tone="brand" />
-                <NumPill value={r.placedClose} tone="accent" />
-                {r.isAgent
-                  ? <KgiProgress placed={r.placedTotal} target={r.kgiTarget} />
-                  : <span className="muted" style={{ fontSize: 11, textAlign: "center" }}>—</span>}
-                {!r.isAgent
-                  ? <span className="muted" style={{ textAlign: "center", fontSize: 11 }}>—</span>
-                  : r.dailyProposalTarget != null
-                    ? <span style={{ textAlign: "center", fontSize: 11.5, fontWeight: 800, color: "var(--color-brand-700)" }}>{r.dailyProposalTarget}件</span>
-                    : <Link href="/settings/person-kgi" title="個人KGI未設定。クリックして設定" style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#b45309", textDecoration: "none" }}>未設定</Link>}
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* メンバー別アクティビティ（今日）：KPI推移と同じ表（提案/コンタクト/調整中/日程確定/成約＋達成率）。 */}
+      <div style={{ marginBottom: 14 }}>
+        <MemberActivitySection access={{ role: "admin" }} />
+      </div>
 
+      {/* 下段：今日の日報 */}
+      <div>
         {/* 今日の日報 */}
         <div className="card" style={{ padding: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -431,27 +363,3 @@ function IssueCard({ tone, icon, title, detail, action, href }: Issue) {
   return href ? <Link href={href} style={{ textDecoration: "none" }}>{body}</Link> : body;
 }
 
-function NumPill({ value, tone }: { value: number; tone: "brand" | "accent" }) {
-  const on = value > 0;
-  const color = tone === "brand" ? "var(--color-brand-700)" : "#067647";
-  return (
-    <span className="mono" style={{ fontSize: 14, fontWeight: 800, color: on ? color : "var(--color-ink-4)", textAlign: "center" }}>{value}</span>
-  );
-}
-
-// 稼働化の対KGI進捗バー。target未設定なら「KGI未設定」を出す。
-function KgiProgress({ placed, target }: { placed: number; target: number | null }) {
-  if (target == null || target <= 0) {
-    return <span style={{ fontSize: 10, color: "#b45309", fontWeight: 700 }}>KGI未設定</span>;
-  }
-  const pct = Math.min(100, Math.round((placed / target) * 100));
-  const done = placed >= target;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div style={{ flex: 1, height: 4, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: done ? "#1aa260" : "#067647", transition: "width .25s" }} />
-      </div>
-      <span className="mono" style={{ fontSize: 10.5, color: done ? "#067647" : "var(--color-ink-3)", width: 32, textAlign: "right" }}>{placed}/{target}</span>
-    </div>
-  );
-}

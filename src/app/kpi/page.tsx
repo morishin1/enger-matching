@@ -9,11 +9,10 @@ import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
+import { resolveActivityMembers } from "@/lib/activity-members";
 import { KpiDashboardClient } from "@/components/KpiDashboardClient";
 import { TeamActivityBoard } from "@/components/TeamActivityBoard";
 import { AnalyticsTabs } from "@/components/AnalyticsTabs";
-import { canManageDept } from "@/lib/roles";
-import { listAccounts } from "@/lib/accounts";
 
 const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
@@ -80,15 +79,10 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   });
 
   // メンバー別アクティビティ（誰が何をやったか）。admin/経営=全員、マネージャー/リーダー=自部署。
-  let activityMembers: { name: string; email: string | null }[] = [];
-  if (access.role === "admin") {
-    activityMembers = members.map((m) => ({ name: m.name, email: m.email }));
-  } else if (canManageDept(access.teamRole) && access.department) {
-    const accs = await listAccounts();
-    activityMembers = accs
-      .filter((a) => a.status === "active" && (a.role === "agent" || a.role === "admin") && a.name && (a as any).department === access.department)
-      .map((a) => ({ name: a.name!, email: a.email ?? null }));
-  }
+  //   メンバーは staff(active) ∪ proposal_owners で解決（3名固定にならず、編集UIから増減できる）。
+  const activityMembers = await resolveActivityMembers({
+    role: access.role, teamRole: access.teamRole, department: access.department,
+  });
   const activity = activityMembers.length > 0
     ? await getTeamActivity({ start: range.start, end: range.end, members: activityMembers })
     : [];
