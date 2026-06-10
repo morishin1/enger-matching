@@ -244,6 +244,14 @@ export function PeopleTable({
 
   // 詳細ドロワー
   const [detail, setDetail] = useState<any | null>(null);
+  // 行データ(rows)が更新されたら、開いている詳細ドロワーも最新の行で同期する。
+  //   ※ 編集→保存→router.refresh() で rows は最新化されるが、detail は古いオブジェクト
+  //     参照のままになり「詳細だけ反映されない」事故になっていた（一覧は反映される）。
+  useEffect(() => {
+    if (!detail?.candidate_no) return;
+    const fresh = rows.find((r) => r.candidate_no === detail.candidate_no);
+    if (fresh && fresh !== detail) setDetail(fresh);
+  }, [rows, detail?.candidate_no]);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
     if (!detail) { setDrawerIn(false); return; }

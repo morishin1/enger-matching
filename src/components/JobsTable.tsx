@@ -224,6 +224,13 @@ export function JobsTable({
 
   // 詳細ドロワー
   const [detail, setDetail] = useState<any | null>(null);
+  // 行データ(rows)が更新されたら、開いている詳細ドロワーも最新の行で同期する。
+  //   ※ 編集→保存→router.refresh() で rows は最新化されるが、detail は古い参照のままになる事故対策。
+  useEffect(() => {
+    if (!detail?.job_no) return;
+    const fresh = rows.find((r) => r.job_no === detail.job_no);
+    if (fresh && fresh !== detail) setDetail(fresh);
+  }, [rows, detail?.job_no]);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
     if (!detail) { setDrawerIn(false); return; }

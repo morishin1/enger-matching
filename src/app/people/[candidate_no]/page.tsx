@@ -6,7 +6,7 @@ import { MailButton } from "@/components/MailButton";
 import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { reSubject } from "@/lib/gmail";
+import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
     try {
       const sb = engerClient();
       const base = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
-      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
+      let r: any = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      if (r.error) r = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
     } catch (e) {
@@ -64,6 +65,13 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
     ].join("\n"),
   };
 
+  // 元メール（Gmail）リンク。source_mail_url が gmail 形式ならメッセージ直リンク、
+  // それ以外は URL そのまま。何も無ければ氏名・所属会社で Gmail 検索にフォールバック。
+  const origMailUrl =
+    gmailMessageUrl(c.source_mail_url)
+    || c.source_mail_url
+    || gmailSearchUrl([c.name, c.source_company || c.company].filter(Boolean).join(" "));
+
   return (
     <div className="page">
       <div className="page-head">
@@ -74,6 +82,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          {origMailUrl && <a href={origMailUrl} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>↗ 元メール</a>}
           {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
           <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
           <EditCandidateButton candidate={c} />
