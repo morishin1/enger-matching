@@ -21,8 +21,8 @@ export function ProposalComposer({
   /** 提案者・承認者の選択肢（社内メンバー名）。空のときはローカルストレージの担当名のみ入力可能。 */
   members?: string[];
 }) {
-  // 提案ボード送信時に必須となる承認者。提案者は本人（sender）を既定とする。
-  const [approver, setApprover] = useState("");
+  // 承認者の選択は MailComposeWizard（メール送信モーダル）側に集約済みのため、
+  // ここでは持たない。提案者は本人（sender）を既定。
   const [target, setTarget] = useState<"client" | "cand">("client");
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(false);
@@ -195,32 +195,8 @@ export function ProposalComposer({
     window.open(replyThreadUrl, "_blank", "noopener");
   };
 
-  const proposeToBoard = async () => {
-    if (saved) return;
-    if (job?.job_no == null || cand?.candidate_no == null) { setMsg("提案できません（ID不足）"); return; }
-    // 提案者・承認者 必須チェック（ハードゲート）
-    const proposerName = (sender ?? "").trim();
-    const approverName = (approver ?? "").trim();
-    if (!proposerName) { setMsg("提案者が未設定です（画面右上の担当者名を選択してください）"); return; }
-    if (!approverName) { setMsg("承認者を選択してください（承認者の指定が必要です）"); return; }
-    if (proposerName === approverName) { setMsg("承認者は提案者と別の人を選んでください"); return; }
-    // 商流NGなら提案前にワンクッション確認（架電後に商流ミスで気づく事故を防ぐ）。
-    const fm = flowMatch(job ?? {}, cand ?? {});
-    if (fm.compat === "ng") {
-      const ok = window.confirm(
-        `⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま承認に進めますか？`
-      );
-      if (!ok) { setMsg("商流NGのため提案を中止しました（提案前に確認してください）"); return; }
-    }
-    setSaving(true); setMsg(null);
-    try {
-      const res = await createProposal(job.job_no, cand.candidate_no, score, proposerName, undefined, approverName);
-      if (res.ok) { setSaved(true); setSavedId(res.id ?? null); setMsg(res.existed ? "既に提案済みです" : `承認待ちで登録しました（承認者：${approverName}）`); }
-      else setMsg(res.error || "提案に失敗しました");
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "提案に失敗しました");
-    } finally { setSaving(false); }
-  };
+  // 「承認に出す」操作は MailComposeWizard 側（メール送信モーダル）に集約。
+  // この画面では承認者選択や proposeToBoard を持たない（重複UI排除）。
 
   const handleUndo = () => {
     if (!savedId) { setMsg("取り消せません（IDが不明です。提案管理から削除してください）"); return; }
@@ -299,32 +275,17 @@ export function ProposalComposer({
             📤 送信する（クライアント＋人材へ）
           </button>
         )}
-        {saved ? (
-          savedId ? (
-            <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
-              style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
-              title="クリックして取り消し（記録直後のみ）">
-              {undoing ? "取消中…" : "✓ 承認に出した（取消）"}
-            </button>
-          ) : (
-            <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 承認に出した</span>
-          )
+        {/* 承認者の選択＆「承認に出す」は廃止：メール送信モーダル側に集約（送信＝承認に出す＋送信）。
+            ここでは保存済みの表示と取消（直後のみ）だけを残す。 */}
+        {saved && (savedId ? (
+          <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
+            style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
+            title="クリックして取り消し（記録直後のみ）">
+            {undoing ? "取消中…" : "✓ 承認に出した（取消）"}
+          </button>
         ) : (
-          <>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--color-ink-3)" }} title="承認者（必須）：選んだ人が提案ボードで承認するまで「承認待ち」になります">
-              承認者
-              <select value={approver} onChange={(e) => setApprover(e.target.value)} disabled={saving}
-                style={{ fontFamily: "inherit", fontSize: 12, padding: "4px 6px", borderRadius: 6, border: `1px solid ${approver ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", minWidth: 96 }}>
-                <option value="">— 選択 —</option>
-                {members.filter((m) => m && m !== sender).map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </label>
-            <button type="button" className="btn brand" onClick={proposeToBoard} disabled={saving || !approver}
-              title={!approver ? "承認者を選択してください" : `${approver}さんに承認をお願いします`}>
-              {saving ? "処理中…" : "📋 承認に出す"}
-            </button>
-          </>
-        )}
+          <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 承認に出した</span>
+        ))}
         <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
         {saved && <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline", marginLeft: 4 }}>提案管理を開く</Link>}
       </div>

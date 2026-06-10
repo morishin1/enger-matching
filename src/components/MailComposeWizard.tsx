@@ -209,6 +209,9 @@ export function MailComposeWizard({
   const [jobToken, setJobToken] = useState<string | null>(null);
   const [candToken, setCandToken] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  // 「承認に出してから送信モーダルを開く」フロー用。保存成功時に true にすると
+  // SendBothMailsButton が autoOpen で送信モーダルを自動で開く。
+  const [autoOpenSend, setAutoOpenSend] = useState(false);
 
   // 元メールリンク：保存済みメッセージIDが無効/未登録の場合でも開けるよう、
   // 関連キーワード(会社名・案件名・人材名)で Gmail 検索URLにフォールバックする。
@@ -239,7 +242,8 @@ export function MailComposeWizard({
     setStep(2);
   };
 
-  const handleSave = async () => {
+  // 「承認に出して送信」用：保存（=承認に出す）に成功したら、送信モーダルを自動オープン。
+  const handleSaveAndSend = async (openSendAfter: boolean) => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
     // 商流NGなら提案前にワンクッション確認。
     const fm = flowMatch(job ?? {}, cand ?? {});
@@ -265,10 +269,11 @@ export function MailComposeWizard({
         if (res.existed) {
           setJobToken(null);
           setCandToken(null);
-          setMsg("既に提案済みです");
+          setMsg("既に提案済みです" + (openSendAfter ? "（メール送信を開きます）" : ""));
         } else {
-          setMsg("保存しました（提案ボードに追加）");
+          setMsg("承認に出しました" + (openSendAfter ? "（メール送信を開きます）" : "（提案ボードに追加）"));
         }
+        if (openSendAfter) setAutoOpenSend(true);
       } else {
         setMsg(res.error || "保存に失敗しました");
       }
@@ -340,43 +345,65 @@ export function MailComposeWizard({
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
-          {/* メインの送信ボタンは中央に配置（基本操作なので目立たせる） */}
-          <div style={{ display: "flex", justifyContent: "center", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            {/* Xserver SMTP 送信：1つのモーダルで案件側・人材側の2通をまとめて送信 */}
-            <SendBothMailsButton
-              label="📨 メールを送信"
-              className="btn brand"
-              jobSide={{
-                label: "案件側メール",
-                dotColor: "#ef4444",
-                to: clientForm.email,
-                cc: clientForm.cc,
-                subject: clientForm.subject,
-                body: clientForm.body,
-                buttonHtml: jobButtonHtml ?? undefined,
-                relatedKind: "proposal_job",
-                relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
-              }}
-              candSide={{
-                label: "人材側メール",
-                dotColor: "#3b82f6",
-                to: candForm.email,
-                cc: candForm.cc,
-                subject: candForm.subject,
-                body: candForm.body,
-                buttonHtml: candButtonHtml ?? undefined,
-                relatedKind: "proposal_cand",
-                relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
-              }}
-            />
+          {/* メインの操作行：承認者プルダウン＋送信ボタンを1段にまとめる。
+              未保存：承認者を選んで「📨 承認に出して送信」を押すと、内部で承認に出す→
+                      自動でメール送信モーダルを開く（1クリックで完結）。
+              保存済：すぐ「📨 メールを送信」が押せる。 */}
+          <div style={{ display: "flex", justifyContent: "center", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {!saved && (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--color-ink-3)" }}
+                title="承認者（必須）：選んだ人が提案ボードで承認するまで「承認待ち」になります">
+                承認者
+                <select value={approver} onChange={(e) => setApprover(e.target.value)} disabled={saving}
+                  style={{ fontFamily: "inherit", fontSize: 12.5, padding: "5px 8px", borderRadius: 6, border: `1px solid ${approver ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", minWidth: 130 }}>
+                  <option value="">— 選択 —</option>
+                  {members.filter((m) => m && m !== proposer).map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+            )}
+            {!saved ? (
+              <button type="button" className="btn brand" onClick={() => handleSaveAndSend(true)}
+                disabled={saving || !approver}
+                title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認を依頼してから送信モーダルを開きます`}
+                style={{ fontWeight: 800 }}>
+                {saving ? "処理中…" : "📨 承認に出して送信"}
+              </button>
+            ) : (
+              <SendBothMailsButton
+                label="📨 メールを送信"
+                className="btn brand"
+                autoOpen={autoOpenSend}
+                onAutoOpened={() => setAutoOpenSend(false)}
+                jobSide={{
+                  label: "案件側メール", dotColor: "#ef4444",
+                  to: clientForm.email, cc: clientForm.cc, subject: clientForm.subject, body: clientForm.body,
+                  buttonHtml: jobButtonHtml ?? undefined,
+                  relatedKind: "proposal_job",
+                  relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
+                }}
+                candSide={{
+                  label: "人材側メール", dotColor: "#3b82f6",
+                  to: candForm.email, cc: candForm.cc, subject: candForm.subject, body: candForm.body,
+                  buttonHtml: candButtonHtml ?? undefined,
+                  relatedKind: "proposal_cand",
+                  relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
+                }}
+              />
+            )}
+            {/* 送信せずに「承認に出すだけ」をしたい場合の補助ボタン（控えめ） */}
+            {!saved && (
+              <button type="button" className="btn ghost btn-sm" onClick={() => handleSaveAndSend(false)} disabled={saving || !approver}
+                title="メール送信せず、提案ボードに承認待ちで登録のみ">
+                承認に出すだけ
+              </button>
+            )}
           </div>
-          {/* 補助操作（編集に戻る・保存）は下段に控えめに配置 */}
+          {/* 補助操作（編集に戻る・次の導線）は下段に控えめに配置 */}
           <div style={{ display: "flex", justifyContent: "center", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" className="btn ghost" onClick={() => setStep(1)}>← 編集に戻る</button>
-            {saved ? (
+            {saved && (
               <>
-                <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1", fontWeight: 700 }}>✓ 保存済み</span>
-                {/* 次の動線：色付き＋矢印アイコンで目立たせる */}
+                <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1", fontWeight: 700 }}>✓ 承認に出し済み</span>
                 <Link href="/proposals" style={{
                   display: "inline-flex", alignItems: "center", gap: 6,
                   padding: "9px 18px", borderRadius: 10, textDecoration: "none",
@@ -387,22 +414,6 @@ export function MailComposeWizard({
                   提案管理へ
                   <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>arrow_forward</span>
                 </Link>
-                <span className="muted" style={{ fontSize: 11 }}>← ここに記録されました</span>
-              </>
-            ) : (
-              <>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--color-ink-3)" }} title="承認者（必須）：選んだ人が提案ボードで承認するまで「承認待ち」になります">
-                  承認者
-                  <select value={approver} onChange={(e) => setApprover(e.target.value)} disabled={saving}
-                    style={{ fontFamily: "inherit", fontSize: 12, padding: "4px 6px", borderRadius: 6, border: `1px solid ${approver ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", minWidth: 110 }}>
-                    <option value="">— 選択 —</option>
-                    {members.filter((m) => m && m !== proposer).map((m) => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </label>
-                <button type="button" className="btn ghost" onClick={handleSave} disabled={saving || !approver}
-                  title={!approver ? "承認者を選択してください" : `${approver}さんに承認をお願いします`}>
-                  {saving ? "処理中…" : "💾 承認に出して保存"}
-                </button>
               </>
             )}
           </div>

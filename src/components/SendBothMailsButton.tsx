@@ -24,7 +24,7 @@ export type MailSide = {
 };
 
 export function SendBothMailsButton({
-  jobSide, candSide, label = "📨 メールを送信", className = "btn brand", disabled, onSent,
+  jobSide, candSide, label = "📨 メールを送信", className = "btn brand", disabled, onSent, autoOpen, onAutoOpened, hideButton,
 }: {
   jobSide: MailSide;
   candSide: MailSide;
@@ -32,11 +32,17 @@ export function SendBothMailsButton({
   className?: string;
   disabled?: boolean;
   onSent?: () => void;
+  /** 親から「今すぐ開いて」と命令する用。保存→自動で送信モーダルを開くフローに使う。 */
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
+  /** ボタン非表示にしてモーダルだけ親制御で表示するモード（autoOpen と併用）。 */
+  hideButton?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (autoOpen) { setOpen(true); onAutoOpened?.(); } }, [autoOpen, onAutoOpened]);
   return (
     <>
-      <button type="button" className={className} disabled={disabled} onClick={() => setOpen(true)}>{label}</button>
+      {!hideButton && <button type="button" className={className} disabled={disabled} onClick={() => setOpen(true)}>{label}</button>}
       {open && <SendBothModal jobSide={jobSide} candSide={candSide} onClose={() => setOpen(false)} onSent={onSent} />}
     </>
   );
