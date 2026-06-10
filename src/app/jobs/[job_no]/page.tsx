@@ -8,6 +8,7 @@ import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
+import { ClosedBadge } from "@/components/ClosedBadge";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_TONE } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       const sb = engerClient();
       // 拡張カラムが無い環境でも落ちないようフォールバック
       const cols = "job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
-      let r: any = await sb.from("jobs").select(`${cols}, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
+      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
       j = r.data;
@@ -65,11 +66,11 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       <div className="page-head">
         <div>
           <div className="meta">Job · 案件詳細</div>
-          <h1>{j.title} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></h1>
+          <h1>{j.title} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span> {j.is_closed && <ClosedBadge />}</h1>
           <div className="sub">{[j.client_name, j.role_label, remoteLabel(j.remote_type), salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" · ") || "—"}</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
-          <Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          {!j.is_closed && <Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>}
           {origMailUrl && <a href={origMailUrl} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>↗ 元メール</a>}
           <MailButton to={j.contact_email} subject={`Re: ${j.title}`} body={""} label="窓口にメール" block />
           <EditJobButton job={j} />

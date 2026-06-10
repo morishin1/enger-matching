@@ -10,7 +10,8 @@ import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
-import { bulkSetFocus, bulkDeleteJobs } from "@/lib/actions";
+import { bulkSetFocus, bulkDeleteJobs, bulkSetClosed } from "@/lib/actions";
+import { ClosedBadge } from "./ClosedBadge";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -76,7 +77,12 @@ type Col = {
 };
 
 const JOB_COLS: Col[] = [
-  { key: "id", label: "案件ID", width: 84, render: (j) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>No.{String(j.job_no ?? 0).padStart(5, "0")}</span> },
+  { key: "id", label: "案件ID", width: 84, render: (j) => (
+      <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", display: "inline-flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
+        <span>No.{String(j.job_no ?? 0).padStart(5, "0")}</span>
+        {j.is_closed && <ClosedBadge size="xs" />}
+      </span>
+    ) },
   { key: "created", label: "掲載日", width: 96, defaultHidden: true, render: (j) => <span className="muted">{dateLabel(j.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterKey: "status", filterLabel: "ステータス", render: (j) => <Fresh d={j.created_at} /> },
   {
@@ -205,6 +211,16 @@ export function JobsTable({
     });
   };
 
+  const doClose = (value: boolean) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    start(async () => {
+      const res = await bulkSetClosed("jobs", "job_no", ids, value, "/jobs");
+      if (res.ok) { setSelected(new Set()); router.refresh(); }
+      else if (res.error) { setDeleteMsg({ ok: false, text: res.error }); setTimeout(() => setDeleteMsg(null), 5000); }
+    });
+  };
+
   const doDelete = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
@@ -311,6 +327,11 @@ export function JobsTable({
             </button>
             <button type="button" className="btn ghost" onClick={() => doBulk(false)} disabled={pending}>注力を解除</button>
             {!partner && (
+              <button type="button" className="btn ghost" onClick={() => doClose(true)} disabled={pending} title="一覧から外す（検索では表示。マッチング対象外）">
+                <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>block</span> クローズ
+              </button>
+            )}
+            {!partner && (
               <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
                 style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
                 削除
@@ -348,7 +369,7 @@ export function JobsTable({
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r, ctx)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>
+                        {!r.is_closed && <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
                     </td>
@@ -400,6 +421,7 @@ export function JobsTable({
                 <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(detail.job_no ?? 0).padStart(5, "0")}</span>
+                  {detail.is_closed && <ClosedBadge size="xs" />}
                 </h3>
                 <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
                   {[detail.client_name, detail.role_label, remoteLabel(detail.remote_type), salaryLabel(detail.salary_min, detail.salary_max)].filter(Boolean).join(" · ") || "—"}
@@ -411,9 +433,11 @@ export function JobsTable({
             {partner && !meetingDone && <MeetingGateBanner />}
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
-              </Link>
+              {!detail.is_closed && (
+                <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
+                </Link>
+              )}
               {!partner && <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>}
               <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label="窓口にメール" block />
               <EditJobButton job={detail} />

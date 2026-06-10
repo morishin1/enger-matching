@@ -82,14 +82,16 @@ export default async function ProposalsPage() {
         // ① 案件: 元メール本文(detail)も取得 → ドロワーの2カラム比較に使う。列が無ければ source_mail_url だけにフォールバック。
         const fetchJobs = async () => {
           if (!jobIds.length) return [];
-          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, detail").in("id", jobIds).limit(2000);
+          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, detail, is_closed").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, detail").in("id", jobIds).limit(2000);
           if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
         // ② 人材: 元メール本文(note)も取得。列が無ければ exp、それも無ければ source_mail_url だけ。
         const fetchCands = async () => {
           if (!candIds.length) return [];
-          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp").in("id", candIds).limit(2000);
+          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp, is_closed").in("id", candIds).limit(2000);
+          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
@@ -101,17 +103,17 @@ export default async function ProposalsPage() {
         ]);
 
         try {
-          const mJ: Record<string, { job_no: number; url: string | null; detail: string | null }> = {};
-          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, url: j.source_mail_url ?? null, detail: j.detail ?? null };
-          const mC: Record<string, { candidate_no: number; url: string | null; detail: string | null }> = {};
-          for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, url: c.source_mail_url ?? null, detail: c.note ?? c.exp ?? null };
+          const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean }> = {};
+          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, url: j.source_mail_url ?? null, detail: j.detail ?? null, closed: !!j.is_closed };
+          const mC: Record<string, { candidate_no: number; url: string | null; detail: string | null; closed: boolean }> = {};
+          for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, url: c.source_mail_url ?? null, detail: c.note ?? c.exp ?? null, closed: !!c.is_closed };
           const ownerByTitle: Record<string, string> = {};
           for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
           for (const c of cr as any[]) if (c?.owner) ownerByCompany[c.name] = c.owner;
           for (const p of all) {
-            if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; }
-            if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; }
+            if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed; }
+            if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed; }
             p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
           }
         } catch { /* 列未整備でも続行 */ }

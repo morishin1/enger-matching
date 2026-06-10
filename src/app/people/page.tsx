@@ -128,10 +128,12 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const rOr = fRank ? rankOr(fRank) : null;
 
       // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
-      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true) => {
+      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false) => {
         let qb: any = sb.from("candidates").select(selectCols, { count: "exact" });
         // ゴミ箱（deleted_at not null）は一覧に出さない。未マイグレ環境では includeTrashFilter=false で外す。
         if (includeTrashFilter) qb = qb.is("deleted_at", null);
+        // クローズ済は一覧の初期表示から外す（検索時のみ表示）。
+        if (hideClosed) qb = qb.eq("is_closed", false);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
           const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
@@ -168,8 +170,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       };
       const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
 
-      let res: any = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true));
-      if (res.error && /deleted_at|column/i.test(res.error.message)) {
+      const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
+      let res: any = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, true, hideClosed));
+      if (res.error && /deleted_at|is_closed|column/i.test(res.error.message)) {
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false));
       }
       if (res.error) res = await order(buildBase(baseCols, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
