@@ -44,14 +44,16 @@ const ANALYSIS: NavItem[] = [
   ] },
 ];
 
-// その他（補助ツール）。
+// その他（補助ツール）。ユーザー管理（承認）は「設定」の子に統合（管理者しか触らない＆機能上も設定の一部）。
 const TOOLS: NavItem[] = [
-  { href: "/settings/approvals", id: "approvals", label: "ユーザー管理", icon: "person_add", count: "approvalsPending", hot: true },
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
-  { href: "/settings", id: "settings", label: "設定", icon: "settings" },
+  { href: "/settings", id: "settings", label: "設定", icon: "settings", children: [
+    { href: "/settings/approvals", id: "approvals", label: "ユーザー管理", count: "approvalsPending" },
+    { href: "/settings", id: "settings-main", label: "各種設定" },
+  ] },
 ];
 
 // テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
