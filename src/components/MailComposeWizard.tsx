@@ -393,7 +393,6 @@ export function MailComposeWizard({
             )}
             {!saved ? (
               privileged ? (
-                // 権限者：そのまま送信
                 <button type="button" className="btn brand" onClick={handleSelfApproveAndSend}
                   disabled={saving || privileged === null}
                   title="承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"
@@ -401,7 +400,6 @@ export function MailComposeWizard({
                   {saving ? "処理中…" : "📨 メールを送信"}
                 </button>
               ) : (
-                // 一般エージェント：承認申請のみ
                 <button type="button" className="btn brand" onClick={handleRequestApproval}
                   disabled={saving || !approver}
                   title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
