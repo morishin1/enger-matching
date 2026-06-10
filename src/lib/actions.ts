@@ -1861,10 +1861,16 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   }
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
+  // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
   const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; return c; };
+  const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
+  if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
+    // updated_at 列がないテーブル定義 → タイムスタンプは省いて再試行
+    r = await admin.from("candidates").update(withoutUpdatedAt(row)).eq("candidate_no", candidateNo);
+  }
   if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|column/i.test(r.error.message)) {
-    r = await admin.from("candidates").update(stripped(row)).eq("candidate_no", candidateNo);
+    r = await admin.from("candidates").update(stripped(withoutUpdatedAt(row))).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
   revalidatePath(`/people/${candidateNo}`); revalidatePath("/people"); bustCounts();
@@ -1900,9 +1906,14 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
     row.accept_flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
   }
   const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.accept_flow_depth; return c; };
+  const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
+  if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
+    // updated_at 列がない旧スキーマ → タイムスタンプは省いて再試行
+    r = await admin.from("jobs").update(withoutUpdatedAt(row)).eq("job_no", jobNo);
+  }
   if (r.error && /contact_email|contact_name|source_mail_url|accept_flow_depth|column/i.test(r.error.message)) {
-    r = await admin.from("jobs").update(stripped(row)).eq("job_no", jobNo);
+    r = await admin.from("jobs").update(stripped(withoutUpdatedAt(row))).eq("job_no", jobNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
   revalidatePath(`/jobs/${jobNo}`); revalidatePath("/jobs"); bustCounts();
