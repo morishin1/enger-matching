@@ -279,6 +279,29 @@ export async function bulkSetFocus(
   return { ok: true, updated: idValues.length };
 }
 
+/** クローズ済フラグの一括設定 (service role)。
+ *   value=true でクローズ（一覧の初期表示から外し、マッチング対象外にする）、false で再開。
+ *   is_closed 列が未整備の環境では分かりやすいエラーを返す（supabase/closed-flag.sql を案内）。 */
+export async function bulkSetClosed(
+  table: "jobs" | "candidates",
+  idField: string,
+  idValues: number[],
+  value: boolean,
+  revalidate?: string,
+) {
+  if (!idValues || idValues.length === 0) return { ok: true, updated: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, updated: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
+  const { error } = await admin.from(table).update({ is_closed: value }).in(idField, idValues);
+  if (error) {
+    if (/is_closed|column/i.test(error.message)) return { ok: false, updated: 0, error: "クローズ用カラム未整備です。supabase/closed-flag.sql を実行してください。" };
+    return { ok: false, updated: 0, error: error.message };
+  }
+  if (revalidate) revalidatePath(revalidate);
+  bustCounts();
+  return { ok: true, updated: idValues.length };
+}
+
 /** 案件を一括削除（job_no の配列で指定）。 */
 export async function bulkDeleteJobs(jobNos: number[]) {
   // 既存の「削除」呼び出しは互換のためそのまま動かしつつ、実体はゴミ箱（ソフトデリート）に変更。

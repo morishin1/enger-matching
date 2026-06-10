@@ -9,7 +9,8 @@ import { MailButton } from "./MailButton";
 import { AffiliationSelect } from "./AffiliationSelect";
 import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
-import { bulkSetFocus, bulkDeleteCandidates } from "@/lib/actions";
+import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
+import { ClosedBadge } from "./ClosedBadge";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -88,7 +89,12 @@ type Col = {
 };
 
 const PEOPLE_COLS: Col[] = [
-  { key: "id", label: "人材ID", width: 84, render: (p) => <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</span> },
+  { key: "id", label: "人材ID", width: 84, render: (p) => (
+      <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", display: "inline-flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
+        <span>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</span>
+        {p.is_closed && <ClosedBadge size="xs" />}
+      </span>
+    ) },
   { key: "created", label: "登録日", width: 96, defaultHidden: true, render: (p) => <span className="muted">{dateLabel(p.created_at)}</span> },
   { key: "status", label: "ステータス", width: 104, filterKey: "status", filterLabel: "ステータス", render: (p) => <Fresh d={p.created_at} /> },
   {
@@ -236,6 +242,16 @@ export function PeopleTable({
     });
   };
 
+  const doClose = (value: boolean) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    start(async () => {
+      const res = await bulkSetClosed("candidates", "candidate_no", ids, value, "/people");
+      if (res.ok) { setSelected(new Set()); router.refresh(); }
+      else if (res.error) { setDeleteMsg({ ok: false, text: res.error }); setTimeout(() => setDeleteMsg(null), 5000); }
+    });
+  };
+
   const doDelete = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
@@ -341,6 +357,9 @@ export function PeopleTable({
               <span style={{ fontWeight: 700 }}>♥</span><span>注力に一括登録</span>
             </button>
             <button type="button" className="btn ghost" onClick={() => doBulk(false)} disabled={pending}>注力を解除</button>
+            <button type="button" className="btn ghost" onClick={() => doClose(true)} disabled={pending} title="一覧から外す（検索では表示。マッチング対象外）">
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>block</span> クローズ
+            </button>
             <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
               style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
               削除
@@ -377,7 +396,7 @@ export function PeopleTable({
                     {visibleCols.map((c) => <td key={c.key} className={c.num ? "num" : ""}>{c.render!(r)}</td>)}
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>
+                        {!r.is_closed && <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
                         <MailButton url={m.url} search={m.search} to={m.to} />
                       </div>
                     </td>
@@ -429,6 +448,7 @@ export function PeopleTable({
                 <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(detail.candidate_no ?? 0).padStart(5, "0")}</span>
+                  {detail.is_closed && <ClosedBadge size="xs" />}
                 </h3>
                 <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
                   {(() => { const co = detail.source_company || detail.company; const com = co && detail.affiliation ? `${co}（${detail.affiliation}）` : (co || detail.affiliation); return [detail.title, com].filter(Boolean).join(" · ") || "—"; })()}
@@ -438,9 +458,11 @@ export function PeopleTable({
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
-              </Link>
+              {!detail.is_closed && (
+                <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span><span>マッチング</span>
+                </Link>
+              )}
               <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>
               {detail.skill_sheet_url && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>

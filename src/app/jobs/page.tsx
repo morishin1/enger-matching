@@ -134,10 +134,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const rOr = fRank ? rankOr(fRank) : null;
 
       // 検索＋フィルタを 1 本のクエリに集約（outside_owner フィルタだけは列の有無に依存するため別関数）
-      const buildBase = (selectCols: string) => {
+      const buildBase = (selectCols: string, hideClosed = false) => {
         let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
         // ゴミ箱（deleted_at not null）は一覧に出さない。列が無い旧環境ではフォールバックで is() を外す。
         qb = qb.is("deleted_at", null);
+        // クローズ済は一覧の初期表示から外す（検索時のみ表示）。
+        if (hideClosed) qb = qb.eq("is_closed", false);
         if (!showAll) qb = qb.eq("is_published", true);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
@@ -185,8 +187,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
         return qb;
       };
-      let listRes: any = await order(withOwner(buildBase(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
-      if (listRes.error && /deleted_at|column/i.test(listRes.error.message)) {
+      const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
+      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url`, hideClosed)));
+      if (listRes.error && /deleted_at|is_closed|column/i.test(listRes.error.message)) {
         listRes = await order(withOwner(buildBaseNoTrash(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
       }
       if (listRes.error) listRes = await order(withOwner(buildBase(`${baseCols}, outside_owner`)));
