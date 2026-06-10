@@ -48,6 +48,17 @@ function remotePrefLabel(raw?: string | null): string | null {
   return cp; // 未分類はそのまま表示
 }
 
+// 国籍を 3 区分（日本国籍 / 外国籍 / 不明）のバッジで表示。原文（国名など）は title に保持。
+function CandNatBadge({ value }: { value?: string | null }) {
+  const cat = classifyCandNationality(value);
+  const tone = CAND_NAT_TONE[cat];
+  return (
+    <span title={value ?? undefined} style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>
+      {CAND_NAT_LABEL[cat]}
+    </span>
+  );
+}
+
 function SkillTags({ skills }: { skills?: unknown }) {
   const ss = Array.isArray(skills) ? (skills as string[]) : [];
   const top = ss.slice(0, 3);
@@ -454,7 +465,7 @@ export function PeopleTable({
                 ["ステータス", detail.status],
                 ["ランク", detail.rank],
                 ["年代", (detail as any).age_band],
-                ["国籍", (detail as any).nationality],
+                ["国籍", <CandNatBadge key="nat" value={(detail as any).nationality} />],
                 ["経験", detail.exp],
                 ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : null)],
                 ["稼働開始", detail.avail],

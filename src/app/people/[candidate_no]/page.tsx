@@ -8,8 +8,20 @@ import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
+import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
+
+// 人材の国籍を 3 区分（日本国籍 / 外国籍 / 不明）のバッジで表示。原文は title に保持。
+function NatBadge({ value }: { value?: string | null }) {
+  const cat = classifyCandNationality(value);
+  const tone = CAND_NAT_TONE[cat];
+  return (
+    <span title={value ?? undefined} style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>
+      {CAND_NAT_LABEL[cat]}
+    </span>
+  );
+}
 
 const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
   value ? (
@@ -112,7 +124,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <Row label="勤務地" value={c.location} />
         <Row label="リモート希望" value={c.remote_pref} />
         <Row label="年齢層" value={c.age_band} />
-        <Row label="国籍" value={c.nationality} />
+        <Row label="国籍" value={<NatBadge value={c.nationality} />} />
         <Row label="日本語" value={c.japanese_level} />
         <Row label="コミュ力" value={c.comm} />
         <Row label="スキルレベル" value={c.skill_level} />
