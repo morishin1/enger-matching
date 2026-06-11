@@ -27,17 +27,33 @@ export default async function CompaniesPage() {
   const isAdmin = !access || access.role === "admin";
 
   // 手動登録した企業マスタ（連絡先・業種・担当・メモ）。名寄せして詳細/編集に使う。
+  //   ★重要：meeting_done（打合せ済フラグ）は is_ng / last_contacted_at 等の「任意列」と
+  //     同じ SELECT にまとめると、任意列が未整備のときフォールバックで meeting_done ごと
+  //     落ちてしまい、「DBには true があるのに一覧は未」という事故になる。
+  //     そこで meeting_done を任意列から切り離して取得する。
   let registered: any[] = [];
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason, meeting_done, meeting_done_at");
-      // meeting_done_at だけ未整備の環境でも meeting_done（打合せ済フラグ）を取りこぼさないフォールバック。
-      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason, meeting_done");
-      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason");
-      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at");
-      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
+      // ① コア列＋打合せフラグ（meeting_done を最優先で確実に読む。is_ng 等には依存させない）
+      const core = "name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note";
+      let res: any = await sb.from("companies").select(`${core}, meeting_done, meeting_done_at`);
+      if (res.error) res = await sb.from("companies").select(`${core}, meeting_done`);
+      if (res.error) res = await sb.from("companies").select(core);
       registered = res.data ?? [];
+
+      // ② 任意列（NG / 最終接触）は別クエリで取得して name でマージ。
+      //    これらが未整備でも meeting_done の表示は壊れない（fail-soft）。
+      try {
+        let ext: any = await sb.from("companies").select("name, last_contacted_at, is_ng, ng_reason");
+        if (ext.error) ext = await sb.from("companies").select("name, last_contacted_at, is_ng");
+        if (ext.error) ext = await sb.from("companies").select("name, is_ng, ng_reason");
+        if (ext.error) ext = await sb.from("companies").select("name, last_contacted_at");
+        if (!ext.error && Array.isArray(ext.data)) {
+          const em = new Map<string, any>(ext.data.map((r: any) => [r.name, r]));
+          registered = registered.map((r: any) => ({ ...r, ...(em.get(r.name) ?? {}) }));
+        }
+      } catch { /* 任意列が無くても続行 */ }
     } catch { /* companies-extend.sql 未実行などは無視 */ }
   }
 
