@@ -24,6 +24,35 @@ async function notify(recipient: string | null | undefined, title: string, body:
   } catch { /* 通知失敗は本処理を止めない */ }
 }
 
+/** 提案ゲート用：与えられた企業名のうち、最初に「打合せ未済」のものを返す。
+ *   判定：① meetings に company_name の記録あり、または ② companies.meeting_done = true で「済」。
+ *   どちらの表でも判定できなかった場合は誤ブロック防止のため通過させる。
+ *   空文字の name はスキップ。 */
+async function firstUnmetCompany(
+  admin: ReturnType<typeof engerAdmin>,
+  targets: { label: string; name: string }[],
+): Promise<{ label: string; name: string } | null> {
+  for (const t of targets) {
+    const name = (t.name ?? "").trim();
+    if (!name) continue;
+    let ok = false;
+    // ① meetings 記録（既存ロジック踏襲：ilike で表記揺れに寛容）
+    try {
+      const { data } = await admin.from("meetings").select("id").ilike("company_name", name).limit(1);
+      if ((data?.length ?? 0) > 0) ok = true;
+    } catch { ok = true; /* meetings 未整備は誤ブロック防止で通過 */ }
+    // ② companies.meeting_done = true（手動チェック）。①が ok のときはスキップ。
+    if (!ok) {
+      try {
+        const { data } = await admin.from("companies").select("id").ilike("name", name).eq("meeting_done", true).limit(1);
+        if ((data?.length ?? 0) > 0) ok = true;
+      } catch { ok = true; /* companies 列未整備は通過 */ }
+    }
+    if (!ok) return t;
+  }
+  return null;
+}
+
 export type CandidateInput = {
   code?: string | null;
   name: string;
@@ -531,7 +560,9 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
     if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
     job = jr.data;
-    const cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
+    // 打合せ済ゲートで所属企業を判定するため、source_company / company も合わせて取得（フォールバックあり）。
+    let cr: any = await admin.from("candidates").select("id, name, initials, rate, source_company, company").eq("candidate_no", candNo).maybeSingle();
+    if (cr.error) cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
     cand = cr.data;
   }
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
@@ -575,21 +606,22 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
 
   // 打ち合わせ/顔合わせ未実施の企業への提案ゲート。
-  //   先方と一度も打合せていない企業へは、管理者/マネージャー以外は提案できない
-  //   （無闇な提案で信用を損なわないため）。打合せ記録（meetings）が無い & 提案者が
-  //   admin/manager でない場合はブロックして、先に打合せ記録か上長対応を促す。
+  //   案件側（job.client_name）に加え、人材側（cand の所属企業 = source_company || company）も対象。
+  //   どちらも「meetings に記録あり」または「companies.meeting_done = true」で「打合せ済」と判定。
+  //   どれも該当しない企業へは、管理者/マネージャー以外は提案できない（無闇な提案で信用を損なわないため）。
+  //   meetings / companies が未整備の環境では誤ブロック防止のためゲートを無効化。
   {
     const me = await currentAccess();
     const { canManageDept } = await import("./roles");
     const privileged = !me || me.role === "admin" || canManageDept(me.teamRole ?? null);
-    if (!privileged && (job.client_name ?? "").trim()) {
-      let hasMeeting = false;
-      try {
-        const { data: mtg } = await admin.from("meetings").select("id").ilike("company_name", job.client_name).limit(1);
-        hasMeeting = (mtg?.length ?? 0) > 0;
-      } catch { hasMeeting = true; /* meetings 未整備の環境ではゲートを無効化（誤ブロック防止） */ }
-      if (!hasMeeting) {
-        return { ok: false, error: "この企業はまだ打ち合わせ・顔合わせの記録がありません。提案には管理者またはマネージャーの操作（許可）が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。" };
+    if (!privileged) {
+      const candCompany = ((cand as any).source_company ?? (cand as any).company ?? "").toString().trim();
+      const blocked = await firstUnmetCompany(admin, [
+        { label: "案件の", name: (job.client_name ?? "").toString().trim() },
+        { label: "人材の所属", name: candCompany },
+      ]);
+      if (blocked) {
+        return { ok: false, error: `${blocked.label}企業「${blocked.name}」はまだ打ち合わせ・顔合わせの記録がありません。提案には管理者またはマネージャーの操作（許可）が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。` };
       }
     }
   }
@@ -682,7 +714,9 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
   let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
   if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
   const job: any = jr.data;
-  const cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
+  // 打合せ済ゲートで所属企業を判定するため、source_company / company も合わせて取得。
+  let cr: any = await admin.from("candidates").select("id, name, initials, rate, source_company, company").eq("candidate_no", candNo).maybeSingle();
+  if (cr.error) cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
   const cand: any = cr.data;
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
@@ -695,7 +729,28 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
 
   // 提案者の既定＝本人（ログイン中）
   let proposerName = (proposer ?? "").trim() || null;
-  try { const me = await currentAccess(); if (me && !proposerName) proposerName = (me.name ?? "").trim() || null; } catch { /* 未ログインでも続行 */ }
+  let recordPrivileged = false;
+  try {
+    const me = await currentAccess();
+    if (me) {
+      if (!proposerName) proposerName = (me.name ?? "").trim() || null;
+      const { canManageDept } = await import("./roles");
+      recordPrivileged = me.role === "admin" || canManageDept(me.teamRole ?? null);
+    }
+  } catch { /* 未ログインでも続行 */ }
+
+  // 打合せ未済企業への提案ゲート（案件のクライアント＋人材の所属企業）。createProposal と同条件。
+  //   管理者/マネージャー/リーダーはスキップ。
+  if (!recordPrivileged) {
+    const candCompany = (cand.source_company ?? cand.company ?? "").toString().trim();
+    const blocked = await firstUnmetCompany(admin, [
+      { label: "案件の", name: (job.client_name ?? "").toString().trim() },
+      { label: "人材の所属", name: candCompany },
+    ]);
+    if (blocked) {
+      return { ok: false, error: `${blocked.label}企業「${blocked.name}」はまだ打ち合わせ・顔合わせの記録がありません。先に「打合せ記録」を登録するか、上長に依頼してください。` };
+    }
+  }
 
   // クロージング担当の既定＝案件の outside_owner（無ければ企業マスタ owner）。アウトサイドへトスアップしやすく。
   let defaultCloser: string | null = (job.outside_owner ?? "").trim() || null;
