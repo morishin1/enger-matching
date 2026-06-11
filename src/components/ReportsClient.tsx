@@ -147,8 +147,21 @@ function ReportCard({ r, canReply }: { r: DailyReport; canReply?: boolean }) {
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
           <b style={{ fontSize: 13.5 }}>{r.author}</b>
+          {/* 確認済みバッジ：管理者/マネージャーが「確認した」を押すと、本人（作者）のカードにも表示される */}
+          {r.reviewed_by_admin_at && (
+            <span title={`${r.reviewed_by_admin_name ?? "管理者"} が ${new Date(r.reviewed_by_admin_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に確認`}
+              style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", whiteSpace: "nowrap" }}>
+              ✓ 管理者確認済{r.reviewed_by_admin_name ? `（${r.reviewed_by_admin_name}）` : ""}
+            </span>
+          )}
+          {r.reviewed_by_manager_at && (
+            <span title={`${r.reviewed_by_manager_name ?? "マネージャー"} が ${new Date(r.reviewed_by_manager_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に確認`}
+              style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef6fd", color: "#0b5cab", border: "1px solid #cfe5f7", whiteSpace: "nowrap" }}>
+              ✓ 上長確認済{r.reviewed_by_manager_name ? `（${r.reviewed_by_manager_name}）` : ""}
+            </span>
+          )}
           {isAdmin && (r.replied_at
             ? <span title={`${r.replied_by ?? "管理者"} が ${new Date(r.replied_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に返信済`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", whiteSpace: "nowrap" }}>✓ 管理者返信済</span>
             : r.ai_replied_at
@@ -307,7 +320,7 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
   );
 }
 
-export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, members = [], reviewKind = null }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; members?: string[]; reviewKind?: "admin" | "manager" | null }) {
+export function ReportsClient({ author, today, actuals, reports, isAdmin = false, canReply = false, canSubmit = true, members = [], reviewKind = null }: { author: string; today: string; actuals: Actuals; reports: DailyReport[]; isAdmin?: boolean; canReply?: boolean; canSubmit?: boolean; members?: string[]; reviewKind?: "admin" | "manager" | null }) {
   const todays = reports.find((r) => r.author === author && r.report_date === today);
   const canManage = isAdmin || canReply; // 提出カレンダー＋返信UI を出す
   return (
@@ -315,10 +328,9 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
       {canManage && (
         <SubmissionCalendar members={members} reports={reports} today={today} />
       )}
-      {/* 自分の日報は誰でも提出できる（管理者・経営・マネージャー含む）。
-          以前は閲覧スコープ=全体（isAdmin）だと入力フォームが消え、
-          経営/マネージャーが自分の日報を書けない問題があったため、氏名があれば常時表示に変更。 */}
-      {author && (
+      {/* 自分の日報は経営・マネージャー・リーダー・メンバーが提出できる。
+          管理者（本来の admin）は日報不要のため canSubmit=false でフォームを出さない。 */}
+      {author && canSubmit && (
         <>
           {todays ? (
             <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>

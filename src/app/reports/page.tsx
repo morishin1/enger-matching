@@ -102,7 +102,8 @@ export default async function ReportsPage() {
       )}
 
       {author && <MyDailyScorecard s={scorecard} />}
-      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} isAdmin={effective === "all"} canReply={canReply} members={members} reviewKind={access?.role === "admin" ? "admin" : effective === "dept" ? "manager" : null} />
+      {/* 管理者（本来の admin）は日報不要：入力フォームを出さない（canSubmit=false）。経営・マネージャー等は提出可。 */}
+      <ReportsClient author={author} today={today} actuals={actuals} reports={reports} isAdmin={effective === "all"} canReply={canReply} canSubmit={!isTrueAdmin} members={members} reviewKind={access?.role === "admin" ? "admin" : effective === "dept" ? "manager" : null} />
     </div>
   );
 }
