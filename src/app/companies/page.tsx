@@ -53,12 +53,14 @@ export default async function CompaniesPage() {
   const meetingSetupIssue: "service" | "column" | null = !hasServiceKey ? "service" : !meetingDoneCol ? "column" : null;
 
   // 3ヶ月以上ご無沙汰の企業（最終接触＝直近案件/打合せ/連絡記録のうち最新が90日超 or 未接触）
+  // 突合は正規化（前後の空白・全角スペース除去）した企業名で行う（CompaniesView と同じ方針）。
+  const normName = (s?: string | null) => (s ?? "").replace(/^[\s　]+|[\s　]+$/g, "");
   const since90 = Date.now() - 90 * 86400000;
-  const regByName = new Map(registered.map((r) => [r.name, r]));
+  const regByName = new Map(registered.map((r) => [normName(r.name), r]));
   const names = new Set<string>([...companies.map((c) => c.name), ...registered.map((r) => r.name)]);
   const followups: FollowupRow[] = [...names].map((name) => {
-    const c = companies.find((x) => x.name === name);
-    const reg = regByName.get(name);
+    const c = companies.find((x) => normName(x.name) === normName(name));
+    const reg = regByName.get(normName(name));
     const ts = [c?.last_meeting_at, c?.last_job_at, reg?.last_contacted_at].filter(Boolean).map((d) => new Date(d as string).getTime());
     const t = ts.length ? Math.max(...ts) : 0;
     return { name, t, owner: reg?.owner_staff || "", contactName: reg?.contact_name || "", contactEmail: reg?.contact_email || "", tier: reg?.tier || c?.tier || "C" };
