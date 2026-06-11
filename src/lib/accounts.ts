@@ -229,8 +229,16 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
     ));
     let existingEmails = new Set<string>();
     if (candidateEmails.length > 0) {
-      const ex: any = await sb.from("app_users").select("email").in("email", candidateEmails);
-      if (!ex.error) existingEmails = new Set<string>((ex.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase()).filter(Boolean));
+      // 大文字混じり保存（例：Keiei@gw...）で .in() が取りこぼさないよう、
+      // ilike("email", ...) を OR 連結して候補メールごとに突合する。
+      const orExpr = candidateEmails.map((e) => `email.ilike.${e.replace(/,/g, "")}`).join(",");
+      const ex: any = await sb.from("app_users").select("email").or(orExpr);
+      if (!ex.error) existingEmails = new Set<string>((ex.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase().trim()).filter(Boolean));
+      else {
+        // フォールバック：.in() 単発
+        const ex2: any = await sb.from("app_users").select("email").in("email", candidateEmails);
+        if (!ex2.error) existingEmails = new Set<string>((ex2.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase().trim()).filter(Boolean));
+      }
     }
     const accounts: Account[] = [];
     const profileEmails = new Set<string>();
@@ -259,6 +267,19 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
     }
     // フォールバック: auth.users に居るが profiles にも app_users にも無い人（enger.jp 側で profiles を作っていない場合）
     //   → こちらも「LP登録 (Auth)」として承認待ち人材に拾う
+    //   ★重要：先の existingEmails は「profiles の email を app_users と突合」しただけなので、
+    //     profiles に存在しないが app_users には居るユーザー（管理者を直接アカウント追加した
+    //     ケース等）が拾い漏れて「未承認」扱いになる事故が起きていた。
+    //     ここで全 app_users の email を取得して app_users 既存判定に追加する。
+    try {
+      const allAu: any = await sb.from("app_users").select("email");
+      if (!allAu.error && Array.isArray(allAu.data)) {
+        for (const r of allAu.data) {
+          const e = String(r.email ?? "").toLowerCase().trim();
+          if (e) existingEmails.add(e);
+        }
+      }
+    } catch { /* app_users 全取得失敗時は profiles 由来のみで判定（最悪でも従来通り） */ }
     try {
       const aa = authAdmin();
       for (let page = 1; page <= 5; page++) {
