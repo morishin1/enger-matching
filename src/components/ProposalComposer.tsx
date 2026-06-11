@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, gmailMessageUrl, buildProposalPrompt } from "@/lib/gmail";
 import { createProposal, undoProposal } from "@/lib/actions";
-import { flowMatch, candDepthLabel, jobDepthLabel } from "@/lib/flow";
 import { MailBodyModal } from "./MailBodyModal";
 import { SendMailModalButton } from "./SendMailModalButton";
 

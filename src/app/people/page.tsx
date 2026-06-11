@@ -9,6 +9,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
+import { CAND_FLOW_OPTIONS } from "@/lib/flow";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,14 @@ const NATIONALITY_OPTIONS = [
   { value: "foreign", label: "外国籍" },
   { value: "unknown", label: "不明" },
 ];
+// 所属区分フィルタ：新マトリックス（5カテゴリ）固定リスト＋同義語の包含マッチ。
+const CAND_AFF_TO_LABELS: Record<string, string[]> = {
+  self_emp:    ["エイト社員"],
+  self_bp:     ["BP"],
+  vendor1_emp: ["一社下社員"],
+  vendor1_fl:  ["一社下FL", "一社下フリーランス"],
+  vendor2plus: ["二社下以降"],
+};
 
 // 鮮度ラベル → created_at の範囲（PeopleTable の freshnessLabel と同じ境界）
 const freshRange = (label: string): { gte?: string; lt?: string } | null => {
@@ -150,7 +159,13 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           qb = qb.or("remote_pref.ilike.%出社%,remote_pref.ilike.%常駐%")
             .not("remote_pref", "ilike", "%リモート%").not("remote_pref", "ilike", "%在宅%").not("remote_pref", "ilike", "%フル%");
         }
-        if (fAffiliation) qb = fAffiliation === "未設定" ? qb.or("affiliation.is.null,affiliation.eq.") : qb.eq("affiliation", fAffiliation);
+        if (fAffiliation) {
+          if (fAffiliation === "unknown") qb = qb.or("affiliation.is.null,affiliation.eq.");
+          else {
+            const labels = CAND_AFF_TO_LABELS[fAffiliation] ?? [];
+            if (labels.length > 0) qb = qb.in("affiliation", labels);
+          }
+        }
         // 国籍は 3 区分（NATIONALITY_OPTIONS）。外国籍＝値ありかつ日本を含まない。
         if (fNationality === "japan") {
           qb = qb.ilike("nationality", "%日本%");
@@ -214,7 +229,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     title: titleOptionVals.map((v) => ({ value: v, label: v })),
     remote: REMOTE_OPTIONS,
     skill_sheet: SKILL_SHEET_OPTIONS,
-    affiliation: ["未設定", ...affiliationOptionVals].map((v) => ({ value: v, label: v })),
+    affiliation: [...CAND_FLOW_OPTIONS, { value: "unknown", label: "未設定" }],
     nationality: NATIONALITY_OPTIONS,
     rank: RANK_OPTIONS,
   };

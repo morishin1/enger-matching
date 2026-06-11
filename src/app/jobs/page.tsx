@@ -12,6 +12,7 @@ import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskJobs } from "@/lib/tenant";
 import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
+import { JOB_FLOW_OPTIONS } from "@/lib/flow";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,18 @@ const NATIONALITY_OPTIONS = [
   { value: "open", label: "国籍不問" },
   { value: "unknown", label: "不明" },
 ];
+// 商流フィルタは新マトリックスの固定カテゴリ。
+//   ・各カテゴリは「正規ラベル」と同義語ラベルにマッチする（DBの自由文との突合用）。
+//   ・案件「貴社一社正社員まで」と「貴社一社先正社員まで」は同義語として統合（jp_to_1_seishain）。
+const FLOW_CAT_TO_LABELS: Record<string, string[]> = {
+  jp_to_self:          ["貴社まで"],
+  jp_to_self_seishain: ["貴社正社員まで"],
+  jp_to_1:             ["貴社一社まで"],
+  jp_to_1_seishain:    ["貴社一社正社員まで", "貴社一社先正社員まで"],
+  jp_to_2:             ["貴社二社まで"],
+  jp_to_2_seishain:    ["貴社二社正社員まで"],
+  any:                 ["商流不問"],
+};
 const escapeLike = (s: string) => s.replace(/[%_]/g, (m) => "\\" + m);
 const ilikeOr = (keys: readonly string[], fields: string[]) =>
   fields.flatMap((f) => keys.map((k) => `${f}.ilike.%${escapeLike(k)}%`)).join(",");
@@ -149,7 +162,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         }
         if (fRole) qb = qb.eq("role_label", fRole);
         if (fRemote) qb = qb.eq("remote_type", fRemote);
-        if (fFlow) qb = fFlow === "不明" ? qb.or("flow_note.is.null,flow_note.eq.") : qb.eq("flow_note", fFlow);
+        if (fFlow) {
+          if (fFlow === "unknown") qb = qb.or("flow_note.is.null,flow_note.eq.");
+          else {
+            const labels = FLOW_CAT_TO_LABELS[fFlow] ?? [];
+            if (labels.length > 0) qb = qb.in("flow_note", labels);
+          }
+        }
         if (rOr) qb = qb.or(rOr);
         // 国籍要件（案件本文の ilike 近似）。jp_only/open は該当語を含む、unknown は言及語を一切含まない。
         //   unknown は本文が空(null)も含めたいので「is.null または 言及語をすべて含まない」で field 毎に絞る。
@@ -180,7 +199,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         }
         if (fRole) qb = qb.eq("role_label", fRole);
         if (fRemote) qb = qb.eq("remote_type", fRemote);
-        if (fFlow) qb = fFlow === "不明" ? qb.or("flow_note.is.null,flow_note.eq.") : qb.eq("flow_note", fFlow);
+        if (fFlow) {
+          if (fFlow === "unknown") qb = qb.or("flow_note.is.null,flow_note.eq.");
+          else {
+            const labels = FLOW_CAT_TO_LABELS[fFlow] ?? [];
+            if (labels.length > 0) qb = qb.in("flow_note", labels);
+          }
+        }
         if (rOr) qb = qb.or(rOr);
         if (fNat === "jp_only") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.jp_only, ["detail", "title"]));
         else if (fNat === "open") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.open, ["detail", "title"]));
@@ -250,7 +275,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     role: roleOptionVals.map((v) => ({ value: v, label: v })),
     remote: REMOTE_OPTIONS,
     nationality: NATIONALITY_OPTIONS,
-    flow: ["不明", ...flowOptionVals].map((v) => ({ value: v, label: v })),
+    flow: [...JOB_FLOW_OPTIONS, { value: "unknown", label: "不明" }],
     rank: RANK_OPTIONS,
     outside_owner: ["未設定", ...ownerOptions].map((v) => ({ value: v, label: v })),
   };

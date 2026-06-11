@@ -135,12 +135,13 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <LockedField label="氏名 *" value={f.name} onChange={set("name")} lockNote="重複検出キー。変更すると別人材として扱われる可能性があります" />
               <Field label="職種" value={f.title} onChange={set("title")} />
               <LockedField label="所属会社" value={f.source_company} onChange={set("source_company")} lockNote="所属が変わると重複判定や絞り込みに影響します" />
-              <Field label="所属区分" value={f.affiliation} onChange={set("affiliation")} placeholder="一社下社員 / 一社下フリーランス / 二社下以降" />
-              <Select label="商流の深さ（上書き）" value={f.flow_depth} onChange={set("flow_depth")} options={[
-                { value: "", label: "自動推定（既定）" },
-                { value: "0", label: "0: PP（プロパー・自社社員）" },
-                { value: "1", label: "1: 一社下（協力会社の社員/FL）" },
-                { value: "2", label: "2: 二社下以降" },
+              <Select label="所属区分" value={f.affiliation} onChange={set("affiliation")} options={[
+                { value: "", label: "未設定" },
+                { value: "エイト社員",   label: "エイト社員（自社正社員）" },
+                { value: "BP",          label: "BP（自社のBP/FL）" },
+                { value: "一社下社員",   label: "一社下社員" },
+                { value: "一社下FL",    label: "一社下FL" },
+                { value: "二社下以降",  label: "二社下以降" },
               ]} />
               <Field label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               <Field label="希望単価" value={f.rate} onChange={set("rate")} />
@@ -246,12 +247,15 @@ export function EditJobButton({ job }: { job: any }) {
               <Field label="単価下限（万）" value={f.salary_min} onChange={set("salary_min")} />
               <Field label="単価上限（万）" value={f.salary_max} onChange={set("salary_max")} />
               <Select label="リモート可否" value={f.remote_type} onChange={set("remote_type")} options={REMOTE_OPTS} />
-              <Field label="商流（自由文）" value={f.flow_note} onChange={set("flow_note")} />
-              <Select label="受入商流（上書き）" value={f.accept_flow_depth} onChange={set("accept_flow_depth")} options={[
-                { value: "", label: "自動推定（既定）" },
-                { value: "0", label: "0: エイトまで（PPのみ）" },
-                { value: "1", label: "1: 一社先まで" },
-                { value: "2", label: "2: 二社先まで（事実上不問）" },
+              <Select label="商流（受入上限）" value={f.flow_note} onChange={set("flow_note")} options={[
+                { value: "",                  label: "不明" },
+                { value: "貴社まで",            label: "貴社まで" },
+                { value: "貴社正社員まで",       label: "貴社正社員まで" },
+                { value: "貴社一社まで",         label: "貴社一社まで" },
+                { value: "貴社一社正社員まで",    label: "貴社一社正社員まで" },
+                { value: "貴社二社まで",         label: "貴社二社まで" },
+                { value: "貴社二社正社員まで",    label: "貴社二社正社員まで" },
+                { value: "商流不問",             label: "商流不問" },
               ]} />
               <Field label="勤務地" value={f.work_location} onChange={set("work_location")} />
               <Field label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01" />
