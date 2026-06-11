@@ -14,9 +14,16 @@ type Registered = {
   meeting_done?: boolean | null; meeting_done_at?: string | null;
 };
 
-// 「打合せ済」判定：打合せ記録がある（自動） or 手動の打合せ完了フラグ（詳細でチェック）。
-const isMeetingDone = (c: { meeting_count?: number; reg?: Registered }) =>
-  (c.meeting_count ?? 0) > 0 || !!c.reg?.meeting_done;
+// 「打合せ済」判定：
+//   ・手動チェック true なら常に「済」
+//   ・手動チェックを外している（false かつ meeting_done_at が立つ＝ユーザーが明示的に外した）なら「未」（メ記録があっても解除を優先）
+//   ・どちらでもない（未設定）場合のみ、打合せ記録(meeting_count>0)を fallback として「済」と判定
+const isMeetingDone = (c: { meeting_count?: number; reg?: Registered }) => {
+  const reg = c.reg;
+  if (reg?.meeting_done === true) return true;
+  if (reg?.meeting_done === false && reg?.meeting_done_at) return false; // 明示的に「未」
+  return (c.meeting_count ?? 0) > 0;
+};
 type Merged = CompanyRow & { score: number; reasons: string[]; reg?: Registered; registered: boolean; action: ProspectAction };
 
 const sentTone = (s?: string | null) => !s ? null : s.includes("ポジ") ? { c: "#1aa260", t: s } : s.includes("ネガ") ? { c: "#d23f57", t: s } : s.includes("競合") ? { c: "#d98a2b", t: s } : { c: "#6b7280", t: s };
@@ -369,9 +376,14 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
   const isNew = !data;
 
-  // 打ち合わせ完了の手動フラグ。打合せ記録(meeting_count>0)があれば常に「済」扱い。
+  // 打ち合わせ完了の手動フラグ。
+  //   ・meeting_done=true → 常に「済」
+  //   ・meeting_done=false & meeting_done_at あり → 明示的「未」（auto を上書き）
+  //   ・どちらでもない → 打合せ記録(meeting_count>0)を fallback
   const autoDone = (data?.meeting_count ?? 0) > 0;
-  const [meetingDone, setMeetingDone] = useState<boolean>(!!reg?.meeting_done);
+  const explicitOff = reg?.meeting_done === false && !!reg?.meeting_done_at;
+  const initialChecked = reg?.meeting_done === true || (autoDone && !explicitOff);
+  const [meetingDone, setMeetingDone] = useState<boolean>(initialChecked);
   const [mdBusy, setMdBusy] = useState(false);
   const [mdMsg, setMdMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const toggleMeetingDone = async (next: boolean) => {
@@ -431,18 +443,23 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
           <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>温度感：{data.last_sentiment ?? "—"} / 関係性：{data.last_relation ?? "—"}（最終打合せ {dateLabel(data.last_meeting_at)}）</div>
         )}
 
-        {/* 打ち合わせ完了の手動チェック（詳細から印を付ける） */}
+        {/* 打ち合わせ完了の手動チェック（詳細から印を付ける）。
+            autoDone（打合せ記録あり）でも明示的に「未」へ戻せるよう、チェックは常に操作可能。 */}
         {data && (
           <div>
-            <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: autoDone || mdBusy ? "default" : "pointer",
-              background: (autoDone || meetingDone) ? "#e7f7ee" : "var(--color-surface-inset)", border: `1px solid ${(autoDone || meetingDone) ? "#bfe3cc" : "var(--color-border)"}` }}>
-              <input type="checkbox" checked={autoDone || meetingDone} disabled={autoDone || mdBusy}
+            <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: mdBusy ? "default" : "pointer",
+              background: meetingDone ? "#e7f7ee" : "var(--color-surface-inset)", border: `1px solid ${meetingDone ? "#bfe3cc" : "var(--color-border)"}` }}>
+              <input type="checkbox" checked={meetingDone} disabled={mdBusy}
                 onChange={(e) => toggleMeetingDone(e.target.checked)} style={{ width: 16, height: 16 }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: (autoDone || meetingDone) ? "#067647" : "var(--color-ink-2)" }}>
-                {(autoDone || meetingDone) ? "✓ 打ち合わせ完了" : "打ち合わせ完了にする"}
+              <span style={{ fontSize: 13, fontWeight: 700, color: meetingDone ? "#067647" : "var(--color-ink-2)" }}>
+                {meetingDone ? "✓ 打ち合わせ完了" : "打ち合わせ完了にする"}
               </span>
               <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-                {mdBusy ? "保存中…" : autoDone ? `打合せ記録${data.meeting_count}件あり（自動で済）` : meetingDone ? "手動でチェック済" : "顔合わせ・商談が済んだらチェック"}
+                {mdBusy ? "保存中…"
+                  : autoDone && !meetingDone ? `打合せ記録${data.meeting_count}件あり（明示的に「未」に設定）`
+                  : autoDone ? `打合せ記録${data.meeting_count}件あり`
+                  : meetingDone ? "手動でチェック済"
+                  : "顔合わせ・商談が済んだらチェック"}
               </span>
             </label>
             {mdMsg && (
