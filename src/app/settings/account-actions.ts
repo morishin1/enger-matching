@@ -85,10 +85,13 @@ export async function approveAccount(formData: FormData): Promise<Result> {
   if (!guard.ok) return guard;
   const actor = guard.actor!;
   const id = String(formData.get("id") ?? "");
-  const role = String(formData.get("role") ?? "client");
+  const role = String(formData.get("role") ?? "");
   const company = String(formData.get("company_name") ?? "").trim() || null;
   if (!id) return { ok: false, error: "id がありません" };
-  // エージェントは admin ロール付与不可（権限昇格防止）
+  // エージェントは admin ロール「付与」不可（権限昇格防止）。
+  //   ただし「既に admin の人を active に戻すだけ」のケースまでブロックすると
+  //   既存管理者の有効化ができなくなるため、ここでは「明示的に admin を指定した
+  //   昇格操作」だけ拒否する。
   if (role === "admin" && actor.role !== "admin") return { ok: false, error: "管理者ロールの付与は管理者のみ実行できます" };
   // LP登録(public.profiles または auth.users)からの承認は、まず app_users に挿入してから処理する
   if (id.startsWith("profile:") || id.startsWith("auth:")) {
@@ -97,14 +100,39 @@ export async function approveAccount(formData: FormData): Promise<Result> {
     if (!email) return { ok: false, error: "メールアドレスがありません" };
     try {
       const sb0 = engerAdmin();
-      // 既存重複は無視
-      const ex = await sb0.from("app_users").select("id").ilike("email", email).maybeSingle();
-      let newId: string | null = ex.data?.id ?? null;
-      if (!newId) {
-        const ins: any = await sb0.from("app_users").insert({ email, name, role: "candidate", status: "pending" }).select("id").maybeSingle();
-        if (ins.error) return { ok: false, error: ins.error.message };
-        newId = ins.data?.id ?? null;
+      // 既存 app_users との重複チェック。
+      //   ★重要：既に内部ロール（admin/agent/partner/freelance/client）で登録済みの
+      //     メールアドレスに対して、LP の candidate 経由で同名行を承認すると、
+      //     既存ロールを candidate に上書きしてしまう事故が起きていた
+      //     （管理者を承認したのに「人材ダッシュボード」が表示される）。
+      //   既存がある場合は、形だけ active 化するのみで「ロール変更は一切しない」。
+      const ex: any = await sb0.from("app_users").select("id, role, status").ilike("email", email).maybeSingle();
+      if (ex?.data?.id) {
+        const existingRole = ex.data.role as string | null;
+        const existingStatus = ex.data.status as string | null;
+        // 既存が無効化（disabled）なら、UI 上で意図的に再有効化されるべき。LP 経由では触らない。
+        if (existingStatus === "disabled") {
+          return { ok: false, error: `${email} は無効化済みのアカウントです。ユーザー管理から手動で「有効化」してください。` };
+        }
+        if (existingStatus === "active") {
+          return { ok: true }; // 既に有効。何もしない（ロール降格を防止）。
+        }
+        // pending のみ active へ（ロールは既存を維持）
+        const upd: Record<string, any> = { status: "active", approved_at: new Date().toISOString(), approved_by_email: actor.email, approved_by_name: actor.name };
+        let r: any = await sb0.from("app_users").update(upd).eq("id", ex.data.id);
+        if (r.error && /approved_by|column/i.test(r.error.message)) {
+          delete upd.approved_by_email; delete upd.approved_by_name;
+          r = await sb0.from("app_users").update(upd).eq("id", ex.data.id);
+        }
+        if (r.error) return { ok: false, error: r.error.message };
+        await audit(ex.data.id, email, "approve_existing", `kept role=${existingRole}`, actor);
+        bustMembers();
+        return { ok: true };
       }
+      // 既存無し：新規 app_users 行を candidate で作成 → 後段の UPDATE で role を確定する。
+      const ins: any = await sb0.from("app_users").insert({ email, name, role: "candidate", status: "pending" }).select("id").maybeSingle();
+      if (ins.error) return { ok: false, error: ins.error.message };
+      const newId: string | null = ins.data?.id ?? null;
       if (!newId) return { ok: false, error: "アカウント作成に失敗しました" };
       // 後段の更新で active 化
       const fd2 = new FormData();
@@ -116,9 +144,18 @@ export async function approveAccount(formData: FormData): Promise<Result> {
   }
   try {
     const sb = engerAdmin();
+    // 既存ロールを取得し、フォームの role が空・不正・既定値 "client" の場合は既存を維持する
+    // （UI が role を送らない承認操作で、管理者→client/candidate に降格する事故を防ぐ）。
+    const cur: any = await sb.from("app_users").select("role").eq("id", id).maybeSingle();
+    const existingRole = (cur?.data?.role ?? null) as string | null;
+    const explicitRole = String(formData.get("role") ?? "").trim();
+    const validRoles = ["admin", "agent", "client", "candidate", "partner", "freelance"] as const;
+    const finalRole = (explicitRole && (validRoles as readonly string[]).includes(explicitRole))
+      ? explicitRole
+      : (existingRole && (validRoles as readonly string[]).includes(existingRole) ? existingRole : "client");
     const upd: Record<string, any> = {
       status: "active",
-      role: ["admin", "agent", "client", "candidate", "partner", "freelance"].includes(role) ? role : "client",
+      role: finalRole,
       company_name: company,
       approved_at: new Date().toISOString(),
       approved_by_email: actor.email,
