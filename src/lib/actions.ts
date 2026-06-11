@@ -1220,27 +1220,62 @@ export async function setCompanyMeetingDone(name: string, done: boolean): Promis
   //   ※ こうしないと、打合せ記録(meeting_count>0)が後から自動で「済」を上書きしてしまい、解除しても外れない事故になる。
   const now = new Date().toISOString();
   const operator = (me?.name ?? "").trim() || null;
-  const full: Record<string, any> = {
-    name: n,
+  const patch: Record<string, any> = {
     meeting_done: !!done,
     meeting_done_at: now,
     meeting_done_by: operator,
   };
-  // 監査列(meeting_done_at / meeting_done_by)が未整備の環境でも、フラグ本体(meeting_done)は
-  // 必ず保存されるよう、列エラー時は行を段階的に削って再試行する。
-  //   ※ これをしないと「meeting_done_by 列が無い」だけで upsert 全体が失敗し、
-  //     画面の楽観更新が戻って「承認しても外れる」状態になっていた。
-  let { error } = await admin.from("companies").upsert(full, { onConflict: "name" });
-  if (error && /meeting_done_by|column/i.test(error.message)) {
-    const { meeting_done_by: _b, ...noBy } = full;
-    ({ error } = await admin.from("companies").upsert(noBy, { onConflict: "name" }));
-  }
-  if (error && /meeting_done_at|column/i.test(error.message)) {
-    ({ error } = await admin.from("companies").upsert({ name: n, meeting_done: !!done }, { onConflict: "name" }));
-  }
-  if (error) {
-    if (/meeting_done|column/i.test(error.message)) return { ok: false, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
-    return { ok: false, error: error.message };
+
+  // 既存行を正規化名（前後/内部の空白・全角空白・不可視文字を除き Unicode NFC した値）で照合し、
+  // 見つかったら id 指定で UPDATE する。これをしないと、案件メール由来の名前と
+  // 手動入力した名前が「微妙に違う」（末尾の全角空白、ゼロ幅スペース、NFD 等）だけで
+  // onConflict("name") が外れて新しい行が挿入され、一覧側の登録行は更新されないという
+  // 「保存は成功するのに一覧に反映されない」事故になる。
+  const normKey = (s?: string | null) => (s ?? "")
+    .normalize("NFC")
+    .replace(/[​-‍﻿]/g, "") // ゼロ幅スペース/ZWNJ/ZWJ/BOM
+    .replace(/[\s　]/g, "");           // 半角/全角の空白すべて
+  const target = normKey(n);
+  let updated = false;
+  try {
+    const all: any = await admin.from("companies").select("id, name").limit(50000);
+    if (!all.error && Array.isArray(all.data)) {
+      const matches = (all.data as any[]).filter((r) => normKey(r.name) === target);
+      if (matches.length > 0) {
+        const ids = matches.map((m) => m.id);
+        // 列未整備時のフォールバックを段階的に試す。
+        let r: any = await admin.from("companies").update(patch).in("id", ids);
+        if (r.error && /meeting_done_by|column/i.test(r.error.message)) {
+          const { meeting_done_by: _b, ...p2 } = patch;
+          r = await admin.from("companies").update(p2).in("id", ids);
+        }
+        if (r.error && /meeting_done_at|column/i.test(r.error.message)) {
+          r = await admin.from("companies").update({ meeting_done: !!done }).in("id", ids);
+        }
+        if (r.error) {
+          if (/meeting_done|column/i.test(r.error.message)) return { ok: false, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
+          return { ok: false, error: r.error.message };
+        }
+        updated = true;
+      }
+    }
+  } catch { /* 続行してフォールバックの upsert を試す */ }
+
+  if (!updated) {
+    // 既存行が見つからなければ新規追加（trim 済み名）。これも列未整備に段階フォールバック。
+    const full: Record<string, any> = { name: n, ...patch };
+    let { error } = await admin.from("companies").upsert(full, { onConflict: "name" });
+    if (error && /meeting_done_by|column/i.test(error.message)) {
+      const { meeting_done_by: _b, ...noBy } = full;
+      ({ error } = await admin.from("companies").upsert(noBy, { onConflict: "name" }));
+    }
+    if (error && /meeting_done_at|column/i.test(error.message)) {
+      ({ error } = await admin.from("companies").upsert({ name: n, meeting_done: !!done }, { onConflict: "name" }));
+    }
+    if (error) {
+      if (/meeting_done|column/i.test(error.message)) return { ok: false, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
+      return { ok: false, error: error.message };
+    }
   }
   revalidatePath("/companies");
   revalidateTag("approved-companies", "max"); // 案件/人材の承認バッジを即時更新
@@ -1259,28 +1294,65 @@ export async function bulkSetCompaniesMeetingDone(names: string[], done: boolean
   const now = new Date().toISOString();
   const operator = (me?.name ?? "").trim() || null;
   // 解除(off)した場合も meeting_done_at を立てる（明示的「未」を識別し、自動「済」に上書きされないようにする）。
-  const byName = (n: string) => ({
-    name: n,
+  const patch: Record<string, any> = {
     meeting_done: !!done,
     meeting_done_at: now,
     meeting_done_by: operator,
-  });
+  };
 
-  // まず全件まとめて upsert。列未整備時は段階的に列を落として再試行（単体と同じ方針）。
-  const rows = list.map(byName);
-  let { error } = await admin.from("companies").upsert(rows, { onConflict: "name" });
-  if (error && /meeting_done_by|column/i.test(error.message)) {
-    const noBy = rows.map(({ meeting_done_by: _b, ...r }) => r);
-    ({ error } = await admin.from("companies").upsert(noBy, { onConflict: "name" }));
+  // 単体と同じく、既存行を正規化名（空白/不可視文字除去・NFC）で照合して id 指定 UPDATE。
+  // 名前の微差で新行が挿入され「保存できたのに一覧に反映されない」状態を回避する。
+  const normKey = (s?: string | null) => (s ?? "")
+    .normalize("NFC")
+    .replace(/[​-‍﻿]/g, "")
+    .replace(/[\s　]/g, "");
+  const targets = new Set(list.map(normKey));
+  const matched: { id: string; name: string }[] = [];
+  try {
+    const all: any = await admin.from("companies").select("id, name").limit(50000);
+    if (!all.error && Array.isArray(all.data)) {
+      for (const r of all.data as any[]) {
+        if (targets.has(normKey(r.name))) matched.push(r);
+      }
+    }
+  } catch { /* 続行 */ }
+
+  // 既存マッチは id 指定でまとめて UPDATE。
+  if (matched.length > 0) {
+    const ids = matched.map((m) => m.id);
+    let r: any = await admin.from("companies").update(patch).in("id", ids);
+    if (r.error && /meeting_done_by|column/i.test(r.error.message)) {
+      const { meeting_done_by: _b, ...p2 } = patch;
+      r = await admin.from("companies").update(p2).in("id", ids);
+    }
+    if (r.error && /meeting_done_at|column/i.test(r.error.message)) {
+      r = await admin.from("companies").update({ meeting_done: !!done }).in("id", ids);
+    }
+    if (r.error) {
+      if (/meeting_done|column/i.test(r.error.message)) return { ok: false, updated: 0, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
+      return { ok: false, updated: 0, error: r.error.message };
+    }
   }
-  if (error && /meeting_done_at|column/i.test(error.message)) {
-    const onlyFlag = list.map((n) => ({ name: n, meeting_done: !!done }));
-    ({ error } = await admin.from("companies").upsert(onlyFlag, { onConflict: "name" }));
-  }
-  if (error) {
-    if (/meeting_done|column/i.test(error.message)) return { ok: false, updated: 0, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
-    if (/unique|on conflict|companies_name_uniq/i.test(error.message)) return { ok: false, updated: 0, error: "企業名の一意制約が未整備です（supabase/companies-extend.sql を実行してください）" };
-    return { ok: false, updated: 0, error: error.message };
+
+  // 既存が無かった企業名だけを新規 INSERT（trim 済み名）。
+  const matchedKeys = new Set(matched.map((m) => normKey(m.name)));
+  const toInsertNames = list.filter((n) => !matchedKeys.has(normKey(n)));
+  if (toInsertNames.length > 0) {
+    const rows: Record<string, any>[] = toInsertNames.map((n) => ({ name: n, ...patch }));
+    let { error } = await admin.from("companies").upsert(rows, { onConflict: "name" });
+    if (error && /meeting_done_by|column/i.test(error.message)) {
+      const noBy = rows.map(({ meeting_done_by: _b, ...r }) => r);
+      ({ error } = await admin.from("companies").upsert(noBy, { onConflict: "name" }));
+    }
+    if (error && /meeting_done_at|column/i.test(error.message)) {
+      const onlyFlag = toInsertNames.map((n) => ({ name: n, meeting_done: !!done }));
+      ({ error } = await admin.from("companies").upsert(onlyFlag, { onConflict: "name" }));
+    }
+    if (error) {
+      if (/meeting_done|column/i.test(error.message)) return { ok: false, updated: 0, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
+      if (/unique|on conflict|companies_name_uniq/i.test(error.message)) return { ok: false, updated: 0, error: "企業名の一意制約が未整備です（supabase/companies-extend.sql を実行してください）" };
+      return { ok: false, updated: 0, error: error.message };
+    }
   }
   revalidatePath("/companies");
   revalidateTag("approved-companies", "max");
