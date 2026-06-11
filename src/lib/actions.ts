@@ -670,6 +670,68 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   return { ok: true, id: data.id, existed: false, job_action_token, cand_action_token };
 }
 
+/** 提案を「記録」する（承認・メール送信なし）。
+ *   目的：どの案件にどの人材を提案したかを失わないため／アウトサイドへトスアップするため。
+ *   - 承認者は不要。すぐにボード（所属確認）に載せる。approval_status は approved 扱い（承認フローを通さない記録）。
+ *   - メールは送らない。後から提案管理 or マッチング画面のメール送信で送付できる。
+ *   - 重複（同一 job×candidate）は既存を返す（冪等）。 */
+export async function recordProposal(jobNo: number, candNo: number, score?: number, proposer?: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
+  // job / candidate の解決
+  let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
+  if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
+  const job: any = jr.data;
+  const cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
+  const cand: any = cr.data;
+  if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
+
+  // 重複チェック（冪等）
+  const { data: dups } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
+  if (dups && dups.length > 0) {
+    revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
+    return { ok: true, id: dups[0].id, existed: true };
+  }
+
+  // 提案者の既定＝本人（ログイン中）
+  let proposerName = (proposer ?? "").trim() || null;
+  try { const me = await currentAccess(); if (me && !proposerName) proposerName = (me.name ?? "").trim() || null; } catch { /* 未ログインでも続行 */ }
+
+  // クロージング担当の既定＝案件の outside_owner（無ければ企業マスタ owner）。アウトサイドへトスアップしやすく。
+  let defaultCloser: string | null = (job.outside_owner ?? "").trim() || null;
+  if (!defaultCloser && job.client_name) {
+    try { const { data: co } = await admin.from("companies").select("owner").ilike("name", job.client_name).maybeSingle(); defaultCloser = ((co as any)?.owner ?? "").trim() || null; } catch { /* companies 未整備 */ }
+  }
+
+  const now = new Date().toISOString();
+  const job_action_token = randomBytes(24).toString("hex");
+  const cand_action_token = randomBytes(24).toString("hex");
+  const insertBase = {
+    job_id: job.id, candidate_id: cand.id,
+    stage: "所属確認", // ボードの初期ステージ。ここから「話を進める／見送り」で進める。
+    job_title: job.title, company: job.client_name, candidate_name: cand.name,
+    c_init: cand.initials, rate: cand.rate, score: score ?? null, ai: false,
+    closer: defaultCloser,
+    proposer: proposerName,
+    approval_status: "approved", // 記録（承認フローを通さない）
+    approved_at: now,
+    job_action_type: "未回答", job_action_token,
+    cand_action_type: "未回答", cand_action_token,
+  } as Record<string, any>;
+  // 列未整備の旧環境に段階フォールバック
+  let ins: any = await admin.from("proposals").insert({ ...insertBase, stage_updated_at: now }).select("id").single();
+  if (ins.error && /approval_status|approved_at|column/i.test(ins.error.message)) {
+    const fb = { ...insertBase }; delete fb.approval_status; delete fb.approved_at;
+    ins = await admin.from("proposals").insert({ ...fb, stage_updated_at: now }).select("id").single();
+  }
+  if (ins.error && /stage_updated_at|column/i.test(ins.error.message)) {
+    ins = await admin.from("proposals").insert(insertBase).select("id").single();
+  }
+  if (ins.error) return { ok: false, error: ins.error.message };
+  revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
+  return { ok: true, id: ins.data?.id ?? null, existed: false };
+}
+
 /** 提案を承認（承認待ち → 所属確認 へ遷移）。承認できるのは admin か、approver と現在ユーザー名が一致する人。 */
 export async function approveProposal(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   let admin: ReturnType<typeof engerAdmin>;

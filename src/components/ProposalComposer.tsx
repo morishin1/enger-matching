@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, gmailMessageUrl, buildProposalPrompt } from "@/lib/gmail";
-import { createProposal, undoProposal } from "@/lib/actions";
+import { createProposal, undoProposal, recordProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 import { SendMailModalButton } from "./SendMailModalButton";
 
@@ -200,6 +200,26 @@ export function ProposalComposer({
   // 「承認に出す」操作は MailComposeWizard 側（メール送信モーダル）に集約。
   // この画面では承認者選択や proposeToBoard を持たない（重複UI排除）。
 
+  // 「提案を記録する」：承認・メール送信なしで、提案した事実だけをボードに残す。
+  //   → どこに提案したか失わない／アウトサイドへトスアップできる。記録後は提案管理で
+  //     「話を進める／見送り」へ進める。
+  const [recording, setRecording] = useState(false);
+  const recordOnly = async () => {
+    if (saved) return;
+    if (job?.job_no == null || cand?.candidate_no == null) { setMsg("記録できません（ID不足）"); return; }
+    setRecording(true); setMsg(null);
+    try {
+      const res = await recordProposal(job.job_no, cand.candidate_no, score, sender || undefined);
+      if (res.ok) {
+        setSaved(true); setSavedId(res.id ?? null);
+        setMsg(res.existed ? "既に提案記録があります（提案管理で確認できます）" : "提案を記録しました（提案管理に追加・アウトサイドへトスアップ可）");
+        router.refresh();
+      } else setMsg(res.error || "記録に失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "記録に失敗しました");
+    } finally { setRecording(false); }
+  };
+
   const handleUndo = () => {
     if (!savedId) { setMsg("取り消せません（IDが不明です。提案管理から削除してください）"); return; }
     setConfirmOpen(true);
@@ -278,16 +298,24 @@ export function ProposalComposer({
             📤 送信する（クライアント＋人材へ）
           </button>
         )}
+        {/* 提案を記録する（承認・メール送信なし）。提案先を失わない／アウトサイドへトスアップ用。 */}
+        {!saved && (
+          <button type="button" className="btn" onClick={recordOnly} disabled={recording}
+            style={{ background: "#0b5cab", color: "#fff", border: 0 }}
+            title="メール送信や承認なしで「提案した」記録だけを残します（提案管理に追加され、話を進める／見送りで進行できます）">
+            {recording ? "記録中…" : "📋 提案を記録する"}
+          </button>
+        )}
         {/* 承認者の選択＆「承認に出す」は廃止：メール送信モーダル側に集約（送信＝承認に出す＋送信）。
             ここでは保存済みの表示と取消（直後のみ）だけを残す。 */}
         {saved && (savedId ? (
           <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
             style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
             title="クリックして取り消し（記録直後のみ）">
-            {undoing ? "取消中…" : "✓ 承認に出した（取消）"}
+            {undoing ? "取消中…" : "✓ 提案記録済み（取消）"}
           </button>
         ) : (
-          <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 承認に出した</span>
+          <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 提案記録済み</span>
         ))}
         <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
         {saved && (proposedBy || proposedAt) && (
