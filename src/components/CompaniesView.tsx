@@ -78,18 +78,26 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
     }
   };
 
-  const regMap = useMemo(() => new Map(registered.map((r) => [r.name, r])), [registered]);
+  // 企業名の突合キー。書き込み側(setCompanyMeetingDone等)は trim した名前で保存するため、
+  // 案件メール由来の企業名に前後の空白/全角スペースが紛れていると、生の名前では永遠に一致しない。
+  // → 突合は正規化（前後の空白・全角スペース除去）した名前で行う（表示は元の名前のまま）。
+  const normName = (s?: string | null) => (s ?? "").replace(/^[\s　]+|[\s　]+$/g, "");
+  const regMap = useMemo(() => {
+    const m = new Map<string, Registered>();
+    for (const r of registered) { const k = normName(r.name); if (k && !m.has(k)) m.set(k, r); }
+    return m;
+  }, [registered]);
 
   const merged: Merged[] = useMemo(() => {
     const list: Merged[] = companies.map((c) => {
-      const reg = regMap.get(c.name);
+      const reg = regMap.get(normName(c.name));
       const withReg = { ...c, tier: (reg?.tier as any) || c.tier, status: reg?.status || c.status } as CompanyRow;
       return { ...withReg, ...targetScore(withReg), action: prospectAction(withReg), reg, registered: !!reg };
     });
     // 案件が無い登録企業も表示
-    const inDerived = new Set(companies.map((c) => c.name));
+    const inDerived = new Set(companies.map((c) => normName(c.name)));
     for (const r of registered) {
-      if (inDerived.has(r.name)) continue;
+      if (inDerived.has(normName(r.name))) continue;
       const base: CompanyRow = { name: r.name, job_count: 0, active_jobs: 0, focus_jobs: 0, last_job_at: null, avg_rate: null, tier: (r.tier as any) || "C", status: r.status || "新規", proposals_total: 0, won: 0, lost: 0, last_sentiment: null, last_relation: null, last_meeting_at: null, meeting_count: 0 };
       list.push({ ...base, ...targetScore(base), action: prospectAction(base), reg: r, registered: true });
     }
