@@ -252,6 +252,22 @@ export async function markReportReviewed(reportId: string, kind: "admin" | "mana
       return { ok: false, error: error.message };
     }
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+  // 確認したことを本人へお知らせ（fail-soft）。日報カードのバッジに加えてベルでも気づけるように。
+  if (!undo) {
+    try {
+      const { data: r } = await admin.from("daily_reports").select("author, report_date").eq("id", reportId).maybeSingle();
+      const author = (r as any)?.author?.trim();
+      if (author && author !== (access.name ?? "").trim()) {
+        await admin.from("notifications").insert({
+          recipient: author,
+          title: `日報を確認しました（${(r as any)?.report_date ?? ""}）`,
+          body: `${access.name ?? (kind === "admin" ? "管理者" : "マネージャー")} さんがあなたの日報を確認しました。`,
+          kind: "feedback",
+        });
+        revalidatePath("/notifications");
+      }
+    } catch { /* notifications 未整備でも確認チェックは成功扱い */ }
+  }
   revalidatePath("/reports");
   return { ok: true };
 }
