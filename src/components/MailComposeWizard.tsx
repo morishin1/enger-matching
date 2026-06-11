@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal, isProposerPrivileged } from "@/lib/actions";
-import { flowMatch, candDepthLabel, jobDepthLabel } from "@/lib/flow";
+import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
@@ -218,9 +218,9 @@ export function MailComposeWizard({
   // 権限者用：承認者選択なしで保存→送信モーダル自動オープン
   const handleSelfApproveAndSend = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
-    const fm = flowMatch(job ?? {}, cand ?? {});
+    const fm = flowMatchMatrix(job ?? {}, cand ?? {});
     if (fm.compat === "ng") {
-      const ok = window.confirm(`⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま送信を進めますか？`);
+      const ok = window.confirm(`⚠ 商流NGの可能性\n\n案件の受入：${JOB_FLOW_LABEL[fm.jobCat]}\n人材の所属：${CAND_FLOW_LABEL[fm.candCat]}\n\nこのまま送信を進めますか？`);
       if (!ok) { setMsg("商流NGのため送信を中止しました"); return; }
     }
     setSaving(true); setMsg(null);
@@ -273,10 +273,10 @@ export function MailComposeWizard({
   // 「📨 承認申請」：メール本文・宛先を pending_mail として保存する。送信は承認者が行う。
   const handleRequestApproval = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
-    const fm = flowMatch(job ?? {}, cand ?? {});
+    const fm = flowMatchMatrix(job ?? {}, cand ?? {});
     if (fm.compat === "ng") {
       const ok = window.confirm(
-        `⚠ 商流NGの可能性\n\n案件の受入：${jobDepthLabel(fm.jobMaxDepth)}\n人材の所属：${candDepthLabel(fm.candDepth)}\n\nこのまま申請を進めますか？`
+        `⚠ 商流NGの可能性\n\n案件の受入：${JOB_FLOW_LABEL[fm.jobCat]}\n人材の所属：${CAND_FLOW_LABEL[fm.candCat]}\n\nこのまま申請を進めますか？`
       );
       if (!ok) { setSaving(false); setMsg("商流NGのため申請を中止しました"); return; }
     }

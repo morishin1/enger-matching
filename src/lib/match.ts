@@ -51,13 +51,13 @@ export type MatchResult = {
   notes: Note[];                          // 3段階の注意事項
   verdict: Verdict;
   excluded?: boolean;                     // 国籍NGなどでハード除外
-  flow?: { compat: FlowCompat; jobMaxDepth: 0 | 1 | 2 | null; candDepth: 0 | 1 | 2 | null };  // 商流（バッジ表示用）
+  flow?: { compat: FlowCompat; jobCat: string; candCat: string; jobLabel: string; candLabel: string };  // 商流（バッジ表示用・新マトリックス）
   breakdown: { skill: number; salary: number; remote: number; timing: number; age: number; bonus: number };
 };
 
 // スキル正規化は正典辞書（skills.ts）に集約。
 import { canon, normToken as norm } from "./skills";
-import { flowMatch, candDepthLabel, jobDepthLabel, type FlowCompat } from "./flow";
+import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL, type FlowCompat } from "./flow";
 export { canon };
 
 /** 2つのスキル配列の一致スキル（candidate側の元表記で返す）。 */
@@ -202,21 +202,20 @@ function industryMatch(job: Job, c: Candidate): { match: string[]; jobInds: stri
   return { match, jobInds, candInds };
 }
 
-// ---- 商流（採点なし・注意事項のみ。判定は flowMatch に集約） ----
-function flowNotes(job: Job, c: Candidate, fm: ReturnType<typeof flowMatch>): Note[] {
+// ---- 商流（採点なし・注意事項のみ。判定は flowMatchMatrix に集約） ----
+function flowNotes(job: Job, c: Candidate, fm: ReturnType<typeof flowMatchMatrix>): Note[] {
   const notes: Note[] = [];
-  const jl = jobDepthLabel(fm.jobMaxDepth);
-  const cl = candDepthLabel(fm.candDepth);
+  const jl = JOB_FLOW_LABEL[fm.jobCat];
+  const cl = CAND_FLOW_LABEL[fm.candCat];
   if (fm.compat === "ng") {
-    notes.push({ level: "red", text: `商流NG：案件「${jl}」／候補「${cl}」（受入上限を超過）` });
+    notes.push({ level: "red", text: `商流NG：案件「${jl}」／人材「${cl}」（互換性マトリックスで不可）` });
   } else if (fm.compat === "ok") {
-    notes.push({ level: "green", text: `商流OK：案件「${jl}」／候補「${cl}」` });
+    notes.push({ level: "green", text: `商流OK：案件「${jl}」／人材「${cl}」` });
   } else {
-    // どちらか不明
-    const why = fm.jobMaxDepth == null && fm.candDepth == null ? "両方不明"
-      : fm.jobMaxDepth == null ? "案件側の受入商流が不明"
-      : "候補の所属深さが不明";
-    notes.push({ level: "yellow", text: `商流要確認：${why}（案件「${jl}」／候補「${cl}」）` });
+    const why = fm.jobCat === "unknown" && fm.candCat === "unknown" ? "両方不明"
+      : fm.jobCat === "unknown" ? "案件側の受入商流が不明"
+      : "人材の所属区分が不明";
+    notes.push({ level: "yellow", text: `商流要確認：${why}（案件「${jl}」／人材「${cl}」）` });
   }
   return notes;
 }
@@ -281,7 +280,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   const age = ageFit(job, c);
   const ind = industryMatch(job, c);
   const ngNat = nationalityHardNg(job, c);
-  const fm = flowMatch(job, c);
+  const fm = flowMatchMatrix(job, c);
   const flowNg = fm.compat === "ng";
 
   // ---- 100点配点 ----
@@ -387,7 +386,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
     matchedSkills, missingSkills, reasons, notes,
     verdict,
     excluded: hardExcluded || undefined,
-    flow: { compat: fm.compat, jobMaxDepth: fm.jobMaxDepth, candDepth: fm.candDepth },
+    flow: { compat: fm.compat, jobCat: fm.jobCat, candCat: fm.candCat, jobLabel: JOB_FLOW_LABEL[fm.jobCat], candLabel: CAND_FLOW_LABEL[fm.candCat] },
     breakdown: { skill: skill100, salary: salary100, remote: remote100, timing: timing100, age: age100, bonus },
   };
 }

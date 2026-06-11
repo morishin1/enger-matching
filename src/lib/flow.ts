@@ -124,3 +124,179 @@ export const FLOW_TONE: Record<FlowCompat, Tone> = {
   unknown: { bg: "#f3f4f6", fg: "#6b7280", bd: "#e5e7eb" },
 };
 export const FLOW_LABEL: Record<FlowCompat, string> = { ok: "商流OK", ng: "商流NG", unknown: "商流要確認" };
+
+// ─── 新マトリックスによる商流互換性 ────────────────────────────────────────
+// 旧モデル（深さ 0/1/2）では「正社員までに限る」「BP不可」のような区別ができない。
+// 業務側で確定したマトリックス（9行×5列）に従って判定する。
+//   行（案件の受入商流）= JobFlowCategory
+//   列（人材の所属区分）= CandFlowCategory
+//   案件側「貴社一社正社員まで」と「貴社一社先正社員まで」は同義なので
+//   1つのカテゴリ jp_to_1_seishain に統合（ドロップダウン表示は前者のみ）。
+
+export type JobFlowCategory =
+  | "jp_to_self"          // 貴社まで
+  | "jp_to_self_seishain" // 貴社正社員まで
+  | "jp_to_1"             // 貴社一社まで
+  | "jp_to_1_seishain"    // 貴社一社正社員まで（≒貴社一社先正社員まで）
+  | "jp_to_2"             // 貴社二社まで
+  | "jp_to_2_seishain"    // 貴社二社正社員まで
+  | "any"                 // 商流不問
+  | "unknown";            // 不明
+
+export type CandFlowCategory =
+  | "self_emp"      // エイト社員（自社正社員）
+  | "self_bp"       // BP（自社のBP/FL）
+  | "vendor1_emp"   // 一社下社員
+  | "vendor1_fl"    // 一社下FL
+  | "vendor2plus"   // 二社下以降
+  | "unknown";      // 不明
+
+export const JOB_FLOW_OPTIONS: { value: Exclude<JobFlowCategory, "unknown">; label: string }[] = [
+  { value: "jp_to_self",          label: "貴社まで" },
+  { value: "jp_to_self_seishain", label: "貴社正社員まで" },
+  { value: "jp_to_1",             label: "貴社一社まで" },
+  { value: "jp_to_1_seishain",    label: "貴社一社正社員まで" }, // 「貴社一社先正社員まで」は重複のため非表示
+  { value: "jp_to_2",             label: "貴社二社まで" },
+  { value: "jp_to_2_seishain",    label: "貴社二社正社員まで" },
+  { value: "any",                 label: "商流不問" },
+];
+
+export const CAND_FLOW_OPTIONS: { value: Exclude<CandFlowCategory, "unknown">; label: string }[] = [
+  { value: "self_emp",    label: "エイト社員" },
+  { value: "self_bp",     label: "BP" },
+  { value: "vendor1_emp", label: "一社下社員" },
+  { value: "vendor1_fl",  label: "一社下FL" },
+  { value: "vendor2plus", label: "二社下以降" },
+];
+
+export const JOB_FLOW_LABEL: Record<JobFlowCategory, string> = {
+  jp_to_self: "貴社まで",
+  jp_to_self_seishain: "貴社正社員まで",
+  jp_to_1: "貴社一社まで",
+  jp_to_1_seishain: "貴社一社正社員まで",
+  jp_to_2: "貴社二社まで",
+  jp_to_2_seishain: "貴社二社正社員まで",
+  any: "商流不問",
+  unknown: "不明",
+};
+export const CAND_FLOW_LABEL: Record<CandFlowCategory, string> = {
+  self_emp: "エイト社員",
+  self_bp: "BP",
+  vendor1_emp: "一社下社員",
+  vendor1_fl: "一社下FL",
+  vendor2plus: "二社下以降",
+  unknown: "不明",
+};
+
+// 互換性マトリックス（業務側仕様）。
+//   行=案件の受入商流 / 列=人材の所属区分 → ok / ng。
+//   案件 "商流不問" は人材問わず ok（unknown のときは unknown を返す）。
+//   案件 "不明" は判定不能 → unknown（NGにしないことで提案候補から外さない）。
+//   人材 "unknown" は判定不能 → unknown。
+//   ※ 「貴社二社正社員まで」の二社下以降は厳格には「二社下の正社員のみ」可だが、
+//     人材カテゴリに「二社下社員/二社下FL」の区別が無いため、現状 ok として扱う。
+const M: Record<Exclude<JobFlowCategory, "unknown" | "any">, Record<Exclude<CandFlowCategory, "unknown">, "ok" | "ng">> = {
+  jp_to_self:          { self_emp: "ok", self_bp: "ok", vendor1_emp: "ng", vendor1_fl: "ng", vendor2plus: "ng" },
+  jp_to_self_seishain: { self_emp: "ok", self_bp: "ng", vendor1_emp: "ng", vendor1_fl: "ng", vendor2plus: "ng" },
+  jp_to_1:             { self_emp: "ok", self_bp: "ok", vendor1_emp: "ok", vendor1_fl: "ok", vendor2plus: "ng" },
+  jp_to_1_seishain:    { self_emp: "ok", self_bp: "ok", vendor1_emp: "ok", vendor1_fl: "ng", vendor2plus: "ng" },
+  jp_to_2:             { self_emp: "ok", self_bp: "ok", vendor1_emp: "ok", vendor1_fl: "ok", vendor2plus: "ok" },
+  jp_to_2_seishain:    { self_emp: "ok", self_bp: "ok", vendor1_emp: "ok", vendor1_fl: "ng", vendor2plus: "ok" },
+};
+
+export function flowMatrixCompat(jobCat: JobFlowCategory, candCat: CandFlowCategory): FlowCompat {
+  if (jobCat === "unknown" || candCat === "unknown") return "unknown";
+  if (jobCat === "any") return "ok";
+  return M[jobCat][candCat];
+}
+
+// ── テキスト → カテゴリ正規化 ───────────────────────────────────────────
+//   案件の flow_note や人材の affiliation は自由テキストで保存されているため、
+//   既存の自由文（「貴社まで」「一社下FL」など）をカテゴリに分類する。
+//   完全一致を最優先し、無ければ語彙の出現で判定。
+
+const n = (s?: string | null) => (s ?? "").toString().replace(/[\s　]/g, "");
+
+/** 案件のテキスト（flow_note）から JobFlowCategory に分類。 */
+export function classifyJobFlow(value?: string | null): JobFlowCategory {
+  const t = n(value);
+  if (!t) return "unknown";
+  // 完全一致（DB値が既に正規ラベルの場合）。
+  for (const o of JOB_FLOW_OPTIONS) if (t === n(o.label)) return o.value;
+  if (t === n("不明")) return "unknown";
+  // 同義語：「貴社一社先正社員まで」＝「貴社一社正社員まで」。
+  if (/貴社一社先正社員まで|一社先正社員まで/.test(t)) return "jp_to_1_seishain";
+  // 言い回しベースのフォールバック（メール本文等から取り込んだ自由文）。
+  if (/商流不問|不問/.test(t)) return "any";
+  // 「正社員」キーワードが付くなら正社員系へ寄せる。
+  const seishain = /正社員/.test(t);
+  if (/二社|2社/.test(t)) return seishain ? "jp_to_2_seishain" : "jp_to_2";
+  if (/一社|1社|一次|\+1|プラス1/.test(t)) return seishain ? "jp_to_1_seishain" : "jp_to_1";
+  if (/貴社|エイト|弊社|自社|当社|直案件|直請|直\s*請け|エンド直/.test(t)) return seishain ? "jp_to_self_seishain" : "jp_to_self";
+  return "unknown";
+}
+
+/** 人材のテキスト（affiliation）から CandFlowCategory に分類。 */
+export function classifyCandFlow(value?: string | null): CandFlowCategory {
+  const t = n(value);
+  if (!t) return "unknown";
+  for (const o of CAND_FLOW_OPTIONS) if (t === n(o.label)) return o.value;
+  // 同義語・略称
+  if (/^pp$|プロパー|自社社員|エイト社員|自社\s*社員/i.test(t)) return "self_emp";
+  if (/^bp$|ビジネスパートナー/i.test(t)) return "self_bp";
+  if (/二社下|2社下|三社下|3社下|多重|孫請|二次以降|2次以降/.test(t)) return "vendor2plus";
+  if (/一社下|1社下|一次/.test(t)) {
+    if (/(FL|フリー|フリーランス|個人事業)/i.test(t)) return "vendor1_fl";
+    if (/(社員|正社員)/.test(t)) return "vendor1_emp";
+    return "vendor1_emp"; // 既定は社員扱い（一社下のみ表記）
+  }
+  if (/(FL|フリーランス|フリー|個人事業)/i.test(t)) return "self_bp"; // 自社経由のFLは BP 扱い
+  return "unknown";
+}
+
+// 既存 flowMatch を「マトリックス判定」に差し替え（外部シグネチャは互換維持）。
+//   ※ ファイル先頭の同名関数より、こちらの後勝ち定義が ESM のエクスポートになる。
+//     旧 flowMatch（深さベース）は inferJobMaxDepth / inferCandDepth 経由でカテゴリへ翻訳。
+function depthToJob(d: FlowDepth | null): JobFlowCategory {
+  if (d == null) return "unknown";
+  if (d === 0) return "jp_to_self";
+  if (d === 1) return "jp_to_1";
+  return "jp_to_2";
+}
+function depthToCand(d: FlowDepth | null): CandFlowCategory {
+  if (d == null) return "unknown";
+  if (d === 0) return "self_emp";
+  if (d === 1) return "vendor1_emp";
+  return "vendor2plus";
+}
+
+export function flowMatchMatrix(
+  job: { accept_flow_depth?: number | null; flow_note?: string | null; detail?: string | null; title?: string | null },
+  cand: { flow_depth?: number | null; affiliation?: string | null; note?: string | null; company?: string | null },
+): { compat: FlowCompat; jobCat: JobFlowCategory; candCat: CandFlowCategory; jobSource: "manual" | "auto" | "none"; candSource: "manual" | "auto" | "none" } {
+  // 1) 手動の深さがあれば最優先で使う（互換性のため）。
+  const jManual = toFlowDepth(job.accept_flow_depth);
+  const cManual = toFlowDepth(cand.flow_depth);
+  // 2) 自由文から新マトリックスのカテゴリへ分類。
+  const jByText = classifyJobFlow(job.flow_note);
+  const cByText = classifyCandFlow(cand.affiliation);
+  // 3) テキストで判定不能なら本文からの自動推定（旧ロジック）へフォールバック。
+  const jAuto = jByText === "unknown"
+    ? depthToJob(inferJobMaxDepth({ flow_note: job.flow_note, detail: job.detail, title: job.title }))
+    : "unknown";
+  const cAuto = cByText === "unknown"
+    ? depthToCand(inferCandDepth({ affiliation: cand.affiliation, note: cand.note, company: cand.company }))
+    : "unknown";
+  const jobCat: JobFlowCategory = jManual != null ? depthToJob(jManual)
+    : jByText !== "unknown" ? jByText
+    : jAuto;
+  const candCat: CandFlowCategory = cManual != null ? depthToCand(cManual)
+    : cByText !== "unknown" ? cByText
+    : cAuto;
+  return {
+    compat: flowMatrixCompat(jobCat, candCat),
+    jobCat, candCat,
+    jobSource: jManual != null ? "manual" : jByText !== "unknown" ? "manual" : jAuto !== "unknown" ? "auto" : "none",
+    candSource: cManual != null ? "manual" : cByText !== "unknown" ? "manual" : cAuto !== "unknown" ? "auto" : "none",
+  };
+}

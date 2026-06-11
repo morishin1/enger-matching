@@ -8,7 +8,7 @@ import { FocusList } from "@/components/FocusList";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
-import { FLOW_LABEL, FLOW_TONE, candDepthLabel, jobDepthLabel } from "@/lib/flow";
+import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
@@ -820,10 +820,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                         const compat = sel.flow.compat as "ok" | "ng" | "unknown";
                         const t = FLOW_TONE[compat];
                         const title = compat === "ng"
-                          ? `案件「${jobDepthLabel(sel.flow.jobMaxDepth)}」／候補「${candDepthLabel(sel.flow.candDepth)}」：受入上限を超過`
+                          ? `案件「${sel.flow.jobLabel}」／人材「${sel.flow.candLabel}」：マトリックスで不可`
                           : compat === "ok"
-                            ? `案件「${jobDepthLabel(sel.flow.jobMaxDepth)}」／候補「${candDepthLabel(sel.flow.candDepth)}」`
-                            : `案件「${jobDepthLabel(sel.flow.jobMaxDepth)}」／候補「${candDepthLabel(sel.flow.candDepth)}」（要確認）`;
+                            ? `案件「${sel.flow.jobLabel}」／人材「${sel.flow.candLabel}」`
+                            : `案件「${sel.flow.jobLabel}」／人材「${sel.flow.candLabel}」（要確認）`;
                         return (
                           <span title={title} style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>
                             {FLOW_LABEL[compat]}
