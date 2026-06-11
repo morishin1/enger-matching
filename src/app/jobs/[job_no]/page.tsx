@@ -9,6 +9,8 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
 import { ClosedBadge } from "@/components/ClosedBadge";
+import { CompanyLink } from "@/components/CompanyLink";
+import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_TONE } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +62,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
   }
 
   const origMailUrl = gmailMessageUrl(j.source_mail_url) || j.source_mail_url || gmailSearchUrl([j.client_name, j.title].filter(Boolean).join(" "));
+  const clientApproved = isCompanyApproved(await getApprovedCompanySet(), j.client_name);
 
   return (
     <div className="page">
@@ -83,7 +86,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
 
       <div className="card">
         <Row label="案件名" value={j.title} />
-        <Row label="クライアント" value={j.client_name ?? "—"} />
+        <Row label="クライアント" value={j.client_name ? <CompanyLink name={j.client_name} approved={clientApproved} badge badgeSize="sm" /> : "—"} />
         <Row label="募集職種" value={j.role_label} />
         <Row label="必要スキル" value={(j.skills ?? []).join(" / ") || "—"} />
         <Row label="単価" value={salaryLabel(j.salary_min, j.salary_max)} />

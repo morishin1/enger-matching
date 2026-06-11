@@ -12,6 +12,7 @@ import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskJobs } from "@/lib/tenant";
 import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
+import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -197,6 +198,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
       pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      // 承認(打合せ済)バッジ用に、各行へ client_name の承認状態を付与。
+      try {
+        const approvedSet = await getApprovedCompanySet();
+        for (const j of jobs) (j as any).client_approved = isCompanyApproved(approvedSet, j.client_name);
+      } catch { /* 承認集合の取得失敗は無視（バッジ非表示） */ }
 
       // フィルタ用の選択肢（職種・商流の distinct）。一覧の絞り込みとは独立に全体から収集。
       try {
