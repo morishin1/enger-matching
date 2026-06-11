@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";
-import { saveCompany, deleteCompany, setCompanyMeetingDone } from "@/lib/actions";
+import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone } from "@/lib/actions";
 
 type Registered = {
   name: string; industry?: string | null; tier?: string | null; status?: string | null;
@@ -42,6 +42,32 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   const [view, setView] = useState<"list" | "card">("list");
   // 打合せ状況フィルタ：全て / 打合せ済 / 未打合せ
   const [mtg, setMtg] = useState<"ALL" | "done" | "none">("ALL");
+  // 一括選択（チェックボックス）。下部のフローティングメニューから「打合せ完了/解除」を一括適用。
+  const router = useRouter();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const toggleSel = (name: string) => setSelected((prev) => { const next = new Set(prev); next.has(name) ? next.delete(name) : next.add(name); return next; });
+  const clearSel = () => setSelected(new Set());
+  const doBulkMeetingDone = async (done: boolean) => {
+    const names = [...selected];
+    if (names.length === 0) return;
+    setBulkBusy(true); setBulkMsg(null);
+    try {
+      const res = await bulkSetCompaniesMeetingDone(names, done);
+      if (res.ok) {
+        setBulkMsg({ ok: true, text: `${res.updated} 社を${done ? "打合せ完了に" : "未打合せに"}しました` });
+        clearSel(); router.refresh();
+      } else {
+        setBulkMsg({ ok: false, text: res.error ?? "更新に失敗しました" });
+      }
+    } catch (e) {
+      setBulkMsg({ ok: false, text: e instanceof Error ? e.message : "更新に失敗しました" });
+    } finally {
+      setBulkBusy(false);
+      setTimeout(() => setBulkMsg(null), 5000);
+    }
+  };
 
   const regMap = useMemo(() => new Map(registered.map((r) => [r.name, r])), [registered]);
 
@@ -166,6 +192,14 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
             <table className="tbl" style={{ minWidth: 760 }}>
               <thead>
                 <tr style={{ fontSize: 11, color: "var(--color-ink-4)" }}>
+                  <th style={{ width: 36, textAlign: "center" }}>
+                    <input type="checkbox" aria-label="表示中をすべて選択"
+                      checked={visible.length > 0 && visible.every((c) => selected.has(c.name))}
+                      onChange={(e) => {
+                        const all = e.target.checked;
+                        setSelected((prev) => { const next = new Set(prev); for (const c of visible) all ? next.add(c.name) : next.delete(c.name); return next; });
+                      }} />
+                  </th>
                   <th style={{ textAlign: "left" }}>企業名</th>
                   <th style={{ textAlign: "left", width: 96 }}>打合せ</th>
                   <th style={{ textAlign: "left", width: 64 }}>ティア</th>
@@ -180,8 +214,14 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
               <tbody>
                 {visible.map((c) => {
                   const ts = tierStyle(c.tier); const done = isMeetingDone(c); const manual = !!c.reg?.meeting_done;
+                  const isSel = selected.has(c.name);
                   return (
-                    <tr key={c.name} onClick={() => setModal(c)} style={{ cursor: "pointer" }}>
+                    <tr key={c.name}
+                      onClick={(e) => { if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setModal(c); }}
+                      style={{ cursor: "pointer", background: isSel ? "var(--color-brand-25)" : undefined }}>
+                      <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={isSel} onChange={() => toggleSel(c.name)} aria-label={`${c.name} を選択`} />
+                      </td>
                       <td>
                         <div style={{ fontWeight: 700, color: "var(--color-ink)" }}>{c.name}</div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
@@ -272,6 +312,28 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
       )}
 
       {modal && <CompanyModal data={modal === "new" ? null : modal} onClose={() => setModal(null)} />}
+
+      {/* 選択中の一括操作バー：画面下部中央にフローティング（同じ .bulk-bar クラスを共有）。
+          打合せ済の一括ON/OFFを下から即実行できる。結果メッセージはバー内に表示。 */}
+      {selected.size > 0 && (
+        <div className="bulk-bar">
+          <span><b>{selected.size}</b> 社選択中</span>
+          {bulkMsg && (
+            <span style={{ fontSize: 11.5, fontWeight: 700, color: bulkMsg.ok ? "#a7f3d0" : "#fecaca" }}>
+              {bulkMsg.ok ? "✓ " : "⚠ "}{bulkMsg.text}
+            </span>
+          )}
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+            <button type="button" className="btn" onClick={() => doBulkMeetingDone(true)} disabled={bulkBusy}
+              style={{ background: "#1aa260", color: "#fff", border: 0 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>check_circle</span>
+              {bulkBusy ? " 保存中…" : " 打合せ完了にする"}
+            </button>
+            <button type="button" className="btn ghost" onClick={() => doBulkMeetingDone(false)} disabled={bulkBusy}>打合せ完了を解除</button>
+            <button type="button" className="btn ghost" onClick={clearSel} disabled={bulkBusy}>選択解除</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
