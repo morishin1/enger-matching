@@ -24,7 +24,7 @@ const isMeetingDone = (c: { meeting_count?: number; reg?: Registered }) => {
   if (reg?.meeting_done === false && reg?.meeting_done_at) return false; // 明示的に「未」
   return (c.meeting_count ?? 0) > 0;
 };
-type Merged = CompanyRow & { score: number; reasons: string[]; reg?: Registered; registered: boolean; action: ProspectAction };
+type Merged = CompanyRow & { score: number; reasons: string[]; reg?: Registered; registered: boolean; action: ProspectAction; candidate_count: number };
 
 const sentTone = (s?: string | null) => !s ? null : s.includes("ポジ") ? { c: "#1aa260", t: s } : s.includes("ネガ") ? { c: "#d23f57", t: s } : s.includes("競合") ? { c: "#d98a2b", t: s } : { c: "#6b7280", t: s };
 const scoreColor = (n: number) => n >= 70 ? "#1aa260" : n >= 45 ? "#0095D9" : n >= 25 ? "#d98a2b" : "#9aa7b4";
@@ -36,9 +36,9 @@ const tierStyle = (t: string) => t === "A" ? { bg: "var(--color-brand-50)", colo
   : t === "B" ? { bg: "#fef3e2", color: "#a35f15", border: "#f6d9a7" } : { bg: "var(--color-surface-inset)", color: "var(--color-ink-3)", border: "var(--color-border)" };
 const statusColor = (s: string) => s === "主要" ? "var(--color-brand-600)" : s === "拡大中" ? "#10b981" : s === "新規" ? "#7a5cc4" : "var(--color-ink-4)";
 
-type SortKey = "target" | "job_count" | "active_jobs" | "avg_rate" | "last_job_at";
+type SortKey = "target" | "job_count" | "active_jobs" | "candidate_count" | "avg_rate" | "last_job_at";
 
-export function CompaniesView({ companies, registered = [] }: { companies: CompanyRow[]; registered?: Registered[] }) {
+export function CompaniesView({ companies, registered = [], candidateCounts = {} }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number> }) {
   const [tier, setTier] = useState("ALL");
   const [act, setAct] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -53,6 +53,8 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   const [mtg, setMtg] = useState<"ALL" | "done" | "none">("none");
   // 登録状況フィルタ：全て / 登録済み（企業マスタに手動登録あり） / 未登録（案件から自動集約のみ）
   const [regF, setRegF] = useState<"ALL" | "reg" | "unreg">("ALL");
+  // 種別フィルタ：案件提供 / 人材提供 / 両方 / 全て
+  const [kind, setKind] = useState<"ALL" | "job" | "cand" | "both">("ALL");
   // 一括選択（チェックボックス）。下部のフローティングメニューから「打合せ完了/解除」を一括適用。
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -90,18 +92,31 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
     return m;
   }, [registered]);
 
+  // 企業名 → 人材数（page.tsx 側で candidates の所属企業から集計済み）。正規化キーで突合。
+  const candCountByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const [k, v] of Object.entries(candidateCounts ?? {})) {
+      const nk = normName(k);
+      if (!nk) continue;
+      m.set(nk, (m.get(nk) ?? 0) + (Number(v) || 0));
+    }
+    return m;
+  }, [candidateCounts]);
+  const candCountOf = (name: string) => candCountByKey.get(normName(name)) ?? 0;
+
   const merged: Merged[] = useMemo(() => {
     const list: Merged[] = companies.map((c) => {
       const reg = regMap.get(normName(c.name));
       const withReg = { ...c, tier: (reg?.tier as any) || c.tier, status: reg?.status || c.status } as CompanyRow;
-      return { ...withReg, ...targetScore(withReg), action: prospectAction(withReg), reg, registered: !!reg };
+      const candidate_count = candCountOf(c.name);
+      return { ...withReg, ...targetScore(withReg), action: prospectAction(withReg), reg, registered: !!reg, candidate_count };
     });
     // 案件が無い登録企業も表示
     const inDerived = new Set(companies.map((c) => normName(c.name)));
     for (const r of registered) {
       if (inDerived.has(normName(r.name))) continue;
       const base: CompanyRow = { name: r.name, job_count: 0, active_jobs: 0, focus_jobs: 0, last_job_at: null, avg_rate: null, tier: (r.tier as any) || "C", status: r.status || "新規", proposals_total: 0, won: 0, lost: 0, last_sentiment: null, last_relation: null, last_meeting_at: null, meeting_count: 0 };
-      list.push({ ...base, ...targetScore(base), action: prospectAction(base), reg: r, registered: true });
+      list.push({ ...base, ...targetScore(base), action: prospectAction(base), reg: r, registered: true, candidate_count: candCountOf(r.name) });
     }
     return list;
   }, [companies, registered, regMap]);
@@ -125,13 +140,20 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
       && (act === "ALL" || c.action?.key === act)
       && (mtg === "ALL" || (mtg === "done" ? isMeetingDone(c) : !isMeetingDone(c)))
       && (regF === "ALL" || (regF === "reg" ? c.registered : !c.registered))
+      && (kind === "ALL" || (() => {
+        const hasJ = (c.job_count ?? 0) > 0, hasC = (c.candidate_count ?? 0) > 0;
+        if (kind === "job") return hasJ && !hasC;
+        if (kind === "cand") return hasC && !hasJ;
+        if (kind === "both") return hasJ && hasC;
+        return true;
+      })())
       // 企業名・業種・窓口担当者でも検索できるように（企業検索を簡単に）
       && (!needle || c.name.toLowerCase().includes(needle)
         || (c.reg?.industry ?? "").toLowerCase().includes(needle)
         || (c.reg?.contact_name ?? "").toLowerCase().includes(needle)
         || (c.reg?.owner_staff ?? "").toLowerCase().includes(needle)));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
-  }, [merged, tier, act, search, sort, mtg, regF]);
+  }, [merged, tier, act, search, sort, mtg, regF, kind]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
   const PAGE = 20;
@@ -221,9 +243,30 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
             </button>
           ))}
         </div>
+        {/* 種別フィルタ：案件提供／人材提供／両方 */}
+        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+          {(() => {
+            const jOnly = merged.filter((c) => (c.job_count ?? 0) > 0 && (c.candidate_count ?? 0) === 0).length;
+            const cOnly = merged.filter((c) => (c.candidate_count ?? 0) > 0 && (c.job_count ?? 0) === 0).length;
+            const both = merged.filter((c) => (c.job_count ?? 0) > 0 && (c.candidate_count ?? 0) > 0).length;
+            const list = [
+              { id: "ALL", label: "全種別", n: merged.length, tone: "var(--color-ink)" },
+              { id: "job", label: "📋 案件提供", n: jOnly, tone: "#0b5cab" },
+              { id: "cand", label: "👥 人材提供", n: cOnly, tone: "#5b21b6" },
+              { id: "both", label: "🤝 両方", n: both, tone: "#9a5b1a" },
+            ] as const;
+            return list.map((m) => (
+              <button key={m.id} onClick={() => { setKind(m.id as any); setShowAll(false); }}
+                title={m.id === "job" ? "案件のみを出している企業（人材登録なし）" : m.id === "cand" ? "人材を提供している企業（案件なし）" : m.id === "both" ? "案件も人材も両方ある企業" : undefined}
+                style={{ padding: "6px 12px", borderRadius: 99, border: 0, background: kind === m.id ? "var(--color-surface)" : "transparent", color: kind === m.id ? m.tone : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: kind === m.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
+                {m.label} <span className="tnum" style={{ color: "var(--color-ink-4)", fontFamily: "var(--font-mono)", marginLeft: 3, fontWeight: 500 }}>{m.n}</span>
+              </button>
+            ));
+          })()}
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 12px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
-            <option value="target">狙い目スコア</option><option value="active_jobs">進行中案件</option><option value="job_count">案件数</option><option value="avg_rate">平均単価</option><option value="last_job_at">最終更新</option>
+            <option value="target">狙い目スコア</option><option value="active_jobs">進行中案件</option><option value="job_count">案件数</option><option value="candidate_count">人材数</option><option value="avg_rate">平均単価</option><option value="last_job_at">最終更新</option>
           </select>
           {/* リスト / カード 切替（既定リスト） */}
           <div style={{ display: "flex", gap: 2, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
@@ -258,7 +301,10 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
                   <th style={{ textAlign: "left" }}>企業名</th>
                   <th style={{ textAlign: "left", width: 96 }}>打合せ</th>
                   <th style={{ textAlign: "left", width: 64 }}>ティア</th>
-                  <th className="num" style={{ width: 72 }}>進行中</th>
+                  <th style={{ textAlign: "left", width: 96 }} title="案件を出す企業／人材を提供する企業／両方">種別</th>
+                  <th className="num" style={{ width: 64 }} title="この企業の案件件数（累計）">案件</th>
+                  <th className="num" style={{ width: 64 }} title="この企業に所属する人材の登録数">人材</th>
+                  <th className="num" style={{ width: 72 }} title="進行中の案件件数">進行中</th>
                   <th className="num" style={{ width: 80 }}>平均単価</th>
                   <th className="num" style={{ width: 60 }}>稼働</th>
                   <th className="num" style={{ width: 60 }}>失注</th>
@@ -290,6 +336,17 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
                           : <span className="pill" style={{ fontSize: 10.5, background: "#fdecef", color: "#b42318", borderColor: "transparent", fontWeight: 700 }}>未</span>}
                       </td>
                       <td><span style={{ padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: ts.bg, color: ts.color, border: `1px solid ${ts.border}` }}>{c.tier}</span></td>
+                      <td>{(() => {
+                        // 種別バッジ：案件提供／人材提供／両方／なし。アイコン色で一目で判別。
+                        const hasJ = (c.job_count ?? 0) > 0;
+                        const hasC = (c.candidate_count ?? 0) > 0;
+                        if (hasJ && hasC) return <span className="pill" style={{ fontSize: 10, fontWeight: 700, background: "#fff1e6", color: "#9a5b1a", border: "1px solid #fde9b0" }}>🤝 両方</span>;
+                        if (hasJ) return <span className="pill" style={{ fontSize: 10, fontWeight: 700, background: "#eef6fd", color: "#0b5cab", border: "1px solid #cfe5f7" }}>📋 案件提供</span>;
+                        if (hasC) return <span className="pill" style={{ fontSize: 10, fontWeight: 700, background: "#f3f0ff", color: "#5b21b6", border: "1px solid #ddd6fe" }}>👥 人材提供</span>;
+                        return <span className="muted" style={{ fontSize: 10 }}>—</span>;
+                      })()}</td>
+                      <td className="num tnum" style={{ color: (c.job_count ?? 0) > 0 ? "#0b5cab" : "var(--color-ink-4)", fontWeight: (c.job_count ?? 0) > 0 ? 700 : 400 }}>{c.job_count ?? 0}</td>
+                      <td className="num tnum" style={{ color: (c.candidate_count ?? 0) > 0 ? "#5b21b6" : "var(--color-ink-4)", fontWeight: (c.candidate_count ?? 0) > 0 ? 700 : 400 }}>{c.candidate_count ?? 0}</td>
                       <td className="num tnum" style={{ fontWeight: 700 }}>{c.active_jobs}</td>
                       <td className="num tnum">{c.avg_rate != null ? `¥${c.avg_rate}万` : "—"}</td>
                       <td className="num tnum" style={{ color: "#1aa260" }}>{c.won}</td>
