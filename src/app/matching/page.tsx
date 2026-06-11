@@ -3,6 +3,7 @@ import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { RankList } from "@/components/RankList";
+import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { FocusList } from "@/components/FocusList";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -548,7 +549,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <h1>{person?.name ?? "人材"} に合う案件</h1>
             <div className="sub">この人材のスキルを主軸に、単価・職種・リモート条件で補正して案件をランキング表示します。</div>
           </div>
-          <Link href="/people" className="btn ghost" style={{ textDecoration: "none", flexShrink: 0 }}>← 人材一覧へ</Link>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <CopyLinkButton />
+            <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 人材一覧へ</Link>
+          </div>
         </div>
 
         <FlowSteps current="matching" sub="人材 → 案件" />
@@ -572,16 +576,17 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <div style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>重なる案件がありません</div>
                 ) : rankedJobs.map((r, i) => {
                   const j = r.job; const active = sel?.job.job_no === j.job_no;
+                  const proposed = proposedJobIds.has(j.id); // 提案済み（提案ボードに記録あり）
                   const rankColor = i === 0 ? "#f0a92b" : i === 1 ? "#9aa7b4" : i === 2 ? "#cd853f" : "var(--color-surface-inset)";
                   return (
-                    <Link key={j.job_no} href={linkFor(j.job_no)} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : "transparent" }}>
+                    <Link key={j.job_no} href={linkFor(j.job_no)} title={proposed ? "提案済み（提案ボードに記録あり）" : undefined} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "28px 1fr auto", gap: 10, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", borderLeft: active ? "3px solid var(--color-brand-700)" : "3px solid transparent", background: active ? "var(--color-brand-25)" : proposed ? "var(--color-surface-inset)" : "transparent", opacity: proposed && !active ? 0.62 : 1 }}>
                       <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
                           <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>No.{String(j.job_no).padStart(5, "0")}</span>
-                          {proposedJobIds.has(j.id) && (
-                            <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef8f1", color: "#1aa260", border: "1px solid #bfe3cc", lineHeight: 1.5, flexShrink: 0 }}>記録済み</span>
+                          {proposed && (
+                            <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0", lineHeight: 1.5, flexShrink: 0 }}>✓ 提案済み</span>
                           )}
                         </div>
                         <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {salaryLabel(j.salary_min, j.salary_max)}</div>
@@ -741,7 +746,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <h1>マッチング</h1>
           <div className="sub">案件を選ぶと、スキル一致を主軸（単価・職種・リモートで補正）に候補をランキング表示します。</div>
         </div>
-        <NextStepLink href="/proposals" label="提案管理を見る" hint="マッチングからの提案を一覧で管理" />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+          <NextStepLink href="/proposals" label="提案管理を見る" hint="マッチングからの提案を一覧で管理" />
+          <CopyLinkButton />
+        </div>
         <form style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
           <input type="hidden" name="tab" value={tab} />
           <select name="job" defaultValue={job?.job_no ?? ""} style={{ fontFamily: "inherit", fontSize: 12, padding: "8px 12px", borderRadius: 99, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-ink)", maxWidth: 340 }}>
