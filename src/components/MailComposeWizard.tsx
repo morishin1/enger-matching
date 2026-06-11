@@ -313,7 +313,22 @@ export function MailComposeWizard({
     } finally { setSaving(false); }
   };
 
-  const siteUrl = typeof window !== "undefined" ? window.location.origin : (process.env.NEXT_PUBLIC_SITE_URL ?? "");
+  // メール本文の「話を進める／見送り」リンクの base URL。
+  //   ① 環境変数 NEXT_PUBLIC_SITE_URL を最優先（運用上の正規ドメインを固定する）。
+  //   ② 未設定時は window.location.origin。ただし *.vercel.app の Preview URL は
+  //      再デプロイで消えて受信者がボタンを押すと「リンク切れ」になるため、本番
+  //      ドメイン dx.enger.jp に強制置換する（過去にこの事故があった）。
+  const siteUrl = (() => {
+    const env = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
+    if (env) return env;
+    if (typeof window === "undefined") return "https://dx.enger.jp";
+    const origin = window.location.origin;
+    try {
+      const host = new URL(origin).hostname;
+      if (/\.vercel\.app$/i.test(host)) return "https://dx.enger.jp";
+    } catch { /* ignore */ }
+    return origin;
+  })();
   const jobButtonHtml  = jobToken  ? buildButtonHtml(siteUrl, jobToken)  : null;
   const candButtonHtml = candToken ? buildButtonHtml(siteUrl, candToken) : null;
 
