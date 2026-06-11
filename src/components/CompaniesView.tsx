@@ -294,13 +294,20 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
   const autoDone = (data?.meeting_count ?? 0) > 0;
   const [meetingDone, setMeetingDone] = useState<boolean>(!!reg?.meeting_done);
   const [mdBusy, setMdBusy] = useState(false);
+  const [mdMsg, setMdMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const toggleMeetingDone = async (next: boolean) => {
     if (!data) return; // 新規作成時は保存後に
-    setMeetingDone(next); setMdBusy(true); setMsg(null);
-    const res = await setCompanyMeetingDone(data.name, next);
-    setMdBusy(false);
-    if (!res.ok) { setMeetingDone(!next); setMsg(res.error || "更新に失敗しました"); }
-    else router.refresh();
+    setMeetingDone(next); setMdBusy(true); setMdMsg(null); setMsg(null);
+    try {
+      const res = await setCompanyMeetingDone(data.name, next);
+      if (!res.ok) { setMeetingDone(!next); setMdMsg({ ok: false, text: res.error || "更新に失敗しました" }); }
+      else { setMdMsg({ ok: true, text: next ? "打ち合わせ完了にしました" : "打ち合わせ完了を外しました" }); router.refresh(); }
+    } catch (e) {
+      setMeetingDone(!next);
+      setMdMsg({ ok: false, text: e instanceof Error ? e.message : "更新に失敗しました" });
+    } finally {
+      setMdBusy(false);
+    }
   };
 
   const save = async () => {
@@ -347,17 +354,24 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
 
         {/* 打ち合わせ完了の手動チェック（詳細から印を付ける） */}
         {data && (
-          <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: autoDone ? "default" : "pointer",
-            background: (autoDone || meetingDone) ? "#e7f7ee" : "var(--color-surface-inset)", border: `1px solid ${(autoDone || meetingDone) ? "#bfe3cc" : "var(--color-border)"}` }}>
-            <input type="checkbox" checked={autoDone || meetingDone} disabled={autoDone || mdBusy}
-              onChange={(e) => toggleMeetingDone(e.target.checked)} style={{ width: 16, height: 16 }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: (autoDone || meetingDone) ? "#067647" : "var(--color-ink-2)" }}>
-              {(autoDone || meetingDone) ? "✓ 打ち合わせ完了" : "打ち合わせ完了にする"}
-            </span>
-            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-              {autoDone ? `打合せ記録${data.meeting_count}件あり（自動で済）` : meetingDone ? "手動でチェック済" : "顔合わせ・商談が済んだらチェック"}
-            </span>
-          </label>
+          <div>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, cursor: autoDone || mdBusy ? "default" : "pointer",
+              background: (autoDone || meetingDone) ? "#e7f7ee" : "var(--color-surface-inset)", border: `1px solid ${(autoDone || meetingDone) ? "#bfe3cc" : "var(--color-border)"}` }}>
+              <input type="checkbox" checked={autoDone || meetingDone} disabled={autoDone || mdBusy}
+                onChange={(e) => toggleMeetingDone(e.target.checked)} style={{ width: 16, height: 16 }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: (autoDone || meetingDone) ? "#067647" : "var(--color-ink-2)" }}>
+                {(autoDone || meetingDone) ? "✓ 打ち合わせ完了" : "打ち合わせ完了にする"}
+              </span>
+              <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+                {mdBusy ? "保存中…" : autoDone ? `打合せ記録${data.meeting_count}件あり（自動で済）` : meetingDone ? "手動でチェック済" : "顔合わせ・商談が済んだらチェック"}
+              </span>
+            </label>
+            {mdMsg && (
+              <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 600, color: mdMsg.ok ? "#067647" : "var(--color-danger)" }}>
+                {mdMsg.ok ? "✓ " : "⚠ "}{mdMsg.text}
+              </div>
+            )}
+          </div>
         )}
 
         {/* 編集フォーム */}
