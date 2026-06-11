@@ -6,11 +6,14 @@
 export type Role = "admin" | "agent" | "client" | "candidate" | "partner" | "freelance";
 export type AccountStatus = "pending" | "active" | "disabled";
 
-// 職能（兼務可・複数選択）
-export const FUNCTIONS = ["営業", "インサイド", "アウトサイド", "バックオフィス", "EC", "サポート", "開発"] as const;
-export const SALES_FUNCTIONS = ["営業", "インサイド", "アウトサイド"];
-/** 営業系の職能を持つか（未設定は後方互換で営業扱い）。 */
-export const hasSalesFunction = (functions?: string[] | null) => !functions || functions.length === 0 || functions.some((f) => SALES_FUNCTIONS.includes(f));
+// 職能（兼務可・複数選択）。「インサイド」「アウトサイド」は廃止（営業に統合）。
+//   旧表記との後方互換は accounts/UI 側で「インサイド/アウトサイド → 営業」に
+//   フォールバック表示する程度に留め、保存値からは段階的に消す。
+export const FUNCTIONS = ["営業", "バックオフィス", "EC", "サポート", "開発"] as const;
+export const SALES_FUNCTIONS = ["営業"];
+/** 営業系の職能を持つか（未設定は後方互換で営業扱い／旧「インサイド」「アウトサイド」も営業扱い）。 */
+export const hasSalesFunction = (functions?: string[] | null) =>
+  !functions || functions.length === 0 || functions.some((f) => SALES_FUNCTIONS.includes(f) || f === "インサイド" || f === "アウトサイド");
 
 // 組織：部署とチーム役職（日報の閲覧/返信権限に使用）
 export const DEPARTMENTS = ["ITS", "バックオフィス", "サポート", "開発", "経営", "フリーランス"] as const;
