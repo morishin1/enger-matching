@@ -1,8 +1,10 @@
-// 日報の閲覧範囲（スコープ）。役職(team_role)別に管理者が設定する。
-//   全体 (all)     ＝ 経営：全員の日報を閲覧
-//   部署 (dept)    ＝ マネージャー/リーダー：自部署メンバーの日報を閲覧
-//   個人 (self)    ＝ メンバー：自分の日報のみ
-//   未設定はロール既定（admin=all / manager,leader=dept / その他=self）に従う。
+// 日報の閲覧範囲（スコープ）。シンプル化した固定運用：
+//   ・全員（管理者・経営・マネージャー・リーダー・メンバー）が「全体」を閲覧。
+//     部署をまたいでメンバー同士も互いの日報を見られる。
+//   ・経営の日報だけは「本来の管理者」のみ閲覧可（reports/page.tsx の rawRole 判定で除外）。
+//   ・自分の日報は氏名が設定されていれば誰でも提出可。
+//   （旧：役職別スコープ all/dept/self を設定 UI で切替できたが、運用混乱の元のため廃止。
+//    定数や API は後方互換で残すが、効果上はすべて all 相当に統一する。）
 
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
 
@@ -27,9 +29,10 @@ export const REPORT_SCOPE_HINT: Record<ReportScope, string> = {
 
 export type ReportScopes = Record<ReportRoleKey, ReportScope>;
 
-/** 役職別の既定スコープ。admin はこの設定対象外（常に all）。 */
+/** 役職別の既定スコープ。シンプル運用に統一し、全役職を「全体（all）」に。
+ *  経営の日報は reports/page.tsx 側で別途フィルタするため、ここでは all で十分。 */
 export function defaultReportScopes(): ReportScopes {
-  return { manager: "dept", leader: "dept", member: "self", none: "self" };
+  return { manager: "all", leader: "all", member: "all", none: "all" };
 }
 
 export function toReportRoleKey(teamRole: string | null | undefined): ReportRoleKey {
@@ -56,8 +59,10 @@ export async function loadReportScopes(): Promise<ReportScopes> {
   } catch { return def; }
 }
 
-/** 現在ユーザーの実効スコープを判定（admin は常に all）。 */
-export function effectiveReportScope(role: string | null | undefined, teamRole: string | null | undefined, scopes: ReportScopes): ReportScope {
-  if (role === "admin") return "all";
-  return scopes[toReportRoleKey(teamRole)] ?? "self";
+/** 現在ユーザーの実効スコープを判定。
+ *  シンプル運用：全員「全体（all）」固定。経営の日報は reports/page.tsx で除外する。
+ *  外部ロール（client/candidate/partner/freelance）は誤って呼ばれた場合に self を返す。 */
+export function effectiveReportScope(role: string | null | undefined, _teamRole: string | null | undefined, _scopes: ReportScopes): ReportScope {
+  if (role === "client" || role === "candidate" || role === "partner" || role === "freelance") return "self";
+  return "all";
 }

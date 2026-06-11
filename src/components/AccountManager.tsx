@@ -127,11 +127,9 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
               <option value="admin">管理者</option>
               <option value="client">ユーザー企業</option>
             </select>
-            <select name="position" defaultValue="" style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }}>
-              <option value="">区分なし</option>
-              <option value="inside">インサイド</option>
-              <option value="outside">アウトサイド</option>
-            </select>
+            {/* 営業区分(position)のインサイド/アウトサイドは廃止。職能(functions)の「営業」に統合。
+                既存データとの後方互換のため、隠しフィールドで空値（区分なし）を送信。 */}
+            <input type="hidden" name="position" value="" />
             <input name="company_name" placeholder="会社名（企業の場合）" style={{ flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }} />
           </div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
@@ -227,12 +225,14 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
                     <option value="agent">エージェント</option>
                     <option value="admin">管理者</option>
                   </select>
-                  {(a.role === "agent" || a.role === "admin") && (
-                    <select value={a.position ?? ""} onChange={(e) => run(() => setAccountPosition(a.id, (e.target.value || null) as any))} disabled={pending} title="営業区分（管理者が決定）" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12 }}>
-                      <option value="">区分なし</option>
-                      <option value="inside">インサイド</option>
-                      <option value="outside">アウトサイド</option>
-                    </select>
+                  {/* 営業区分(position)のインサイド/アウトサイドは廃止（職能「営業」に統合）。
+                      既存値が残っているアカウントだけは表示し、空に戻せる入口を残す。 */}
+                  {(a.role === "agent" || a.role === "admin") && a.position && (
+                    <button type="button" onClick={() => run(() => setAccountPosition(a.id, null))} disabled={pending}
+                      title="廃止された営業区分（インサイド/アウトサイド）を解除します"
+                      style={{ padding: "6px 11px", borderRadius: 8, border: "1px dashed var(--color-border)", background: "#fff", fontSize: 11.5, fontWeight: 600, cursor: "pointer", color: "#9a5b1a" }}>
+                      旧区分({a.position === "inside" ? "インサイド" : a.position === "outside" ? "アウトサイド" : a.position})を解除
+                    </button>
                   )}
                   <button onClick={() => { if (confirm(`${a.email} のパスワードを再発行しますか？新しい仮パスワードが表示され、現在のパスワードは無効になります。`)) runCred(() => resetAccountPassword(a.email), a.email, "パスワードを再発行しました"); }} disabled={pending} title="パスワード再発行" style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#0b5cab" }}>🔑 PW再発行</button>
                   {a.status === "disabled" ? (
