@@ -42,6 +42,8 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   const [view, setView] = useState<"list" | "card">("list");
   // 打合せ状況フィルタ：全て / 打合せ済 / 未打合せ
   const [mtg, setMtg] = useState<"ALL" | "done" | "none">("ALL");
+  // 登録状況フィルタ：全て / 登録済み（企業マスタに手動登録あり） / 未登録（案件から自動集約のみ）
+  const [regF, setRegF] = useState<"ALL" | "reg" | "unreg">("ALL");
   // 一括選択（チェックボックス）。下部のフローティングメニューから「打合せ完了/解除」を一括適用。
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -100,13 +102,14 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
       (tier === "ALL" || c.tier === tier)
       && (act === "ALL" || c.action?.key === act)
       && (mtg === "ALL" || (mtg === "done" ? isMeetingDone(c) : !isMeetingDone(c)))
+      && (regF === "ALL" || (regF === "reg" ? c.registered : !c.registered))
       // 企業名・業種・窓口担当者でも検索できるように（企業検索を簡単に）
       && (!needle || c.name.toLowerCase().includes(needle)
         || (c.reg?.industry ?? "").toLowerCase().includes(needle)
         || (c.reg?.contact_name ?? "").toLowerCase().includes(needle)
         || (c.reg?.owner_staff ?? "").toLowerCase().includes(needle)));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
-  }, [merged, tier, act, search, sort, mtg]);
+  }, [merged, tier, act, search, sort, mtg, regF]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
   const PAGE = 20;
@@ -163,6 +166,20 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
           {[{ id: "ALL", label: "全て" }, { id: "done", label: "打合せ済" }, { id: "none", label: "未打合せ" }].map((m) => (
             <button key={m.id} onClick={() => { setMtg(m.id as any); setShowAll(false); }} style={{ padding: "6px 12px", borderRadius: 99, border: 0, background: mtg === m.id ? "var(--color-surface)" : "transparent", color: mtg === m.id ? (m.id === "none" ? "#b42318" : m.id === "done" ? "#067647" : "var(--color-ink)") : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: mtg === m.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
               {m.label}
+            </button>
+          ))}
+        </div>
+        {/* 登録状況フィルタ：企業マスタに手動登録済みか、案件からの自動集約のみか */}
+        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+          {[
+            { id: "ALL", label: "全て", n: merged.length },
+            { id: "reg", label: "登録済み", n: merged.filter((c) => c.registered).length },
+            { id: "unreg", label: "未登録", n: merged.filter((c) => !c.registered).length },
+          ].map((m) => (
+            <button key={m.id} onClick={() => { setRegF(m.id as any); setShowAll(false); }}
+              title={m.id === "reg" ? "企業マスタに手動登録済み（連絡先・担当などの登録情報あり）" : m.id === "unreg" ? "案件データからの自動集約のみ（未登録）" : undefined}
+              style={{ padding: "6px 12px", borderRadius: 99, border: 0, background: regF === m.id ? "var(--color-surface)" : "transparent", color: regF === m.id ? (m.id === "reg" ? "var(--color-brand-700)" : "var(--color-ink)") : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: regF === m.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
+              {m.label} <span className="tnum" style={{ color: "var(--color-ink-4)", fontFamily: "var(--font-mono)", marginLeft: 3, fontWeight: 500 }}>{m.n}</span>
             </button>
           ))}
         </div>
