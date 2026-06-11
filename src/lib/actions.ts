@@ -13,6 +13,17 @@ import { gmailMessageUrl } from "./gmail";
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
 const bustCounts = () => revalidateTag("sidebar-counts", "max");
 
+/** お知らせ(notifications)を1件登録（fail-soft）。recipient は氏名。失敗しても本処理は止めない。 */
+async function notify(recipient: string | null | undefined, title: string, body: string, kind = "info") {
+  const r = (recipient ?? "").trim();
+  if (!r) return;
+  try {
+    const admin = engerAdmin();
+    await admin.from("notifications").insert({ recipient: r, title, body, kind });
+    revalidatePath("/notifications");
+  } catch { /* 通知失敗は本処理を止めない */ }
+}
+
 export type CandidateInput = {
   code?: string | null;
   name: string;
@@ -643,6 +654,16 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
   const data = ins.data; const error = ins.error;
   if (error) return { ok: false, error: error.message };
+  // 承認者へ「承認待ち」を通知（権限者は承認不要なのでスキップ）。
+  if (!proposerIsPrivileged) {
+    const who = [job.title, cand.name].filter(Boolean).join(" × ");
+    await notify(
+      approverName,
+      "提案の承認依頼",
+      `${proposerName ?? "担当者"} さんから承認待ちの提案があります${who ? `：${who}` : ""}。\n提案管理で内容を確認し、承認のうえメールを送信してください。`,
+      "approval",
+    );
+  }
   revalidatePath("/proposals");
   revalidatePath("/matching");
   bustCounts();
@@ -655,7 +676,7 @@ export async function approveProposal(id: string): Promise<{ ok: true } | { ok: 
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const me = await currentAccess();
   if (!me) return { ok: false, error: "未ログインです" };
-  const cur: any = await admin.from("proposals").select("id, approver, approval_status, stage").eq("id", id).maybeSingle();
+  const cur: any = await admin.from("proposals").select("id, approver, approval_status, stage, proposer, job_title, candidate_name").eq("id", id).maybeSingle();
   if (cur.error) return { ok: false, error: cur.error.message };
   if (!cur.data) return { ok: false, error: "提案が見つかりません" };
   if (cur.data.approval_status === "approved") return { ok: true }; // 冪等
@@ -674,6 +695,16 @@ export async function approveProposal(id: string): Promise<{ ok: true } | { ok: 
     updated_at: now,
   }).eq("id", id);
   if (r.error) return { ok: false, error: r.error.message };
+  // 提案者へ「承認された」ことを通知（自分が提案者を兼ねる場合は不要）。
+  if (!(me.name && ownerMatches(me.name, cur.data.proposer ?? ""))) {
+    const who = [cur.data.job_title, cur.data.candidate_name].filter(Boolean).join(" × ");
+    await notify(
+      cur.data.proposer,
+      "提案が承認されました",
+      `${me.name ?? "承認者"} さんが提案を承認しました${who ? `：${who}` : ""}。承認者がメールを送信します。`,
+      "approval_result",
+    );
+  }
   revalidatePath("/proposals"); bustCounts();
   return { ok: true };
 }
@@ -710,7 +741,7 @@ export async function markProposalMailSentAndApprove(id: string): Promise<{ ok: 
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
   const me = await currentAccess();
   if (!me) return { ok: false, error: "未ログインです" };
-  const cur: any = await admin.from("proposals").select("id, approver").eq("id", id).maybeSingle();
+  const cur: any = await admin.from("proposals").select("id, approver, proposer, job_title, candidate_name").eq("id", id).maybeSingle();
   if (cur.error) return { ok: false, error: cur.error.message };
   if (!cur.data) return { ok: false, error: "提案が見つかりません" };
   const { ownerMatches } = await import("./owner-match");
@@ -735,6 +766,16 @@ export async function markProposalMailSentAndApprove(id: string): Promise<{ ok: 
     r = await admin.from("proposals").update(rest).eq("id", id);
   }
   if (r.error) return { ok: false, error: r.error.message };
+  // 提案者へ「承認・送信済み」を通知（自分が提案者を兼ねる場合は不要）。
+  if (!(me.name && ownerMatches(me.name, cur.data.proposer ?? ""))) {
+    const who = [cur.data.job_title, cur.data.candidate_name].filter(Boolean).join(" × ");
+    await notify(
+      cur.data.proposer,
+      "提案が承認・送信されました",
+      `${me.name ?? "承認者"} さんが提案を承認し、メールを送信しました${who ? `：${who}` : ""}。`,
+      "approval_result",
+    );
+  }
   revalidatePath("/proposals"); bustCounts();
   return { ok: true };
 }
@@ -747,7 +788,7 @@ export async function rejectProposal(id: string, reason: string): Promise<{ ok: 
   if (!me) return { ok: false, error: "未ログインです" };
   const r0 = (reason ?? "").trim();
   if (!r0) return { ok: false, error: "差戻し理由を入力してください" };
-  const cur: any = await admin.from("proposals").select("id, approver, approval_status").eq("id", id).maybeSingle();
+  const cur: any = await admin.from("proposals").select("id, approver, approval_status, proposer, job_title, candidate_name").eq("id", id).maybeSingle();
   if (cur.error) return { ok: false, error: cur.error.message };
   if (!cur.data) return { ok: false, error: "提案が見つかりません" };
   const { ownerMatches } = await import("./owner-match");
@@ -762,7 +803,18 @@ export async function rejectProposal(id: string, reason: string): Promise<{ ok: 
     updated_at: now,
   }).eq("id", id);
   if (r.error) return { ok: false, error: r.error.message };
+  // 提案者へ「差戻し」を理由つきで通知（自分が提案者を兼ねる場合は不要）。
+  if (!(me.name && ownerMatches(me.name, cur.data.proposer ?? ""))) {
+    const who = [cur.data.job_title, cur.data.candidate_name].filter(Boolean).join(" × ");
+    await notify(
+      cur.data.proposer,
+      "提案が差し戻されました",
+      `${me.name ?? "承認者"} さんが提案を差し戻しました${who ? `：${who}` : ""}。\n差戻し理由：${r0}\n内容を修正して再度承認を依頼してください。`,
+      "approval_result",
+    );
+  }
   revalidatePath("/proposals");
+  bustCounts();
   return { ok: true };
 }
 
