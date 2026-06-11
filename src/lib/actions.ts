@@ -1208,6 +1208,60 @@ export async function saveCompany(input: CompanyInput) {
   return { ok: true };
 }
 
+/** 企業の打合せ完了フラグの「現在のDB状態」を返す診断アクション。
+ *  企業詳細モーダルの診断ボタンから呼び、保存できているのに表示に出ないのか・
+ *  そもそも保存自体が効いていないのかを画面で切り分けるために使う。 */
+export type CompanyDiagnosis = {
+  ok: boolean;
+  error?: string;
+  hasServiceKey: boolean;
+  hasMeetingDoneCol: boolean | null;
+  hasMeetingDoneAtCol: boolean | null;
+  input: string;
+  inputNormalized: string;
+  matches: { id: string; name: string; meeting_done: boolean | null; meeting_done_at: string | null; nameBytesHex: string }[];
+};
+export async function diagnoseCompanyMeetingDone(name: string): Promise<CompanyDiagnosis> {
+  const n = (name ?? "").trim();
+  const normKey = (s?: string | null) => (s ?? "")
+    .normalize("NFC")
+    .replace(/[​-‍﻿]/g, "")
+    .replace(/[\s　]/g, "");
+  const out: CompanyDiagnosis = {
+    ok: true,
+    hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    hasMeetingDoneCol: null,
+    hasMeetingDoneAtCol: null,
+    input: n,
+    inputNormalized: normKey(n),
+    matches: [],
+  };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ...out, ok: false, error: "SUPABASE_SERVICE_ROLE_KEY が未設定（本番ランタイムに反映されていません）" }; }
+  // 列の有無を probe
+  try { const p1: any = await admin.from("companies").select("meeting_done").limit(1); out.hasMeetingDoneCol = !p1.error; }
+  catch { out.hasMeetingDoneCol = false; }
+  try { const p2: any = await admin.from("companies").select("meeting_done_at").limit(1); out.hasMeetingDoneAtCol = !p2.error; }
+  catch { out.hasMeetingDoneAtCol = false; }
+  // 正規化キーで一致する既存行を全部返す（不可視文字を含む可能性があるので name のバイト16進も併記）。
+  try {
+    const all: any = await admin.from("companies").select("id, name, meeting_done, meeting_done_at").limit(50000);
+    if (all.error) return { ...out, ok: false, error: `companies 読み出し失敗: ${all.error.message}` };
+    const target = normKey(n);
+    for (const r of (all.data ?? []) as any[]) {
+      if (normKey(r.name) !== target) continue;
+      const bytes = Buffer.from(String(r.name), "utf8");
+      out.matches.push({
+        id: r.id, name: r.name,
+        meeting_done: r.meeting_done ?? null,
+        meeting_done_at: r.meeting_done_at ?? null,
+        nameBytesHex: bytes.slice(0, 64).toString("hex"),
+      });
+    }
+  } catch (e) { return { ...out, ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  return out;
+}
+
 /** 企業の「打ち合わせ完了」手動フラグを切替（詳細画面のチェック用）。
  *  companies 行が無ければ name で作成（upsert）。meeting_done 列が未追加なら案内を返す。 */
 export async function setCompanyMeetingDone(name: string, done: boolean): Promise<{ ok: boolean; error?: string }> {

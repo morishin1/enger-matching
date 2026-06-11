@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";
-import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone } from "@/lib/actions";
+import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, type CompanyDiagnosis } from "@/lib/actions";
 
 type Registered = {
   name: string; industry?: string | null; tier?: string | null; status?: string | null;
@@ -394,6 +394,15 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
   const [meetingDone, setMeetingDone] = useState<boolean>(initialChecked);
   const [mdBusy, setMdBusy] = useState(false);
   const [mdMsg, setMdMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [diag, setDiag] = useState<CompanyDiagnosis | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const runDiag = async () => {
+    if (!data) return;
+    setDiagBusy(true);
+    try { setDiag(await diagnoseCompanyMeetingDone(data.name)); }
+    catch (e) { setDiag({ ok: false, error: e instanceof Error ? e.message : String(e), hasServiceKey: false, hasMeetingDoneCol: null, hasMeetingDoneAtCol: null, input: data.name, inputNormalized: "", matches: [] }); }
+    finally { setDiagBusy(false); }
+  };
   const toggleMeetingDone = async (next: boolean) => {
     if (!data) return; // 新規作成時は保存後に
     setMeetingDone(next); setMdBusy(true); setMdMsg(null); setMsg(null);
@@ -473,6 +482,37 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
             {mdMsg && (
               <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 600, color: mdMsg.ok ? "#067647" : "var(--color-danger)" }}>
                 {mdMsg.ok ? "✓ " : "⚠ "}{mdMsg.text}
+              </div>
+            )}
+            {/* 診断ボタン：実際のDB状態を見せて「保存できているのに表示に出ない/そもそも保存が効かない」を切り分ける */}
+            <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", fontSize: 11 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={runDiag} disabled={diagBusy}>
+                {diagBusy ? "診断中…" : "🔍 DB状態を診断"}
+              </button>
+              <span className="muted">「済」にしたのに反映されないときは押してください</span>
+            </div>
+            {diag && (
+              <div style={{ marginTop: 6, padding: "8px 10px", background: "var(--color-surface-inset)", borderRadius: 8, fontSize: 11.5, color: "var(--color-ink-2)", border: "1px solid var(--color-border)" }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>診断結果</div>
+                {!diag.ok ? (
+                  <div style={{ color: "var(--color-danger)", fontWeight: 600 }}>⚠ {diag.error ?? "不明なエラー"}</div>
+                ) : (
+                  <>
+                    <div>SUPABASE_SERVICE_ROLE_KEY: <b style={{ color: diag.hasServiceKey ? "#067647" : "var(--color-danger)" }}>{diag.hasServiceKey ? "OK" : "未設定"}</b></div>
+                    <div>meeting_done 列: <b style={{ color: diag.hasMeetingDoneCol ? "#067647" : "var(--color-danger)" }}>{diag.hasMeetingDoneCol ? "あり" : "なし"}</b> / meeting_done_at 列: <b style={{ color: diag.hasMeetingDoneAtCol ? "#067647" : "#b45309" }}>{diag.hasMeetingDoneAtCol ? "あり" : "なし"}</b></div>
+                    <div style={{ marginTop: 4 }}>DBで一致する行: <b>{diag.matches.length}</b> 件</div>
+                    {diag.matches.length === 0 && (
+                      <div style={{ color: "var(--color-danger)", marginTop: 4 }}>⚠ 一致する行がDBにありません。チェックしても新規行が作られず保存が無効化されている可能性があります。</div>
+                    )}
+                    {diag.matches.map((m) => (
+                      <div key={m.id} style={{ marginTop: 4, padding: "4px 8px", background: "var(--color-surface)", borderRadius: 6 }}>
+                        <div>name: <span className="mono">"{m.name}"</span> {m.name !== diag.input && <span style={{ color: "#b45309", fontWeight: 700 }}>（入力と微差あり）</span>}</div>
+                        <div>meeting_done: <b style={{ color: m.meeting_done ? "#067647" : "var(--color-danger)" }}>{String(m.meeting_done)}</b> / _at: <span className="mono">{m.meeting_done_at ?? "null"}</span></div>
+                        <div className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", wordBreak: "break-all" }}>name(hex): {m.nameBytesHex}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>
