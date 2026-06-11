@@ -1216,11 +1216,15 @@ export async function setCompanyMeetingDone(name: string, done: boolean): Promis
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const me = await currentAccess();
+  // 明示的に「未」にしたケースを「未設定」と区別するため、off の場合でも meeting_done_at を立てる。
+  //   ※ こうしないと、打合せ記録(meeting_count>0)が後から自動で「済」を上書きしてしまい、解除しても外れない事故になる。
+  const now = new Date().toISOString();
+  const operator = (me?.name ?? "").trim() || null;
   const full: Record<string, any> = {
     name: n,
     meeting_done: !!done,
-    meeting_done_at: done ? new Date().toISOString() : null,
-    meeting_done_by: done ? ((me?.name ?? "").trim() || null) : null,
+    meeting_done_at: now,
+    meeting_done_by: operator,
   };
   // 監査列(meeting_done_at / meeting_done_by)が未整備の環境でも、フラグ本体(meeting_done)は
   // 必ず保存されるよう、列エラー時は行を段階的に削って再試行する。
@@ -1253,11 +1257,13 @@ export async function bulkSetCompaniesMeetingDone(names: string[], done: boolean
   try { admin = engerAdmin(); } catch { return { ok: false, updated: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const me = await currentAccess();
   const now = new Date().toISOString();
+  const operator = (me?.name ?? "").trim() || null;
+  // 解除(off)した場合も meeting_done_at を立てる（明示的「未」を識別し、自動「済」に上書きされないようにする）。
   const byName = (n: string) => ({
     name: n,
     meeting_done: !!done,
-    meeting_done_at: done ? now : null,
-    meeting_done_by: done ? ((me?.name ?? "").trim() || null) : null,
+    meeting_done_at: now,
+    meeting_done_by: operator,
   });
 
   // まず全件まとめて upsert。列未整備時は段階的に列を落として再試行（単体と同じ方針）。
