@@ -315,8 +315,10 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
       {canManage && (
         <SubmissionCalendar members={members} reports={reports} today={today} />
       )}
-      {/* 管理者以外（マネージャー/リーダー/メンバー）は自分の日報も提出できる */}
-      {!isAdmin && (
+      {/* 自分の日報は誰でも提出できる（管理者・経営・マネージャー含む）。
+          以前は閲覧スコープ=全体（isAdmin）だと入力フォームが消え、
+          経営/マネージャーが自分の日報を書けない問題があったため、氏名があれば常時表示に変更。 */}
+      {author && (
         <>
           {todays ? (
             <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>

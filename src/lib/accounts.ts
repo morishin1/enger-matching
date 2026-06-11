@@ -88,17 +88,18 @@ export async function getAccountByEmail(email: string): Promise<Account | null> 
  *  2) 無い場合は staff の email 許可リストにあれば admin 扱い（移行期の締め出し防止）
  *  3) どちらも無ければ null（未許可）
  */
-export const resolveAccess = cache(async (email: string): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean } | null> => {
+export const resolveAccess = cache(async (email: string): Promise<{ role: Role; rawRole: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean } | null> => {
   const acc = await getAccountByEmail(email);
   if (acc) {
     const department = (acc as any).department ?? null;
     // 経営部署の内部メンバー(agent/admin)は管理者相当に昇格（全メニュー・全機能）。
     //   役職別権限の煩雑さを避け「経営＝全部できる」を単純に実現する。
     //   外部ロール(client/candidate/partner/freelance)は対象外（誤って部署が入っても昇格しない）。
+    //   rawRole には昇格前の素のロールを残す（「経営の日報は管理者のみ閲覧可」等の判定に使用）。
     const isInternal = acc.role === "agent" || acc.role === "admin";
     const role: Role = isExecDepartment(department) && isInternal ? "admin" : acc.role;
     return {
-      role, status: acc.status, companyName: acc.company_name, name: acc.name,
+      role, rawRole: acc.role, status: acc.status, companyName: acc.company_name, name: acc.name,
       position: (acc.position ?? null) as SalesPosition,
       functions: (acc.functions ?? []) as string[],
       meetingDone: !!(acc as any).meeting_done,
@@ -119,7 +120,7 @@ export const resolveAccess = cache(async (email: string): Promise<{ role: Role; 
     const rows = (data ?? []) as { name: string; email: string | null; position?: string | null }[];
     if (rows.length === 0) return null;
     const me = rows.find((r) => String(r.email || "").toLowerCase() === e);
-    if (me) return { role: "admin", status: "active", companyName: null, name: me.name ?? null, position: (me.position ?? null) as SalesPosition, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: false };
+    if (me) return { role: "admin", rawRole: "admin", status: "active", companyName: null, name: me.name ?? null, position: (me.position ?? null) as SalesPosition, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: false };
     return null;
   } catch { return null; }
 });
@@ -156,8 +157,8 @@ export async function createPendingAccount(opts: { email: string; name?: string 
 }
 
 /** ログイン中ユーザーのアクセス情報（role/status/会社名/名前）。未ログインや未設定は null。 */
-export async function currentAccess(): Promise<{ role: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean; email: string } | null> {
-  if (!authConfigured) return { role: "admin", status: "active", companyName: null, name: null, position: null, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: true, email: "" };
+export async function currentAccess(): Promise<{ role: Role; rawRole: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean; email: string } | null> {
+  if (!authConfigured) return { role: "admin", rawRole: "admin", status: "active", companyName: null, name: null, position: null, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: true, email: "" };
   try {
     const email = await getSessionEmail(); // cache() でリクエスト内1回に集約
     if (!email) return null;
