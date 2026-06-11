@@ -41,6 +41,17 @@ export default async function CompaniesPage() {
     } catch { /* companies-extend.sql 未実行などは無視 */ }
   }
 
+  // 「打合せ完了（承認）」が保存できない設定かどうかを検出して、原因を画面に出す。
+  //   ・SUPABASE_SERVICE_ROLE_KEY 未設定（保存処理に必須）
+  //   ・companies.meeting_done 列が未整備（companies-meeting-done.sql 未実行）
+  const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  let meetingDoneCol = true;
+  if (dbConfigured) {
+    try { const sb = engerClient(); const probe: any = await sb.from("companies").select("meeting_done").limit(1); meetingDoneCol = !probe.error; }
+    catch { meetingDoneCol = false; }
+  }
+  const meetingSetupIssue: "service" | "column" | null = !hasServiceKey ? "service" : !meetingDoneCol ? "column" : null;
+
   // 3ヶ月以上ご無沙汰の企業（最終接触＝直近案件/打合せ/連絡記録のうち最新が90日超 or 未接触）
   const since90 = Date.now() - 90 * 86400000;
   const regByName = new Map(registered.map((r) => [r.name, r]));
@@ -75,6 +86,23 @@ export default async function CompaniesPage() {
       </div>
 
       <FlowSteps current="data" sub="企業マスタ（案件・人材の所属企業を整える）" />
+
+      {meetingSetupIssue && (
+        <div className="card" style={{ background: "#fdecef", borderColor: "#f7c5cf", color: "#b42318", fontSize: 13 }}>
+          <b>⚠ 「打ち合わせ完了（承認）」を保存できない設定です。</b> このため一覧が「未」のまま変わらず、打合せ済が必要な提案もできません。
+          {meetingSetupIssue === "service" ? (
+            <div style={{ marginTop: 6 }}>
+              原因：環境変数 <span className="mono">SUPABASE_SERVICE_ROLE_KEY</span> が未設定です（保存処理に必須）。
+              Vercel の Settings → Environment Variables に Supabase の <b>service_role</b> キーを設定し、再デプロイしてください。
+            </div>
+          ) : (
+            <div style={{ marginTop: 6 }}>
+              原因：<span className="mono">companies.meeting_done</span> 列が未整備です。
+              Supabase の SQL Editor で <span className="mono">supabase/companies-meeting-done.sql</span> を実行してください。
+            </div>
+          )}
+        </div>
+      )}
 
       {needSetup && (
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>
