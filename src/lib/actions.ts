@@ -1243,6 +1243,44 @@ export async function setCompanyMeetingDone(name: string, done: boolean): Promis
   return { ok: true };
 }
 
+/** 複数企業の「打ち合わせ完了」を一括更新（service role）。
+ *   既存の単体トグル(setCompanyMeetingDone)と同じく、監査列が未整備でもフラグ本体は保存。
+ *   1名以上失敗してもまとめて結果を返す。 */
+export async function bulkSetCompaniesMeetingDone(names: string[], done: boolean): Promise<{ ok: boolean; updated: number; failed?: string[]; error?: string }> {
+  const list = Array.from(new Set((names ?? []).map((s) => (s ?? "").trim()).filter(Boolean)));
+  if (list.length === 0) return { ok: true, updated: 0 };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, updated: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const me = await currentAccess();
+  const now = new Date().toISOString();
+  const byName = (n: string) => ({
+    name: n,
+    meeting_done: !!done,
+    meeting_done_at: done ? now : null,
+    meeting_done_by: done ? ((me?.name ?? "").trim() || null) : null,
+  });
+
+  // まず全件まとめて upsert。列未整備時は段階的に列を落として再試行（単体と同じ方針）。
+  const rows = list.map(byName);
+  let { error } = await admin.from("companies").upsert(rows, { onConflict: "name" });
+  if (error && /meeting_done_by|column/i.test(error.message)) {
+    const noBy = rows.map(({ meeting_done_by: _b, ...r }) => r);
+    ({ error } = await admin.from("companies").upsert(noBy, { onConflict: "name" }));
+  }
+  if (error && /meeting_done_at|column/i.test(error.message)) {
+    const onlyFlag = list.map((n) => ({ name: n, meeting_done: !!done }));
+    ({ error } = await admin.from("companies").upsert(onlyFlag, { onConflict: "name" }));
+  }
+  if (error) {
+    if (/meeting_done|column/i.test(error.message)) return { ok: false, updated: 0, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
+    if (/unique|on conflict|companies_name_uniq/i.test(error.message)) return { ok: false, updated: 0, error: "企業名の一意制約が未整備です（supabase/companies-extend.sql を実行してください）" };
+    return { ok: false, updated: 0, error: error.message };
+  }
+  revalidatePath("/companies");
+  revalidateTag("approved-companies", "max");
+  return { ok: true, updated: list.length };
+}
+
 /** 企業マスタ登録を削除（案件由来の集計表示は残る）。 */
 export async function deleteCompany(name: string) {
   let admin: ReturnType<typeof engerAdmin>;
