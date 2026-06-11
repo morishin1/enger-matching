@@ -106,7 +106,7 @@ export default async function CompaniesPage() {
       />
 
       <div className="muted" style={{ fontSize: 11, padding: "8px 4px", color: "var(--color-ink-4)" }}>
-        🔒 情報漏洩防止のため、企業／案件／人材の CSV 書き出しは <b>管理者・バックオフィス</b> のみ操作できます。一般のエージェントには書き出しボタンは表示されません。
+        🔒 情報漏洩防止のため、<b>企業マスタの CSV 書き出し（ダウンロード）は廃止</b>しました（閲覧は全メンバー可、ダウンロード不可）。案件／人材の CSV 書き出しは引き続き <b>管理者・バックオフィス</b> のみ操作できます。
       </div>
     </div>
   );
