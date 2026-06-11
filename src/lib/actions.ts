@@ -1216,13 +1216,24 @@ export async function setCompanyMeetingDone(name: string, done: boolean): Promis
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const me = await currentAccess();
-  const row: Record<string, any> = {
+  const full: Record<string, any> = {
     name: n,
     meeting_done: !!done,
     meeting_done_at: done ? new Date().toISOString() : null,
     meeting_done_by: done ? ((me?.name ?? "").trim() || null) : null,
   };
-  const { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  // 監査列(meeting_done_at / meeting_done_by)が未整備の環境でも、フラグ本体(meeting_done)は
+  // 必ず保存されるよう、列エラー時は行を段階的に削って再試行する。
+  //   ※ これをしないと「meeting_done_by 列が無い」だけで upsert 全体が失敗し、
+  //     画面の楽観更新が戻って「承認しても外れる」状態になっていた。
+  let { error } = await admin.from("companies").upsert(full, { onConflict: "name" });
+  if (error && /meeting_done_by|column/i.test(error.message)) {
+    const { meeting_done_by: _b, ...noBy } = full;
+    ({ error } = await admin.from("companies").upsert(noBy, { onConflict: "name" }));
+  }
+  if (error && /meeting_done_at|column/i.test(error.message)) {
+    ({ error } = await admin.from("companies").upsert({ name: n, meeting_done: !!done }, { onConflict: "name" }));
+  }
   if (error) {
     if (/meeting_done|column/i.test(error.message)) return { ok: false, error: "打合せ完了列が未整備です（supabase/companies-meeting-done.sql を実行してください）" };
     return { ok: false, error: error.message };

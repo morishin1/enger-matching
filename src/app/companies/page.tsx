@@ -32,6 +32,8 @@ export default async function CompaniesPage() {
     try {
       const sb = engerClient();
       let res: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason, meeting_done, meeting_done_at");
+      // meeting_done_at だけ未整備の環境でも meeting_done（打合せ済フラグ）を取りこぼさないフォールバック。
+      if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason, meeting_done");
       if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at, is_ng, ng_reason");
       if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, last_contacted_at");
       if (res.error) res = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note");
