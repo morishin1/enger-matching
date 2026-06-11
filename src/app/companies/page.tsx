@@ -42,6 +42,12 @@ export default async function CompaniesPage() {
       if (res.error) res = await sb.from("companies").select(core);
       registered = res.data ?? [];
 
+      // 人材数の集計（companies の所属企業＝source_company / company / affiliation）。
+      //   一覧の「人材」列＋「種別」バッジで「案件提供 vs 人材提供」を見分けるために使用。
+      //   ・案件マッチング業務には影響しないため candidates 未整備でも fail-soft。
+      //   ・最大 30000 件まで取って JS で集計（normName で表記揺れを吸収）。
+
+      // 任意列読み出しの後段で candidateCounts も並列に作りたいが、ここではシンプルに直列で。
       // ② 任意列（NG / 最終接触）は別クエリで取得して name でマージ。
       //    これらが未整備でも meeting_done の表示は壊れない（fail-soft）。
       try {
@@ -55,6 +61,29 @@ export default async function CompaniesPage() {
         }
       } catch { /* 任意列が無くても続行 */ }
     } catch { /* companies-extend.sql 未実行などは無視 */ }
+  }
+
+  // 人材数（candidates の所属企業＝source_company / company / affiliation）を集計。
+  //   ・名前単位で件数を返す（同一人材が複数列に同じ企業名を持っても 1 件）
+  //   ・companies 未整備でも fail-soft（一覧の他の機能は壊れない）。
+  const candidateCounts: Record<string, number> = {};
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      let cr: any = await sb.from("candidates").select("id, source_company, company, affiliation").is("deleted_at", null).limit(30000);
+      if (cr.error) cr = await sb.from("candidates").select("id, source_company, company, affiliation").limit(30000);
+      const rows: any[] = cr.error ? [] : (cr.data ?? []);
+      for (const r of rows) {
+        const seen = new Set<string>();
+        for (const v of [r.source_company, r.company, r.affiliation] as (string | null | undefined)[]) {
+          const n = (v ?? "").toString().trim();
+          if (!n) continue;
+          if (seen.has(n)) continue;
+          seen.add(n);
+          candidateCounts[n] = (candidateCounts[n] ?? 0) + 1;
+        }
+      }
+    } catch { /* 集計失敗時は空のまま（一覧の他機能に影響なし） */ }
   }
 
   // 「打合せ完了（承認）」が保存できない設定かどうかを検出して、原因を画面に出す。
@@ -131,7 +160,7 @@ export default async function CompaniesPage() {
       {/* タブで分割してスクロールを削減（既定＝企業一覧） */}
       <CompaniesTabs
         followCount={followups.length}
-        list={!needSetup && <CompaniesView companies={companies} registered={registered} />}
+        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} />}
         target={
           <>
             {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
