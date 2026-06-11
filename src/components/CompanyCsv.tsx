@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
+import { parseCsv, downloadCsv } from "@/lib/csv";
 import { importCompanies, type CompanyInput } from "@/lib/actions";
 import { Icons } from "./icons";
 
@@ -53,7 +53,7 @@ export function CompanyCsv({ registered = [], isAdmin = false }: { registered?: 
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = ""; }} />
       <button className="btn brand" disabled={pending} onClick={() => fileRef.current?.click()}><Icons.plus /><span>{pending ? "取込中…" : "企業CSV取込"}</span></button>
-      <button className="btn" disabled={registered.length === 0} onClick={() => downloadCsv(`企業マスタ_${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(HEADERS, registered))}><Icons.arrow /><span>書き出し</span></button>
+      {/* 情報漏洩防止のため企業マスタの「書き出し（ダウンロード）」は廃止。取込用テンプレ（実データ無し）のみ残す。 */}
       <button className="btn ghost" style={{ fontSize: 12 }} onClick={() => downloadCsv("企業テンプレート.csv", "﻿" + TEMPLATE.join(",") + "\n株式会社サンプル,SIer,A,主要,山田,鈴木,suzuki@example.com,03-1234-5678,https://example.com,東京都〇〇,直案件多数")}>テンプレ</button>
       {msg && <span style={{ fontSize: 12, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</span>}
     </div>

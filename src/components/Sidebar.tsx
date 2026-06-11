@@ -87,8 +87,9 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
   const SALES_HREFS = ["/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi", "/funnel"];
-  // ダッシュボード・稼働・分析・書類は全エージェント可（分析ページは金額系を admin 限定で隠す）
-  const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents"]);
+  // ダッシュボード・稼働・分析・書類・企業は全エージェント可（分析ページは金額系を admin 限定で隠す）。
+  //   企業は閲覧のみ（CSV書き出しは廃止）なので、職能に関わらずメンバーでも閲覧できるようにする。
+  const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents", "/companies"]);
   if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
   if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }
 
