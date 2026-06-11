@@ -62,9 +62,10 @@ export function ProposalCoach({ proposals, periodLabel = "本日" }: { proposals
   );
 }
 
-/** 🧠 AIコーチボタン：API（Sonnet）で分析しモーダル表示。 */
+/** 🧠 AIコーチボタン：まず機能説明モーダル → OKでAPI（Sonnet）分析しモーダル表示。 */
 function ProposalCoachAiButton({ proposals, periodLabel }: { proposals: any[]; periodLabel: string }) {
-  const [open, setOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false); // 機能説明（実行前の確認）
+  const [open, setOpen] = useState(false);               // 分析結果モーダル
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<CoachResult | null>(null);
@@ -72,6 +73,7 @@ function ProposalCoachAiButton({ proposals, periodLabel }: { proposals: any[]; p
   const disabled = proposals.length === 0;
 
   const run = async () => {
+    setConfirmOpen(false);
     setOpen(true); setLoading(true); setErr(null); setResult(null);
     try {
       const res = await fetch("/api/proposals-coach", {
@@ -88,13 +90,46 @@ function ProposalCoachAiButton({ proposals, periodLabel }: { proposals: any[]; p
 
   return (
     <>
-      <button type="button" onClick={run} disabled={loading || disabled}
-        title={disabled ? "分析対象の提案がありません" : "AIが当日の提案リストを分析して講評します（Sonnet・約3円/回）"}
+      <button type="button" onClick={() => setConfirmOpen(true)} disabled={loading || disabled}
+        title={disabled ? "分析対象の提案がありません" : "AIが提案リストを分析して講評します（押すと説明が表示されます）"}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "inherit", fontSize: 12.5, fontWeight: 700, padding: "6px 12px", borderRadius: 8,
           border: "1px solid #7c5cff", background: "linear-gradient(135deg,#7c5cff,#5b8cff)", color: "#fff", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1 }}>
         <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>neurology</span>
         {loading ? "分析中…" : "AIコーチ"}
       </button>
+
+      {/* 機能説明モーダル（実行前の確認）。OKで初めてAIが分析を開始する。 */}
+      {confirmOpen && (
+        <div onClick={() => setConfirmOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 330, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: "#7c5cff" }}>neurology</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>AIコーチで分析しますか？</h3>
+            </div>
+            <div style={{ background: "linear-gradient(135deg,#f3f0ff,#eef3ff)", border: "1px solid #ddd6fe", borderRadius: 12, padding: "12px 14px", fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.8 }}>
+              いま表示中（<b>{periodLabel}</b>・<b>{proposals.length}件</b>）の提案を AI が分析し、以下を講評します：
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>
+                <li>🔥 今すぐ着手すべき提案（滞留・未架電・高スコア等）</li>
+                <li>⚠ 放置リスク・取りこぼし懸念</li>
+                <li>👤 担当者ごとの傾向とアドバイス</li>
+                <li>✅ チームの次の一手</li>
+              </ul>
+            </div>
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+              ※ 生成AI（Sonnet）を使用します。1回あたり概算 <b>約3円</b>のコストが発生します。<br />
+              ※ 課金なしで使いたい場合は、隣の「コピー」から claude.ai 等に貼り付けて分析できます。
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={() => setConfirmOpen(false)}>キャンセル</button>
+              <button type="button" onClick={run}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 13, fontWeight: 700, padding: "8px 18px", borderRadius: 8, border: "1px solid #7c5cff", background: "linear-gradient(135deg,#7c5cff,#5b8cff)", color: "#fff", cursor: "pointer" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>auto_awesome</span>
+                OK・分析する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {open && (
         <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 320, padding: 16 }}>

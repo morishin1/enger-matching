@@ -36,9 +36,10 @@ export function ProposalBoardSwitcher({ proposals, members, proposers, closers, 
         <span className="muted" style={{ fontSize: 11.5, marginRight: 2 }}>表示</span>
         <Btn v="list" icon="table_rows" label="リスト" />
         <Btn v="kanban" icon="view_kanban" label="カンバン" />
-        {/* カンバンの隣にAIコーチ。現在ボードに出ている提案を分析する */}
-        <span style={{ width: 1, height: 20, background: "var(--color-border)", margin: "0 2px" }} />
-        <ProposalCoach proposals={proposals} periodLabel={periodLabel} />
+        {/* AIコーチ＋コピーはツールバー右端に寄せて、表示切替と視覚的に分離（すっきり） */}
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <ProposalCoach proposals={proposals} periodLabel={periodLabel} />
+        </span>
       </div>
       {view === "kanban" ? <ProposalBoard proposals={proposals} members={members} proposers={proposers} closers={closers} /> : <ProposalListView proposals={proposals} members={members} proposers={proposers} closers={closers} />}
     </div>
