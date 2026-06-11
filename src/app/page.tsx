@@ -9,11 +9,13 @@ import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { TalentRequests } from "@/components/TalentRequests";
 import { DashboardInbox } from "@/components/DashboardInbox";
+import { DashboardAlerts } from "@/components/DashboardAlerts";
 import { MemberActivitySection } from "@/components/MemberActivitySection";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction, canManageDept } from "@/lib/roles";
 import { listTalentRequests } from "@/lib/engineers";
 import { getMyScorecard } from "@/lib/me-scorecard";
+import { loadDashboardAlerts } from "@/lib/dashboard-alerts";
 
 export const dynamic = "force-dynamic";
 
@@ -45,13 +47,18 @@ export default async function DashboardPage() {
   const isAdmin = access?.role !== "agent"; // admin（または認証未設定のローカル）
   // マネージャー/リーダー：自部署メンバーの進捗を見せる
   const isManager = !isAdmin && canManageDept(access?.teamRole) && !!access?.department;
-  const talentRequests = await listTalentRequests();
+  const [talentRequests, alerts] = await Promise.all([listTalentRequests(), loadDashboardAlerts()]);
 
   // 管理者：1画面ダッシュボード（AdminOverview）に集約。詳細は /insights へ。
   if (isAdmin) {
     return (
       <>
         <ReplyAlertBanner name={access?.name ?? null} />
+        {alerts.length > 0 && (
+          <div className="page" style={{ paddingBottom: 0 }}>
+            <DashboardAlerts alerts={alerts} />
+          </div>
+        )}
         <AdminOverview />
         {talentRequests.length > 0 && (
           <div className="page" style={{ paddingTop: 0 }}>
@@ -72,6 +79,11 @@ export default async function DashboardPage() {
     return (
       <>
         <ReplyAlertBanner name={access?.name ?? null} />
+        {alerts.length > 0 && (
+          <div className="page" style={{ paddingBottom: 0 }}>
+            <DashboardAlerts alerts={alerts} />
+          </div>
+        )}
         {scorecard && (
           <div className="page">
             <AgentGoalsHero name={access?.name ?? null} s={scorecard} />
@@ -92,6 +104,11 @@ export default async function DashboardPage() {
   return (
     <>
       <ReplyAlertBanner name={access?.name ?? null} />
+      {alerts.length > 0 && (
+        <div className="page" style={{ paddingBottom: 0 }}>
+          <DashboardAlerts alerts={alerts} />
+        </div>
+      )}
       <div className="page" style={{ paddingBottom: 0 }}>
         <MemberActivitySection access={{ role: access?.role ?? "agent", teamRole: access?.teamRole ?? null, department: access?.department ?? null }} />
       </div>
