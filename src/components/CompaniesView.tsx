@@ -47,8 +47,10 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
   const [showAll, setShowAll] = useState(false);
   // 表示形式：既定はリスト（件数が多く一覧性が高いため）。カードに切替可。
   const [view, setView] = useState<"list" | "card">("list");
-  // 打合せ状況フィルタ：全て / 打合せ済 / 未打合せ
-  const [mtg, setMtg] = useState<"ALL" | "done" | "none">("ALL");
+  // 打合せ状況フィルタ：全て / 打合せ済 / 未打合せ。
+  //   このデータ整備画面の主軸＝「打合せ済かどうか」。既定は未打合せ（＝これから打合せが必要な
+  //   対応すべき企業の TODO リスト）を表示する。済/全ては上部の主役タブでワンクリック切替。
+  const [mtg, setMtg] = useState<"ALL" | "done" | "none">("none");
   // 登録状況フィルタ：全て / 登録済み（企業マスタに手動登録あり） / 未登録（案件から自動集約のみ）
   const [regF, setRegF] = useState<"ALL" | "reg" | "unreg">("ALL");
   // 一括選択（チェックボックス）。下部のフローティングメニューから「打合せ完了/解除」を一括適用。
@@ -111,6 +113,11 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
     new: merged.filter((c) => c.action?.key === "new").length,
     recover: merged.filter((c) => c.action?.key === "recover").length,
   }), [merged]);
+  // 打合せ状況の件数（主役フィルタ用）
+  const mtgCounts = useMemo(() => {
+    const done = merged.filter((c) => isMeetingDone(c)).length;
+    return { ALL: merged.length, done, none: merged.length - done };
+  }, [merged]);
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     const rows = merged.filter((c) =>
@@ -167,6 +174,30 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
         ))}
       </div>
 
+      {/* 主役フィルタ：打合せ状況（このデータ整備画面の最重要軸）。大きめのセグメントで件数つき。 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: "var(--color-ink-2)" }}>打合せ状況</span>
+        <div style={{ display: "inline-flex", gap: 6, padding: 4, background: "var(--color-surface-inset)", borderRadius: 12, flexWrap: "wrap" }}>
+          {[
+            { id: "none", label: "未打合せ", n: mtgCounts.none, fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf", icon: "schedule" },
+            { id: "done", label: "打合せ済", n: mtgCounts.done, fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc", icon: "check_circle" },
+            { id: "ALL", label: "全て", n: mtgCounts.ALL, fg: "var(--color-ink)", bg: "var(--color-surface)", bd: "var(--color-border-strong)", icon: "list" },
+          ].map((m) => {
+            const active = mtg === m.id;
+            return (
+              <button key={m.id} onClick={() => { setMtg(m.id as any); setShowAll(false); }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+                  border: `1.5px solid ${active ? m.bd : "transparent"}`, background: active ? m.bg : "transparent", color: active ? m.fg : "var(--color-ink-3)" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{m.icon}</span>
+                {m.label}
+                <span className="tnum" style={{ fontSize: 12, fontWeight: 800, padding: "1px 7px", borderRadius: 99, background: active ? "#ffffff80" : "var(--color-surface)", color: active ? m.fg : "var(--color-ink-4)" }}>{m.n}</span>
+              </button>
+            );
+          })}
+        </div>
+        <span className="muted" style={{ fontSize: 11.5 }}>打合せ済にすると提案できます（行を選択 → 下部の「打合せ完了にする」で一括可）</span>
+      </div>
+
       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
           {[{ id: "ALL", label: "全て" }, { id: "A", label: "A · 主要" }, { id: "B", label: "B · 拡大" }, { id: "C", label: "C · 維持" }].map((t) => (
@@ -176,14 +207,6 @@ export function CompaniesView({ companies, registered = [] }: { companies: Compa
           ))}
         </div>
         <div className="tbl-search" style={{ width: 240, flex: "0 0 240px" }}><Icons.search /><input placeholder="企業名・業種・担当者で検索…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
-        {/* 打合せ状況フィルタ */}
-        <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
-          {[{ id: "ALL", label: "全て" }, { id: "done", label: "打合せ済" }, { id: "none", label: "未打合せ" }].map((m) => (
-            <button key={m.id} onClick={() => { setMtg(m.id as any); setShowAll(false); }} style={{ padding: "6px 12px", borderRadius: 99, border: 0, background: mtg === m.id ? "var(--color-surface)" : "transparent", color: mtg === m.id ? (m.id === "none" ? "#b42318" : m.id === "done" ? "#067647" : "var(--color-ink)") : "var(--color-ink-3)", fontSize: 12, fontWeight: 600, fontFamily: "inherit", boxShadow: mtg === m.id ? "0 1px 2px rgba(15,23,42,0.06)" : "none", cursor: "pointer" }}>
-              {m.label}
-            </button>
-          ))}
-        </div>
         {/* 登録状況フィルタ：企業マスタに手動登録済みか、案件からの自動集約のみか */}
         <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
           {[
