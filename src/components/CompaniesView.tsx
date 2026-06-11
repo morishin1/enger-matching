@@ -324,7 +324,10 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 640, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{isNew ? "企業を新規登録" : data!.name}</h3>
-          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {data && <Link href={`/companies/${encodeURIComponent(data.name)}`} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>詳細（案件・人材）→</Link>}
+            <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+          </div>
         </div>
 
         {/* 集計(分析データ) */}

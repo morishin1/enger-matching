@@ -1239,6 +1239,7 @@ export async function setCompanyMeetingDone(name: string, done: boolean): Promis
     return { ok: false, error: error.message };
   }
   revalidatePath("/companies");
+  revalidateTag("approved-companies", "max"); // 案件/人材の承認バッジを即時更新
   return { ok: true };
 }
 

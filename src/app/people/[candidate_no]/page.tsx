@@ -9,6 +9,8 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
 import { ClosedBadge } from "@/components/ClosedBadge";
+import { CompanyLink } from "@/components/CompanyLink";
+import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +87,9 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
     || c.source_mail_url
     || gmailSearchUrl([c.name, c.source_company || c.company].filter(Boolean).join(" "));
 
+  const candCompany = (c.source_company || c.company) ?? null;
+  const candApproved = isCompanyApproved(await getApprovedCompanySet(), candCompany);
+
   return (
     <div className="page">
       <div className="page-head">
@@ -129,7 +134,9 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <Row label="日本語" value={c.japanese_level} />
         <Row label="コミュ力" value={c.comm} />
         <Row label="スキルレベル" value={c.skill_level} />
-        <Row label="所属" value={c.affiliation ?? c.source_company} />
+        <Row label="所属" value={candCompany
+          ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={candCompany} approved={candApproved} badge badgeSize="sm" />{c.affiliation ? <span className="muted" style={{ fontSize: 12 }}>（{c.affiliation}）</span> : null}</span>
+          : (c.affiliation ?? null)} />
         <Row label="連絡先" value={c.email ?? c.contact_email} />
         <Row label="備考" value={c.note} />
       </div>

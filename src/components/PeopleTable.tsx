@@ -11,6 +11,8 @@ import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
+import { CompanyLink } from "./CompanyLink";
+import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -449,6 +451,7 @@ export function PeopleTable({
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(detail.candidate_no ?? 0).padStart(5, "0")}</span>
                   {detail.is_closed && <ClosedBadge size="xs" />}
+                  {(detail.source_company || detail.company) && <CompanyApprovalBadge approved={!!detail.company_approved} size="xs" />}
                 </h3>
                 <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
                   {(() => { const co = detail.source_company || detail.company; const com = co && detail.affiliation ? `${co}（${detail.affiliation}）` : (co || detail.affiliation); return [detail.title, com].filter(Boolean).join(" · ") || "—"; })()}
@@ -493,7 +496,9 @@ export function PeopleTable({
                 ["稼働開始", detail.avail],
                 ["リモート希望", remotePrefLabel(detail.remote_pref)],
                 ["最寄駅", detail.location ?? "不明"],
-                ["所属", detail.affiliation ?? detail.source_company],
+                ["所属", (detail.source_company || detail.company)
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={detail.source_company || detail.company} approved={!!detail.company_approved} badge badgeSize="xs" />{detail.affiliation ? <span className="muted" style={{ fontSize: 11.5 }}>（{detail.affiliation}）</span> : null}</span>
+                  : (detail.affiliation ?? null)],
                 ["連絡先", detail.email ?? detail.contact_email],
               ] as [string, React.ReactNode][]).map(([label, value]) => value ? (
                 <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>

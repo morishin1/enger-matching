@@ -9,6 +9,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
+import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -179,6 +180,11 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       people = res.data ?? [];
       total = res.count ?? people.length;
       pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      // 承認(打合せ済)バッジ用に、各行へ所属企業(source_company/company)の承認状態を付与。
+      try {
+        const approvedSet = await getApprovedCompanySet();
+        for (const p of people) (p as any).company_approved = isCompanyApproved(approvedSet, p.source_company || p.company);
+      } catch { /* 承認集合の取得失敗は無視（バッジ非表示） */ }
 
       // フィルタ用の選択肢（職種・所属区分の distinct）。リモート・国籍は固定区分（REMOTE_OPTIONS / NATIONALITY_OPTIONS）。
       try {

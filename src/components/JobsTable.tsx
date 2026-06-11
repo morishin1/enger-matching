@@ -12,6 +12,8 @@ import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
+import { CompanyLink } from "./CompanyLink";
+import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -422,6 +424,7 @@ export function JobsTable({
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(detail.job_no ?? 0).padStart(5, "0")}</span>
                   {detail.is_closed && <ClosedBadge size="xs" />}
+                  {!partner && detail.client_name && <CompanyApprovalBadge approved={!!detail.client_approved} size="xs" />}
                 </h3>
                 <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
                   {[detail.client_name, detail.role_label, remoteLabel(detail.remote_type), salaryLabel(detail.salary_min, detail.salary_max)].filter(Boolean).join(" · ") || "—"}
@@ -457,7 +460,7 @@ export function JobsTable({
               <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>案件情報</div>
               {([
                 ["案件名", detail.title],
-                ["クライアント", detail.client_name],
+                ["クライアント", detail.client_name ? <CompanyLink name={detail.client_name} approved={!!detail.client_approved} badge badgeSize="xs" /> : null],
                 ["募集職種", detail.role_label],
                 ["必要スキル", (detail.skills ?? []).join(" / ") || null],
                 ["単価", salaryLabel(detail.salary_min, detail.salary_max)],
