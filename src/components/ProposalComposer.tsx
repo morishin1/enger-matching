@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl, gmailMessageUrl, buildProposalPrompt } from "@/lib/gmail";
-import { createProposal, undoProposal, recordProposal, updateProposalStage, updateProposalFields } from "@/lib/actions";
+import { createProposal, undoProposal, recordProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 import { SendMailModalButton } from "./SendMailModalButton";
 
@@ -201,34 +201,9 @@ export function ProposalComposer({
   // この画面では承認者選択や proposeToBoard を持たない（重複UI排除）。
 
   // 「提案を記録する」：承認・メール送信なしで、提案した事実だけをボードに残す。
-  //   → どこに提案したか失わない／アウトサイドへトスアップできる。記録後は提案管理で
-  //     「話を進める／見送り」へ進める。
+  //   → どこに提案したか失わない／アウトサイドへトスアップできる。
+  //     ステージ進行（話を進める／見送り）は提案管理側で行う（ここでは1クリック「提案済み」確定のみ）。
   const [recording, setRecording] = useState(false);
-  // 記録後に出すインライン操作（話を進める／見送り）
-  const [advancing, setAdvancing] = useState(false);
-  const [losing, setLosing] = useState(false);
-  const [postAction, setPostAction] = useState<"advance" | "lost" | null>(null);
-  const advanceStage = async () => {
-    if (!savedId) return;
-    setAdvancing(true); setMsg(null);
-    try {
-      const res = await updateProposalStage(savedId, "提案中");
-      if (res.ok) { setPostAction("advance"); setMsg("話を進めました（ステージ：提案中）"); router.refresh(); }
-      else setMsg(res.error || "更新に失敗しました");
-    } catch (e) { setMsg(e instanceof Error ? e.message : "更新に失敗しました"); }
-    finally { setAdvancing(false); }
-  };
-  const markLost = async () => {
-    if (!savedId) return;
-    setLosing(true); setMsg(null);
-    try {
-      // 1クリック確定。詳しい理由は提案管理から後で追記可能（クリック手間を最小化）。
-      const res = await updateProposalFields(savedId, { stage: "見送り" });
-      if (res.ok) { setPostAction("lost"); setMsg("見送りにしました（理由の追記は提案管理から）"); router.refresh(); }
-      else setMsg(res.error || "更新に失敗しました");
-    } catch (e) { setMsg(e instanceof Error ? e.message : "更新に失敗しました"); }
-    finally { setLosing(false); }
-  };
   const recordOnly = async () => {
     if (saved) return;
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("記録できません（ID不足）"); return; }
@@ -237,7 +212,7 @@ export function ProposalComposer({
       const res = await recordProposal(job.job_no, cand.candidate_no, score, sender || undefined);
       if (res.ok) {
         setSaved(true); setSavedId(res.id ?? null);
-        setMsg(res.existed ? "既に提案記録があります（提案管理で確認できます）" : "提案を記録しました（提案管理に追加・アウトサイドへトスアップ可）");
+        setMsg(res.existed ? "既に提案済みです（提案管理で確認できます）" : "✓ 提案済みにしました（提案管理に追加されました）");
         router.refresh();
       } else setMsg(res.error || "記録に失敗しました");
     } catch (e) {
@@ -327,8 +302,8 @@ export function ProposalComposer({
         {!saved && (
           <button type="button" className="btn" onClick={recordOnly} disabled={recording}
             style={{ background: "#0b5cab", color: "#fff", border: 0 }}
-            title="メール送信や承認なしで「提案した」記録だけを残します（提案管理に追加され、話を進める／見送りで進行できます）">
-            {recording ? "記録中…" : "📋 提案を記録する"}
+            title="このペアを「提案済み」にします（メール送信や承認は不要・提案管理に記録）">
+            {recording ? "処理中…" : "📋 提案する"}
           </button>
         )}
         {/* 承認者の選択＆「承認に出す」は廃止：メール送信モーダル側に集約（送信＝承認に出す＋送信）。
@@ -337,33 +312,11 @@ export function ProposalComposer({
           <button type="button" className="btn" onClick={handleUndo} disabled={undoing}
             style={{ color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }}
             title="クリックして取り消し（記録直後のみ）">
-            {undoing ? "取消中…" : "✓ 提案記録済み（取消）"}
+            {undoing ? "取消中…" : "✓ 提案済み（取消）"}
           </button>
         ) : (
-          <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 提案記録済み</span>
+          <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 提案済み</span>
         ))}
-        {/* 記録直後にその場で「話を進める／見送り」を1クリック完了で出す（クリック手間を最小化）。
-            提案管理に遷移せず、ここから直接ステージを進められる。 */}
-        {saved && savedId && postAction == null && (
-          <>
-            <button type="button" className="btn" onClick={advanceStage} disabled={advancing || losing}
-              style={{ background: "#0095D9", color: "#fff", border: 0, fontWeight: 700 }}
-              title="ステージを「提案中」に進めます（1クリック）">
-              {advancing ? "更新中…" : "▶ 話を進める"}
-            </button>
-            <button type="button" className="btn" onClick={markLost} disabled={advancing || losing}
-              style={{ background: "#fff", color: "#b42318", borderColor: "#f7c5cf", fontWeight: 700 }}
-              title="この提案を見送りにします（理由はあとから提案管理で追記可）">
-              {losing ? "更新中…" : "✕ 見送り"}
-            </button>
-          </>
-        )}
-        {postAction === "advance" && (
-          <span className="btn" style={{ cursor: "default", color: "#0b5cab", borderColor: "#cfe5f7", background: "#eef6fd" }} aria-disabled>▶ 提案中に進めました</span>
-        )}
-        {postAction === "lost" && (
-          <span className="btn" style={{ cursor: "default", color: "#b42318", borderColor: "#f7c5cf", background: "#fdecef" }} aria-disabled>✕ 見送り済み</span>
-        )}
         <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
         {saved && (proposedBy || proposedAt) && (
           <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-3)", marginLeft: 4 }}>
