@@ -151,7 +151,7 @@ export function ProposalsWorkspace({
             この期間に提案はありません。
           </div>
         ) : (
-          <ProposalHistory items={historyRows} />
+          <ProposalHistory items={historyRows} proposers={proposers} closers={closers} />
         )}
       </div>
       {lostRows.length > 0 && (
