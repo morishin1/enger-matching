@@ -12,7 +12,9 @@ import { scoreMatch, canon, type Job, type Candidate } from "./match";
 export type RankedPair = {
   rank: number;
   skillPct: number;           // 0-100（必須スキル一致率）
-  score: number;              // 総合マッチスコア 0-100
+  matchedCount: number;       // 一致した必須スキル数
+  jobSkillCount: number;      // 案件の必須スキル数（分母）
+  score: number;              // 総合マッチスコア 0-100（自動マッチングと同じ scoreMatch）
   matchedSkills: string[];
   job: { job_no: number; id: string | null; title: string; client_name: string | null; skills: string[]; salary_min: number | null; salary_max: number | null };
   cand: { candidate_no: number; id: string | null; name: string; initials: string | null; title: string | null; rate: string | null; company: string | null };
@@ -67,16 +69,29 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
     }
   } catch { /* proposals 未整備でも続行 */ }
 
-  // 生き残りペアだけ総合スコアを精査し、一致率 → 総合スコアで降順
+  // 生き残りペアだけ総合スコアを精査。
+  //   ランキングは「自動マッチングの総合スコア(score)」を主軸にする。
+  //   ただし score は単一スキル案件で 100 に張り付きやすいため、
+  //   同点は「一致した必須スキルの絶対数が多い順」で割る（4/4 を 1/1 より上位に）。
+  //   さらに一致率 → 案件の必須スキル数（リッチさ）→ 案件番号 で安定ソート。
   const scored = hits.map((h) => {
     const m = scoreMatch(h.job as Job, h.cand as Candidate);
-    return { ...h, score: m.score, matchedSkills: m.matchedSkills };
+    const jobSkillCount = (h.job.skills as string[]).length;
+    return { ...h, score: m.score, matchedSkills: m.matchedSkills, matchedCount: m.matchedSkills.length, jobSkillCount };
   });
-  scored.sort((a, b) => (b.pct - a.pct) || (b.score - a.score));
+  scored.sort((a, b) =>
+    (b.score - a.score)
+    || (b.matchedCount - a.matchedCount)
+    || (b.pct - a.pct)
+    || (b.jobSkillCount - a.jobSkillCount)
+    || (b.job.job_no - a.job.job_no),
+  );
 
   const rows: RankedPair[] = scored.slice(0, TOP_N).map((h, i) => ({
     rank: i + 1,
     skillPct: Math.round(h.pct * 100),
+    matchedCount: h.matchedCount,
+    jobSkillCount: h.jobSkillCount,
     score: h.score,
     matchedSkills: h.matchedSkills,
     job: { job_no: h.job.job_no, id: h.job.id ?? null, title: h.job.title ?? "", client_name: h.job.client_name ?? null, skills: h.job.skills ?? [], salary_min: h.job.salary_min ?? null, salary_max: h.job.salary_max ?? null },
