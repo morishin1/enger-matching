@@ -216,6 +216,28 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       </div>
     );
   }
+  // ランキング100：必須スキル一致率75%以上の案件×人材ペアを上位100件表示する専用タブ。
+  if (sp.tab === "ranking") {
+    const { getRanking100 } = await import("@/lib/ranking100");
+    const { Ranking100View } = await import("@/components/Ranking100View");
+    const data = await getRanking100();
+    return (
+      <div className="page">
+        <div className="page-head">
+          <div style={{ maxWidth: 760 }}>
+            <div className="meta">Matching · ランキング100</div>
+            <h1>マッチングランキング</h1>
+            <div className="sub">全案件 × 全人材から<b>必須スキル一致率 75%以上</b>のペアを抽出し、一致率順に上位100件を表示します。</div>
+          </div>
+        </div>
+        <FlowSteps current="matching" sub="ランキング100" />
+        <MatchingPeerTabs counts={peerCounts} />
+        <MatchingModeTabs />
+        <Ranking100View rows={data.rows} meta={{ jobsScanned: data.jobsScanned, candsScanned: data.candsScanned, pairsHit: data.pairsHit }} />
+      </div>
+    );
+  }
+
   // 既定は自動マッチング（auto）。URL で tab=focus が明示された時のみ注力マッチング。
   const tab: "auto" | "focus" =
     sp.tab === "focus" ? "focus" : "auto";
