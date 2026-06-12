@@ -324,7 +324,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       <FlowSteps current="data" sub="案件マスタの整備" />
 
-      {!scope.isTenant && <MatchingPeerTabsServer />}
+      {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。
+          検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
+      {!scope.isTenant && (() => {
+        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || showAll);
+        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
+      })()}
 
       {scope.isTenant && (
         <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>
