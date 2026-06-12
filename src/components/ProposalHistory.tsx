@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { restoreProposal } from "@/lib/actions";
 import { normalizeStage } from "@/lib/proposal-constants";
+import { ProposalDetailModal } from "./ProposalDetailModal";
 
 const STAGE_TONE: Record<string, { bg: string; fg: string }> = {
   所属確認:  { bg: "var(--color-surface-inset)", fg: "var(--color-ink-2)" },
@@ -58,12 +59,14 @@ function relTime(d: any): string {
   return `${Math.floor(day / 365)}年前`;
 }
 
-export function ProposalHistory({ items }: { items: any[] }) {
+export function ProposalHistory({ items, proposers = [], closers = [] }: { items: any[]; proposers?: string[]; closers?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState<"all" | "active" | "terminal">("all");
   const [period, setPeriod] = useState<"all" | "today" | "week" | "month">("all");
+  // 行クリックでドロワー（ProposalDetailModal）を開く。提案した案件・人材の詳細を見るため。
+  const [active, setActive] = useState<any | null>(null);
   // 失注日での絞り込み（from/to・yyyy-mm-dd）。どちらか入っていれば終了行(失注/見送り)のみに限定して検索する。
   const [lostFrom, setLostFrom] = useState("");
   const [lostTo, setLostTo] = useState("");
@@ -182,7 +185,10 @@ export function ProposalHistory({ items }: { items: any[] }) {
                 const stg = stageDisplay(p.stage);
                 const isTerm = TERMINAL.has(p.stage);
                 return (
-                  <tr key={p.id}>
+                  <tr key={p.id}
+                    onClick={(e) => { if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setActive(p); }}
+                    style={{ cursor: "pointer" }}
+                    title="クリックで詳細を開く（案件・人材の情報を確認）">
                     <td style={td}>
                       <div style={{ fontWeight: 700 }}>{fmtDateTime(p.created_at)}</div>
                       <div className="muted" style={{ fontSize: 10.5 }}>{relTime(p.created_at)}</div>
@@ -241,6 +247,7 @@ export function ProposalHistory({ items }: { items: any[] }) {
           )}
         </div>
       )}
+      {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} proposers={proposers} closers={closers} />}
     </div>
   );
 }
