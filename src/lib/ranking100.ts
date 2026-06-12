@@ -15,9 +15,21 @@ export type RankedPair = {
   matchedCount: number;       // 一致した必須スキル数
   jobSkillCount: number;      // 案件の必須スキル数（分母）
   score: number;              // 総合マッチスコア 0-100（自動マッチングと同じ scoreMatch）
-  matchedSkills: string[];
-  job: { job_no: number; id: string | null; title: string; client_name: string | null; skills: string[]; salary_min: number | null; salary_max: number | null };
-  cand: { candidate_no: number; id: string | null; name: string; initials: string | null; title: string | null; rate: string | null; company: string | null };
+  matchedSkills: string[];    // 一致したスキル（人材側の元表記）
+  missingSkills: string[];    // 案件で必要だが人材に無いスキル
+  candExtraSkills: string[];  // 人材は持っているが案件に無いスキル
+  job: {
+    job_no: number; id: string | null; title: string; client_name: string | null;
+    skills: string[]; salary_min: number | null; salary_max: number | null;
+    role_label: string | null; remote_type: string | null; work_location: string | null;
+    start_date: string | null; flow_note: string | null; detail: string | null;
+  };
+  cand: {
+    candidate_no: number; id: string | null; name: string; initials: string | null; title: string | null;
+    rate: string | null; company: string | null; affiliation: string | null;
+    skills: string[]; exp: string | null; avail: string | null; location: string | null;
+    remote_pref: string | null; age_band: string | null; nationality: string | null; note: string | null;
+  };
   proposed: boolean;          // 既に提案済みのペアか
 };
 
@@ -29,14 +41,16 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
   const sb = engerClient();
 
   // 案件：公開・未削除・未クローズ・スキルあり。新しい順500件。
-  const jcols = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, detail, flow_note, created_at";
+  //   ドロワーの比較表示に使う追加列（role_label/work_location/start_date）も取得。
+  const jcols = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, detail, flow_note, role_label, work_location, start_date, created_at";
   let jr: any = await sb.from("jobs").select(jcols).eq("is_published", true).is("deleted_at", null).eq("is_closed", false).order("job_no", { ascending: false }).limit(500);
   if (jr.error) jr = await sb.from("jobs").select(jcols).eq("is_published", true).is("deleted_at", null).order("job_no", { ascending: false }).limit(500);
   if (jr.error) jr = await sb.from("jobs").select(jcols).eq("is_published", true).order("job_no", { ascending: false }).limit(500);
   const jobs: any[] = (jr.data ?? []).filter((j: any) => Array.isArray(j.skills) && j.skills.length > 0);
 
   // 人材：未削除・未クローズ・スキルあり。新しい順3000件。
-  const ccols = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, created_at";
+  //   ドロワーの比較表示に使う追加列（exp/avail/location/note）も取得。
+  const ccols = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
   let cr: any = await sb.from("candidates").select(ccols).is("deleted_at", null).eq("is_closed", false).order("candidate_no", { ascending: false }).limit(3000);
   if (cr.error) cr = await sb.from("candidates").select(ccols).is("deleted_at", null).order("candidate_no", { ascending: false }).limit(3000);
   if (cr.error) cr = await sb.from("candidates").select(ccols).order("candidate_no", { ascending: false }).limit(3000);
@@ -77,7 +91,10 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
   const scored = hits.map((h) => {
     const m = scoreMatch(h.job as Job, h.cand as Candidate);
     const jobSkillCount = (h.job.skills as string[]).length;
-    return { ...h, score: m.score, matchedSkills: m.matchedSkills, matchedCount: m.matchedSkills.length, jobSkillCount };
+    // 「人材が持っている案件外スキル」（参考表示用）：人材スキルから一致分を除いたもの。
+    const jset = new Set<string>((h.job.skills as string[]).map(canon));
+    const extras = (h.cand.skills as string[]).filter((s) => !jset.has(canon(s)));
+    return { ...h, score: m.score, matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras, matchedCount: m.matchedSkills.length, jobSkillCount };
   });
   scored.sort((a, b) =>
     (b.score - a.score)
@@ -94,8 +111,25 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
     jobSkillCount: h.jobSkillCount,
     score: h.score,
     matchedSkills: h.matchedSkills,
-    job: { job_no: h.job.job_no, id: h.job.id ?? null, title: h.job.title ?? "", client_name: h.job.client_name ?? null, skills: h.job.skills ?? [], salary_min: h.job.salary_min ?? null, salary_max: h.job.salary_max ?? null },
-    cand: { candidate_no: h.cand.candidate_no, id: h.cand.id ?? null, name: h.cand.name ?? "", initials: h.cand.initials ?? null, title: h.cand.title ?? null, rate: h.cand.rate ?? null, company: (h.cand.source_company || h.cand.company) ?? null },
+    missingSkills: h.missingSkills,
+    candExtraSkills: h.candExtraSkills,
+    job: {
+      job_no: h.job.job_no, id: h.job.id ?? null, title: h.job.title ?? "",
+      client_name: h.job.client_name ?? null, skills: h.job.skills ?? [],
+      salary_min: h.job.salary_min ?? null, salary_max: h.job.salary_max ?? null,
+      role_label: h.job.role_label ?? null, remote_type: h.job.remote_type ?? null,
+      work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
+      flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
+    },
+    cand: {
+      candidate_no: h.cand.candidate_no, id: h.cand.id ?? null, name: h.cand.name ?? "",
+      initials: h.cand.initials ?? null, title: h.cand.title ?? null,
+      rate: h.cand.rate ?? null, company: (h.cand.source_company || h.cand.company) ?? null,
+      affiliation: h.cand.affiliation ?? null, skills: h.cand.skills ?? [],
+      exp: h.cand.exp ?? null, avail: h.cand.avail ?? null, location: h.cand.location ?? null,
+      remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
+      nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
+    },
     proposed: !!(h.job.id && h.cand.id && proposedPairs.has(`${h.job.id}|${h.cand.id}`)),
   }));
 
