@@ -66,6 +66,17 @@ const FLOW_CAT_TO_LABELS: Record<string, string[]> = {
   any:                 ["商流不問"],
 };
 const escapeLike = (s: string) => s.replace(/[%_]/g, (m) => "\\" + m);
+
+// 商流制限の粗フィルタ（あり/なし）。flow_note は自由文のため ilike で近似。
+//   none(制限なし)       = 商流不問の記載がある
+//   restricted(制限あり) = 記載があり かつ 不問/不明 ではない（何らかの商流制限）
+const applyFlowLimit = (qb: any, v: string) => {
+  if (v === "none") return qb.ilike("flow_note", "%不問%");
+  if (v === "restricted") return qb
+    .not("flow_note", "is", null).neq("flow_note", "")
+    .not("flow_note", "ilike", "%不問%").not("flow_note", "ilike", "%不明%");
+  return qb;
+};
 const ilikeOr = (keys: readonly string[], fields: string[]) =>
   fields.flatMap((f) => keys.map((k) => `${f}.ilike.%${escapeLike(k)}%`)).join(",");
 
@@ -92,7 +103,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -103,6 +114,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const fRole = sp.f_role ?? "";
   const fRemote = sp.f_remote ?? "";
   const fFlow = sp.f_flow ?? "";
+  // 商流制限の粗い切り分け：restricted=制限あり / none=制限なし(商流不問)。空=すべて。
+  const fFlowLimit = sp.f_flow_limit ?? "";
   const fRank = sp.f_rank ?? "";
   const fOwner = sp.f_outside_owner ?? "";
   const fNat = sp.f_nationality ?? "";
@@ -169,6 +182,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             if (labels.length > 0) qb = qb.in("flow_note", labels);
           }
         }
+        if (fFlowLimit) qb = applyFlowLimit(qb, fFlowLimit);
         if (rOr) qb = qb.or(rOr);
         // 国籍要件（案件本文の ilike 近似）。jp_only/open は該当語を含む、unknown は言及語を一切含まない。
         //   unknown は本文が空(null)も含めたいので「is.null または 言及語をすべて含まない」で field 毎に絞る。
@@ -206,6 +220,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             if (labels.length > 0) qb = qb.in("flow_note", labels);
           }
         }
+        if (fFlowLimit) qb = applyFlowLimit(qb, fFlowLimit);
         if (rOr) qb = qb.or(rOr);
         if (fNat === "jp_only") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.jp_only, ["detail", "title"]));
         else if (fNat === "open") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.open, ["detail", "title"]));
@@ -269,7 +284,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
 
   // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, rank: fRank, outside_owner: fOwner, nationality: fNat };
+  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat };
   const jobFilterOptions = {
     status: FRESH_OPTIONS,
     role: roleOptionVals.map((v) => ({ value: v, label: v })),
