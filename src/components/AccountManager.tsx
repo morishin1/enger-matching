@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, setAccountTimecard, deleteAccount, createAgent, resetAccountPassword, bulkDeleteAccounts } from "@/app/settings/account-actions";
+import { approveAccount, setAccountStatus, setAccountRole, setAccountPosition, setAccountFunctions, setAccountDepartment, setAccountTeamRole, setAccountTimecard, deleteAccount, createAgent, resetAccountPassword, bulkDeleteAccounts, backfillAuthForActiveAccounts } from "@/app/settings/account-actions";
 import type { Account, Role } from "@/lib/accounts";
 import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
 
@@ -45,6 +45,8 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [cred, setCred] = useState<{ email: string; password: string; note: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  // 一括修復の結果（仮パスワード発行一覧／失敗一覧）
+  const [backfill, setBackfill] = useState<{ made: { email: string; password?: string }[]; failed: { email: string; error?: string }[] } | null>(null);
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
     startTransition(async () => { const r = await fn(); setMsg(r.ok ? null : (r.error ?? "操作に失敗しました")); });
@@ -89,6 +91,21 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>👤 アカウント・権限管理</h3>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span className="muted" style={{ fontSize: 11 }}>承認待ち {waiting.length} 件 / 全 {accounts.length} 件</span>
+          {/* Auth未登録のアカウントを一括でログイン可能化（過去の承認漏れ救済） */}
+          <button type="button" disabled={pending} onClick={async () => {
+            if (!confirm("ログイン用パスワードが未発行の有効アカウントについて、仮パスワードを一括発行します。\n\n発行直後のみ画面に表示されます。本人に共有後、各自で変更してもらってください。よろしいですか？")) return;
+            startTransition(async () => {
+              const r = await backfillAuthForActiveAccounts();
+              if (!r.ok) { setMsg(r.error ?? "一括発行に失敗しました"); return; }
+              const made = (r.results ?? []).filter((x) => x.password);
+              const failed = (r.results ?? []).filter((x) => x.error);
+              if (made.length === 0 && failed.length === 0) { setMsg("発行が必要なアカウントはありませんでした（全員ログイン可能です）"); return; }
+              setBackfill({ made, failed });
+            });
+          }} title="auth に居ないアカウント全員に仮パスワードを発行します（既存パスワードは変更しません）"
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", color: "#0b5cab", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            🔧 ログイン不可を一括修復
+          </button>
           <button type="button" onClick={() => setShowCreate((v) => !v)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--color-brand-600, #0095D9)", background: showCreate ? "var(--color-brand-50, #eaf4fd)" : "#fff", color: "var(--color-brand-700, #0b5cab)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{showCreate ? "× 閉じる" : "＋ エージェントを追加"}</button>
         </div>
       </div>
@@ -108,6 +125,36 @@ export function AccountManager({ accounts }: { accounts: Account[] }) {
             <button type="button" onClick={() => { navigator.clipboard?.writeText(`${cred.email} / ${cred.password}`); }} style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid #abefc6", background: "#fff", fontSize: 11.5, fontWeight: 700, color: "#067647", cursor: "pointer" }}>コピー</button>
             <button type="button" onClick={() => setCred(null)} style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid var(--color-border)", background: "#fff", fontSize: 11.5, cursor: "pointer", color: "#6b7280", marginLeft: "auto" }}>閉じる</button>
           </div>
+        </div>
+      )}
+
+      {/* 一括修復の結果（仮パスワード発行一覧） */}
+      {backfill && (
+        <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0b5cab" }}>🔧 ログイン不可アカウントを修復しました（{backfill.made.length} 件）</div>
+            <button type="button" onClick={() => {
+              const text = backfill.made.map((x) => `${x.email} / ${x.password}`).join("\n");
+              navigator.clipboard?.writeText(text);
+            }} style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid #bfdbfe", background: "#fff", fontSize: 11, fontWeight: 700, color: "#0b5cab", cursor: "pointer" }}>全てコピー</button>
+            <button type="button" onClick={() => setBackfill(null)} style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid var(--color-border)", background: "#fff", fontSize: 11, cursor: "pointer", color: "#6b7280", marginLeft: "auto" }}>閉じる</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "#475569", marginBottom: 8 }}>下記の仮パスワードを本人に共有してください。<b>この画面を閉じると再表示はできません</b>。</div>
+          {backfill.made.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflowY: "auto", background: "#fff", border: "1px solid #dbeafe", borderRadius: 6, padding: 8 }}>
+              {backfill.made.map((x) => (
+                <div key={x.email} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
+                  <code style={{ flex: 1 }}>{x.email}</code>
+                  <code style={{ fontWeight: 700, color: "#0b5cab" }}>{x.password}</code>
+                </div>
+              ))}
+            </div>
+          )}
+          {backfill.failed.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11.5, color: "#b42318" }}>
+              失敗 {backfill.failed.length} 件：{backfill.failed.map((f) => f.email).join(", ")}
+            </div>
+          )}
         </div>
       )}
 

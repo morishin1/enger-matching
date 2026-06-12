@@ -34,6 +34,35 @@ async function findAuthUserIdByEmail(email: string): Promise<string | null> {
   return null;
 }
 
+/** Supabase Auth に email のユーザーが居なければ新規作成し、id を返す。
+ *  これをしないと「app_users で active 表示なのにログインできない」状態になる
+ *  （承認時に auth 側を作らなかった過去ケースの救済）。
+ *  既に居れば既存 id を返す（パスワードは変更しない）。 */
+async function ensureAuthUser(email: string, opts?: { password?: string; name?: string | null }): Promise<{ id: string | null; created: boolean; error?: string }> {
+  const e = (email || "").trim().toLowerCase();
+  if (!e) return { id: null, created: false, error: "メールが空です" };
+  const exists = await findAuthUserIdByEmail(e);
+  if (exists) return { id: exists, created: false };
+  try {
+    const aa = authAdmin();
+    const { data, error } = await aa.auth.admin.createUser({
+      email: e,
+      password: opts?.password ?? genTempPassword(),
+      email_confirm: true,
+      user_metadata: opts?.name ? { full_name: opts.name } : undefined,
+    });
+    if (error) {
+      // 「既に登録済み」等のレース時は再検索して既存を返す（成功扱い）
+      if (/registered|already|exists|duplicate/i.test(error.message)) {
+        const again = await findAuthUserIdByEmail(e);
+        if (again) return { id: again, created: false };
+      }
+      return { id: null, created: false, error: error.message };
+    }
+    return { id: data.user?.id ?? null, created: true };
+  } catch (err: any) { return { id: null, created: false, error: String(err?.message ?? err) }; }
+}
+
 type Actor = { email: string; name: string | null; role: string };
 const localActor: Actor = { email: "local-admin", name: null, role: "admin" };
 
@@ -168,6 +197,17 @@ export async function approveAccount(formData: FormData): Promise<Result> {
       ({ error } = await sb.from("app_users").update(upd).eq("id", id));
     }
     if (error) return { ok: false, error: error.message };
+
+    // ログインに必要な Supabase auth.users を確実に作る（不在ならここで作成）。
+    //   これをしないと「app_users で active 表示なのにログイン不可」状態になる。
+    //   既存ユーザーは触らない（パスワードは上書きしない）。
+    try {
+      const { data: u } = await sb.from("app_users").select("email, name").eq("id", id).maybeSingle();
+      const emailRow = (u as any)?.email as string | undefined;
+      const nameRow = (u as any)?.name as string | undefined;
+      if (emailRow) await ensureAuthUser(emailRow, { name: nameRow ?? null });
+    } catch { /* auth 連携失敗でも app_users 承認自体は成功扱い */ }
+
     await audit(id, null, "approve", `role=${upd.role}${company ? ` company=${company}` : ""}`, actor);
     bustMembers();
     return { ok: true };
@@ -472,21 +512,63 @@ export async function createAgent(formData: FormData): Promise<Result & { passwo
 }
 
 /** 管理者がパスワードを再発行（新しい仮パスワードを設定して1回だけ表示）。 */
-export async function resetAccountPassword(email: string): Promise<Result & { password?: string }> {
+export async function resetAccountPassword(email: string): Promise<Result & { password?: string; created?: boolean }> {
   const guard = await requireAdmin();
   if (!guard.ok) return guard;
   const e = (email || "").trim().toLowerCase();
   if (!e) return { ok: false, error: "メールがありません" };
   try {
-    const uid = await findAuthUserIdByEmail(e);
-    if (!uid) return { ok: false, error: "認証ユーザーが見つかりません（このアカウントはまだログイン用パスワードが未発行の可能性があります）" };
+    // app_users の氏名を取得（auth.users 新規作成時の user_metadata に使う）
+    let displayName: string | null = null;
+    try {
+      const sb = engerAdmin();
+      const { data: u } = await sb.from("app_users").select("name").ilike("email", e).maybeSingle();
+      displayName = ((u as any)?.name ?? null) as string | null;
+    } catch { /* ignore */ }
+
     const password = genTempPassword();
-    const { error } = await authAdmin().auth.admin.updateUserById(uid, { password });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, password };
+    // 既存があれば updateUserById、無ければ ensureAuthUser で新規作成（password を直接指定）
+    let uid = await findAuthUserIdByEmail(e);
+    let created = false;
+    if (!uid) {
+      const ens = await ensureAuthUser(e, { password, name: displayName });
+      if (!ens.id) return { ok: false, error: ens.error ?? "認証ユーザーの作成に失敗しました" };
+      uid = ens.id;
+      created = ens.created;
+    } else {
+      const { error } = await authAdmin().auth.admin.updateUserById(uid, { password });
+      if (error) return { ok: false, error: error.message };
+    }
+    return { ok: true, password, created };
   } catch (err: any) {
     return { ok: false, error: String(err?.message ?? err) };
   }
+}
+
+/** 既に app_users に居て auth.users が無い「ログイン不可」のアカウントを一括で作成する。
+ *  対象は status=active かつ auth.users 未登録のもの。各メールに仮パスワードを発行して返却。 */
+export async function backfillAuthForActiveAccounts(): Promise<{ ok: boolean; results?: { email: string; password?: string; created: boolean; error?: string }[]; error?: string }> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  try {
+    const sb = engerAdmin();
+    const { data, error } = await sb.from("app_users").select("email, name, status").eq("status", "active");
+    if (error) return { ok: false, error: error.message };
+    const list = (data ?? []) as { email: string | null; name: string | null; status: string }[];
+    const results: { email: string; password?: string; created: boolean; error?: string }[] = [];
+    for (const u of list) {
+      const e = (u.email ?? "").trim().toLowerCase();
+      if (!e) continue;
+      const existing = await findAuthUserIdByEmail(e);
+      if (existing) continue; // 既に居る → スキップ（既存パスワードを上書きしない）
+      const password = genTempPassword();
+      const ens = await ensureAuthUser(e, { password, name: u.name });
+      if (ens.error) results.push({ email: e, created: false, error: ens.error });
+      else results.push({ email: e, password, created: ens.created });
+    }
+    bustMembers();
+    return { ok: true, results };
+  } catch (err: any) { return { ok: false, error: String(err?.message ?? err) }; }
 }
 
 /** アカウント削除。 */
