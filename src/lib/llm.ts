@@ -140,10 +140,31 @@ export async function callLLMVision(opts: { system: string; prompt: string; file
 
 /** ```json ... ``` などを剥がして JSON.parse する。 */
 export function parseJsonLoose<T = any>(text: string): T | null {
-  let s = text.trim();
+  let s = (text ?? "").trim();
+  // 1) コードフェンスを除去（```json ... ``` も ``` ... ``` も）
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) s = fence[1].trim();
-  const first = s.indexOf("{"), last = s.lastIndexOf("}");
-  if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  // 2) 配列 [...] とオブジェクト {...} の両方に対応。前後の説明文を捨てて
+  //    本体（一番外側のブロック）だけを切り出す。
+  //    ★以前は { ... } のみ抽出していたため、配列を返す API（match-rerank 等）で
+  //      [ {...}, {...} ] の "最初のオブジェクトだけ" 取り出して Array.isArray 検査に
+  //      失敗し「AI応答の解析に失敗しました」になっていた。
+  const objFirst = s.indexOf("{");
+  const objLast  = s.lastIndexOf("}");
+  const arrFirst = s.indexOf("[");
+  const arrLast  = s.lastIndexOf("]");
+  const hasObj = objFirst >= 0 && objLast > objFirst;
+  const hasArr = arrFirst >= 0 && arrLast > arrFirst;
+  if (hasArr && hasObj) {
+    // 先に出現する方を最外側のブロックとして採用（配列の中身に {} があるケースで安全）。
+    if (arrFirst < objFirst) s = s.slice(arrFirst, arrLast + 1);
+    else s = s.slice(objFirst, objLast + 1);
+  } else if (hasArr) {
+    s = s.slice(arrFirst, arrLast + 1);
+  } else if (hasObj) {
+    s = s.slice(objFirst, objLast + 1);
+  }
+  // 3) よくある体裁ズレを軽く修復（末尾カンマ・全角クォート）
+  s = s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/,\s*([\]}])/g, "$1");
   try { return JSON.parse(s) as T; } catch { return null; }
 }
