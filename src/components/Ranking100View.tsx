@@ -22,7 +22,7 @@ export function Ranking100View({ rows, meta }: { rows: RankedPair[]; meta: { job
         <div>
           <div style={{ fontSize: 14, fontWeight: 800 }}>🏆 ランキング100 <span className="tag brand">{rows.length}件</span></div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-            必須スキル一致率 <b>75%以上</b> のペアを一致率 → 総合スコア順で表示。
+            必須スキル一致率 <b>75%以上</b> を満たすペアを、<b>自動マッチングの総合スコア順</b>で表示（同点は一致スキル数の多い順）。
             対象：案件 {meta.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {meta.candsScanned.toLocaleString("ja-JP")} 名（適合 {meta.pairsHit.toLocaleString("ja-JP")} ペア）・5分毎に更新。
           </div>
         </div>
@@ -38,11 +38,11 @@ export function Ranking100View({ rows, meta }: { rows: RankedPair[]; meta: { job
             <thead>
               <tr style={{ color: "var(--color-ink-4)", fontSize: 11, background: "var(--color-surface-soft)" }}>
                 <th style={{ padding: "8px 10px", width: 48 }}>順位</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", width: 90 }}>一致率</th>
+                <th style={{ padding: "8px 10px", textAlign: "right", width: 84 }}>総合</th>
+                <th style={{ padding: "8px 10px", textAlign: "left", width: 110 }}>必須スキル</th>
                 <th style={{ padding: "8px 10px", textAlign: "left" }}>案件</th>
                 <th style={{ padding: "8px 10px", textAlign: "left" }}>人材</th>
                 <th style={{ padding: "8px 10px", textAlign: "left" }}>一致スキル</th>
-                <th style={{ padding: "8px 10px", textAlign: "right", width: 76 }}>総合</th>
                 <th style={{ padding: "8px 10px", textAlign: "right", width: 120 }}></th>
               </tr>
             </thead>
@@ -50,8 +50,13 @@ export function Ranking100View({ rows, meta }: { rows: RankedPair[]; meta: { job
               {rows.map((r) => (
                 <tr key={`${r.job.job_no}-${r.cand.candidate_no}`} style={{ opacity: r.proposed ? 0.62 : 1, background: r.proposed ? "var(--color-surface-inset)" : undefined }}>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "center" }}><RankBadge n={r.rank} /></td>
+                  <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right" }}>
+                    <span className="display tnum" style={{ fontSize: 17, fontWeight: 800, color: r.score >= 80 ? "#067647" : r.score >= 60 ? "#0b5cab" : "#9a5b1a" }}>{r.score}</span><span className="muted" style={{ fontSize: 10 }}>%</span>
+                  </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)" }}>
-                    <span className="display tnum" style={{ fontSize: 16, fontWeight: 800, color: r.skillPct >= 100 ? "#067647" : r.skillPct >= 90 ? "#0b5cab" : "#9a5b1a" }}>{r.skillPct}%</span>
+                    {/* 必須スキル：分数を主表示にして「1/1で100%」の薄い一致を見分けやすく */}
+                    <div className="tnum" style={{ fontSize: 13, fontWeight: 800, color: r.skillPct >= 100 ? "#067647" : "#0b5cab" }}>{r.matchedCount}/{r.jobSkillCount}</div>
+                    <div className="muted" style={{ fontSize: 10.5 }}>{r.skillPct}% 一致</div>
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)" }}>
                     <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -73,9 +78,6 @@ export function Ranking100View({ rows, meta }: { rows: RankedPair[]; meta: { job
                       {r.matchedSkills.slice(0, 6).map((s) => <span key={s} className="tag brand" style={{ fontSize: 10 }}>{s}</span>)}
                       {r.matchedSkills.length > 6 && <span className="muted" style={{ fontSize: 10.5, fontWeight: 600 }}>+{r.matchedSkills.length - 6}</span>}
                     </div>
-                  </td>
-                  <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right" }}>
-                    <span className="display tnum" style={{ fontWeight: 800 }}>{r.score}</span><span className="muted" style={{ fontSize: 10 }}>%</span>
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right", whiteSpace: "nowrap" }}>
                     <Link href={`/matching?job=${r.job.job_no}&cand=${r.cand.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}
