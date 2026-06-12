@@ -35,14 +35,15 @@ export function MatchingTabs({ counts, hideOnMatching = true }: { counts?: Sideb
   return <PeerTabsInternal counts={counts} active={active} />;
 }
 
-/** マッチングページ本体用。ヘッダーから移動してきたタブ群をここに描画する。 */
-export function MatchingPeerTabs({ counts }: { counts?: SidebarCounts }) {
+/** マッチングページ本体用。ヘッダーから移動してきたタブ群をここに描画する。
+ *  activeCount: 現在のページで絞り込み後の件数。アクティブタブのバッジを総数と連動表示する。 */
+export function MatchingPeerTabs({ counts, activeCount }: { counts?: SidebarCounts; activeCount?: number }) {
   const path = usePathname() ?? "";
   const active = activeFromPath(path) ?? "matching";
-  return <PeerTabsInternal counts={counts} active={active} />;
+  return <PeerTabsInternal counts={counts} active={active} activeCount={activeCount} />;
 }
 
-function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: TabKey }) {
+function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCounts; active: TabKey; activeCount?: number }) {
   const totalOf: Record<TabKey, number | undefined> = {
     matching: undefined,
     jobs: counts?.jobs,
@@ -61,7 +62,11 @@ function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: 
     <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "center", overflowX: "auto", minWidth: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 14 }}>
       {TABS.map((t) => {
         const isActive = t.key === active;
-        const total = fmt(totalOf[t.key]);
+        const globalTotal = totalOf[t.key];
+        // アクティブタブで絞り込み件数（activeCount）が渡され、総数と異なる場合は
+        // 「絞り込み件数 / 総数」で連動表示。それ以外は従来どおり総数のみ。
+        const isFiltered = isActive && activeCount != null && globalTotal != null && activeCount !== globalTotal;
+        const total = fmt(isActive && activeCount != null ? activeCount : globalTotal);
         const n = newOf[t.key];
         return (
           <Link
@@ -83,7 +88,12 @@ function PeerTabsInternal({ counts, active }: { counts?: SidebarCounts; active: 
             }}
           >
             <span>{t.label}</span>
-            {total != null && <span className="badge" style={{ fontSize: 11, padding: "1px 7px" }}>{total}</span>}
+            {total != null && (
+              <span className="badge" style={{ fontSize: 11, padding: "1px 7px", background: isFiltered ? "var(--color-brand-600)" : undefined, color: isFiltered ? "#fff" : undefined }}
+                title={isFiltered ? `絞り込み ${total} 件 / 全 ${fmt(globalTotal)} 件` : undefined}>
+                {total}{isFiltered && <span style={{ opacity: 0.8, fontWeight: 500 }}> / {fmt(globalTotal)}</span>}
+              </span>
+            )}
             {n != null && n > 0 && (
               <span
                 className="material-symbols-outlined"

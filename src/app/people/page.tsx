@@ -256,7 +256,11 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       <FlowSteps current="data" sub="人材マスタの整備" />
 
-      {!scope.isTenant && <MatchingPeerTabsServer />}
+      {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
+      {!scope.isTenant && (() => {
+        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank);
+        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
+      })()}
 
       {scope.isTenant && (
         <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>
