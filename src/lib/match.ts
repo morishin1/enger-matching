@@ -203,14 +203,22 @@ function industryMatch(job: Job, c: Candidate): { match: string[]; jobInds: stri
 }
 
 // ---- 商流（採点なし・注意事項のみ。判定は flowMatchMatrix に集約） ----
+// プロパー必須案件（御社所属・正社員/契約社員のみ）か。これらは自社プロパーしか提案できない＝営業支援案件。
+const PROPER_ONLY_JOBS = new Set(["jp_to_self", "jp_to_self_seishain"]);
 function flowNotes(job: Job, c: Candidate, fm: ReturnType<typeof flowMatchMatrix>): Note[] {
   const notes: Note[] = [];
   const jl = JOB_FLOW_LABEL[fm.jobCat];
   const cl = CAND_FLOW_LABEL[fm.candCat];
+  const properOnly = PROPER_ONLY_JOBS.has(fm.jobCat);
   if (fm.compat === "ng") {
-    notes.push({ level: "red", text: `商流NG：案件「${jl}」／人材「${cl}」（互換性マトリックスで不可）` });
+    const extra = properOnly ? "（プロパー必須案件：自社所属の社員でないと提案不可）" : "（互換性マトリックスで不可）";
+    notes.push({ level: "red", text: `商流NG：案件「${jl}」／人材「${cl}」${extra}` });
   } else if (fm.compat === "ok") {
-    notes.push({ level: "green", text: `商流OK：案件「${jl}」／人材「${cl}」` });
+    if (properOnly && fm.candCat === "self_emp") {
+      notes.push({ level: "green", text: `★ 営業支援（自社プロパー配置）：案件「${jl}」に自社社員を提案できる優先案件` });
+    } else {
+      notes.push({ level: "green", text: `商流OK：案件「${jl}」／人材「${cl}」` });
+    }
   } else {
     const why = fm.jobCat === "unknown" && fm.candCat === "unknown" ? "両方不明"
       : fm.jobCat === "unknown" ? "案件側の受入商流が不明"
@@ -310,6 +318,9 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // 単価大幅超過のセーフティ（旧ロジック踏襲：致命差は上限を被せる）
   if (!ngNat && overage != null && overage > 20) score = Math.min(score, 40);
   else if (!ngNat && overage != null && overage > 10) score = Math.min(score, 65);
+  // 商流NG（例：プロパー必須案件に BP/協力会社の人材）は提案できない実質ミスマッチ。
+  //   スキル100%でも上位に出さないよう、マッチ率に上限35点を被せる（除外はせず表示は残す）。
+  if (!ngNat && flowNg) score = Math.min(score, 35);
 
   // ---- 案件の鮮度・充足（最優先で表示） ----
   const open = jobOpenness(job);

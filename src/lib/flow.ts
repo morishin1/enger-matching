@@ -228,11 +228,15 @@ export function classifyJobFlow(value?: string | null): JobFlowCategory {
   if (/貴社一社先正社員まで|一社先正社員まで/.test(t)) return "jp_to_1_seishain";
   // 言い回しベースのフォールバック（メール本文等から取り込んだ自由文）。
   if (/商流不問|不問/.test(t)) return "any";
-  // 「正社員」キーワードが付くなら正社員系へ寄せる。
-  const seishain = /正社員/.test(t);
+  // 「正社員/契約社員/プロパー/直雇用」等は“貴社所属の社員のみ”＝正社員系へ寄せる。
+  //   ※「契約社員」も自社の直雇用なのでプロパー(正社員系)として扱う。
+  const seishain = /正社員|契約社員|プロパー|直雇用|社員のみ|社員限定/.test(t);
   if (/二社|2社/.test(t)) return seishain ? "jp_to_2_seishain" : "jp_to_2";
   if (/一社|1社|一次|\+1|プラス1/.test(t)) return seishain ? "jp_to_1_seishain" : "jp_to_1";
-  if (/貴社|エイト|弊社|自社|当社|直案件|直請|直\s*請け|エンド直/.test(t)) return seishain ? "jp_to_self_seishain" : "jp_to_self";
+  // 自社（御社/貴社/弊社/当社/エイト/自社）所属・直案件・プロパー指定。「御社」「所属」「プロパー」も拾う。
+  if (/御社|貴社|エイト|弊社|自社|当社|直案件|直請|直\s*請け|エンド直|プロパー|直雇用/.test(t)) return seishain ? "jp_to_self_seishain" : "jp_to_self";
+  // 上記に当てはまらないが「プロパー/正社員のみ」だけ書かれているケースも自社正社員扱い。
+  if (seishain && /プロパー|社員のみ|社員限定/.test(t)) return "jp_to_self_seishain";
   return "unknown";
 }
 
