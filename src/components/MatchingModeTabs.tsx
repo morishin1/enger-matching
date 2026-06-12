@@ -11,7 +11,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-type Mode = "auto" | "focus" | "number";
+type Mode = "auto" | "focus" | "ranking" | "number";
 
 export function MatchingModeTabs() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export function MatchingModeTabs() {
   const initialMode: Mode = (() => {
     const tab = sp?.get("tab");
     if (tab === "focus") return "focus";
+    if (tab === "ranking") return "ranking";
     if (sp?.get("job") || sp?.get("person")) return "auto"; // ジャンプ後は自動扱い
     return (tab === "auto" ? "auto" : "auto");
   })();
@@ -35,9 +36,10 @@ export function MatchingModeTabs() {
   const goPerson = () => { const n = numOf(person); if (n) router.push(`/matching?person=${n}`); };
 
   const TABS: { key: Mode; label: string; note: string; href?: string }[] = [
-    { key: "auto",   label: "自動マッチング", note: "全案件・全人材",     href: "/matching?tab=auto" },
-    { key: "focus",  label: "注力マッチング", note: "★ ♡・プロパー・新着", href: "/matching?tab=focus" },
-    { key: "number", label: "番号マッチング", note: "案件No / 人材No" },
+    { key: "auto",    label: "自動マッチング", note: "全案件・全人材",     href: "/matching?tab=auto" },
+    { key: "focus",   label: "注力マッチング", note: "★ ♡・プロパー・新着", href: "/matching?tab=focus" },
+    { key: "ranking", label: "ランキング100",  note: "必須スキル75%以上",   href: "/matching?tab=ranking" },
+    { key: "number",  label: "番号マッチング", note: "案件No / 人材No" },
   ];
 
   const inputStyle: React.CSSProperties = {
