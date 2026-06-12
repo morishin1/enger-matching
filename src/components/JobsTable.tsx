@@ -288,6 +288,25 @@ export function JobsTable({
           <Icons.search />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件名・案件No・クライアント名で検索…" />
         </div>
+        {/* 商流制限の切り分けタブ：すべて／制限あり／制限なし（不問）。詳細カテゴリは下の「商流」プルダウン。 */}
+        <div style={{ display: "inline-flex", gap: 3, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignItems: "center" }}>
+          <span className="muted" style={{ fontSize: 10.5, fontWeight: 700, padding: "0 4px" }}>商流制限</span>
+          {[
+            { v: "", label: "すべて", fg: "var(--color-ink)" },
+            { v: "restricted", label: "制限あり", fg: "#b42318" },
+            { v: "none", label: "制限なし", fg: "#067647" },
+          ].map((o) => {
+            const on = (filters.flow_limit ?? "") === o.v;
+            return (
+              <button key={o.v} type="button" onClick={() => pushParams({ f_flow_limit: o.v || null, page: null })}
+                style={{ padding: "5px 11px", borderRadius: 99, border: 0, cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, fontWeight: 700,
+                  background: on ? "var(--color-surface)" : "transparent", color: on ? o.fg : "var(--color-ink-3)",
+                  boxShadow: on ? "0 1px 2px rgba(15,23,42,.08)" : "none" }}>
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
         {filterCols.map((c) => {
           const fk = c.filterKey!;
           const opts = filterOptions[fk] ?? [];
