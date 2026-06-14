@@ -65,7 +65,13 @@ function SendModal({ to, cc, subject, body, buttonHtml, relatedKind, relatedId, 
 
   useEffect(() => {
     fetch("/api/mail/senders").then((r) => r.json()).then((d) => {
-      if (d.ok) { setSenders(d.senders); if (d.me) setMe(d.me); if (d.senders?.[0]) setSender(d.senders[0].key); }
+      if (d.ok) {
+        setSenders(d.senders); if (d.me) setMe(d.me);
+        // 既定の差出人は共有Gmail寄りの「8grp」（設定されていれば）
+        const list = (d.senders ?? []) as Sender[];
+        const preferred = list.find((s) => s.key === "8grp") ?? list[0];
+        if (preferred) setSender(preferred.key);
+      }
     }).catch(() => setSenders([]));
   }, []);
 
