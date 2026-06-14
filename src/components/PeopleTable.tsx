@@ -123,6 +123,7 @@ const PEOPLE_COLS: Col[] = [
         : <span className="muted" style={{ fontSize: 12 }}>—</span>;
     },
   },
+  { key: "approved", label: "承認", width: 96, filterKey: "approved", filterLabel: "承認状況", render: (p) => <CompanyApprovalBadge approved={!!p.company_approved} size="xs" /> },
   { key: "skills", label: "スキル", render: (p) => <SkillTags skills={p.skills} /> },
   { key: "exp", label: "経験", width: 76, render: (p) => <span style={{ fontSize: 12 }}>{p.exp ? (/^\d+$/.test(String(p.exp).trim()) ? `${String(p.exp).trim()}年` : p.exp) : "—"}</span> },
   { key: "avail", label: "稼働開始", width: 112, render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.avail ?? "—"}</span> },
