@@ -130,12 +130,8 @@ const PEOPLE_COLS: Col[] = [
   { key: "title", label: "職種", filterKey: "title", filterLabel: "職種", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
   { key: "remote", label: "リモート", width: 130, filterKey: "remote", filterLabel: "リモート", render: (p) => <span className="pill open">{remotePrefLabel(p.remote_pref) ?? "—"}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
-  {
-    key: "skill_sheet", label: "スキルシート", width: 120, filterKey: "skill_sheet", filterLabel: "スキルシート",
-    render: (p) => p.skill_sheet_url
-      ? <a href={p.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
-      : <span className="muted" style={{ fontSize: 12 }}>—</span>,
-  },
+  // スキルシートは独立カラムを廃止し、アクション列のシートアイコンに集約（フィルタは維持）。
+  { key: "skill_sheet", label: "スキルシート", filterOnly: true, filterKey: "skill_sheet", filterLabel: "スキルシート" },
   { key: "affiliation", label: "所属区分", width: 130, filterKey: "affiliation", filterLabel: "所属区分", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
   // 国籍・年代を一覧に常時表示（プロフィールを開かなくても判断できるように）
   { key: "nationality", label: "国籍", width: 100, filterKey: "nationality", filterLabel: "国籍",
@@ -401,6 +397,7 @@ export function PeopleTable({
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {!r.is_closed && <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
                         <MailButton url={m.url} search={m.search} to={m.to} />
+                        {r.skill_sheet_url && <a href={r.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート" style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>description</span></a>}
                       </div>
                     </td>
                     <td>
