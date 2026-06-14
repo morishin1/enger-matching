@@ -35,18 +35,24 @@ export default async function MailComposePage({
 
   if (!jr.data || !cr.data) return notFound();
 
-  // 既存の提案があれば step 2（確認画面）から開始して「保存済み」状態にする
+  // 既存の提案があれば step 2（確認画面）から開始して「保存済み」状態にする。
+  //   approval_status も取得：承認済みなら提案者本人もこの画面から送信できるようにする（要件4）。
   let existingProposalId: string | null = null;
   let existingProposer: string | null = null;
+  let existingApprovalStatus: string | null = null;
   try {
-    const pr = await sb
+    let pr: any = await sb
       .from("proposals")
-      .select("id, proposer")
+      .select("id, proposer, approval_status")
       .eq("job_id", jr.data.id)
       .eq("candidate_id", cr.data.id)
       .maybeSingle();
+    if (pr.error && /approval_status|column/i.test(pr.error.message ?? "")) {
+      pr = await sb.from("proposals").select("id, proposer").eq("job_id", jr.data.id).eq("candidate_id", cr.data.id).maybeSingle();
+    }
     existingProposalId = pr.data?.id ?? null;
     existingProposer = pr.data?.proposer ?? null;
+    existingApprovalStatus = (pr.data as any)?.approval_status ?? null;
   } catch { /* proposals テーブル未整備でも続行 */ }
 
   // 承認者プルダウンの選択肢（社内メンバー）
@@ -69,6 +75,7 @@ export default async function MailComposePage({
         initialSaved={!!existingProposalId}
         initialSavedId={existingProposalId}
         initialProposer={existingProposer}
+        initialApprovalStatus={existingApprovalStatus}
         members={members}
       />
     </div>

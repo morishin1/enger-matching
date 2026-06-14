@@ -174,13 +174,17 @@ function validateSide(
 }
 
 export function MailComposeWizard({
-  job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null, members = [],
+  job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null, initialApprovalStatus = null, members = [],
 }: {
   job: any; cand: any; score: number;
   initialSaved?: boolean; initialSavedId?: string | null; initialProposer?: string | null;
+  /** 既存提案の承認状態。"approved" のときは提案者本人もこの画面から送信できる（要件4）。 */
+  initialApprovalStatus?: string | null;
   /** 承認者プルダウンの選択肢（社内メンバー名）。空のときは下の保存ボタンは無効。 */
   members?: string[];
 }) {
+  // 既存提案が承認済みなら、権限の有無にかかわらず送信ボタンを出す（提案者も送れる）。
+  const approved = (initialApprovalStatus ?? "").trim() === "approved";
   const [step, setStep] = useState<1 | 2>(initialSaved ? 2 : 1);
   const [proposer, setProposer] = useState(initialProposer ?? "");
   // 承認者（必須）：保存時に approver として createProposal に渡す
@@ -447,30 +451,36 @@ export function MailComposeWizard({
                 </button>
               )
             ) : (
-              privileged ? (
-                <SendBothMailsButton
-                  label="📨 メールを送信"
-                  className="btn brand"
-                  autoOpen={autoOpenSend}
-                  onAutoOpened={() => setAutoOpenSend(false)}
-                  jobSide={{
-                    label: "案件側メール", dotColor: "#ef4444",
-                    to: clientForm.email, cc: clientForm.cc, subject: clientForm.subject, body: clientForm.body,
-                    buttonHtml: jobButtonHtml ?? undefined,
-                    relatedKind: "proposal_job",
-                    relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
-                  }}
-                  candSide={{
-                    label: "人材側メール", dotColor: "#3b82f6",
-                    to: candForm.email, cc: candForm.cc, subject: candForm.subject, body: candForm.body,
-                    buttonHtml: candButtonHtml ?? undefined,
-                    relatedKind: "proposal_cand",
-                    relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
-                  }}
-                />
+              // 権限者、または承認済みの提案は、この画面から直接送信できる。
+              (privileged || approved) ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  {approved && !privileged && (
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#067647" }}>✅ 承認済みです。メールを送信できます。</span>
+                  )}
+                  <SendBothMailsButton
+                    label="📨 メールを送信"
+                    className="btn brand"
+                    autoOpen={autoOpenSend}
+                    onAutoOpened={() => setAutoOpenSend(false)}
+                    jobSide={{
+                      label: "案件側メール", dotColor: "#ef4444",
+                      to: clientForm.email, cc: clientForm.cc, subject: clientForm.subject, body: clientForm.body,
+                      buttonHtml: jobButtonHtml ?? undefined,
+                      relatedKind: "proposal_job",
+                      relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
+                    }}
+                    candSide={{
+                      label: "人材側メール", dotColor: "#3b82f6",
+                      to: candForm.email, cc: candForm.cc, subject: candForm.subject, body: candForm.body,
+                      buttonHtml: candButtonHtml ?? undefined,
+                      relatedKind: "proposal_cand",
+                      relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
+                    }}
+                  />
+                </div>
               ) : (
                 <span className="muted" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
-                  ✉️ メール送信は <b>{approver || "承認者"}</b> さんが提案管理画面から行います。
+                  ✉️ 承認待ちです。承認されると、この画面の「メールを送信」ボタンから送信できます（承認者も提案管理から送信できます）。
                 </span>
               )
             )}

@@ -12,6 +12,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ProposalBoardSwitcher } from "./ProposalBoardSwitcher";
 import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
+import { ApprovalQueue } from "./ApprovalQueue";
 
 type Period = "today" | "week" | "month" | "thirty" | "all";
 
@@ -33,10 +34,16 @@ function startMs(p: Period): number {
   return 0; // all
 }
 
-type TabKey = "board" | "history" | "lost";
+type TabKey = "approval" | "board" | "history" | "lost";
+
+/** 承認フォルダ対象：承認待ち（pending）または差戻し（rejected）の提案。 */
+function isAwaitingApproval(p: any): boolean {
+  const st = String(p?.approval_status ?? "");
+  return st === "pending" || st === "rejected" || p?.stage === "承認待ち";
+}
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -48,9 +55,14 @@ export function ProposalsWorkspace({
   proposers?: string[];
   closers?: string[];
   fallbackBanner?: ReactNode;
+  /** ログイン中ユーザー名・承認権限（承認フォルダのボタン出し分け用）。 */
+  currentUserName?: string | null;
+  privileged?: boolean;
 }) {
+  // 承認待ちが1件でもあれば最初から「承認」タブを開く（承認漏れを防ぐ）。
+  const approvalRows = useMemo(() => proposals.filter(isAwaitingApproval), [proposals]);
   const [period, setPeriod] = useState<Period>("week");
-  const [tab, setTab] = useState<TabKey>("board");
+  const [tab, setTab] = useState<TabKey>(approvalRows.length > 0 ? "approval" : "board");
 
   // 期間で created_at を絞り込み（all のときは全件）
   const inPeriod = (row: any): boolean => {
@@ -59,13 +71,16 @@ export function ProposalsWorkspace({
     return !!t && t >= startMs(period);
   };
 
-  const boardRows = useMemo(() => proposals.filter(inPeriod), [proposals, period]);
+  // 承認待ち・差戻しは「承認」タブに集約し、ボードからは除外（重複表示を防ぐ）。
+  const boardRows = useMemo(() => proposals.filter((p) => inPeriod(p) && !isAwaitingApproval(p)), [proposals, period]);
   const historyRows = useMemo(() => history.filter(inPeriod), [history, period]);
   const lostRows = useMemo(() => analyticsRows.filter(inPeriod), [analyticsRows, period]);
 
-  const counts: Record<TabKey, number> = { board: boardRows.length, history: historyRows.length, lost: lostRows.length };
+  const counts: Record<TabKey, number> = { approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length };
   // 期間カウント（提案ボードのカウント数を主にしつつ、全タブの総数も）
+  //   ※ 承認タブは「承認漏れ」を防ぐため期間で絞らず全件表示する。
   const tabsDef: { key: TabKey; label: string; icon: string; show: boolean; title?: string }[] = [
+    { key: "approval", label: "承認",       icon: "verified",    show: approvalRows.length > 0, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（期間フィルタ対象外）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
     { key: "history", label: "提案履歴",   icon: "history",     show: true, title: "提案履歴。期間フィルタで絞り込み。" },
     { key: "lost",    label: "失注分析",   icon: "monitoring",  show: lostRows.length > 0, title: "見送り/失注の分析。期間フィルタで絞り込み。" },
@@ -136,6 +151,9 @@ export function ProposalsWorkspace({
       </div>
 
       {/* 子コンポーネント。state を保つため display で出し分け。 */}
+      <div style={{ display: tab === "approval" ? "block" : "none" }}>
+        <ApprovalQueue rows={approvalRows} currentUserName={currentUserName} privileged={privileged} />
+      </div>
       <div style={{ display: tab === "board" ? "block" : "none" }}>
         {boardRows.length === 0 ? (
           fallbackBanner ?? <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>

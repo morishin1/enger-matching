@@ -8,6 +8,7 @@ import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
 import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { currentAccess } from "@/lib/accounts";
+import { canManageDept } from "@/lib/roles";
 import { Collapsible } from "@/components/Collapsible";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,9 @@ export default async function ProposalsPage() {
   //   （保存 saveProposalOwners が admin 限定のため、表示もそれに合わせる）。
   //   設定画面だけでなく、この提案管理画面からも編集できるようにする（運用導線の集約）。
   const canEditOwners = !access || access.role === "admin";
+  // 承認操作の権限：admin / 経営部署（=admin昇格済） / マネージャー / リーダー。
+  const canApprove = !access || access.role === "admin" || canManageDept(access.teamRole ?? null);
+  const currentUserName = access?.name ?? null;
   const ownersInitial = proposalOwners ?? { proposers: staff.members, closers: staff.members };
   let lostRows: any[] = [];
   let history: any[] = [];
@@ -198,6 +202,8 @@ export default async function ProposalsPage() {
             history={history}
             analyticsRows={analyticsRows}
             members={staff.members}
+            currentUserName={currentUserName}
+            privileged={canApprove}
             // 編集UI（ProposalOwnersEditor）と提案詳細の割当ドロップダウンで
             // 選択肢が食い違わないよう、同じ ownersInitial（未保存時は members に統一）を渡す。
             proposers={ownersInitial.proposers}
