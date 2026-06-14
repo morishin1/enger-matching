@@ -7,9 +7,11 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
+import { loadProposalOwners } from "@/lib/proposal-owners";
+import { canManageDept } from "@/lib/roles";
 import { KpiDashboardClient } from "@/components/KpiDashboardClient";
 import { TeamActivityBoard } from "@/components/TeamActivityBoard";
 import { AnalyticsTabs } from "@/components/AnalyticsTabs";
@@ -28,8 +30,9 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const period: PeriodType = (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any)
     ? (sp.period as PeriodType) : "day";
 
-  // 管理者は ?owner=email で対象切替可能。?owner=__team__ でチーム全体。それ以外は自分のみ。
-  const isTeam = access.role === "admin" && sp.owner === "__team__";
+  // ?owner=__team__ ならチーム全体（全員参照可）。管理者は ?owner=email で他メンバーに切替可。
+  // それ以外（マネージャー/一般）は自分のみ＋チーム閲覧。
+  const isTeam = sp.owner === "__team__";
   let targetEmail: string | null = access.email.toLowerCase();
   let targetName  = access.name ?? "";
   if (isTeam) {
@@ -87,6 +90,13 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
     ? await getTeamActivity({ start: range.start, end: range.end, members: activityMembers })
     : [];
 
+  // メンバー別アクティビティ用のチーム目標（按分済み）と提案者・CLリスト
+  const teamWeeklyForBoard = await getWeeklyTargets({ ownerEmail: null, weekStart });
+  const teamTarget: Partial<Record<Metric, number>> = {};
+  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeeklyForBoard[m] ?? 0, period === "custom" ? "week" : period, range);
+  const proposalOwnersForBoard = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
+  const viewerIsManager = canManageDept(access.teamRole);
+
   return (
     <>
       <div style={{ padding: "16px 18px 0" }}>
@@ -94,11 +104,14 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
       </div>
       {activity.length > 0 && (
         <div style={{ padding: "0 18px" }}>
-          <TeamActivityBoard rows={activity} periodLabel={PERIOD_LABEL[period]} />
+          <TeamActivityBoard rows={activity} periodLabel={PERIOD_LABEL[period]}
+            teamTarget={teamTarget} weekStart={weekStart.toISOString().slice(0, 10)}
+            viewer={{ role: access.role, teamRole: access.teamRole ?? null, isAdmin: access.role === "admin", isManager: viewerIsManager }}
+            proposalOwners={proposalOwnersForBoard} />
         </div>
       )}
       <KpiDashboardClient
-        access={{ email: access.email, name: access.name, role: access.role }}
+        access={{ email: access.email, name: access.name, role: access.role, isManager: viewerIsManager }}
         target={{ email: isTeam ? "__team__" : (targetEmail ?? ""), name: targetName }}
         scope={isTeam ? "team" : "person"}
         members={members}

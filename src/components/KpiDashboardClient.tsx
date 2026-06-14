@@ -32,7 +32,7 @@ function fmtRange(startIso: string, endIso: string) {
 }
 
 export function KpiDashboardClient(props: {
-  access: { email: string; name: string | null; role: string };
+  access: { email: string; name: string | null; role: string; isManager?: boolean };
   target: { email: string; name: string };
   scope?: "person" | "team";
   members: { name: string; email: string }[];
@@ -48,6 +48,7 @@ export function KpiDashboardClient(props: {
 }) {
   const router = useRouter();
   const isAdmin = props.access.role === "admin";
+  const isManager = !!props.access.isManager;
   const isTeam = props.scope === "team";
   const isSelf = !isTeam && props.access.email.toLowerCase() === props.target.email.toLowerCase();
   const [showEdit, setShowEdit] = useState(false);
@@ -84,21 +85,43 @@ export function KpiDashboardClient(props: {
         <span className="muted" style={{ fontSize: 13 }}>
           {props.target.name || "(担当未設定)"} ／ {fmtRange(props.range.start, props.range.end)}
         </span>
-        {isAdmin && props.members.length > 0 && (
-          <select value={isTeam ? "__team__" : props.target.email} onChange={(e) => setParam("owner", e.target.value)}
+        {isAdmin && props.members.length > 0 && !isTeam && (
+          <select value={props.target.email} onChange={(e) => setParam("owner", e.target.value)}
             style={{ marginLeft: 6, fontSize: 12.5, padding: "5px 8px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
-            <option value="__team__">👥 チーム全体</option>
             {props.members.map((m) => <option key={m.email} value={m.email}>{m.name}</option>)}
           </select>
         )}
         <div style={{ marginLeft: "auto" }}>
-          {(isSelf || isAdmin) && (
+          {((isTeam && (isAdmin || isManager)) || (!isTeam && (isSelf || isAdmin || isManager))) && (
             <button type="button" className="btn" onClick={() => setShowEdit(true)}>
               <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>tune</span>
               目標を編集（週次）
             </button>
           )}
         </div>
+      </div>
+
+      {/* 個人 / チーム タブ（全員が切替可能） */}
+      <div style={{ display: "inline-flex", gap: 4, padding: 4, background: "var(--color-surface-soft)", borderRadius: 10, alignSelf: "flex-start" }}>
+        {([
+          { key: "person", label: "個人", icon: "person" },
+          { key: "team", label: "チーム全体", icon: "groups" },
+        ] as const).map((t) => {
+          const on = t.key === "team" ? isTeam : !isTeam;
+          return (
+            <button key={t.key} type="button"
+              onClick={() => setParam("owner", t.key === "team" ? "__team__" : (props.access.email))}
+              style={{ padding: "6px 14px", borderRadius: 8, border: 0, cursor: "pointer",
+                background: on ? "var(--color-surface)" : "transparent",
+                color: on ? "var(--color-brand-700)" : "var(--color-ink-3)",
+                fontWeight: on ? 800 : 600, fontSize: 13,
+                boxShadow: on ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+                display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{t.icon}</span>
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* 期間タブ */}
