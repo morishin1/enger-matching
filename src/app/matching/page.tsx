@@ -285,19 +285,19 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
       const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth, deleted_at`;
 
-      // 充足（枠が埋まった）案件 = 稼働決定/稼働 の提案がある job_id。マッチングから自動除外する。
+      // 充足案件（filledJobIds）と送達不能アドレス（bouncedMap）は互いに独立なので並列取得する。
+      //   以前は2クエリを直列 await していて遷移のたびに余分な往復が発生していた。
       const filledJobIds = new Set<string>();
-      try {
-        const fr: any = await sb.from("proposals").select("job_id, stage").in("stage", ["稼働決定", "稼働"]).limit(5000);
-        for (const r of (fr.data ?? []) as any[]) if (r.job_id) filledJobIds.add(r.job_id);
-      } catch { /* proposals 未整備でも続行（鮮度フィルタは効く） */ }
-
-      // 送達不能アドレスのセット（bounce_records）。スコアリング前に各案件へ is_undeliverable を付与する。
       const bouncedMap = new Map<string, { count: number }>();
-      try {
-        const br: any = await sb.from("bounce_records").select("recipient_email, bounce_count").limit(10000);
-        for (const row of (br.data ?? []) as any[]) bouncedMap.set(String(row.recipient_email ?? "").toLowerCase(), { count: row.bounce_count ?? 1 });
-      } catch { /* bounce_records 未整備でも続行 */ }
+      {
+        const settle = (p: any) => p.then((r: any) => r, (e: any) => ({ error: e }));
+        const [fr, br] = await Promise.all([
+          settle(sb.from("proposals").select("job_id, stage").in("stage", ["稼働決定", "稼働"]).limit(5000)),
+          settle(sb.from("bounce_records").select("recipient_email, bounce_count").limit(10000)),
+        ]);
+        for (const r of (fr?.data ?? []) as any[]) if (r.job_id) filledJobIds.add(r.job_id);          // proposals 未整備でも続行
+        for (const row of (br?.data ?? []) as any[]) bouncedMap.set(String(row.recipient_email ?? "").toLowerCase(), { count: row.bounce_count ?? 1 }); // bounce_records 未整備でも続行
+      }
       const markBounce = (j: any) => {
         const em = String(j?.contact_email ?? "").toLowerCase();
         const b = em ? bouncedMap.get(em) : null;
