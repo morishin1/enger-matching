@@ -24,6 +24,28 @@ async function notify(recipient: string | null | undefined, title: string, body:
   } catch { /* 通知失敗は本処理を止めない */ }
 }
 
+/** 承認権限を持つ社内メンバー（admin / 経営部署 / マネージャー / リーダー）の氏名一覧。
+ *   承認依頼は「指定された承認者1名だけ」では取りこぼし（氏名不一致・指名漏れ）が起きるため、
+ *   承認できる全員に通知するためのリストを返す。app_users の列が未整備でも fail-soft。 */
+async function listApproverNames(): Promise<string[]> {
+  try {
+    const admin = engerAdmin();
+    let res: any = await admin.from("app_users").select("name, role, department, team_role").not("name", "is", null);
+    if (res.error) res = await admin.from("app_users").select("name, role").not("name", "is", null);
+    if (res.error || !res.data) return [];
+    const names = new Set<string>();
+    for (const u of res.data as any[]) {
+      const name = String(u.name ?? "").trim();
+      if (!name) continue;
+      const dept = String(u.department ?? "").trim();
+      const tr = String(u.team_role ?? "").trim();
+      const privileged = u.role === "admin" || dept === "経営" || tr === "manager" || tr === "leader";
+      if (privileged) names.add(name);
+    }
+    return Array.from(names);
+  } catch { return []; }
+}
+
 /** 提案ゲート用：与えられた企業名のうち、最初に「打合せ未済」のものを返す。
  *   判定：① meetings に company_name の記録あり、または ② companies.meeting_done = true で「済」。
  *   どちらの表でも判定できなかった場合は誤ブロック防止のため通過させる。
@@ -700,15 +722,17 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
   const data = ins.data; const error = ins.error;
   if (error) return { ok: false, error: error.message };
-  // 承認者へ「承認待ち」を通知（権限者は承認不要なのでスキップ）。
+  // 承認依頼を通知（権限者は承認不要なのでスキップ）。
+  //   指定された承認者に加え、承認権限を持つ全員（admin/経営/マネージャー/リーダー）へ送る。
+  //   ＝「指名された承認者1名にしか届かない／氏名不一致で誰にも届かない」取りこぼしを防ぐ。
   if (!proposerIsPrivileged) {
     const who = [job.title, cand.name].filter(Boolean).join(" × ");
-    await notify(
-      approverName,
-      "提案の承認依頼",
-      `${proposerName ?? "担当者"} さんから承認待ちの提案があります${who ? `：${who}` : ""}。\n提案管理で内容を確認し、承認のうえメールを送信してください。`,
-      "approval",
-    );
+    const recipients = new Set<string>();
+    if (approverName) recipients.add(approverName);
+    for (const n of await listApproverNames()) recipients.add(n);
+    if (proposerName) recipients.delete(proposerName); // 自分自身には通知しない
+    const body = `${proposerName ?? "担当者"} さんから承認待ちの提案があります${who ? `：${who}` : ""}。\n提案管理の「承認」タブで内容を確認し、承認のうえメールを送信してください。`;
+    for (const r of recipients) await notify(r, "提案の承認依頼", body, "approval");
   }
   revalidatePath("/proposals");
   revalidatePath("/matching");
