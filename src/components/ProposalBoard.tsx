@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
 import { NotifyDot } from "./NotifyDot";
+import { ActionChips } from "./ProposalActionChip";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 
 const dvDate = (d: any) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : `${t.getMonth() + 1}/${t.getDate()}`; };
@@ -157,6 +158,10 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
               {at.level === "warn" ? "⚠" : "🚨"} {fmtMD(targetAt)}
             </span>
           )}
+          {/* 受信側の応答（話を進める=緑 / 見送り=赤 / 未回答=破線） */}
+          <span style={{ flexShrink: 0 }}>
+            <ActionChips jobType={p.job_action_type} candType={p.cand_action_type} compact />
+          </span>
           <span style={{ flexShrink: 0, display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
             <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={8} />
             <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={8} />
@@ -209,6 +214,10 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
               <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
               <div className="muted" style={{ fontSize: 10.5 }}>{p.rate ?? ""}{p.score != null ? ` · マッチ${p.score}%` : ""}</div>
             </div>
+          </div>
+          {/* 受信側の応答（話を進める=緑 / 見送り=赤 / 未回答=破線）。リスト表示と同じ見た目。 */}
+          <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 8 }} title="受信側の応答（左:案件先 / 右:人材先）">
+            <ActionChips jobType={p.job_action_type} candType={p.cand_action_type} />
           </div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
             {p.caller_status && <span className="pill" style={{ fontSize: 10, borderColor: "transparent", background: `${CALLER_TONE[p.caller_status] ?? "#9aa7b4"}1a`, color: CALLER_TONE[p.caller_status] ?? "var(--color-ink-3)" }}>☎ {p.caller_status}</span>}
