@@ -28,29 +28,41 @@ async function notify(recipient: string | null | undefined, title: string, body:
  *   判定：① meetings に company_name の記録あり、または ② companies.meeting_done = true で「済」。
  *   どちらの表でも判定できなかった場合は誤ブロック防止のため通過させる。
  *   空文字の name はスキップ。 */
-async function firstUnmetCompany(
+async function isCompanyMeetingMet(admin: ReturnType<typeof engerAdmin>, name: string): Promise<boolean> {
+  const n = (name ?? "").trim();
+  if (!n) return true; // 名前が無ければ判定対象外＝通過
+  try {
+    const { data } = await admin.from("meetings").select("id").ilike("company_name", n).limit(1);
+    if ((data?.length ?? 0) > 0) return true;
+  } catch { return true; /* meetings 未整備は誤ブロック防止で通過 */ }
+  try {
+    const { data } = await admin.from("companies").select("id").ilike("name", n).eq("meeting_done", true).limit(1);
+    if ((data?.length ?? 0) > 0) return true;
+  } catch { return true; /* companies 列未整備は通過 */ }
+  return false;
+}
+
+/** 提案ゲート（緩和版・案②）：与えた企業名（案件 client_name と人材の所属企業）のうち、
+ *  「少なくとも一方が打合せ済」であれば true を返して提案を許可。両方とも未済の場合のみ false。
+ *  名前が空のものは判定対象から外す。これにより：
+ *    ・打合せ済の案件 × 未済の人材所属企業 → 許可（アウトサイドへトスアップ可）
+ *    ・打合せ済の人材所属企業 × 未済の案件 → 許可（人材側起点で営業可）
+ *    ・両方未済                                → 拒否（無闇な提案で信用を損なわない） */
+async function gateAllowsProposal(
   admin: ReturnType<typeof engerAdmin>,
   targets: { label: string; name: string }[],
-): Promise<{ label: string; name: string } | null> {
-  for (const t of targets) {
-    const name = (t.name ?? "").trim();
-    if (!name) continue;
-    let ok = false;
-    // ① meetings 記録（既存ロジック踏襲：ilike で表記揺れに寛容）
-    try {
-      const { data } = await admin.from("meetings").select("id").ilike("company_name", name).limit(1);
-      if ((data?.length ?? 0) > 0) ok = true;
-    } catch { ok = true; /* meetings 未整備は誤ブロック防止で通過 */ }
-    // ② companies.meeting_done = true（手動チェック）。①が ok のときはスキップ。
-    if (!ok) {
-      try {
-        const { data } = await admin.from("companies").select("id").ilike("name", name).eq("meeting_done", true).limit(1);
-        if ((data?.length ?? 0) > 0) ok = true;
-      } catch { ok = true; /* companies 列未整備は通過 */ }
-    }
-    if (!ok) return t;
+): Promise<{ allowed: true } | { allowed: false; unmet: { label: string; name: string }[] }> {
+  const named = targets.filter((t) => (t.name ?? "").trim());
+  if (named.length === 0) return { allowed: true }; // 双方名前なし＝判定不能・通過
+  const unmet: { label: string; name: string }[] = [];
+  let metAny = false;
+  for (const t of named) {
+    const met = await isCompanyMeetingMet(admin, t.name);
+    if (met) metAny = true;
+    else unmet.push(t);
   }
-  return null;
+  if (metAny) return { allowed: true };
+  return { allowed: false, unmet };
 }
 
 export type CandidateInput = {
@@ -616,12 +628,14 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     const privileged = !me || me.role === "admin" || canManageDept(me.teamRole ?? null);
     if (!privileged) {
       const candCompany = ((cand as any).source_company ?? (cand as any).company ?? "").toString().trim();
-      const blocked = await firstUnmetCompany(admin, [
+      // 案②：案件の企業 or 人材の所属企業の片方が打合せ済なら提案OK。両方未済の場合のみ拒否。
+      const gate = await gateAllowsProposal(admin, [
         { label: "案件の", name: (job.client_name ?? "").toString().trim() },
         { label: "人材の所属", name: candCompany },
       ]);
-      if (blocked) {
-        return { ok: false, error: `${blocked.label}企業「${blocked.name}」はまだ打ち合わせ・顔合わせの記録がありません。提案には管理者またはマネージャーの操作（許可）が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。` };
+      if (!gate.allowed) {
+        const names = gate.unmet.map((t) => `${t.label}企業「${t.name}」`).join(" と ");
+        return { ok: false, error: `${names} のどちらも打ち合わせ・顔合わせの記録がありません。少なくとも一方の打合せ記録が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。` };
       }
     }
   }
@@ -747,12 +761,14 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
   //   管理者/マネージャー/リーダーはスキップ。
   if (!recordPrivileged) {
     const candCompany = (cand.source_company ?? cand.company ?? "").toString().trim();
-    const blocked = await firstUnmetCompany(admin, [
+    // 案②：片方が打合せ済なら提案OK。両方未済の場合のみ拒否。
+    const gate = await gateAllowsProposal(admin, [
       { label: "案件の", name: (job.client_name ?? "").toString().trim() },
       { label: "人材の所属", name: candCompany },
     ]);
-    if (blocked) {
-      return { ok: false, error: `${blocked.label}企業「${blocked.name}」はまだ打ち合わせ・顔合わせの記録がありません。先に「打合せ記録」を登録するか、上長に依頼してください。` };
+    if (!gate.allowed) {
+      const names = gate.unmet.map((t) => `${t.label}企業「${t.name}」`).join(" と ");
+      return { ok: false, error: `${names} のどちらも打ち合わせ・顔合わせの記録がありません。少なくとも一方の打合せ記録が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。` };
     }
   }
 

@@ -9,7 +9,7 @@ import { canManageDept } from "./roles";
 
 export type DashboardAlert = {
   id: string;
-  kind: "approval" | "user_signup" | "company_job" | "review_report" | "stale_proposal" | "lp_candidate" | "followup";
+  kind: "approval" | "user_signup" | "company_job" | "review_report" | "stale_proposal" | "lp_candidate" | "followup" | "respond_broken";
   severity: "high" | "med" | "low";
   title: string;
   body?: string | null;
@@ -163,6 +163,28 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
         cta: "LP登録を開く",
       });
     } catch { /* public.profiles 未参照環境は無視 */ }
+  }
+
+  // ⑦ メール応答リンク切れの監視（過去24時間に /api/respond が invalid token / invalid request
+  //    を返した件数）。admin のみ。0 件なら出さない。
+  //    ログは notifications テーブルに recipient='_system' kind='respond_broken' で記録される。
+  if (isAdmin) {
+    try {
+      const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+      const br = await sb.from("notifications").select("id", { count: "exact", head: true })
+        .eq("recipient", "_system").eq("kind", "respond_broken").gte("created_at", since);
+      const n = br.count ?? 0;
+      if (n > 0) alerts.push({
+        id: "respond_broken",
+        kind: "respond_broken",
+        severity: "high",
+        title: `メール応答リンク切れ ${n} 件（24時間）`,
+        body: "受信者が「話を進める／見送り」を押せていません。提案管理から該当提案のメールを再送するか、開発担当に共有してください。",
+        count: n,
+        href: "/notifications?kind=respond_broken",
+        cta: "詳細を確認",
+      });
+    } catch { /* notifications 未整備時は無視 */ }
   }
 
   // 並び：高 > 中 > 低、その中で件数が多い順。
