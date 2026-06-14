@@ -3,7 +3,7 @@
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
-import { createProposal, isProposerPrivileged } from "@/lib/actions";
+import { createProposal, isProposerPrivileged, getProposalTokens } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
@@ -208,6 +208,30 @@ export function MailComposeWizard({
   const [_savedId, setSavedId] = useState<string | null>(initialSavedId);
   const [jobToken, setJobToken] = useState<string | null>(null);
   const [candToken, setCandToken] = useState<string | null>(null);
+  // 既に「📋 提案する」(recordProposal) で記録済みの提案を再度開いた場合、
+  // DB に保存されたトークンを必ずメール本文へ反映する。ここで取得しないと、
+  // メールに焼き込まれるリンクのトークンが DB と一致せず「リンク切れ」になる。
+  useEffect(() => {
+    if (!initialSaved || !initialSavedId) return;
+    if (jobToken && candToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await getProposalTokens(initialSavedId);
+        if (cancelled || !r.ok) return;
+        if (r.jobToken)  setJobToken(r.jobToken);
+        if (r.candToken) setCandToken(r.candToken);
+      } catch { /* fail-soft：下の防御策でローカル生成にフォールバック */ }
+    })();
+    return () => { cancelled = true; };
+  }, [initialSaved, initialSavedId, jobToken, candToken]);
+  // 防御策：step=2（プレビュー段階）に到達してもトークンが無いなら、ローカル生成して
+  // 必ずボタン HTML を作る。送信時に createProposal(preTokens) 経由で DB と同期される。
+  useEffect(() => {
+    if (step !== 2) return;
+    if (!jobToken)  setJobToken(generateToken());
+    if (!candToken) setCandToken(generateToken());
+  }, [step, jobToken, candToken]);
   const [msg, setMsg] = useState<string | null>(null);
   // 新フロー：メール送信は承認者が提案管理から行うため、Wizard 側から送信モーダルは開かない。
   // ただし admin / マネージャー / リーダーは承認スキップで自分が直接送信できる。

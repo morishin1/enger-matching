@@ -720,11 +720,15 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
   const cand: any = cr.data;
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
-  // 重複チェック（冪等）
-  const { data: dups } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
+  // 重複チェック（冪等）。既存の場合は保存済みトークンも返す（後段のメール作成で再利用するため）。
+  const { data: dups } = await admin.from("proposals").select("id, job_action_token, cand_action_token").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
   if (dups && dups.length > 0) {
     revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
-    return { ok: true, id: dups[0].id, existed: true };
+    return {
+      ok: true, id: dups[0].id, existed: true,
+      job_action_token: (dups[0] as any).job_action_token ?? null,
+      cand_action_token: (dups[0] as any).cand_action_token ?? null,
+    };
   }
 
   // 提案者の既定＝本人（ログイン中）
@@ -784,7 +788,23 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
   }
   if (ins.error) return { ok: false, error: ins.error.message };
   revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
-  return { ok: true, id: ins.data?.id ?? null, existed: false };
+  // メール送信モーダルで再利用するため、生成したトークンを呼び出し側へ返す。
+  // 返さないと、後段のメールに焼き込むトークンが DB と一致せず「リンク切れ」になる。
+  return { ok: true, id: ins.data?.id ?? null, existed: false, job_action_token, cand_action_token };
+}
+
+/** 既存提案のレスポンストークン（job_action_token / cand_action_token）を取得。
+ *  メール送信モーダルが「📋 提案する」で記録済みの提案を再度開いた時に、DB のトークンを
+ *  メール本文の「話を進める／見送り」リンクへ正しく差し込むために使う。 */
+export async function getProposalTokens(proposalId: string): Promise<{ ok: true; jobToken: string | null; candToken: string | null } | { ok: false; error: string }> {
+  if (!proposalId) return { ok: false, error: "id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  try {
+    const { data, error } = await admin.from("proposals").select("job_action_token, cand_action_token").eq("id", proposalId).maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, jobToken: (data as any)?.job_action_token ?? null, candToken: (data as any)?.cand_action_token ?? null };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
 /** 提案を承認（承認待ち → 所属確認 へ遷移）。承認できるのは admin か、approver と現在ユーザー名が一致する人。 */
