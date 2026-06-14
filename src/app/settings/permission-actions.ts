@@ -20,6 +20,20 @@ async function requireAdmin(): Promise<Result> {
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+// 管理者またはマネージャー/リーダー（チーム運営担当）を許可。
+async function requireAdminOrManager(): Promise<Result> {
+  if (!authConfigured) return { ok: true };
+  try {
+    const sb = await authServerClient();
+    const { data: { user } } = await sb.auth.getUser();
+    const a = user?.email ? await resolveAccess(user.email) : null;
+    if (!a || a.status !== "active") return { ok: false, error: "ログインが必要です" };
+    if (a.role === "admin") return { ok: true };
+    if (a.teamRole === "manager" || a.teamRole === "leader") return { ok: true };
+    return { ok: false, error: "管理者またはマネージャーの権限が必要です" };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** メニュー表示権限を保存（管理者のみ）。受け取った値をサニタイズして app_settings に upsert。 */
 export async function saveMenuPermissions(perms: MenuPermissions): Promise<Result> {
   const g = await requireAdmin(); if (!g.ok) return g;
@@ -68,7 +82,7 @@ const trimUniq = (xs: any[]): string[] =>
 
 /** 提案者・クロージング担当の名前リストを保存（管理者のみ）。 */
 export async function saveProposalOwners(owners: ProposalOwners): Promise<Result> {
-  const g = await requireAdmin(); if (!g.ok) return g;
+  const g = await requireAdminOrManager(); if (!g.ok) return g;
   const clean: ProposalOwners = {
     proposers: trimUniq(owners?.proposers ?? []).slice(0, 50),
     closers:   trimUniq(owners?.closers   ?? []).slice(0, 50),

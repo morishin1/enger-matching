@@ -13,9 +13,11 @@ export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 // 指標（2026/06 改訂）。提案以外は CL担当（closer）に加算する。
 //   proposal  : 新規提案（created_at が期間内）。提案者 or CL のどちらかが本人なら加算（従来通り）。
 //   contact   : コンタクト数。架電状況が「未架電」「空白」以外＝接触済。CL に加算。
-//   adjusting : 調整中。案件/人材の通知が両方「未処理」以外＝処理着手/完了。CL に加算。
-//   schedule  : 日程確定。ステージが「面談」。CL に加算。
-//   deal      : 成約数。ステージが「合格」。CL に加算。
+//   adjusting : 調整中。案件/人材の通知のいずれか一方でも「処理中(in_progress)」か「完了(done)」になったら加算。
+//               両方とも「未処理(pending)」に戻ったら計上しない（スナップショット再計算で減算が自然に成立）。
+//   schedule  : 日程確定。一度「面談」に到達したら計上。以後「合格」「見送り」へ進んでも維持（減算しない）。
+//               「合格/見送り」以外（提案中などへ差戻し・失注）に変わったら計上しない（＝減算）。
+//   deal      : 成約数。「合格」に到達したら計上。以後「稼働」へ進んでも維持（減算なし）。
 export type Metric = "proposal" | "contact" | "adjusting" | "schedule" | "deal";
 
 export const METRIC_LABELS: Record<Metric, { short: string; long: string; tone: string }> = {
@@ -30,24 +32,31 @@ export const METRIC_ORDER: Metric[] = ["proposal", "contact", "adjusting", "sche
 
 // 各指標の「この提案は該当するか」を判定する条件（snapshot/history で共通利用）。
 //   ※ 集計タイミングは呼び出し側で created_at / stage_updated_at / updated_at を期間判定する。
+//   ※ イベント加算/減算は履歴を持たないため「現在状態のスナップショット述語」で正味の結果を表現する。
 const NOT_CONTACTED = new Set(["", "未架電", "—"]);
-const PENDING = new Set(["", "未処理"]);
+// 通知ステータスの実体値は英語（pending=未処理 / in_progress=処理中 / done=完了）。
+const NOTIFY_STARTED = new Set(["in_progress", "done"]); // 処理中 or 完了（＝着手済み）
+// 日程確定の母数：「面談」に到達済み（合格/見送り/稼働へ進んでも維持）。旧ステージ名も吸収。
+//   ・失注 や 面談前ステージ（所属確認/提案中等）は対象外（＝面談到達後に差戻し/失注したら計上しない）。
+const SCHEDULE_STAGES = new Set(["面談", "面談調整", "クロージング中", "合格", "面談合格", "見送り", "稼働", "稼働決定"]);
+// 成約：「合格」に到達済み（稼働へ進んでも維持）。旧ステージ名も吸収。
+const DEAL_STAGES = new Set(["合格", "面談合格", "稼働", "稼働決定"]);
 export const metricFlags = {
   // コンタクト：架電状況が「未架電/空白」以外＝接触済み
   isContact: (p: any) => {
     const c = String(p.caller_status ?? "").trim();
     return c !== "" && !NOT_CONTACTED.has(c);
   },
-  // 調整中：案件/人材の通知ステータスが両方とも「未処理」以外（処理中 or 完了）
+  // 調整中：案件/人材の通知のいずれか一方でも「処理中」or「完了」なら該当（両方「未処理」のみ非該当）
   isAdjusting: (p: any) => {
     const j = String(p.job_notify_status ?? "").trim();
     const k = String(p.cand_notify_status ?? "").trim();
-    return j !== "" && k !== "" && !PENDING.has(j) && !PENDING.has(k);
+    return NOTIFY_STARTED.has(j) || NOTIFY_STARTED.has(k);
   },
-  // 日程確定：ステージが「面談」
-  isSchedule: (p: any) => String(p.stage ?? "").trim() === "面談",
-  // 成約：ステージが「合格」
-  isDeal: (p: any) => String(p.stage ?? "").trim() === "合格",
+  // 日程確定：「面談」到達済み（合格/見送り/稼働を含む。失注・面談前は非該当）
+  isSchedule: (p: any) => SCHEDULE_STAGES.has(String(p.stage ?? "").trim()),
+  // 成約：「合格」到達済み（稼働を含む）
+  isDeal: (p: any) => DEAL_STAGES.has(String(p.stage ?? "").trim()),
 };
 
 // ── 期間ヘルパ ────────────────────────────────────────────────────────

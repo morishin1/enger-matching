@@ -2,9 +2,9 @@
 //   指標は KPI推移と同じ5つに統一（提案 / コンタクト / 調整中 / 日程確定 / 成約）。
 //     ・提案     : proposals.proposer（created_at が期間内）
 //     ・コンタクト: 架電状況が未架電/空白以外（closer に加算・updated_at 起点）
-//     ・調整中   : 案件/人材の通知が両方「未処理」以外（closer に加算・updated_at 起点）
-//     ・日程確定 : ステージ=面談（closer に加算・stage_updated_at 起点）
-//     ・成約     : ステージ=合格（closer に加算・stage_updated_at 起点）
+//     ・調整中   : 案件/人材の通知のいずれかが「処理中/完了」（closer に加算・updated_at 起点）
+//     ・日程確定 : 「面談」到達済み＝面談/合格/見送り/稼働（closer に加算・stage_updated_at 起点）
+//     ・成約     : 「合格」到達済み＝合格/稼働（closer に加算・stage_updated_at 起点）
 //   各メンバーの週次目標（kpi_targets person scope）も取得し、期間に按分して達成率を出す。
 
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";

@@ -6,7 +6,9 @@
 import Link from "next/link";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { getTeamActivity } from "@/lib/team-activity";
-import { resolveRange } from "@/lib/kpi";
+import { resolveRange, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, METRIC_ORDER, type Metric } from "@/lib/kpi";
+import { loadProposalOwners } from "@/lib/proposal-owners";
+import { canManageDept } from "@/lib/roles";
 import { TeamActivityBoard } from "./TeamActivityBoard";
 
 export async function MemberActivitySection({ access }: {
@@ -18,12 +20,22 @@ export async function MemberActivitySection({ access }: {
   const { start, end } = resolveRange("day");
   const rows = await getTeamActivity({ start, end, members });
 
+  // チーム目標（按分済み）と提案者・CL リストを取得
+  const weekStart = jstStartOfWeek(new Date());
+  const teamWeekly = await getWeeklyTargets({ ownerEmail: null, weekStart });
+  const teamTarget: Partial<Record<Metric, number>> = {};
+  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeekly[m] ?? 0, "day", { start, end });
+  const owners = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
         <Link href="/kpi" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>📊 KPI推移・目標を編集 →</Link>
       </div>
-      <TeamActivityBoard rows={rows} periodLabel="今日" />
+      <TeamActivityBoard rows={rows} periodLabel="今日"
+        teamTarget={teamTarget} weekStart={weekStart.toISOString().slice(0, 10)}
+        viewer={{ role: access.role, teamRole: access.teamRole ?? null, isAdmin: access.role === "admin", isManager: canManageDept(access.teamRole ?? null) }}
+        proposalOwners={owners} />
     </div>
   );
 }

@@ -3141,9 +3141,11 @@ export async function saveKpiTargets(input: {
 }): Promise<{ ok: boolean; error?: string }> {
   const access = await currentAccess();
   if (!access) return { ok: false, error: "ログインが必要です" };
-  if (input.scope === "team" && access.role !== "admin")
-    return { ok: false, error: "チーム目標は管理者のみ設定できます" };
-  if (input.scope === "person" && access.role !== "admin" && (input.ownerEmail ?? "") !== access.email)
+  const { canManageDept } = await import("./roles");
+  const isManager = canManageDept(access.teamRole);
+  if (input.scope === "team" && access.role !== "admin" && !isManager)
+    return { ok: false, error: "チーム目標は管理者/マネージャーのみ設定できます" };
+  if (input.scope === "person" && access.role !== "admin" && !isManager && (input.ownerEmail ?? "") !== access.email)
     return { ok: false, error: "他人の目標は変更できません" };
 
   let admin: ReturnType<typeof engerAdmin>;
