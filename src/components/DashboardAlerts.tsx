@@ -24,6 +24,7 @@ const KIND_ICON: Record<DashboardAlert["kind"], string> = {
   stale_proposal: "hourglass_top",
   lp_candidate:   "groups",
   followup:       "campaign",
+  respond_broken: "link_off",
 };
 
 const SS_KEY = "enger.dashboard-alerts.dismissed";
