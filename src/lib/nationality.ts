@@ -32,6 +32,13 @@ export function classifyCandNationality(value?: string | null): CandNat {
   return "foreign";
 }
 
+// ── 人材 nationality 列の SQL(ilike) 近似フィルタ用キーワード ─────────────
+//   表示バッジ classifyCandNationality と「外国籍」フィルタを整合させるために使う。
+//   外国籍＝値あり ∧ 日本系でない ∧ 「不明」に倒す語を含まない。
+//   ※ ここに挙げるのは国名に紛れ込まない部分文字列のみ（CAND_NAT_UNKNOWN_RE に対応）。
+//     symbol のみ・"n/a" 等のアンカー一致は ilike だと国名を誤除外するため含めない。
+export const CAND_NAT_UNKNOWN_SQL_KEYS = ["不問", "問わ", "未確認", "未記入", "未定", "不明", "要確認", "該当な", "なし"] as const;
+
 // 案件本文の国籍要件パターン。jp_only を先に判定（「外国籍不可」が open に誤判定されないように）。
 const JOB_JP_ONLY_RE = /日本国籍|日本人(のみ|限定|に限る)|外国籍(不可|不可能|ng|お断り|×)|永住権.{0,3}(必須|必要)/i;
 const JOB_OPEN_RE = /国籍不問|国籍を?問わ(ない|ず)|外国籍(歓迎|可|ok|相談|可能)|外国人(歓迎|可)|ビザ(支援|サポート)/i;

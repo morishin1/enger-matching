@@ -11,6 +11,7 @@ import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
 import { CAND_FLOW_OPTIONS } from "@/lib/flow";
 import { getApprovedCompanySet, getApprovedCompanyNames, isCompanyApproved } from "@/lib/company-approval";
+import { CAND_NAT_UNKNOWN_SQL_KEYS } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
 
@@ -187,13 +188,19 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
             if (labels.length > 0) qb = qb.in("affiliation", labels);
           }
         }
-        // 国籍は 3 区分（NATIONALITY_OPTIONS）。外国籍＝値ありかつ日本を含まない。
+        // 国籍は 3 区分（NATIONALITY_OPTIONS）。
+        //   外国籍＝値あり ∧ 日本を含まない ∧「不明」に倒す語（不問/未確認/不明 等）を含まない。
+        //   ※ 「不明」系の語を除外しないと、バッジ上は「不明」の人材が外国籍フィルタに紛れ込む。
         if (fNationality === "japan") {
           qb = qb.ilike("nationality", "%日本%");
         } else if (fNationality === "foreign") {
           qb = qb.not("nationality", "is", null).neq("nationality", "").not("nationality", "ilike", "%日本%");
+          for (const kw of CAND_NAT_UNKNOWN_SQL_KEYS) qb = qb.not("nationality", "ilike", `%${kw}%`);
         } else if (fNationality === "unknown") {
-          qb = qb.or("nationality.is.null,nationality.eq.");
+          // 空/NULL に加え、「不明」に倒す語を含む値も「不明」に含める（外国籍と整合）。
+          const ors = ["nationality.is.null", "nationality.eq."];
+          for (const kw of CAND_NAT_UNKNOWN_SQL_KEYS) ors.push(`nationality.ilike.%${kw}%`);
+          qb = qb.or(ors.join(","));
         }
         if (rOr) qb = qb.or(rOr);
         if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
