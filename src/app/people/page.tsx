@@ -10,7 +10,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
 import { CAND_FLOW_OPTIONS } from "@/lib/flow";
-import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
+import { getApprovedCompanySet, getApprovedCompanyNames, isCompanyApproved } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +85,7 @@ const EXPORT_HEADERS = [
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string }> }) {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string }> }) {
   const sp = await searchParams;
   const { q: initialQuery } = sp;
   const scope = await getViewerScope();
@@ -108,6 +108,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const fAffiliation = sp.f_affiliation ?? "";
   const fNationality = sp.f_nationality ?? "";
   const fRank = sp.f_rank ?? "";
+  // 承認状況フィルタ：approved=所属企業が打合せ済のみ / unapproved=未承認のみ。空=すべて。
+  const fApproved = sp.f_approved ?? "";
   // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
   if (scope.isTenant) {
     if (dbConfigured && scope.ownerKey) {
@@ -136,6 +138,25 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;
       const rOr = fRank ? rankOr(fRank) : null;
+
+      // 承認状況フィルタ用：打合せ済（承認）企業名の一覧をクエリ前に取得。
+      //   人材の所属は source_company / company のいずれか。どちらかが承認済みなら「承認済み」とみなす。
+      let approvedNames: string[] = [];
+      if (fApproved) { try { approvedNames = await getApprovedCompanyNames(); } catch { /* 取得失敗時はフィルタ無効 */ } }
+      const pgInList = (names: string[]) => `(${names.map((n) => `"${n.replace(/"/g, '""')}"`).join(",")})`;
+      const applyApproved = (qb: any) => {
+        if (fApproved === "approved") {
+          if (!approvedNames.length) return qb.eq("candidate_no", -1);
+          const L = pgInList(approvedNames);
+          return qb.or(`source_company.in.${L},company.in.${L}`);
+        }
+        if (fApproved === "unapproved" && approvedNames.length) {
+          const L = pgInList(approvedNames);
+          // 「いずれの所属も承認済みでない」= (source_company null/未一致) かつ (company null/未一致)
+          return qb.or(`source_company.is.null,source_company.not.in.${L}`).or(`company.is.null,company.not.in.${L}`);
+        }
+        return qb;
+      };
 
       // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
       const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false) => {
@@ -182,6 +203,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
             ? qb.not("skill_sheet_url", "is", null).neq("skill_sheet_url", "")
             : qb.or("skill_sheet_url.is.null,skill_sheet_url.eq.");
         }
+        qb = applyApproved(qb);
         return qb;
       };
       const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
@@ -223,7 +245,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const growth = scope.isTenant ? { total: people.length, last7: 0 } as any : await getEntityDelta("candidates");
 
   // PeopleTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank };
+  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank, approved: fApproved };
   const peopleFilterOptions = {
     status: FRESH_OPTIONS,
     title: titleOptionVals.map((v) => ({ value: v, label: v })),
@@ -232,6 +254,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     affiliation: [...CAND_FLOW_OPTIONS, { value: "unknown", label: "未設定" }],
     nationality: NATIONALITY_OPTIONS,
     rank: RANK_OPTIONS,
+    approved: [{ value: "approved", label: "承認済みのみ" }, { value: "unapproved", label: "未承認のみ" }],
   };
 
   return (
@@ -258,7 +281,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank);
+        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 

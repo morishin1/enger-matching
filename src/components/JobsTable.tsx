@@ -98,6 +98,7 @@ const JOB_COLS: Col[] = [
   },
   { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
   { key: "client", label: "クライアント名", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
+  { key: "approved", label: "承認", width: 96, filterKey: "approved", filterLabel: "承認状況", render: (j) => <CompanyApprovalBadge approved={!!j.client_approved} size="xs" /> },
   { key: "role", label: "職種", filterKey: "role", filterLabel: "職種", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterKey: "remote", filterLabel: "リモート", render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   {
