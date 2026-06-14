@@ -1,6 +1,6 @@
 "use client";
 
-import { PROPOSERS } from "@/lib/proposal-constants";
+import { PROPOSERS, SHARED_MAILBOX } from "@/lib/proposal-constants";
 
 import { BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
@@ -117,7 +117,7 @@ export function CandMailBodyCard({
         </div>
       </div>
 
-      {/* Fixed fields */}
+      {/* Fixed fields：送信元/送信先は自動入力（編集不可）、CCのみ任意入力 */}
       <div style={{ padding: "12px 16px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
         <label style={fieldLabel}>
           担当者
@@ -126,33 +126,31 @@ export function CandMailBodyCard({
             {PROPOSERS.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </label>
-        {/* <label style={fieldLabel}>
-          宛先
+        <label style={fieldLabel}>
+          送信元（共有 / 自動）
           <input
-            type="email" value={form.email} placeholder="cand@example.com"
-            onChange={(e) => onChange("email", e.target.value)}
-            style={{ ...inputBase, borderColor: errors.email ? "var(--color-danger)" : "var(--color-border-strong)" }}
+            type="text" value={SHARED_MAILBOX} readOnly
+            title="ITS事業部の共有メールボックス。全員が送信内容を共有Gmailで閲覧できます。"
+            style={{ ...inputBase, background: "var(--color-surface-soft)", color: "var(--color-ink-2)", cursor: "not-allowed" }}
           />
-          {errors.email && <div style={errText}>{errors.email}</div>}
         </label>
         <label style={fieldLabel}>
-          Cc
+          送信先（自動）
           <input
-            type="text" value={form.cc} placeholder="cc@example.com"
+            type="email" value={form.email} readOnly
+            placeholder="（取込メールから自動入力）"
+            style={{ ...inputBase, background: "var(--color-surface-soft)", color: "var(--color-ink-2)", cursor: "not-allowed" }}
+          />
+        </label>
+        <label style={fieldLabel}>
+          CC（任意）
+          <input
+            type="text" value={form.cc} placeholder="cc@example.com（カンマ区切りで複数可）"
             onChange={(e) => onChange("cc", e.target.value)}
             style={{ ...inputBase, borderColor: errors.cc ? "var(--color-danger)" : "var(--color-border-strong)" }}
           />
           {errors.cc && <div style={errText}>{errors.cc}</div>}
         </label>
-        <label style={fieldLabel}>
-          件名
-          <input
-            type="text" value={form.subject} placeholder="件名"
-            onChange={(e) => onChange("subject", e.target.value)}
-            style={{ ...inputBase, borderColor: errors.subject ? "var(--color-danger)" : "var(--color-border-strong)" }}
-          />
-          {errors.subject && <div style={errText}>{errors.subject}</div>}
-        </label> */}
       </div>
 
       {/* 元メール本文プレビュー：本当に合っているか目視確認用（既定で閉、開けば全文表示・スクロール可） */}

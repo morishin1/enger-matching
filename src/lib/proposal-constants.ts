@@ -56,3 +56,9 @@ export const MEETING_NEXT_ACTIONS = ["人材を提案", "再面談を設定", "�
 
 // 提案メモのカテゴリ。連絡記録/重要事項/内部メモ/クライアント対応/人材対応 の5分類。
 export const PROPOSAL_MEMO_CATEGORIES = ["連絡記録", "重要事項", "内部メモ", "クライアント対応", "人材対応"] as const;
+
+// 共有メールボックス（ITS事業部の共有Gmail）。
+//   ・送信メールの「送信元」表示は常にここ（個人アドレスだと他メンバーから送信内容が見えないため）
+//   ・送信時には必ず BCC でも同アドレスへコピー → 共有Gmailの受信箱に蓄積され、全員が閲覧可能
+//   ・Gmail 関連URL（authuser）にもこのアドレスを使用（src/lib/gmail.ts）
+export const SHARED_MAILBOX = "its@gw.8grp.co.jp";

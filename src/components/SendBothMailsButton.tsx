@@ -6,6 +6,7 @@
 import { useEffect, useState, useTransition, Fragment, type CSSProperties } from "react";
 import { sendMailAction } from "@/lib/actions";
 import { BUTTON_PLACEHOLDER, NOTICE_TEXT } from "./JobMailBodyCard";
+import { SHARED_MAILBOX } from "@/lib/proposal-constants";
 
 type Sender = { key: "enger" | "8grp"; label: string; address: string };
 
@@ -100,9 +101,12 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
       if (d.ok) {
         setSenders(d.senders);
         if (d.me) setMe(d.me);
-        if (d.senders?.[0]) {
-          setJob((p) => ({ ...p, sender: d.senders[0].key }));
-          setCand((p) => ({ ...p, sender: d.senders[0].key }));
+        // 既定の送信元は共有Gmail寄りの「8grp」（その箱が設定されていれば）。なければ先頭。
+        const list: Sender[] = d.senders ?? [];
+        const preferred = list.find((s) => s.key === "8grp") ?? list[0];
+        if (preferred) {
+          setJob((p) => ({ ...p, sender: preferred.key }));
+          setCand((p) => ({ ...p, sender: preferred.key }));
         }
       }
     }).catch(() => setSenders([]));
@@ -219,7 +223,11 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
           ) : (
             <>
               <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>
-                ※ 「この内容で2通送信」を押すと、案件側・人材側の両方へ同時に送信します。配信のため送信元アドレスは共有箱のままです。名前と返信先がログイン中のあなたになります。
+                ※ 「この内容で2通送信」を押すと、案件側・人材側の両方へ同時に送信します。名前と返信先はログイン中のあなたになります。
+              </div>
+              <div style={{ fontSize: 11.5, color: "#067647", background: "#e7f7ee", border: "1px solid #bfe3cc", borderRadius: 8, padding: "8px 11px", display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16 }}>forward_to_inbox</span>
+                送信メールは共有Gmail <b style={{ margin: "0 2px" }}>{SHARED_MAILBOX}</b> にBCCで自動コピーされます（全員がGmailで送信内容を確認可能）。
               </div>
               <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
                 {renderSide(jobSide, job, setJob, jobErr, setJobErr, jobRes)}

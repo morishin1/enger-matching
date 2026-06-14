@@ -3094,11 +3094,21 @@ export async function sendMailAction(input: {
   const senderName = access?.name?.trim() || null;
   const replyTo = input.replyTo?.trim() || access?.email || null;
 
+  // 送信内容を全員が共有Gmailで閲覧できるよう、共有メールボックスへ必ずBCCコピーを送る。
+  //   ・受信側からは見えない（BCCのため）
+  //   ・共有Gmail受信箱に届くため、誰がいくらで提案したか、どの担当者向けに送ったか全員が確認可能
+  const { SHARED_MAILBOX } = await import("./proposal-constants");
+  const bccList = (input.bcc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!bccList.some((a) => a.toLowerCase() === SHARED_MAILBOX.toLowerCase())) {
+    bccList.push(SHARED_MAILBOX);
+  }
+  const mergedBcc = bccList.join(", ");
+
   const { sendMail } = await import("./mailer");
   const res = await sendMail({
     sender: input.sender, to: input.to, subject: input.subject, text: input.text,
     html: input.html || null,
-    cc: input.cc, bcc: input.bcc, replyTo, fromNameOverride: senderName,
+    cc: input.cc, bcc: mergedBcc, replyTo, fromNameOverride: senderName,
   });
   if (!res.ok) return { ok: false, error: res.error };
 
@@ -3107,7 +3117,7 @@ export async function sendMailAction(input: {
     const admin = engerAdmin();
     await admin.from("mail_sent").insert({
       sender_key: input.sender, from_address: res.from, to_address: input.to,
-      cc_address: input.cc || null, bcc_address: input.bcc || null,
+      cc_address: input.cc || null, bcc_address: mergedBcc || null,
       subject: input.subject, body: input.text, message_id: res.messageId,
       sent_by_email: access?.email ?? null, sent_by_name: access?.name ?? null,
       related_kind: input.relatedKind || null, related_id: input.relatedId || null,
