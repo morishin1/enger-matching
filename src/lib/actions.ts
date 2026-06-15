@@ -524,6 +524,18 @@ export async function updateProposalFields(id: string, fields: Record<string, an
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
   // ステージが変わるときは滞留日数・失注日の起点となる stage_updated_at も更新する。
   if ("stage" in fields) patch.stage_updated_at = now;
+  // 失注/見送り 以外のステージへ移すときは、明示的に lost_reason 等を指定していなければ
+  // 自動でクリアする。失注 → 提案中 へ戻したのに古い lost_reason が残って「失注分析」に
+  // 誤って表示される問題への対処（updateProposalStage と同じ運用ルール）。
+  if ("stage" in fields) {
+    const newStage = String(fields.stage ?? "");
+    const isLostStage = newStage === "見送り" || newStage === "失注";
+    if (!isLostStage) {
+      if (!("lost_reason" in fields))      patch.lost_reason      = null;
+      if (!("lost_phase" in fields))       patch.lost_phase       = null;
+      if (!("lost_reason_note" in fields)) patch.lost_reason_note = null;
+    }
+  }
   let { error } = await admin.from("proposals").update(patch).eq("id", id);
   // stage_updated_at 列が未追加の環境では外して再試行（proposals-stage-updated-at.sql 未実行時）
   if (error && /stage_updated_at|column/i.test(error.message) && "stage_updated_at" in patch) {
@@ -557,6 +569,7 @@ export async function updateProposalFields(id: string, fields: Record<string, an
   }
 
   revalidatePath("/proposals");
+  revalidatePath("/analytics");
   bustCounts();
   return { ok: true };
 }
@@ -1016,18 +1029,30 @@ export async function rejectProposal(id: string, reason: string): Promise<{ ok: 
 
 /** 提案ステージの変更 (カンバン移動)。 */
 /** 提案ステージを更新。stage_updated_at も同時に更新して滞留日数を正確に。
- *  stage_updated_at 列が未追加の環境では自動で外して再試行。 */
+ *  stage_updated_at 列が未追加の環境では自動で外して再試行。
+ *  ※ 失注/見送り から非・失注ステージへ戻すときは lost_reason/lost_phase/lost_reason_note も
+ *    自動でクリアする。そうしないと「失注分析」の集計やカード表示に古い失注理由が残り、
+ *    「戻したのに失注として数値に出ている」誤解を招く（restoreProposal と同じ動き）。 */
 export async function updateProposalStage(id: string, stage: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
-  let r: any = await admin.from("proposals").update({ stage, updated_at: now, stage_updated_at: now }).eq("id", id);
-  if (r.error && /stage_updated_at|column/i.test(r.error.message)) {
+  const isLostStage = stage === "見送り" || stage === "失注";
+  const patch: Record<string, any> = { stage, updated_at: now, stage_updated_at: now };
+  if (!isLostStage) { patch.lost_reason = null; patch.lost_phase = null; patch.lost_reason_note = null; }
+  let r: any = await admin.from("proposals").update(patch).eq("id", id);
+  if (r.error && /stage_updated_at|lost_reason_note|column/i.test(r.error.message)) {
+    // 旧環境フォールバック：未整備の列を順に落として再試行
+    const { lost_reason_note: _a, stage_updated_at: _b, ...rest } = patch;
+    r = await admin.from("proposals").update(rest).eq("id", id);
+  }
+  if (r.error && /lost_reason|lost_phase|column/i.test(r.error.message)) {
     r = await admin.from("proposals").update({ stage, updated_at: now }).eq("id", id);
   }
   const error = r.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals");
+  revalidatePath("/analytics");
   bustCounts();
   return { ok: true };
 }
@@ -1094,7 +1119,7 @@ export async function restoreProposal(id: string) {
   }
   const error = rr.error;
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
+  revalidatePath("/proposals"); revalidatePath("/analytics"); bustCounts(); revalidatePath("/progress");
   return { ok: true };
 }
 
