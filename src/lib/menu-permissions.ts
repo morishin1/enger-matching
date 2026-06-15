@@ -20,9 +20,10 @@ export const MENU_ROLE_LABEL: Record<MenuRoleKey, string> = {
 //   ※ ダッシュボード・設定は土台のため対象外（常時表示）。承認(ユーザー管理)も管理操作なので対象外。
 //   ※ 稼働管理は「業務」と「書類送付」をまとめた1つの単位、分析は KPI推移/ファネル/パイプライン/詳細分析を
 //     まとめた1つの単位として管理する（シンプル化）。サブタブは無条件表示。
+//   ※ 企業(/companies) は「打合せ後の企業登録・承認済み記録」を全メンバーが行う必須業務のため
+//     設定対象外（常時表示）。MENU_ITEMS から外すと isMenuAllowed のフォールスルーで常に許可になる。
 export const MENU_ITEMS: { href: string; label: string }[] = [
   { href: "/mail",       label: "メール取込" },
-  { href: "/companies",  label: "企業" },
   { href: "/matching",   label: "マッチング（案件/人材/LP登録）" },
   { href: "/proposals",  label: "提案管理" },
   { href: "/progress",   label: "稼働管理（業務/書類送付）" },
