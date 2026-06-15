@@ -27,6 +27,35 @@ export function buildJobMailSubject(job: any): string {
   return reSubject(job.title ?? "");
 }
 
+/** スキルシートのリンクを解決する。
+ *   1) 取込時に保存済みの skill_sheet_url を最優先。
+ *   2) 無い場合は、先方が「添付ではなくリンクで」送ってきたスキルシートURLを
+ *      取込元メール本文（cand.note）から抽出する（旧enger同様、リンクを自動記載するため）。
+ *   ※ 署名や会社サイト等の無関係URLを拾わないよう、スキルシート/経歴系の語の近く、
+ *      もしくはファイル共有系ドメインのURLだけを採用する（任意URLは採用しない）。 */
+export function resolveSkillSheetUrl(cand: any): string | null {
+  const saved = (cand?.skill_sheet_url ?? "").toString().trim();
+  if (saved) return saved;
+  const text = (cand?.note ?? "").toString();
+  if (!text) return null;
+  const URL_RE = /https?:\/\/[^\s<>"')\]　、，]+/g;
+  const KEY_RE = /(スキルシート|ｽｷﾙｼｰﾄ|スキルシ-ト|経歴書|職務経歴|技術経歴|skill\s*sheet|ss[:：])/i;
+  const DOC_RE = /(drive\.google|docs\.google|1drv\.ms|onedrive|sharepoint|dropbox|box\.com|\.pdf|\.xlsx?|\.docx?|\.pptx?)/i;
+  const lines = text.split(/\r?\n/);
+  // ① 「スキルシート：URL」のように同じ行に出てくるURL
+  for (const ln of lines) {
+    if (KEY_RE.test(ln)) { const m = ln.match(URL_RE); if (m?.[0]) return m[0]; }
+  }
+  // ② 「スキルシート：」の次行にURLがあるパターン
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (KEY_RE.test(lines[i])) { const m = (lines[i + 1] ?? "").match(URL_RE); if (m?.[0]) return m[0]; }
+  }
+  // ③ キーワードが無くても、ファイル共有系ドメインのURLがあれば採用
+  const urls: string[] = text.match(URL_RE) ?? [];
+  const doc = urls.find((u: string) => DOC_RE.test(u));
+  return doc ?? null;
+}
+
 export function buildJobMailContent(job: any, cand: any): string {
   const remark = cand.note?.trim() || [
     `【 名　前 】${cand.name ?? ""}${cand.age_band ? `　(${cand.age_band})` : ""}`,
@@ -38,8 +67,9 @@ export function buildJobMailContent(job: any, cand: any): string {
     cand.exp ? `【 実　績 】\n${cand.exp}` : "",
   ].filter(Boolean).join("\n");
 
-  const skillSheet = cand.skill_sheet_url
-    ? `\n━━━━━━━━━━━━━━━━━━━\nスキルシート：\n${cand.skill_sheet_url}\n`
+  const sheetUrl = resolveSkillSheetUrl(cand);
+  const skillSheet = sheetUrl
+    ? `\n━━━━━━━━━━━━━━━━━━━\nスキルシート：\n${sheetUrl}\n`
     : "";
 
   return `${job.client_name ?? ""}
