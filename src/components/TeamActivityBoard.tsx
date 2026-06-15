@@ -262,8 +262,9 @@ function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; r
   const saveAll = () => {
     start(async () => {
       const tasks: Promise<{ ok: boolean; error?: string }>[] = [];
+      const skippedNames: string[] = [];
       for (const r of rows) {
-        if (!r.email) continue; // email がないと person targets を保存できない
+        if (!r.email) { skippedNames.push(r.name); continue; } // email がないと person targets を保存できない
         const k = r.email;
         const targets: Partial<Record<Metric, number>> = {};
         for (const m of METRIC_ORDER) {
@@ -275,9 +276,12 @@ function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; r
       const results = await Promise.all(tasks);
       const bad = results.find((x) => !x.ok);
       if (bad) { setMsg(`保存失敗: ${bad.error}`); return; }
-      setMsg("✓ 保存しました");
+      const skippedMsg = skippedNames.length > 0
+        ? `（email 未登録のためスキップ：${skippedNames.join("、")}。設定→アカウントから email を登録すると保存対象になります）`
+        : "";
+      setMsg(`✓ 保存しました${skippedMsg}`);
       router.refresh();
-      setTimeout(() => onClose(), 700);
+      setTimeout(() => onClose(), skippedNames.length > 0 ? 2500 : 700);
     });
   };
 
@@ -307,17 +311,24 @@ function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; r
           <tbody>
             {rows.map((r) => {
               const k = r.email ?? r.name;
+              // email 未登録のメンバーも数値は入力できるようにする（保存時にスキップ＋一覧で通知）。
+              //   理由：管理者/マネージャーの「メンバー目標を編集」で数値が入力できない問題への対応。
+              //   以前は disabled で固められ「何も入力できない」体験になっていた。
               return (
                 <tr key={k} style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
                     <div style={{ fontWeight: 700 }}>{r.name}</div>
-                    {!r.email && <div className="muted" style={{ fontSize: 10.5 }}>email未登録のため保存不可</div>}
+                    {!r.email && <div className="muted" style={{ fontSize: 10.5, color: "#b45309" }}>email未登録のため保存対象外</div>}
                   </td>
                   {METRIC_ORDER.map((m) => (
                     <td key={m} style={{ padding: "4px 6px", textAlign: "right" }}>
-                      <input type="number" min={0} value={vals[k]?.[m] ?? ""} disabled={!r.email}
+                      <input type="number" min={0} value={vals[k]?.[m] ?? ""}
                         onChange={(e) => setVals((s) => ({ ...s, [k]: { ...(s[k] ?? {} as any), [m]: e.target.value } }))}
-                        style={{ width: 72, fontSize: 12.5, padding: "4px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", textAlign: "right", fontFamily: "monospace" }} />
+                        title={!r.email ? "このメンバーは email 未登録のため保存対象外です（入力は可能・保存時はスキップされます）" : undefined}
+                        style={{ width: 72, fontSize: 12.5, padding: "4px 6px", borderRadius: 6,
+                          border: `1px solid ${!r.email ? "#fde9b0" : "var(--color-border-strong)"}`,
+                          background: !r.email ? "#fffbeb" : "var(--color-surface)",
+                          textAlign: "right", fontFamily: "monospace" }} />
                     </td>
                   ))}
                 </tr>
@@ -337,7 +348,7 @@ function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; r
       {msg && <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>{msg}</div>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
         <button type="button" className="btn" onClick={onClose} disabled={pending}>キャンセル</button>
-        <button type="button" className="btn brand" onClick={saveAll} disabled={pending}>{pending ? "保存中…" : "全員ぶん保存"}</button>
+        <button type="button" className="btn brand" onClick={saveAll} disabled={pending}>{pending ? "保存中…" : "全員分保存"}</button>
       </div>
     </ModalShell>
   );
