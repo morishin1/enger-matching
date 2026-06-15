@@ -759,14 +759,20 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
   // 重複チェック（冪等）。既存の場合は保存済みトークンも返す（後段のメール作成で再利用するため）。
+  //   旧データで token が NULL のケースは、ここで生成して DB に保存する（self-healing）。
+  //   そうしないとメール本文のリンクと DB の token が一致せず「リンク切れ」になる。
   const { data: dups } = await admin.from("proposals").select("id, job_action_token, cand_action_token").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
   if (dups && dups.length > 0) {
+    let jobTok = (dups[0] as any).job_action_token ?? null;
+    let candTok = (dups[0] as any).cand_action_token ?? null;
+    if (!jobTok || !candTok) {
+      const upd: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (!jobTok)  { jobTok  = randomBytes(24).toString("hex"); upd.job_action_token  = jobTok;  upd.job_action_type  = "未回答"; }
+      if (!candTok) { candTok = randomBytes(24).toString("hex"); upd.cand_action_token = candTok; upd.cand_action_type = "未回答"; }
+      try { await admin.from("proposals").update(upd).eq("id", dups[0].id); } catch { /* 列未整備でも fail-soft */ }
+    }
     revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
-    return {
-      ok: true, id: dups[0].id, existed: true,
-      job_action_token: (dups[0] as any).job_action_token ?? null,
-      cand_action_token: (dups[0] as any).cand_action_token ?? null,
-    };
+    return { ok: true, id: dups[0].id, existed: true, job_action_token: jobTok, cand_action_token: candTok };
   }
 
   // 提案者の既定＝本人（ログイン中）
@@ -835,7 +841,11 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
 
 /** 既存提案のレスポンストークン（job_action_token / cand_action_token）を取得。
  *  メール送信モーダルが「📋 提案する」で記録済みの提案を再度開いた時に、DB のトークンを
- *  メール本文の「話を進める／見送り」リンクへ正しく差し込むために使う。 */
+ *  メール本文の「話を進める／見送り」リンクへ正しく差し込むために使う。
+ *  ※ 旧データで token が NULL の場合は、ここで生成して DB に保存する（self-healing）。
+ *    そうしないとメールに焼き込まれるリンクのトークンが DB と一致せず、受信者がボタンを
+ *    押した時に /respond → /api/respond が 404 を返し「URL が無効か期限切れです」（=リンク切れ）
+ *    になる不具合があった。 */
 export async function getProposalTokens(proposalId: string): Promise<{ ok: true; jobToken: string | null; candToken: string | null } | { ok: false; error: string }> {
   if (!proposalId) return { ok: false, error: "id がありません" };
   let admin: ReturnType<typeof engerAdmin>;
@@ -843,7 +853,16 @@ export async function getProposalTokens(proposalId: string): Promise<{ ok: true;
   try {
     const { data, error } = await admin.from("proposals").select("job_action_token, cand_action_token").eq("id", proposalId).maybeSingle();
     if (error) return { ok: false, error: error.message };
-    return { ok: true, jobToken: (data as any)?.job_action_token ?? null, candToken: (data as any)?.cand_action_token ?? null };
+    let jobToken: string | null = (data as any)?.job_action_token ?? null;
+    let candToken: string | null = (data as any)?.cand_action_token ?? null;
+    // NULL のままだとメールリンクと一致しないので、欠けている側だけ生成して DB に保存する。
+    if (!jobToken || !candToken) {
+      const upd: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (!jobToken)  { jobToken  = randomBytes(24).toString("hex"); upd.job_action_token  = jobToken;  upd.job_action_type  = "未回答"; }
+      if (!candToken) { candToken = randomBytes(24).toString("hex"); upd.cand_action_token = candToken; upd.cand_action_type = "未回答"; }
+      try { await admin.from("proposals").update(upd).eq("id", proposalId); } catch { /* 列未整備でも fail-soft */ }
+    }
+    return { ok: true, jobToken, candToken };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 

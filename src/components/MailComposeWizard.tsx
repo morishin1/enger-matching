@@ -231,11 +231,15 @@ export function MailComposeWizard({
   }, [initialSaved, initialSavedId, jobToken, candToken]);
   // 防御策：step=2（プレビュー段階）に到達してもトークンが無いなら、ローカル生成して
   // 必ずボタン HTML を作る。送信時に createProposal(preTokens) 経由で DB と同期される。
+  //   ※ 既存提案(initialSavedId)の場合は getProposalTokens が self-heal で必ず DB のトークンを
+  //     返すので、その応答待ち。ここで先にローカル生成して送信すると DB と一致せず
+  //     「リンク切れ」になる過去事故があったため避ける。
   useEffect(() => {
     if (step !== 2) return;
+    if (initialSavedId) return;
     if (!jobToken)  setJobToken(generateToken());
     if (!candToken) setCandToken(generateToken());
-  }, [step, jobToken, candToken]);
+  }, [step, jobToken, candToken, initialSavedId]);
   const [msg, setMsg] = useState<string | null>(null);
   // 新フロー：メール送信は承認者が提案管理から行うため、Wizard 側から送信モーダルは開かない。
   // ただし admin / マネージャー / リーダーは承認スキップで自分が直接送信できる。
