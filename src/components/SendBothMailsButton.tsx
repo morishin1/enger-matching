@@ -124,22 +124,30 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
 
   const send = () => {
     setJobErr(null); setCandErr(null);
-    // 両フォームを検証（宛先必須）
+    // 各側は独立して送る。宛先がある側は必ず送信し、無い側だけエラー表示する。
+    //   以前は「どちらかの宛先が空なら両方とも送らない」仕様で、人材側の宛先が空のときに
+    //   案件側まで送れず「人材側が送れない」と誤解される一因になっていた。
     const jobMissing = !job.to.trim();
     const candMissing = !cand.to.trim();
     if (jobMissing) setJobErr("宛先を入力してください");
     if (candMissing) setCandErr("宛先を入力してください");
-    if (jobMissing || candMissing) return;
+    // 送れる側が1つも無ければ中断
+    if ((jobMissing || jobRes?.ok) && (candMissing || candRes?.ok)) return;
 
     start(async () => {
-      // 既に成功済みの側は再送しない（部分失敗からの再試行に対応）
+      // 既に成功済み or 宛先が空の側はスキップ。送れる側だけ送信する。
+      const skip = { ok: true } as { ok: boolean; error?: string };
       const [jr, cr] = await Promise.all([
-        jobRes?.ok ? Promise.resolve({ ok: true } as { ok: boolean; error?: string }) : sendOne(jobSide, job),
-        candRes?.ok ? Promise.resolve({ ok: true } as { ok: boolean; error?: string }) : sendOne(candSide, cand),
+        jobRes?.ok ? Promise.resolve(skip) : jobMissing ? Promise.resolve(null) : sendOne(jobSide, job),
+        candRes?.ok ? Promise.resolve(skip) : candMissing ? Promise.resolve(null) : sendOne(candSide, cand),
       ]);
-      setJobRes(jr.ok ? { ok: true, text: "✓ 送信しました" } : { ok: false, text: jr.error || "送信に失敗しました" });
-      setCandRes(cr.ok ? { ok: true, text: "✓ 送信しました" } : { ok: false, text: cr.error || "送信に失敗しました" });
-      if (jr.ok && cr.ok) {
+      if (jr) setJobRes(jr.ok ? { ok: true, text: "✓ 送信しました" } : { ok: false, text: jr.error || "送信に失敗しました" });
+      if (cr) setCandRes(cr.ok ? { ok: true, text: "✓ 送信しました" } : { ok: false, text: cr.error || "送信に失敗しました" });
+      // 宛先のある側がすべて成功したら完了扱い（宛先の無い側は対象外）。
+      const jobDone = jobMissing || (jr?.ok ?? jobRes?.ok ?? false);
+      const candDone = candMissing || (cr?.ok ?? candRes?.ok ?? false);
+      const anySent = (jr?.ok ?? false) || (cr?.ok ?? false) || !!jobRes?.ok || !!candRes?.ok;
+      if (jobDone && candDone && anySent) {
         setDone(true);
         onSent?.();
       }
@@ -173,7 +181,8 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
         </label>
         <div style={{ fontSize: 11, color: "var(--color-ink-3)", background: "var(--color-surface-soft)", borderRadius: 8, padding: "7px 10px", lineHeight: 1.6 }}>
           <div>差出人表示：<b>{me.name || "（あなたの名前）"}</b> &lt;{senderAddr(st.sender)}&gt;</div>
-          <div>返信先：<b>{me.email || "（あなたのメール）"}</b></div>
+          <div>返信先：<b>{SHARED_MAILBOX}</b>（共有・全員が対応可）</div>
+          <div>CC：<b>{me.email || "（あなたのメール）"}</b>（自動追加）{st.cc ? ` ＋ ${st.cc}` : ""}</div>
         </div>
         <label style={lbl}>宛先（To）
           <input value={st.to} onChange={(e) => { setSt((p) => ({ ...p, to: e.target.value })); setErr(null); }} placeholder="to@example.com（カンマ区切りで複数可）" style={{ ...inp, ...(err ? { borderColor: "var(--color-danger)" } : null) }} disabled={res?.ok} />

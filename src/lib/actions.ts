@@ -3156,16 +3156,26 @@ export async function sendMailAction(input: {
   const role = access?.role ?? "admin";
   if (role !== "admin" && role !== "agent") return { ok: false, error: "メール送信の権限がありません" };
 
-  // 差出人表示名＝ログイン者の名前、返信先＝ログイン者のメール（明示指定があれば優先）。
-  //   送信元アドレス自体は配信（SPF/DKIM）のため共有箱のまま。
-  //   → 相手には「{ログイン者名} <共有箱>」と表示され、返信は本人に届く。
   const senderName = access?.name?.trim() || null;
-  const replyTo = input.replyTo?.trim() || access?.email || null;
+  const { SHARED_MAILBOX } = await import("./proposal-constants");
+
+  // 返信先＝共有メールボックス（its@gw.8grp.co.jp）。相手が単純に「返信」しても共有箱に届き、
+  //   担当者が不在でも他のメンバーが対応できる。明示指定があればそちらを優先。
+  //   → 個人アドレス宛だと本人しか気づけず、メンバー間でメール対応を引き継げない問題への対処。
+  const replyTo = input.replyTo?.trim() || SHARED_MAILBOX;
+
+  // CC に送信者本人（ログイン者）の個人アドレスを自動追加。
+  //   返信は共有箱に届きつつ、本人も CC で確認できる（取りこぼし防止）。
+  const ccList = (input.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const myEmail = (access?.email ?? "").trim();
+  if (myEmail && !ccList.some((a) => a.toLowerCase() === myEmail.toLowerCase())) {
+    ccList.push(myEmail);
+  }
+  const mergedCc = ccList.join(", ") || null;
 
   // 送信内容を全員が共有Gmailで閲覧できるよう、共有メールボックスへ必ずBCCコピーを送る。
   //   ・受信側からは見えない（BCCのため）
   //   ・共有Gmail受信箱に届くため、誰がいくらで提案したか、どの担当者向けに送ったか全員が確認可能
-  const { SHARED_MAILBOX } = await import("./proposal-constants");
   const bccList = (input.bcc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!bccList.some((a) => a.toLowerCase() === SHARED_MAILBOX.toLowerCase())) {
     bccList.push(SHARED_MAILBOX);
@@ -3176,7 +3186,7 @@ export async function sendMailAction(input: {
   const res = await sendMail({
     sender: input.sender, to: input.to, subject: input.subject, text: input.text,
     html: input.html || null,
-    cc: input.cc, bcc: mergedBcc, replyTo, fromNameOverride: senderName,
+    cc: mergedCc, bcc: mergedBcc, replyTo, fromNameOverride: senderName,
   });
   if (!res.ok) return { ok: false, error: res.error };
 
@@ -3185,7 +3195,7 @@ export async function sendMailAction(input: {
     const admin = engerAdmin();
     await admin.from("mail_sent").insert({
       sender_key: input.sender, from_address: res.from, to_address: input.to,
-      cc_address: input.cc || null, bcc_address: mergedBcc || null,
+      cc_address: mergedCc || null, bcc_address: mergedBcc || null,
       subject: input.subject, body: input.text, message_id: res.messageId,
       sent_by_email: access?.email ?? null, sent_by_name: access?.name ?? null,
       related_kind: input.relatedKind || null, related_id: input.relatedId || null,
