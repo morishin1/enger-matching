@@ -50,7 +50,6 @@ export function KpiDashboardClient(props: {
   const isAdmin = props.access.role === "admin";
   const isManager = !!props.access.isManager;
   const isTeam = props.scope === "team";
-  const isSelf = !isTeam && props.access.email.toLowerCase() === props.target.email.toLowerCase();
   const [showEdit, setShowEdit] = useState(false);
   const [from, setFrom] = useState(props.custom?.from ?? "");
   const [to, setTo]     = useState(props.custom?.to   ?? "");
@@ -92,7 +91,9 @@ export function KpiDashboardClient(props: {
           </select>
         )}
         <div style={{ marginLeft: "auto" }}>
-          {((isTeam && (isAdmin || isManager)) || (!isTeam && (isSelf || isAdmin || isManager))) && (
+          {/* 目標編集は管理者／マネージャー（チーム役職 manager/leader）のみ。
+              メンバー(team_role=member) は自分の目標であっても編集不可（運用ルール）。 */}
+          {(isAdmin || isManager) && (
             <button type="button" className="btn" onClick={() => setShowEdit(true)}>
               <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>tune</span>
               目標を編集（週次）
