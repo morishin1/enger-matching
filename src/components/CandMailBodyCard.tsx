@@ -117,15 +117,9 @@ export function CandMailBodyCard({
         </div>
       </div>
 
-      {/* Fixed fields：送信元/送信先は自動入力（編集不可）、CCのみ任意入力 */}
+      {/* Fixed fields：送信元/送信先は自動入力（編集不可）、CCのみ任意入力。
+          担当者（提案者）は確認画面で自動入力されるため、ここでの選択UIは廃止。 */}
       <div style={{ padding: "12px 16px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-        <label style={fieldLabel}>
-          担当者
-          <select value={proposer} onChange={(e) => onProposerChange(e.target.value)} style={inputBase}>
-            <option value="">—</option>
-            {PROPOSERS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
         <label style={fieldLabel}>
           送信元（共有 / 自動）
           <input
