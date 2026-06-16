@@ -11,7 +11,8 @@ import { ownerMatches } from "./owner-match";
 export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 
 // 指標（2026/06 改訂）。提案以外は CL担当（closer）に加算する。
-//   proposal  : 新規提案（created_at が期間内）。提案者 or CL のどちらかが本人なら加算（従来通り）。
+//   proposal  : 提案。ステータスが「提案中」以降に到達した提案を、提案者に加算（created_at が期間内）。
+//               承認待ち・所属確認（提案前）はカウントしない。見送り/失注も対象外。
 //   contact   : コンタクト数。架電状況が「未架電」「空白」以外＝接触済。CL に加算。
 //   adjusting : 調整中。案件/人材の通知のいずれか一方でも「処理中(in_progress)」か「完了(done)」になったら加算。
 //               両方とも「未処理(pending)」に戻ったら計上しない（スナップショット再計算で減算が自然に成立）。
@@ -44,7 +45,17 @@ const NOTIFY_STARTED = new Set(["in_progress", "done"]); // 処理中 or 完了�
 const SCHEDULE_STAGES = new Set(["面談", "面談調整", "クロージング中"]);
 // 成約：「合格」に到達済み（稼働へ進んでも維持）。旧ステージ名も吸収。
 const DEAL_STAGES = new Set(["合格", "面談合格", "稼働", "稼働決定"]);
+// 提案：ステータスが「提案中」以降に到達したもの（提案者に加算）。
+//   承認待ち・所属確認（提案前）と 見送り/失注 は対象外。旧ステージ名も吸収。
+//   ＝「ステータスが提案中に変わったら提案者に＋1」を表す母数。
+const PROPOSED_STAGES = new Set([
+  "提案中", "提案済", "返信待ち", "返信あり",
+  "面談", "面談調整", "クロージング中",
+  "合格", "面談合格", "稼働", "稼働決定",
+]);
 export const metricFlags = {
+  // 提案：ステータスが「提案中」以降（承認待ち/所属確認/見送り/失注は除外）
+  isProposed: (p: any) => PROPOSED_STAGES.has(String(p?.stage ?? "").trim()),
   // コンタクト：架電状況が「未架電/空白」以外＝接触済み
   isContact: (p: any) => {
     const c = String(p.caller_status ?? "").trim();
@@ -187,7 +198,7 @@ export async function getKpiSnapshot(opts: {
 
   let proposal = 0, contact = 0, adjusting = 0, schedule = 0, deal = 0;
   for (const p of props) {
-    if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
+    if (isApproved(p) && a.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
     if (!isCloser(p)) continue;
     const ev = p.stage_updated_at ?? p.updated_at ?? null;     // ステージ変化の起点
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;  // 任意更新（架電/通知）の起点
@@ -297,7 +308,7 @@ export async function getKpiHistoryTable(opts: {
     const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
     const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
     for (const p of props) {
-      if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
+      if (isApproved(p) && metricFlags.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
@@ -395,7 +406,7 @@ export async function getKpiHistory(opts: {
 
     let actual = 0;
     for (const p of props) {
-      if (metric === "proposal") { if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
+      if (metric === "proposal") { if (isApproved(p) && metricFlags.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
