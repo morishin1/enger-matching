@@ -165,7 +165,18 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
         <div style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)", padding: "16px 22px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
             <div className="muted" style={{ fontSize: 11.5, display: "flex", alignItems: "center", gap: 6 }}>提案管理 <span style={{ opacity: .5 }}>›</span> 詳細</div>
-            <div style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{p.c_init || (p.candidate_name ?? "—")} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}</div>
+            {/* タイトルをクリックでマッチング結果画面へ（カンバンのカードと同じ挙動）。 */}
+            {p.job_no != null ? (
+              <Link
+                href={`/matching?job=${p.job_no}${p.candidate_no != null ? `&cand=${p.candidate_no}` : ""}`}
+                title="この案件×人材のマッチング結果画面を開く"
+                style={{ fontSize: 18, fontWeight: 800, marginTop: 4, display: "inline-flex", alignItems: "center", gap: 6, color: "var(--color-brand-700)", textDecoration: "none" }}>
+                {p.c_init || (p.candidate_name ?? "—")} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, lineHeight: 1 }}>open_in_new</span>
+              </Link>
+            ) : (
+              <div style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{p.c_init || (p.candidate_name ?? "—")} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}</div>
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             {matchPct != null && (
