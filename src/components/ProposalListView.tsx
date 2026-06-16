@@ -146,6 +146,9 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   const [stageFilter, setStageFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
   const [pendingOnly, setPendingOnly] = useState(false);
+  // 同一案件（企業×案件名）に複数人材を提案している行をまとめて表示する（既定ON）。
+  //   1社の複数募集に対し同じ案件が重複して並び、コンタクト確認が漏れる問題への対応。
+  const [groupByJob, setGroupByJob] = useState(true);
   const [active, setActive] = useState<any | null>(null);
   const isPending = (v: any) => v == null || v === "pending";
 
@@ -199,6 +202,30 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
       })
       .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
   }, [proposals, q, stageFilter, ownerFilter, pendingOnly]);
+
+  // 案件（企業×案件名）ごとにグルーピング。出現順を維持しつつ同一案件をまとめる。
+  const groups = useMemo(() => {
+    const m = new Map<string, any[]>();
+    const order: string[] = [];
+    for (const p of rows) {
+      const k = `${String(p.company ?? "").trim()}|||${String(p.job_title ?? "").trim()}`;
+      if (!m.has(k)) { m.set(k, []); order.push(k); }
+      m.get(k)!.push(p);
+    }
+    return order.map((k) => ({ key: k, items: m.get(k)! }));
+  }, [rows]);
+
+  // 表示用の行リスト：グループON時は「同一案件が2件以上」のときだけ案件ヘッダ行を差し込む。
+  const displayItems = useMemo(() => {
+    if (!groupByJob) return rows.map((p: any) => ({ type: "row" as const, p, member: false }));
+    const out: Array<{ type: "header"; g: { key: string; items: any[] } } | { type: "row"; p: any; member: boolean }> = [];
+    for (const g of groups) {
+      const multi = g.items.length >= 2;
+      if (multi) out.push({ type: "header", g });
+      for (const p of g.items) out.push({ type: "row", p, member: multi });
+    }
+    return out;
+  }, [rows, groups, groupByJob]);
 
   const th: React.CSSProperties = { textAlign: "left", padding: "10px 12px", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, whiteSpace: "nowrap" };
   const td: React.CSSProperties = { padding: "10px 12px", fontSize: 12.5, verticalAlign: "middle" };
@@ -271,6 +298,14 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
           <span style={{ width: 8, height: 8, borderRadius: 99, background: pendingOnly ? "#fff" : "#dc2626" }} />
           未処理のみ <span style={{ opacity: 0.85 }}>({pendingCount})</span>
         </button>
+        <button type="button" onClick={() => setGroupByJob((v) => !v)} aria-pressed={groupByJob}
+          title="同じ案件（企業×案件名）への提案をまとめて表示"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 8,
+            border: "1px solid " + (groupByJob ? "var(--color-brand-600)" : "var(--color-border-strong)"),
+            background: groupByJob ? "var(--color-brand-600)" : "var(--color-surface)", color: groupByJob ? "#fff" : "var(--color-ink-2)", cursor: "pointer" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>splitscreen</span>
+          案件ごとにまとめる
+        </button>
       </div>
 
       {/* テーブル */}
@@ -294,7 +329,20 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
             {rows.length === 0 && (
               <tr><td colSpan={10} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
             )}
-            {rows.map((p) => {
+            {displayItems.map((it: any) => {
+              if (it.type === "header") {
+                const g = it.g; const top = g.items[0];
+                return (
+                  <tr key={`h-${g.key}`} style={{ background: "var(--color-surface-soft)", borderTop: "2px solid var(--color-border)" }}>
+                    <td colSpan={10} style={{ ...td, padding: "8px 12px" }}>
+                      <span style={{ fontWeight: 800, color: "var(--color-ink)" }}>{top.job_title ?? "—"}</span>
+                      {top.company && <span className="muted" style={{ marginLeft: 8, fontSize: 11.5 }}>{top.company}</span>}
+                      <span className="tag brand" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
+                    </td>
+                  </tr>
+                );
+              }
+              const p = it.p; const member = it.member;
               const na = nextActionFor(p);
               const naTone = URGENCY_TONE[na.urgency];
               const closerName = p.closer ?? p.company_owner;
@@ -312,8 +360,14 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                   </div>
                 </td>
                 <td style={td}>
-                  <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.job_title ?? "—"}</div>
-                  <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.company ?? ""}</div>
+                  {member ? (
+                    <span className="muted" style={{ fontSize: 11, paddingLeft: 12, color: "var(--color-ink-4)" }}>↳ 同案件</span>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.job_title ?? "—"}</div>
+                      <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.company ?? ""}</div>
+                    </>
+                  )}
                 </td>
                 <td style={td}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
