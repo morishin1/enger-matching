@@ -261,27 +261,30 @@ function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; r
 
   const saveAll = () => {
     start(async () => {
-      const tasks: Promise<{ ok: boolean; error?: string }>[] = [];
-      const skippedNames: string[] = [];
+      // email が無いメンバーもサーバ側で名前から app_users / staff のメールを引き直すため、
+      //   ここではスキップせず全員ぶん送信する。サーバが解決できなかった場合のみ失敗扱い。
+      const tasks: { name: string; p: Promise<{ ok: boolean; error?: string }> }[] = [];
+      const noNumericRows: string[] = [];
       for (const r of rows) {
-        if (!r.email) { skippedNames.push(r.name); continue; } // email がないと person targets を保存できない
-        const k = r.email;
+        const k = r.email ?? r.name;
         const targets: Partial<Record<Metric, number>> = {};
         for (const m of METRIC_ORDER) {
           const n = Number(vals[k]?.[m] ?? "");
           if (Number.isFinite(n) && n >= 0) targets[m] = Math.floor(n);
         }
-        tasks.push(saveKpiTargets({ scope: "person", ownerEmail: r.email, ownerName: r.name, weekStart, targets }));
+        if (Object.keys(targets).length === 0) { noNumericRows.push(r.name); continue; }
+        tasks.push({ name: r.name, p: saveKpiTargets({ scope: "person", ownerEmail: r.email ?? null, ownerName: r.name, weekStart, targets }) });
       }
-      const results = await Promise.all(tasks);
-      const bad = results.find((x) => !x.ok);
-      if (bad) { setMsg(`保存失敗: ${bad.error}`); return; }
-      const skippedMsg = skippedNames.length > 0
-        ? `（email 未登録のためスキップ：${skippedNames.join("、")}。設定→アカウントから email を登録すると保存対象になります）`
-        : "";
-      setMsg(`✓ 保存しました${skippedMsg}`);
+      const results = await Promise.all(tasks.map((t) => t.p));
+      const failed = results.map((res, i) => ({ name: tasks[i].name, res })).filter((x) => !x.res.ok);
+      if (failed.length > 0) {
+        const detail = failed.slice(0, 3).map((f) => `${f.name}：${f.res.error}`).join(" / ");
+        setMsg(`一部の保存に失敗しました（${failed.length} 名）。${detail}`);
+        return;
+      }
+      setMsg(noNumericRows.length === rows.length ? "（数値が入力されていません）" : "✓ 保存しました");
       router.refresh();
-      setTimeout(() => onClose(), skippedNames.length > 0 ? 2500 : 700);
+      setTimeout(() => onClose(), 700);
     });
   };
 
@@ -311,23 +314,20 @@ function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; r
           <tbody>
             {rows.map((r) => {
               const k = r.email ?? r.name;
-              // email 未登録のメンバーも数値は入力できるようにする（保存時にスキップ＋一覧で通知）。
-              //   理由：管理者/マネージャーの「メンバー目標を編集」で数値が入力できない問題への対応。
-              //   以前は disabled で固められ「何も入力できない」体験になっていた。
+              // email がクライアントで解決できていなくても、サーバ側で名前から app_users/staff の
+              //   メールを引き直して保存する。よって UI 上の「保存対象外」表示は出さない。
               return (
                 <tr key={k} style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <td style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>
                     <div style={{ fontWeight: 700 }}>{r.name}</div>
-                    {!r.email && <div className="muted" style={{ fontSize: 10.5, color: "#b45309" }}>email未登録のため保存対象外</div>}
                   </td>
                   {METRIC_ORDER.map((m) => (
                     <td key={m} style={{ padding: "4px 6px", textAlign: "right" }}>
                       <input type="number" min={0} value={vals[k]?.[m] ?? ""}
                         onChange={(e) => setVals((s) => ({ ...s, [k]: { ...(s[k] ?? {} as any), [m]: e.target.value } }))}
-                        title={!r.email ? "このメンバーは email 未登録のため保存対象外です（入力は可能・保存時はスキップされます）" : undefined}
                         style={{ width: 72, fontSize: 12.5, padding: "4px 6px", borderRadius: 6,
-                          border: `1px solid ${!r.email ? "#fde9b0" : "var(--color-border-strong)"}`,
-                          background: !r.email ? "#fffbeb" : "var(--color-surface)",
+                          border: "1px solid var(--color-border-strong)",
+                          background: "var(--color-surface)",
                           textAlign: "right", fontFamily: "monospace" }} />
                     </td>
                   ))}
