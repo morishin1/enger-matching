@@ -168,7 +168,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         if (hideClosed) qb = qb.eq("is_closed", false);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-          const numOr = /^\d+$/.test(needle) ? `,candidate_no.eq.${parseInt(needle, 10)}` : "";
+          // ID 検索：「45」「P-45」「P-00045」「#45」のいずれでも candidate_no で一致させる。
+          const idm = needle.match(/^(?:p[-\s]*|#)?(\d+)$/i);
+          const numOr = idm ? `,candidate_no.eq.${parseInt(idm[1], 10)}` : "";
           qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
         }
         if (fTitle) qb = qb.eq("title", fTitle);

@@ -184,7 +184,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         if (!showAll) qb = qb.eq("is_published", true);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-          const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+          // ID 検索：「123」「No.123」「No.00123」「#123」のいずれでも job_no で一致させる。
+          const idm = needle.match(/^(?:no\.?\s*|#)?(\d+)$/i);
+          const numOr = idm ? `,job_no.eq.${parseInt(idm[1], 10)}` : "";
           qb = qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
         }
         if (fRole) qb = qb.eq("role_label", fRole);
@@ -223,7 +225,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         if (!showAll) qb = qb.eq("is_published", true);
         if (needle) {
           const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
-          const numOr = /^\d+$/.test(needle) ? `,job_no.eq.${parseInt(needle, 10)}` : "";
+          // ID 検索：「123」「No.123」「No.00123」「#123」のいずれでも job_no で一致させる。
+          const idm = needle.match(/^(?:no\.?\s*|#)?(\d+)$/i);
+          const numOr = idm ? `,job_no.eq.${parseInt(idm[1], 10)}` : "";
           qb = qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
         }
         if (fRole) qb = qb.eq("role_label", fRole);
