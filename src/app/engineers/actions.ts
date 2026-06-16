@@ -5,6 +5,7 @@ import { engerAdmin, publicAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
 import { classifySource } from "@/lib/engineers";
+import { notifySlack, appUrl } from "@/lib/slack";
 
 type Result = { ok: boolean; error?: string };
 
@@ -115,6 +116,21 @@ export async function createApplication(input: { engineer_id: string; engineer_n
         kind: "info",
       });
     } catch { /* 通知失敗は無視 */ }
+    // Slack 通知（SLACK_WEBHOOK_URL 未設定なら skip）。営業/管理者が選考画面に直行できるよう URL 付き。
+    try {
+      const eng = input.engineer_name ?? "人材";
+      const job = input.job_title ?? "案件";
+      const jobNo = input.job_no ? `No.${input.job_no}` : "";
+      const reviewUrl = appUrl("/engineers");
+      const portalUrl = appUrl("/portal/selection");
+      await notifySlack({
+        text: `📥 新しい応募：${eng} → ${job} ${jobNo}`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*📥 新しい応募がありました*\n• 応募者: *${eng}*\n• 案件: *${job}* ${jobNo}` } },
+          { type: "context", elements: [{ type: "mrkdwn", text: `<${reviewUrl}|選考管理(社内)> ／ <${portalUrl}|選考管理(企業ポータル)>` }] },
+        ],
+      });
+    } catch { /* Slack 失敗は無視 */ }
     revalidatePath("/notifications");
     return { ok: true, existed: false, id: ins.data?.id };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
