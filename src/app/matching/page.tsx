@@ -815,7 +815,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
           <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds}
-            jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type }} />
+            jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
 
           {/* 右: 詳細パネル */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>

@@ -66,7 +66,7 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
       const jobs = ranked.slice(0, 10).map((r) => ({
         job_no: r.job.job_no, title: r.job.title, client_name: r.job.client_name,
         skills: r.job.skills, salary_min: r.job.salary_min, salary_max: r.job.salary_max,
-        remote_type: r.job.remote_type, role_label: r.job.role_label,
+        remote_type: r.job.remote_type, role_label: r.job.role_label, detail: r.job.detail,
       }));
       const res = await fetch("/api/match-rerank-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidate: candForAI, jobs }) });
       const data = await res.json();
