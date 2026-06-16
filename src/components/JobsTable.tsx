@@ -90,9 +90,10 @@ const JOB_COLS: Col[] = [
   {
     key: "title", label: "案件名", always: true,
     render: (j) => (
-      <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
+      <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span>{j.title}</span>
         {j.is_published === false && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
+        {j.has_proposal && <span className="tag" title="この案件で提案実績があります。削除に注意してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", flexShrink: 0 }}>提案あり</span>}
       </div>
     ),
   },
@@ -523,6 +524,15 @@ export function JobsTable({
             <div style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7 }}>
               <b style={{ color: "var(--color-danger)" }}>{selected.size} 件</b>を削除します。この操作は元に戻せません。
             </div>
+            {(() => {
+              const proposed = rows.filter((r: any) => selected.has(r.job_no) && r.has_proposal).length;
+              if (proposed === 0) return null;
+              return (
+                <div style={{ fontSize: 12, color: "#b42318", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 8, padding: "8px 11px", lineHeight: 1.6 }}>
+                  ⚠ うち <b>{proposed} 件</b>は<b>「提案あり」</b>の案件です。提案実績ごと消えるため、本当に削除してよいかご確認ください。
+                </div>
+              );
+            })()}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(false)} disabled={deleting}>キャンセル</button>
               <button type="button" className="btn" onClick={doDelete} disabled={deleting}

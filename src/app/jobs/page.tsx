@@ -156,7 +156,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published";
+      const baseCols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;
@@ -259,6 +259,18 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         const approvedSet = await getApprovedCompanySet();
         for (const j of jobs) (j as any).client_approved = isCompanyApproved(approvedSet, j.client_name);
       } catch { /* 承認集合の取得失敗は無視（バッジ非表示） */ }
+
+      // 「提案あり」タグ用：この案件に紐づく提案が1件でもあるかを付与（誤削除防止の目印）。
+      try {
+        const ids = jobs.map((j: any) => j.id).filter(Boolean) as string[];
+        if (ids.length > 0) {
+          const pr: any = await sb.from("proposals").select("job_id").in("job_id", ids).limit(5000);
+          if (!pr.error) {
+            const set = new Set<string>((pr.data ?? []).map((r: any) => r.job_id).filter(Boolean));
+            for (const j of jobs) (j as any).has_proposal = set.has((j as any).id);
+          }
+        }
+      } catch { /* proposals 未整備でも無視 */ }
 
       // フィルタ用の選択肢（職種・商流の distinct）。一覧の絞り込みとは独立に全体から収集。
       try {
