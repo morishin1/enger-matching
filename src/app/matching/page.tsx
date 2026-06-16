@@ -17,6 +17,7 @@ import { ConfirmJobButton } from "@/components/ConfirmJobButton";
 import { FlowSteps } from "@/components/FlowSteps";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { MatchingModeTabs } from "@/components/MatchingModeTabs";
+import { Ranking100View } from "@/components/Ranking100View";
 import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
@@ -259,6 +260,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let jobList: any[] = [];
   let job: any = null;
   let ranked: any[] = [];
+  // 自動マッチング上位（おすすめの組み合わせ TOP10）
+  let autoTop: { rows: any[]; jobsScanned: number; candsScanned: number; pairsHit: number } = { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
 
   // 注力(ウォッチリスト)モード用
   let focusJobs: any[] = [];   // ♥お気に入り（手動・is_focus）
@@ -396,6 +399,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
+        // 上部に「おすすめの組み合わせ TOP10」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
+        try {
+          const { getAutoMatchTop } = await import("@/lib/ranking100");
+          autoTop = await getAutoMatchTop();
+        } catch { /* ランキング取得失敗時はセクション非表示で続行 */ }
         const buildList = (cols: string) =>
           sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(120);
         let jlRes: any = await buildList(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`);
@@ -772,6 +780,19 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {opennessBanner}
+
+      {/* おすすめの組み合わせ TOP10（高マッチ率 × 新しい案件 × 新しい人材・人材/案件の重複なし）。
+          案件側から1件ずつ探す従来動線に代えて、全体最適の組み合わせを自動提示する。 */}
+      {autoTop.rows.length > 0 && (
+        <Ranking100View
+          rows={autoTop.rows}
+          meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
+          title="🔥 おすすめの組み合わせ TOP10"
+          subtitle={<>高マッチ率 × 新しい案件 × 新しい人材を重み付けした<b>案件×人材の組み合わせ</b>を自動表示（同じ人材・同じ案件は重複しません）。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+        />
+      )}
+
+      {/* 以下は案件を1件選んで候補を見る従来ツール（ドリルダウン用）。 */}
       {selectedJobWarning(job)}
 
       {job && (

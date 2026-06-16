@@ -138,3 +138,128 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
 
 // 5分キャッシュ。重い総当たり計算をリクエスト毎に繰り返さない。
 export const getRanking100 = unstable_cache(fetchRanking100, ["ranking-100"], { revalidate: 300 });
+
+// ── 自動マッチング上位10（おすすめの組み合わせ）────────────────────────────
+//   案件×人材の全組み合わせから「高マッチ率 × 新しい案件 × 新しい人材」を重み付けし、
+//   ・同じ人材は1回だけ（重複排除）
+//   ・同じ案件も1回だけ（多様な組み合わせを出す）
+//   で上位10件を返す。案件側から1案件だけを探す従来の自動マッチングを、
+//   全体最適の「組み合わせランキング」に置き換えるための関数。
+const AUTO_MIN_PCT = 0.6;   // 高マッチ率の下限（ランキング100の75%より少し緩めて10件を埋める）
+const AUTO_TOP_N = 10;
+
+const normPersonName = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　.．・,，]/g, "");
+
+function freshnessBonus(createdAt?: string | null): number {
+  if (!createdAt) return 0;
+  const days = (Date.now() - new Date(createdAt).getTime()) / 86400000;
+  if (isNaN(days)) return 0;
+  if (days <= 7) return 1;
+  if (days <= 30) return 0.6;
+  if (days <= 60) return 0.3;
+  return 0;
+}
+
+async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
+  if (!dbConfigured) return { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
+  const sb = engerClient();
+
+  const jcols = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, detail, flow_note, role_label, work_location, start_date, created_at";
+  let jr: any = await sb.from("jobs").select(jcols).eq("is_published", true).is("deleted_at", null).eq("is_closed", false).order("job_no", { ascending: false }).limit(500);
+  if (jr.error) jr = await sb.from("jobs").select(jcols).eq("is_published", true).is("deleted_at", null).order("job_no", { ascending: false }).limit(500);
+  if (jr.error) jr = await sb.from("jobs").select(jcols).eq("is_published", true).order("job_no", { ascending: false }).limit(500);
+  const jobs: any[] = (jr.data ?? []).filter((j: any) => Array.isArray(j.skills) && j.skills.length > 0);
+
+  const ccols = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
+  let cr: any = await sb.from("candidates").select(ccols).is("deleted_at", null).eq("is_closed", false).order("candidate_no", { ascending: false }).limit(3000);
+  if (cr.error) cr = await sb.from("candidates").select(ccols).is("deleted_at", null).order("candidate_no", { ascending: false }).limit(3000);
+  if (cr.error) cr = await sb.from("candidates").select(ccols).order("candidate_no", { ascending: false }).limit(3000);
+  const cands: any[] = (cr.data ?? []).filter((c: any) => Array.isArray(c.skills) && c.skills.length > 0);
+
+  const candPrep = cands.map((c) => ({ c, set: new Set<string>((c.skills as string[]).map(canon)) }));
+  type Hit = { job: any; cand: any; pct: number };
+  const hits: Hit[] = [];
+  for (const j of jobs) {
+    const jskills: string[] = (j.skills as string[]).map(canon);
+    const need = jskills.length;
+    if (need === 0) continue;
+    for (const { c, set } of candPrep) {
+      let m = 0; for (const s of jskills) if (set.has(s)) m++;
+      const pct = m / need;
+      if (pct >= AUTO_MIN_PCT) hits.push({ job: j, cand: c, pct });
+    }
+  }
+
+  const proposedPairs = new Set<string>();
+  try {
+    const { data } = await sb.from("proposals").select("job_id, candidate_id").limit(20000);
+    for (const p of (data ?? []) as any[]) if (p.job_id && p.candidate_id) proposedPairs.add(`${p.job_id}|${p.candidate_id}`);
+  } catch { /* proposals 未整備でも続行 */ }
+
+  // 総合スコア＋新しさボーナスで採点。
+  const scored = hits.map((h) => {
+    const m = scoreMatch(h.job as Job, h.cand as Candidate);
+    const jset = new Set<string>((h.job.skills as string[]).map(canon));
+    const extras = (h.cand.skills as string[]).filter((s) => !jset.has(canon(s)));
+    // 新しい案件・新しい人材ほど加点（最大 +10）。高マッチ率が主軸、同程度なら新しい組合せを上位に。
+    const fresh = (freshnessBonus(h.job.created_at) + freshnessBonus(h.cand.created_at)) * 5;
+    return {
+      ...h, score: m.score, combined: m.score + fresh,
+      matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras,
+      matchedCount: m.matchedSkills.length, jobSkillCount: (h.job.skills as string[]).length,
+    };
+  });
+  scored.sort((a, b) =>
+    (b.combined - a.combined)
+    || (b.matchedCount - a.matchedCount)
+    || (b.pct - a.pct)
+    || (b.job.job_no - a.job.job_no),
+  );
+
+  // 重複排除：同じ人材・同じ案件は最良の1組だけ採用（多様な組み合わせにする）。
+  const usedPerson = new Set<string>();
+  const usedJob = new Set<number>();
+  const picked: typeof scored = [];
+  for (const h of scored) {
+    if (picked.length >= AUTO_TOP_N) break;
+    const pkey = normPersonName(h.cand.name) + "|" + normPersonName(h.cand.source_company || h.cand.company);
+    if (usedPerson.has(pkey)) continue;
+    if (h.job.job_no != null && usedJob.has(h.job.job_no)) continue;
+    usedPerson.add(pkey);
+    if (h.job.job_no != null) usedJob.add(h.job.job_no);
+    picked.push(h);
+  }
+
+  const rows: RankedPair[] = picked.map((h, i) => ({
+    rank: i + 1,
+    skillPct: Math.round(h.pct * 100),
+    matchedCount: h.matchedCount,
+    jobSkillCount: h.jobSkillCount,
+    score: h.score,
+    matchedSkills: h.matchedSkills,
+    missingSkills: h.missingSkills,
+    candExtraSkills: h.candExtraSkills,
+    job: {
+      job_no: h.job.job_no, id: h.job.id ?? null, title: h.job.title ?? "",
+      client_name: h.job.client_name ?? null, skills: h.job.skills ?? [],
+      salary_min: h.job.salary_min ?? null, salary_max: h.job.salary_max ?? null,
+      role_label: h.job.role_label ?? null, remote_type: h.job.remote_type ?? null,
+      work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
+      flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
+    },
+    cand: {
+      candidate_no: h.cand.candidate_no, id: h.cand.id ?? null, name: h.cand.name ?? "",
+      initials: h.cand.initials ?? null, title: h.cand.title ?? null,
+      rate: h.cand.rate ?? null, company: (h.cand.source_company || h.cand.company) ?? null,
+      affiliation: h.cand.affiliation ?? null, skills: h.cand.skills ?? [],
+      exp: h.cand.exp ?? null, avail: h.cand.avail ?? null, location: h.cand.location ?? null,
+      remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
+      nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
+    },
+    proposed: !!(h.job.id && h.cand.id && proposedPairs.has(`${h.job.id}|${h.cand.id}`)),
+  }));
+
+  return { rows, jobsScanned: jobs.length, candsScanned: cands.length, pairsHit: hits.length };
+}
+
+export const getAutoMatchTop = unstable_cache(fetchAutoMatchTop, ["auto-match-top"], { revalidate: 300 });
