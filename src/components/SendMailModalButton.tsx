@@ -62,7 +62,11 @@ export function SendMailModalButton({ job, cand, score, label = "📤 送信す�
               </div>
             </div>
             <div style={{ padding: 16, maxHeight: "calc(100vh - 140px)", overflowY: "auto" }}>
-              <MailComposeWizard job={job} cand={cand} score={score} members={members}
+              {/* key を案件×人材ペアにして、別ペアを開いたときに必ず初期状態から始める。
+                  これが無いと前回のフォーム状態（承認に出し済み 等）が引き継がれて、別の案件まで
+                  「承認出し済み」と表示される事故が起き得る。 */}
+              <MailComposeWizard key={`${job?.job_no}-${cand?.candidate_no}`}
+                job={job} cand={cand} score={score} members={members}
                 initialSaved={alreadyProposed} initialSavedId={proposalId} initialProposer={proposer ?? null} />
             </div>
           </div>

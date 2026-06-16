@@ -40,15 +40,24 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
 
   const sIso = iso(start), eIso = iso(end);
 
-  // 提案（広めに取得して本人判定はJS側で）
+  // 提案（広めに取得して本人判定はJS側で）。承認待ち/差戻し中は KPI(提案) から除外。
   let pr: any = await sb.from("proposals")
-    .select("proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .select("proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status, approval_status")
     .or(`created_at.gte.${sIso},stage_updated_at.gte.${sIso},updated_at.gte.${sIso}`).limit(20000);
+  if (pr.error && /approval_status|column/i.test(pr.error.message ?? "")) {
+    pr = await sb.from("proposals")
+      .select("proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+      .or(`created_at.gte.${sIso},stage_updated_at.gte.${sIso},updated_at.gte.${sIso}`).limit(20000);
+  }
   if (pr.error) pr = await sb.from("proposals")
     .select("proposer, closer, stage, created_at, stage_updated_at").or(`created_at.gte.${sIso},stage_updated_at.gte.${sIso}`).limit(20000);
   const props: any[] = pr.error ? [] : (pr.data ?? []);
 
   const inIso = (d: string | null) => !!d && d >= sIso && d < eIso;
+  const isApproved = (p: any) => {
+    const s = String(p?.approval_status ?? "").trim();
+    return s !== "pending" && s !== "rejected";
+  };
   // proposer / closer どちらかが一致する行を見つけて加算
   const bumpByName = (value: string | null | undefined, metric: Metric) => {
     if (!value) return;
@@ -56,8 +65,8 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   };
 
   for (const p of props) {
-    // 提案＝提案者
-    if (inIso(p.created_at)) bumpByName(p.proposer, "proposal");
+    // 提案＝提案者。承認待ち/差戻し中は除外（未実施扱い）。
+    if (isApproved(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
     // それ以外＝CL担当（closer）
     const ev = p.stage_updated_at ?? p.updated_at ?? null;
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;

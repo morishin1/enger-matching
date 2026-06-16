@@ -154,10 +154,18 @@ export async function getKpiSnapshot(opts: {
 
   // 提案系: proposals を広めに取得し、本人判定はJS側で（略称↔フルネームに耐性）。
   //   旧スキーマ（通知/架電列なし）でも落ちないよう列をフォールバック。
+  //   approval_status も取得：承認待ち/差戻し中は「まだ提案として実施されていない」ため
+  //   KPI(proposal) から除外する。承認後（approval_status=approved or NULL=旧データ）のみ加算。
   let r: any = await sb.from("proposals")
-    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status, approval_status")
     .or(`created_at.gte.${start},stage_updated_at.gte.${start},updated_at.gte.${start}`)
     .limit(8000);
+  if (r.error && /approval_status|column/i.test(r.error.message ?? "")) {
+    r = await sb.from("proposals")
+      .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+      .or(`created_at.gte.${start},stage_updated_at.gte.${start},updated_at.gte.${start}`)
+      .limit(8000);
+  }
   if (r.error) r = await sb.from("proposals")
     .select("id, proposer, closer, stage, created_at, stage_updated_at")
     .or(`created_at.gte.${start},stage_updated_at.gte.${start}`)
@@ -170,11 +178,16 @@ export async function getKpiSnapshot(opts: {
     !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
   // それ以外の指標は CL担当（closer）に計上。
   const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
+  // 承認待ち / 差戻し は「まだ提案として実施されていない」ためKPIから除外（既存提案は approval_status=approved or NULL=旧データ）。
+  const isApproved = (p: any) => {
+    const s = String(p?.approval_status ?? "").trim();
+    return s !== "pending" && s !== "rejected";
+  };
   const a = metricFlags;
 
   let proposal = 0, contact = 0, adjusting = 0, schedule = 0, deal = 0;
   for (const p of props) {
-    if (isOwnerAny(p) && inRange(p.created_at)) proposal++;
+    if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
     if (!isCloser(p)) continue;
     const ev = p.stage_updated_at ?? p.updated_at ?? null;     // ステージ変化の起点
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;  // 任意更新（架電/通知）の起点
@@ -239,9 +252,15 @@ export async function getKpiHistoryTable(opts: {
   const startIso = overallStart.toISOString(), endIso = overallEnd.toISOString();
 
   let pq: any = await sb.from("proposals")
-    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status, approval_status")
     .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
     .limit(30000);
+  if (pq.error && /approval_status|column/i.test(pq.error.message ?? "")) {
+    pq = await sb.from("proposals")
+      .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+      .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
+      .limit(30000);
+  }
   if (pq.error) pq = await sb.from("proposals")
     .select("id, proposer, closer, stage, created_at, stage_updated_at")
     .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
@@ -259,6 +278,11 @@ export async function getKpiHistoryTable(opts: {
 
   const isOwnerAny = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
   const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
+  // 承認待ち / 差戻し は KPI(proposal) から除外。
+  const isApproved = (p: any) => {
+    const s = String(p?.approval_status ?? "").trim();
+    return s !== "pending" && s !== "rejected";
+  };
   const targetMap = new Map<string, Partial<Record<Metric, number>>>();
   for (const t of targets) {
     const k = String(t.week_start);
@@ -273,7 +297,7 @@ export async function getKpiHistoryTable(opts: {
     const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
     const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
     for (const p of props) {
-      if (isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
+      if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
@@ -322,9 +346,15 @@ export async function getKpiHistory(opts: {
 
   // 2) proposals / kpi_targets を一括取得（全期間ぶん）。本人判定はJS側で寛容に。
   let pq: any = await sb.from("proposals")
-    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status, approval_status")
     .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
     .limit(30000);
+  if (pq.error && /approval_status|column/i.test(pq.error.message ?? "")) {
+    pq = await sb.from("proposals")
+      .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+      .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
+      .limit(30000);
+  }
   if (pq.error) pq = await sb.from("proposals")
     .select("id, proposer, closer, stage, created_at, stage_updated_at")
     .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
@@ -345,6 +375,11 @@ export async function getKpiHistory(opts: {
   const isOwnerAny = (p: any) =>
     !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
   const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
+  // 承認待ち / 差戻し は KPI(proposal) から除外。
+  const isApproved = (p: any) => {
+    const s = String(p?.approval_status ?? "").trim();
+    return s !== "pending" && s !== "rejected";
+  };
   const targetMap = new Map<string, Partial<Record<Metric, number>>>();
   for (const t of targets) {
     const k = String(t.week_start);
@@ -360,7 +395,7 @@ export async function getKpiHistory(opts: {
 
     let actual = 0;
     for (const p of props) {
-      if (metric === "proposal") { if (isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
+      if (metric === "proposal") { if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
