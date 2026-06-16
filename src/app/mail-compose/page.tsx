@@ -37,22 +37,25 @@ export default async function MailComposePage({
 
   // 既存の提案があれば step 2（確認画面）から開始して「保存済み」状態にする。
   //   approval_status も取得：承認済みなら提案者本人もこの画面から送信できるようにする（要件4）。
+  //   pending_mail（下書き）も取得：差戻し後などに以前作成したメール内容を復元・編集できるようにする。
   let existingProposalId: string | null = null;
   let existingProposer: string | null = null;
   let existingApprovalStatus: string | null = null;
+  let existingDraft: any = null;
   try {
     let pr: any = await sb
       .from("proposals")
-      .select("id, proposer, approval_status")
+      .select("id, proposer, approval_status, pending_mail")
       .eq("job_id", jr.data.id)
       .eq("candidate_id", cr.data.id)
       .maybeSingle();
-    if (pr.error && /approval_status|column/i.test(pr.error.message ?? "")) {
+    if (pr.error && /pending_mail|approval_status|column/i.test(pr.error.message ?? "")) {
       pr = await sb.from("proposals").select("id, proposer").eq("job_id", jr.data.id).eq("candidate_id", cr.data.id).maybeSingle();
     }
     existingProposalId = pr.data?.id ?? null;
     existingProposer = pr.data?.proposer ?? null;
     existingApprovalStatus = (pr.data as any)?.approval_status ?? null;
+    existingDraft = (pr.data as any)?.pending_mail ?? null;
   } catch { /* proposals テーブル未整備でも続行 */ }
 
   // 承認者プルダウンの選択肢（社内メンバー）
@@ -76,6 +79,7 @@ export default async function MailComposePage({
         initialSavedId={existingProposalId}
         initialProposer={existingProposer}
         initialApprovalStatus={existingApprovalStatus}
+        initialDraft={existingDraft}
         members={members}
       />
     </div>

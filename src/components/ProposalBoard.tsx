@@ -45,7 +45,9 @@ function hashColor(name?: string | null): string {
 }
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHASES, LOST_REASONS, normalizeStage as normStageFn } from "@/lib/proposal-constants";
 
-const STAGES = [...PROPOSAL_STAGES];
+// カンバンの列。「承認待ち」は専用の「承認」タブに集約したためボードからは除外する
+//   （承認後に「所属確認」へ入る運用なので、ボードの先頭は所属確認）。
+const STAGES = PROPOSAL_STAGES.filter((s) => s !== "承認待ち");
 const STAGE_TONE: Record<string, string> = {
   所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260",
 };

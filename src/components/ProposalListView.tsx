@@ -15,6 +15,9 @@ import { deleteProposal } from "@/lib/actions";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
+// ボード（リスト/カンバン）に表示するステージ。「承認待ち」は専用の「承認」タブに集約したため
+//   ボードのKPIカード・絞り込みからは除外する（常に0で紛らわしいのを解消）。
+const BOARD_STAGES = STAGES.filter((s) => s !== "承認待ち");
 const STAGE_TONE: Record<string, string> = {
   所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260",
 };
@@ -164,7 +167,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   //     ・SLA超過（stage_updated_at から STAGE_SLA 日以上動きなし） … 放置
   //   見込み金額 = そのステージにある提案の単価合計（万円）。どこに売上が積まれているか。
   const stats = useMemo(() => {
-    const m: Record<string, { count: number; due: number; man: number }> = Object.fromEntries(STAGES.map((s) => [s, { count: 0, due: 0, man: 0 }]));
+    const m: Record<string, { count: number; due: number; man: number }> = Object.fromEntries(BOARD_STAGES.map((s) => [s, { count: 0, due: 0, man: 0 }]));
     for (const p of proposals) {
       const s = normStage(p.stage);
       const e = m[s]; if (!e) continue;
@@ -204,8 +207,8 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* ステージ別サマリ（クリックで絞り込み）。件数だけでなく
           「要対応(いま動かす件数)」「見込み金額」「次の一手」を出して行動につなげる。 */}
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${STAGES.length}, minmax(176px, 1fr))`, gap: 10, overflowX: "auto" }}>
-        {STAGES.map((s) => {
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${BOARD_STAGES.length}, minmax(176px, 1fr))`, gap: 10, overflowX: "auto" }}>
+        {BOARD_STAGES.map((s) => {
           const tone = STAGE_TONE[s] ?? "#6b7280";
           const on = stageFilter === s;
           const st = stats[s] ?? { count: 0, due: 0, man: 0 };
@@ -250,7 +253,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
           ステータス
           <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
             <option value="">すべて</option>
-            {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+            {BOARD_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }}>

@@ -80,7 +80,7 @@ export function ProposalsWorkspace({
   // 期間カウント（提案ボードのカウント数を主にしつつ、全タブの総数も）
   //   ※ 承認タブは「承認漏れ」を防ぐため期間で絞らず全件表示する。
   const tabsDef: { key: TabKey; label: string; icon: string; show: boolean; title?: string }[] = [
-    { key: "approval", label: "承認",       icon: "verified",    show: approvalRows.length > 0, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（期間フィルタ対象外）。" },
+    { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（承認依頼が無くても常に表示・期間フィルタ対象外）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
     { key: "history", label: "提案履歴",   icon: "history",     show: true, title: "提案履歴。期間フィルタで絞り込み。" },
     { key: "lost",    label: "失注分析",   icon: "monitoring",  show: lostRows.length > 0, title: "見送り/失注の分析。期間フィルタで絞り込み。" },
