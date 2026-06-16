@@ -8,7 +8,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { approveProposal, rejectProposal } from "@/lib/actions";
+import { approveProposal, rejectProposal, deleteProposal } from "@/lib/actions";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
 
 type Row = {
@@ -38,6 +38,8 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
   const rejectedRows = rows.filter((r) => (r.approval_status ?? "") === "rejected");
 
   const canApprove = (r: Row) => !!privileged || nameEq(currentUserName, r.approver);
+  // 提案者本人・承認者・admin/マネージャーは削除可。誤承認の取り消し・差戻し後の整理に使う。
+  const canDelete = (r: Row) => !!privileged || nameEq(currentUserName, r.approver) || nameEq(currentUserName, r.proposer);
 
   const doApproveOnly = (id: string) => {
     if (!confirm("メール下書きを使わずに承認だけしますか？（通常は『メール内容を確認して送信』をお使いください）")) return;
@@ -60,11 +62,27 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
     });
   };
 
+  const doDelete = (r: Row) => {
+    const who = `${r.job_title ?? "案件"}${r.company ? `（${r.company}）` : ""} × ${r.candidate_name ?? r.c_init ?? "人材"}`;
+    if (!confirm(`この承認依頼を削除しますか？\n${who}\n\n※ 提案レコードごと削除されます（元に戻せません）。`)) return;
+    setBusyId(r.id);
+    start(async () => {
+      const res = await deleteProposal(r.id);
+      setBusyId(null);
+      if (!res.ok) alert(res.error); else router.refresh();
+    });
+  };
+
   const Card = ({ r }: { r: Row }) => {
     const rejected = (r.approval_status ?? "") === "rejected";
     const mine = canApprove(r);
     const composeHref = (r.job_no != null && r.candidate_no != null)
       ? `/mail-compose?job_no=${r.job_no}&cand_no=${r.candidate_no}${r.score != null ? `&score=${r.score}` : ""}`
+      : null;
+    // タイトル（案件名×人材名）はクリックで該当のマッチング画面へ。
+    //   案件→人材モードを既定（案件起点で他の候補も並ぶ）。
+    const matchingHref = (r.job_no != null)
+      ? `/matching?job=${r.job_no}${r.candidate_no != null ? `&cand=${r.candidate_no}` : ""}`
       : null;
     return (
       <div className="card" style={{ padding: 0, overflow: "hidden", borderColor: rejected ? "#f7c5cf" : "#fde9b0" }}>
@@ -72,9 +90,17 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
           <span style={{ fontSize: 12, fontWeight: 800, color: rejected ? "#b42318" : "#9a7b12" }}>
             {rejected ? "🔴 差戻し" : "⏳ 承認待ち"}
           </span>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink)" }}>
-            {r.job_title ?? "案件"}{r.company ? `（${r.company}）` : ""} <span style={{ opacity: 0.4 }}>×</span> {r.candidate_name ?? r.c_init ?? "人材"}
-          </span>
+          {matchingHref ? (
+            <Link href={matchingHref}
+              title="マッチング画面で開く"
+              style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-brand-700)", textDecoration: "none" }}>
+              {r.job_title ?? "案件"}{r.company ? `（${r.company}）` : ""} <span style={{ opacity: 0.4 }}>×</span> {r.candidate_name ?? r.c_init ?? "人材"}
+            </Link>
+          ) : (
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-ink)" }}>
+              {r.job_title ?? "案件"}{r.company ? `（${r.company}）` : ""} <span style={{ opacity: 0.4 }}>×</span> {r.candidate_name ?? r.c_init ?? "人材"}
+            </span>
+          )}
           <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-ink-3)" }}>
             提案者：<b>{r.proposer ?? "未設定"}</b> ／ 承認者：<b>{r.approver ?? "未設定"}</b>
           </span>
@@ -102,6 +128,14 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
             <Link href={composeHref} className="btn ghost btn-sm" style={{ marginLeft: mine ? 0 : "auto", textDecoration: "none" }}>
               ✉️ メール内容を見る／編集
             </Link>
+          )}
+          {canDelete(r) && (
+            <button type="button" className="btn ghost btn-sm" disabled={pending && busyId === r.id}
+              title="この承認依頼を削除（提案レコードごと削除・元に戻せません）"
+              style={{ marginLeft: composeHref ? 0 : "auto", color: "var(--color-danger)" }}
+              onClick={() => doDelete(r)}>
+              🗑 削除
+            </button>
           )}
         </div>
       </div>

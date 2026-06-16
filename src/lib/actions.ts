@@ -944,6 +944,29 @@ export async function getProposalPendingMail(id: string): Promise<{ ok: true; ma
   };
 }
 
+/** 提案者・承認者・管理者が「メール下書き(pending_mail)」を取得する。
+ *   差戻し後に提案者が「メール内容を見る／編集」を押した時に、過去に書いた下書きを
+ *   復元できるようにするための公開ロード関数。閲覧権限は提案者・承認者・admin に絞る。 */
+export async function getProposalDraft(id: string): Promise<{ ok: true; mail: PendingMail | null } | { ok: false; error: string }> {
+  if (!id) return { ok: false, error: "id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  let r: any = await admin.from("proposals").select("id, approver, proposer, pending_mail").eq("id", id).maybeSingle();
+  if (r.error && /pending_mail|column/i.test(r.error.message)) {
+    // pending_mail 列が無い旧環境はドラフト無しとして返す（エラーにしない）。
+    return { ok: true, mail: null };
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+  if (!r.data) return { ok: false, error: "提案が見つかりません" };
+  const { ownerMatches } = await import("./owner-match");
+  const isApprover = me.name && ownerMatches(me.name, r.data.approver ?? "");
+  const isProposer = me.name && ownerMatches(me.name, r.data.proposer ?? "");
+  if (me.role !== "admin" && !isApprover && !isProposer) return { ok: false, error: "閲覧権限がありません" };
+  return { ok: true, mail: (r.data.pending_mail ?? null) as PendingMail | null };
+}
+
 /** 承認者がメール送信した直後に呼ぶ：送信時刻を記録し、承認＋ステージ進行。 */
 export async function markProposalMailSentAndApprove(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   let admin: ReturnType<typeof engerAdmin>;

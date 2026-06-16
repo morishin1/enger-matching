@@ -3,7 +3,7 @@
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
-import { createProposal, isProposerPrivileged, getProposalTokens } from "@/lib/actions";
+import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
@@ -229,6 +229,35 @@ export function MailComposeWizard({
     })();
     return () => { cancelled = true; };
   }, [initialSaved, initialSavedId, jobToken, candToken]);
+  // 差戻し後など、既存提案を再度開いたときに以前書いた下書き(pending_mail)を復元する。
+  //   そうしないとフォームが定型文に戻ってしまい、承認者の差戻しコメントを受けて修正
+  //   しようとした提案者の作業が消えてしまう。1回だけ読み込む（編集中に上書きしない）。
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  useEffect(() => {
+    if (!initialSavedId || draftLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await getProposalDraft(initialSavedId);
+        if (cancelled || !r.ok || !r.mail) { setDraftLoaded(true); return; }
+        const j = r.mail.job ?? {}; const c = r.mail.cand ?? {};
+        setClientForm((prev) => ({
+          email:   typeof j.to === "string" && j.to ? j.to : prev.email,
+          cc:      typeof j.cc === "string" ? j.cc : prev.cc,
+          subject: typeof j.subject === "string" && j.subject ? j.subject : prev.subject,
+          body:    typeof j.body === "string" && j.body ? j.body : prev.body,
+        }));
+        setCandForm((prev) => ({
+          email:   typeof c.to === "string" && c.to ? c.to : prev.email,
+          cc:      typeof c.cc === "string" ? c.cc : prev.cc,
+          subject: typeof c.subject === "string" && c.subject ? c.subject : prev.subject,
+          body:    typeof c.body === "string" && c.body ? c.body : prev.body,
+        }));
+      } catch { /* fail-soft：下書きが取れなければ定型文のまま使う */ }
+      finally { if (!cancelled) setDraftLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, [initialSavedId, draftLoaded]);
   // 防御策：step=2（プレビュー段階）に到達してもトークンが無いなら、ローカル生成して
   // 必ずボタン HTML を作る。送信時に createProposal(preTokens) 経由で DB と同期される。
   //   ※ 既存提案(initialSavedId)の場合は getProposalTokens が self-heal で必ず DB のトークンを
