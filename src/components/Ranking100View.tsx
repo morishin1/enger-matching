@@ -22,7 +22,7 @@ function RankBadge({ n }: { n: number }) {
   );
 }
 
-export function Ranking100View({ rows, meta }: { rows: RankedPair[]; meta: { jobsScanned: number; candsScanned: number; pairsHit: number } }) {
+export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPair[]; meta: { jobsScanned: number; candsScanned: number; pairsHit: number }; title?: string; subtitle?: React.ReactNode }) {
   const [active, setActive] = useState<RankedPair | null>(null);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
@@ -43,10 +43,10 @@ export function Ranking100View({ rows, meta }: { rows: RankedPair[]; meta: { job
     <div className="card flush">
       <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>🏆 ランキング100 <span className="tag brand">{rows.length}件</span></div>
+          <div style={{ fontSize: 14, fontWeight: 800 }}>{title ?? "🏆 ランキング100"} <span className="tag brand">{rows.length}件</span></div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-            必須スキル一致率 <b>75%以上</b> を満たすペアを、<b>自動マッチングの総合スコア順</b>で表示（同点は一致スキル数の多い順）。
-            対象：案件 {meta.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {meta.candsScanned.toLocaleString("ja-JP")} 名（適合 {meta.pairsHit.toLocaleString("ja-JP")} ペア）・5分毎に更新。
+            {subtitle ?? <>必須スキル一致率 <b>75%以上</b> を満たすペアを、<b>自動マッチングの総合スコア順</b>で表示（同点は一致スキル数の多い順）。
+            対象：案件 {meta.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {meta.candsScanned.toLocaleString("ja-JP")} 名（適合 {meta.pairsHit.toLocaleString("ja-JP")} ペア）・5分毎に更新。</>}
           </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>行をクリックすると<b>案件×人材を横並びで比較</b>できます。</div>
         </div>
