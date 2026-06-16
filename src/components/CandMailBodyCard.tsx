@@ -35,14 +35,19 @@ export function buildCandMailContent(job: any, cand: any): string {
     ? `${cand.contact_name} 様`
     : (candidateCompany ? "ご担当者 様" : `${cand.name ?? ""} 様`);
 
-  const jobSummary = [
-    `【案件】${job.title ?? ""}`,
-    Array.isArray(job.skills) && job.skills.length ? `【スキル】${job.skills.join("、")}` : "",
-    `【単金】${salary(job.salary_min, job.salary_max)}`,
-    job.work_location ? `【場所】${job.work_location}` : "",
-    job.start_date ? `【期間】${job.start_date}〜` : "",
-    job.flow_note ? `【商流】${job.flow_note}` : "",
-  ].filter(Boolean).join("\n");
+  // 案件の内容は「取込元メール本文(job.detail)＝案件の全文」を優先して全文掲載する。
+  //   以前は短い要約（案件名/スキル/単金/場所/期間/商流）だけで、本文全体が出ていなかった。
+  const jobDetail = (job.detail ?? job.description ?? "").toString().trim();
+  const jobSummary = jobDetail
+    ? `【案件】${job.title ?? ""}\n${jobDetail}`
+    : [
+        `【案件】${job.title ?? ""}`,
+        Array.isArray(job.skills) && job.skills.length ? `【スキル】${job.skills.join("、")}` : "",
+        `【単金】${salary(job.salary_min, job.salary_max)}`,
+        job.work_location ? `【場所】${job.work_location}` : "",
+        job.start_date ? `【期間】${job.start_date}〜` : "",
+        job.flow_note ? `【商流】${job.flow_note}` : "",
+      ].filter(Boolean).join("\n");
 
   return `${candidateCompany ?? "〇〇"}
 ${greeting}

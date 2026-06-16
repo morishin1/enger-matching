@@ -72,7 +72,10 @@ export function resolveSkillSheetUrl(cand: any): string | null {
 }
 
 export function buildJobMailContent(job: any, cand: any): string {
-  const remark = cand.note?.trim() || [
+  // 要員情報は「整形ブロック（名前/最寄駅/稼動日/所属/単価/スキル/実績）」を生成する。
+  //   以前は取込元メール本文(cand.note)をそのまま貼っていたため、先方SESの挨拶・署名まで
+  //   入って定型文が崩れていた。旧enger同様、整形済みブロックで出す。
+  const remark = [
     `【 名　前 】${cand.name ?? ""}${cand.age_band ? `　(${cand.age_band})` : ""}`,
     cand.location ? `【最 寄 駅】${cand.location}` : "",
     cand.avail ? `【稼 動 日】${cand.avail}` : "",
