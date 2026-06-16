@@ -6,7 +6,7 @@ import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal, isProposerPrivileged, getProposalTokens } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
-import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
+import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
@@ -198,13 +198,16 @@ export function MailComposeWizard({
   //   以前は useEffect で後追いで body をセットしていたため、初期マウント時に空のテキストエリアが
   //   見え（auto-resize の高さ計算が空状態で行われ）、結果として本文が見えない事故が発生していた。
   const [clientForm, setClientForm] = useState<MailForm>(() => ({
-    email: (dJob?.to ?? "") || (job?.contact_email ?? ""),
+    // 送信先：下書き → 案件の contact_email → 取込元本文(detail)から抽出 の順で解決。
+    email: (dJob?.to ?? "") || (job?.contact_email ?? "") || (extractReplyEmail(job?.detail ?? job?.description) ?? ""),
     cc: dJob?.cc ?? "",
     subject: (dJob?.subject ?? "") || buildJobMailSubject(job),
     body: (dJob?.body ?? "") || buildJobMailContent(job, cand),
   }));
   const [candForm, setCandForm] = useState<MailForm>(() => ({
-    email: (dCand?.to ?? "") || cand?.email || cand?.contact_email || "",
+    // 送信先：下書き → 人材の email/contact_email（SES窓口）→ 取込元本文(note)から抽出 の順。
+    //   CSV取込・旧データで窓口メールが未登録でも、元メール本文から返信先を拾って送れるようにする。
+    email: (dCand?.to ?? "") || cand?.email || cand?.contact_email || (extractReplyEmail(cand?.note ?? cand?.exp) ?? ""),
     cc: dCand?.cc ?? "",
     subject: (dCand?.subject ?? "") || buildCandMailSubject(),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),

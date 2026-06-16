@@ -135,11 +135,12 @@ export function CandMailBodyCard({
           />
         </label>
         <label style={fieldLabel}>
-          送信先（自動）
+          送信先{form.email ? "（自動・編集可）" : "（未取得：入力してください）"}
           <input
-            type="email" value={form.email} readOnly
-            placeholder="（取込メールから自動入力）"
-            style={{ ...inputBase, background: "var(--color-surface-soft)", color: "var(--color-ink-2)", cursor: "not-allowed" }}
+            type="email" value={form.email}
+            onChange={(e) => onChange("email", e.target.value)}
+            placeholder="to@example.com（取込メールから自動入力／未取得時は手入力）"
+            style={{ ...inputBase, borderColor: form.email ? "var(--color-border-strong)" : "var(--color-danger)" }}
           />
         </label>
         <label style={fieldLabel}>

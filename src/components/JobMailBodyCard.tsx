@@ -27,6 +27,21 @@ export function buildJobMailSubject(job: any): string {
   return reSubject(job.title ?? "");
 }
 
+/** 取込元メール本文（note/detail）から「相手の連絡先メール」を抽出する。
+ *   email / contact_email が未登録（CSV取込・旧データ等）の場合の送信先フォールバック。
+ *   自社ドメイン（8grp/enger）や no-reply 系は返信先ではないので除外する。
+ *   見つからなければ null（送信モーダルで手入力できる）。 */
+export function extractReplyEmail(text?: string | null): string | null {
+  const s = (text ?? "").toString();
+  if (!s) return null;
+  const RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+  const OWN = /@(?:[a-z0-9-]+\.)?(?:8grp\.co\.jp|enger\.jp)$/i;
+  const BAD = /^(?:no-?reply|do-?not-?reply|noreply|postmaster|mailer-daemon|abuse)@/i;
+  const all = s.match(RE) ?? [];
+  for (const e of all) { if (!OWN.test(e) && !BAD.test(e)) return e; }
+  return null;
+}
+
 /** スキルシートのリンクを解決する。
  *   1) 取込時に保存済みの skill_sheet_url を最優先。
  *   2) 無い場合は、先方が「添付ではなくリンクで」送ってきたスキルシートURLを
@@ -160,11 +175,12 @@ export function JobMailBodyCard({
           />
         </label>
         <label style={fieldLabel}>
-          送信先（自動）
+          送信先{form.email ? "（自動・編集可）" : "（未取得：入力してください）"}
           <input
-            type="email" value={form.email} readOnly
-            placeholder="（取込メールから自動入力）"
-            style={{ ...inputBase, background: "var(--color-surface-soft)", color: "var(--color-ink-2)", cursor: "not-allowed" }}
+            type="email" value={form.email}
+            onChange={(e) => onChange("email", e.target.value)}
+            placeholder="to@example.com（取込メールから自動入力／未取得時は手入力）"
+            style={{ ...inputBase, borderColor: form.email ? "var(--color-border-strong)" : "var(--color-danger)" }}
           />
         </label>
         <label style={fieldLabel}>
