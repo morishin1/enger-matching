@@ -1,11 +1,8 @@
 // ダッシュボード／KPI推移の「メンバー別アクティビティ」に出すメンバー一覧の解決。
-//   ・admin            : staff(active 全員) ∪ proposal_owners(提案者/クロージング)
-//   ・manager / leader : 自部署メンバー ∪ proposal_owners
-//   proposal_owners は「設定 / 提案管理」で admin/マネージャーが編集できる名前リスト。
-//   これを含めることで、メンバーの追加・削除を既存の編集UIから行える（数名固定にならない）。
-//   email は次の優先順で解決：app_users → staff（名前で名寄せ）。
-//     ※ app_users はログイン認証の真実情報（kpi_targets の owner_email と同じ値）。
-//        staff にメールが未登録でも、ログインさえできていれば正しいメールが付く。
+//   表示メンバーは proposal_owners（「メンバー編集」で管理する名簿）を“正”とする。
+//   ＝名簿に登録された名前だけを表示し、外した人はアクティビティからも消える。
+//   名簿が未設定のときだけ staff / app_users（admin=全員 / マネージャー=自部署）にフォールバック。
+//   email は app_users → staff の順で名前から名寄せ補完（kpi_targets.owner_email と一致させる）。
 
 import { engerAdmin } from "./supabase";
 import { canManageDept } from "./roles";
@@ -59,16 +56,13 @@ export async function resolveActivityMembers(access: { role: string; teamRole?: 
     return fallback;
   };
 
-  // ベース：admin=全員 / マネージャー=自部署。
-  //   staff にメンバーが居ない環境のため、app_users もベース候補として併用する。
-  const baseFromStaff = isAdmin ? staffRows : staffRows.filter((s) => s.department && s.department === access.department);
-  const baseFromAuth  = isAdmin ? authRows  : authRows.filter((u) => u.department && u.department === access.department);
-
-  // proposal_owners の名前を追加（提案者∪クロージング）。
+  // proposal_owners（「メンバー編集」で管理する名簿）を“正”とする。
+  //   ＝ここに登録された名前だけを表示する。メンバーから外した人（例：工藤）は表示からも消える。
+  //   未設定のときだけ staff / app_users へフォールバックする。
   let ownerNames: string[] = [];
   try {
     const po = await loadProposalOwners();
-    if (po) ownerNames = Array.from(new Set([...(po.proposers ?? []), ...(po.closers ?? [])]));
+    if (po) ownerNames = Array.from(new Set([...(po.proposers ?? []), ...(po.closers ?? [])].map((n) => String(n ?? "").trim()).filter(Boolean)));
   } catch { /* noop */ }
 
   const out: ActivityMember[] = [];
@@ -79,8 +73,16 @@ export async function resolveActivityMembers(access: { role: string; teamRole?: 
     seen.add(key);
     out.push({ name: key, email: resolveEmail(key, email) });
   };
-  for (const s of baseFromStaff) push(s.name, s.email);
-  for (const u of baseFromAuth)  push(u.name, u.email);
-  for (const n of ownerNames) push(n, null);
+
+  if (ownerNames.length > 0) {
+    // 名簿を正としてそのまま表示（admin/マネージャー共通）。email は app_users/staff で名寄せ補完。
+    for (const n of ownerNames) push(n, null);
+  } else {
+    // 名簿が未設定の環境のみ、従来どおり staff / app_users から組み立てる。
+    const baseFromStaff = isAdmin ? staffRows : staffRows.filter((s) => s.department && s.department === access.department);
+    const baseFromAuth  = isAdmin ? authRows  : authRows.filter((u) => u.department && u.department === access.department);
+    for (const s of baseFromStaff) push(s.name, s.email);
+    for (const u of baseFromAuth)  push(u.name, u.email);
+  }
   return out;
 }
