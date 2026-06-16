@@ -22,6 +22,7 @@ import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
+import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,14 @@ const remoteLabel = (r: string | null | undefined) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社必須" : (r || "—");
 const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
+
+// 取込時に付与される「[削除スキル: …]」タグ＋以降の営業定型文は表示に不要なので落とす。
+//   ※ AI 評価には元の detail をそのまま渡す（除去するのは人が読む表示のみ）。
+const cleanDetail = (s: string | null | undefined): string | null => {
+  if (!s) return s ?? null;
+  const i = s.search(/\[?\s*削除スキル[:：]/);
+  return (i >= 0 ? s.slice(0, i) : s).trim() || null;
+};
 
 const ageDays = (d: any) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : 9999);
 
@@ -284,7 +293,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       // 注意：flow_depth / accept_flow_depth は supabase/flow-depth.sql 適用後のみ存在。
       //   SELECTに含めると未マイグレ環境で全体が落ちるため、CAND_BASE/JOB_BASE には含めず、
       //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
-      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url, note, created_at";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url, note, created_at";
       const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
@@ -841,8 +850,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   {job.skills.slice(0, 12).map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 10.5 }}>{s}</span>)}
                 </div>
               )}
-              {job.detail && (
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{job.detail}</div>
+              {cleanDetail(job.detail) && (
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{cleanDetail(job.detail)}</div>
               )}
             </div>
 
@@ -879,7 +888,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, remoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, CAND_NAT_LABEL[classifyCandNationality(c.nationality)], c.affiliation, remoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
                         <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
                           {c.exp != null && String(c.exp).trim() !== "" && <span>経験年数 <b style={{ color: "var(--color-ink)" }}>{/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp}</b></span>}

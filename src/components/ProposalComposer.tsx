@@ -25,7 +25,8 @@ export function ProposalComposer({
 }) {
   // 承認者の選択は MailComposeWizard（メール送信モーダル）側に集約済みのため、
   // ここでは持たない。提案者は本人（sender）を既定。
-  const [target, setTarget] = useState<"client" | "cand">("client");
+  // 宛先（client/cand）は内部的にクライアント固定。タブ切替UIは廃止（メール送信モーダルで両方送る運用に統一）。
+  const [target] = useState<"client" | "cand">("client");
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -93,8 +94,6 @@ export function ProposalComposer({
     () => buildProposalPrompt({ target, job, cand, matchedSkills, missingSkills, score, sender }),
     [target, job, cand, matchedSkills, missingSkills, score, sender],
   );
-
-  const switchTarget = (t: "client" | "cand") => { setTarget(t); setTouched(false); setBody(""); setMsg(null); };
 
   const copy = async (text: string, label: string) => {
     try { await navigator.clipboard.writeText(text); setMsg(`${label}をコピーしました`); }
@@ -239,29 +238,6 @@ export function ProposalComposer({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>
-        このペアで提案。<b>元メールに返信</b>すれば相手のスレッドに繋がり、件名も自動で「Re:」になります（本文は自動コピー）。元スレッドが無い場合は<b>新規メール</b>で作成します。
-      </div>
-
-      {/* 宛先タブ（評価マークと同じオレンジ系で切替を目立たせる） */}
-      <div style={{ display: "flex", gap: 4, padding: 3, background: "#fffbeb", border: "1px solid #fde9b0", borderRadius: 99, alignSelf: "flex-start" }}>
-        {[{ id: "client", label: "クライアントへ人材提案" }, { id: "cand", label: "人材へ案件紹介" }].map((t) => {
-          const active = target === t.id;
-          return (
-            <button key={t.id} type="button" onClick={() => switchTarget(t.id as "client" | "cand")}
-              style={{
-                padding: "7px 18px", borderRadius: 99, border: 0, cursor: "pointer", fontSize: 12.5, fontWeight: 700,
-                background: active ? "#f0a92b" : "transparent",
-                color: active ? "#fff" : "#b45309",
-                boxShadow: active ? "0 1px 3px rgba(240,169,43,.45)" : "none",
-                transition: "background .15s ease, color .15s ease",
-              }}>
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
       {/* 件名 */}
       <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
         件名：<b style={{ color: "var(--color-ink)" }}>{replyThreadUrl ? `（返信）元の件名に「Re:」が付きます` : composeSubject}</b>
