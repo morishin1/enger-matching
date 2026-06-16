@@ -3191,7 +3191,11 @@ export async function sendMailAction(input: {
   const role = access?.role ?? "admin";
   if (role !== "admin" && role !== "agent") return { ok: false, error: "メール送信の権限がありません" };
 
-  const senderName = access?.name?.trim() || null;
+  // 差出人表示名は必ず社名「株式会社エイト」を冠する。
+  //   取引先がメール/着信時に "ENGER事務局" 等では株式会社エイトと認識できず、コールが
+  //   スムーズに進まない問題への対処。担当者名があれば「株式会社エイト 〇〇」と併記する。
+  const personName = access?.name?.trim() || null;
+  const senderName = personName ? `株式会社エイト ${personName}` : "株式会社エイト";
   const { SHARED_MAILBOX } = await import("./proposal-constants");
 
   // 返信先＝共有メールボックス（its@gw.8grp.co.jp）。相手が単純に「返信」しても共有箱に届き、

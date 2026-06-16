@@ -35,6 +35,15 @@ export default async function MailComposePage({
 
   if (!jr.data || !cr.data) return notFound();
 
+  // 案件先担当者を CC へ自動反映するため、企業マスタの窓口メールを案件に付与する
+  //   （案件の contact_email＝案件窓口 と併せて CC に入れ、案件確認の認識ズレを防ぐ）。
+  try {
+    if (jr.data.client_name) {
+      const co: any = await sb.from("companies").select("contact_email").ilike("name", jr.data.client_name).maybeSingle();
+      if (co.data?.contact_email) (jr.data as any).company_contact_email = co.data.contact_email;
+    }
+  } catch { /* companies 未整備でも続行 */ }
+
   // 既存の提案があれば step 2（確認画面）から開始して「保存済み」状態にする。
   //   approval_status も取得：承認済みなら提案者本人もこの画面から送信できるようにする（要件4）。
   //   pending_mail（下書き）も取得：差戻し後などに以前作成したメール内容を復元・編集できるようにする。

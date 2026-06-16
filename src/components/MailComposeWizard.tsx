@@ -197,18 +197,32 @@ export function MailComposeWizard({
   // useState の初期値で定型文を入れて、最初のレンダリングから本文が見える状態にする。
   //   以前は useEffect で後追いで body をセットしていたため、初期マウント時に空のテキストエリアが
   //   見え（auto-resize の高さ計算が空状態で行われ）、結果として本文が見えない事故が発生していた。
+  // 案件先担当者を CC に自動反映するための連絡先（案件窓口＋企業マスタ窓口・重複除外）。
+  //   案件確認の認識ズレを防ぐため、案件側・人材側の両メールでこれらを CC に入れる。
+  const caseCcEmails = Array.from(new Set(
+    [job?.contact_email, job?.company_contact_email]
+      .map((e) => String(e ?? "").trim().toLowerCase()).filter(Boolean)
+  ));
+  const ccDefaultFor = (toEmail?: string | null) => {
+    const to = String(toEmail ?? "").trim().toLowerCase();
+    return caseCcEmails.filter((e) => e !== to).join(", ");
+  };
+  const clientToInit = (dJob?.to ?? "") || (job?.contact_email ?? "") || (extractReplyEmail(job?.detail ?? job?.description) ?? "");
+  const candToInit   = (dCand?.to ?? "") || cand?.email || cand?.contact_email || (extractReplyEmail(cand?.note ?? cand?.exp) ?? "");
   const [clientForm, setClientForm] = useState<MailForm>(() => ({
     // 送信先：下書き → 案件の contact_email → 取込元本文(detail)から抽出 の順で解決。
-    email: (dJob?.to ?? "") || (job?.contact_email ?? "") || (extractReplyEmail(job?.detail ?? job?.description) ?? ""),
-    cc: dJob?.cc ?? "",
+    email: clientToInit,
+    // CC：下書き → 案件先担当者（案件窓口/企業窓口・宛先と重複は除外）。
+    cc: (dJob?.cc ?? "") || ccDefaultFor(clientToInit),
     subject: (dJob?.subject ?? "") || buildJobMailSubject(job),
     body: (dJob?.body ?? "") || buildJobMailContent(job, cand),
   }));
   const [candForm, setCandForm] = useState<MailForm>(() => ({
     // 送信先：下書き → 人材の email/contact_email（SES窓口）→ 取込元本文(note)から抽出 の順。
     //   CSV取込・旧データで窓口メールが未登録でも、元メール本文から返信先を拾って送れるようにする。
-    email: (dCand?.to ?? "") || cand?.email || cand?.contact_email || (extractReplyEmail(cand?.note ?? cand?.exp) ?? ""),
-    cc: dCand?.cc ?? "",
+    email: candToInit,
+    // CC：人材側メールにも案件先担当者を入れ、案件確認の認識ズレを防ぐ。
+    cc: (dCand?.cc ?? "") || ccDefaultFor(candToInit),
     subject: (dCand?.subject ?? "") || buildCandMailSubject(),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
