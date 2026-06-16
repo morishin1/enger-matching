@@ -11,8 +11,9 @@ import { ownerMatches } from "./owner-match";
 export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 
 // 指標（2026/06 改訂）。提案以外は CL担当（closer）に加算する。
-//   proposal  : 提案。ステータスが「提案中」以降に到達した提案を、提案者に加算（created_at が期間内）。
-//               承認待ち・所属確認（提案前）はカウントしない。見送り/失注も対象外。
+//   proposal  : 提案。期間内に作成された提案を提案者に加算（提案管理の件数と一致させる）。
+//               承認待ち・差戻し中（=まだ提案として確定していない）のみ除外。所属確認/提案中以降や
+//               見送り/失注/稼働は「作成された提案」として計上する。
 //   contact   : コンタクト数。架電状況が「未架電」「空白」以外＝接触済。CL に加算。
 //   adjusting : 調整中。案件/人材の通知のいずれか一方でも「処理中(in_progress)」か「完了(done)」になったら加算。
 //               両方とも「未処理(pending)」に戻ったら計上しない（スナップショット再計算で減算が自然に成立）。
@@ -198,7 +199,7 @@ export async function getKpiSnapshot(opts: {
 
   let proposal = 0, contact = 0, adjusting = 0, schedule = 0, deal = 0;
   for (const p of props) {
-    if (isApproved(p) && a.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
+    if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
     if (!isCloser(p)) continue;
     const ev = p.stage_updated_at ?? p.updated_at ?? null;     // ステージ変化の起点
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;  // 任意更新（架電/通知）の起点
@@ -308,7 +309,7 @@ export async function getKpiHistoryTable(opts: {
     const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
     const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
     for (const p of props) {
-      if (isApproved(p) && metricFlags.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
+      if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
@@ -406,7 +407,7 @@ export async function getKpiHistory(opts: {
 
     let actual = 0;
     for (const p of props) {
-      if (metric === "proposal") { if (isApproved(p) && metricFlags.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
+      if (metric === "proposal") { if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;

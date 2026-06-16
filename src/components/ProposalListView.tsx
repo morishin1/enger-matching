@@ -14,6 +14,7 @@ import { ActionChip } from "./ProposalActionChip";
 import { deleteProposal } from "@/lib/actions";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 
+const UNASSIGNED = "__unassigned__"; // 担当者フィルタの「未割当」用の特別値
 const STAGES = [...PROPOSAL_STAGES];
 // ボード（リスト/カンバン）に表示するステージ。「承認待ち」は専用の「承認」タブに集約したため
 //   ボードのKPIカード・絞り込みからは除外する（常に0で紛らわしいのを解消）。
@@ -194,7 +195,17 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     const needle = q.trim().toLowerCase();
     return proposals
       .filter((p) => !stageFilter || normStage(p.stage) === stageFilter)
-      .filter((p) => !ownerFilter || [p.proposer, p.partner, p.closer, p.company_owner].includes(ownerFilter))
+      .filter((p) => {
+        if (!ownerFilter) return true;
+        // 「未割当」：提案者 もしくは クロージング担当 が空欄（漏れ防止のため拾う）。
+        if (ownerFilter === UNASSIGNED) {
+          const noProposer = !String(p.proposer ?? "").trim();
+          const cl = String(p.closer ?? p.company_owner ?? "").trim();
+          const noCloser = !cl || cl === "未割当";
+          return noProposer || noCloser;
+        }
+        return [p.proposer, p.partner, p.closer, p.company_owner].includes(ownerFilter);
+      })
       .filter((p) => !pendingOnly || isPending(p.job_notify_status) || isPending(p.cand_notify_status))
       .filter((p) => {
         if (!needle) return true;
@@ -287,6 +298,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
           担当者
           <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
             <option value="">すべて</option>
+            <option value={UNASSIGNED}>未割当（提案者/CL空欄）</option>
             {owners.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </label>

@@ -65,8 +65,8 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   };
 
   for (const p of props) {
-    // 提案＝提案者。ステータスが「提案中」以降に到達したもののみ（承認待ち/所属確認/見送り/失注は除外）。
-    if (isApproved(p) && metricFlags.isProposed(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
+    // 提案＝提案者。期間内に作成された提案を計上（提案管理の件数と一致）。承認待ち/差戻しは除外。
+    if (isApproved(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
     // それ以外＝CL担当（closer）
     const ev = p.stage_updated_at ?? p.updated_at ?? null;
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;
