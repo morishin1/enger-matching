@@ -168,6 +168,8 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const [prog, setProg] = useState<{ done: number; total: number; phase?: string } | null>(null);
   // 同姓同名の既存と統合（空欄補完）するか。人材取込のみ有効。
   const [mergeByName, setMergeByName] = useState(false);
+  // 統合時に CSV の値で既存を「上書き」するか（精度の高いデータで更新する用）。
+  const [overwrite, setOverwrite] = useState(false);
   // 取込完了後、結果を残したまま「閉じる」ボタンで明示的に閉じる
   const [doneInfo, setDoneInfo] = useState<{ inserted: number; merged: number; skipped: number } | null>(null);
   // 問題行プレビューの「行クリックでハイライト」
@@ -218,8 +220,8 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
           const slice = recs.slice(i, i + CHUNK);
           try {
             const res = kind === "candidates"
-              ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName })
-              : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName });
+              ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName, overwrite: mergeByName && overwrite })
+              : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName, overwrite: mergeByName && overwrite });
             if (!res.ok) { aborted = true; errMsg = res.error || "取込に失敗しました"; return; }
             inserted += res.inserted ?? 0;
             skipped += (res as any).skipped ?? 0;
@@ -238,7 +240,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
         if (aborted) { setProg(null); setMsg({ ok: false, text: `${errMsg ?? "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
         setProg(null);
         setDoneInfo({ inserted, merged, skipped });
-        setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（同姓同名 ${merged} 件は既存に統合）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
+        setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（既存 ${merged} 件を${overwrite ? "上書き更新" : "統合"}）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
         router.refresh();
       } catch (e) {
         setProg(null);
@@ -290,7 +292,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                 <div style={{ background: "#e7f3ea", border: "1px solid #1aa260", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#067647" }}>✓ 取り込み完了</div>
                   <div style={{ fontSize: 12 }}>
-                    新規 <b>{doneInfo.inserted}</b> 件{doneInfo.merged ? `／既存統合 ${doneInfo.merged} 件` : ""}{doneInfo.skipped ? `／重複スキップ ${doneInfo.skipped} 件` : ""} を登録しました。
+                    新規 <b>{doneInfo.inserted}</b> 件{doneInfo.merged ? `／既存${overwrite ? "上書き更新" : "統合"} ${doneInfo.merged} 件` : ""}{doneInfo.skipped ? `／重複スキップ ${doneInfo.skipped} 件` : ""} を登録しました。
                   </div>
                   <div className="muted" style={{ fontSize: 10.5 }}>※ 一覧の更新が反映されているか確認してから閉じてください。</div>
                 </div>
@@ -364,12 +366,28 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                 </div>
               ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
 
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
-                <input type="checkbox" checked={mergeByName} onChange={(e) => setMergeByName(e.target.checked)} disabled={pending} />
-                {kind === "candidates"
-                  ? <span>☑ 同姓同名は既存と統合する（空欄を補完し、新規登録しない）</span>
-                  : <span>☑ 既存案件（案件名×クライアント一致）は更新する（空欄を補完し、再公開）</span>}
-              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8 }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
+                  <input type="checkbox" checked={mergeByName} onChange={(e) => { setMergeByName(e.target.checked); if (!e.target.checked) setOverwrite(false); }} disabled={pending} />
+                  {kind === "candidates"
+                    ? <span>☑ 同姓同名は既存と統合する（新規登録せず既存を更新）</span>
+                    : <span>☑ 既存案件（案件名×クライアント一致）は更新する（再公開）</span>}
+                </label>
+                {/* 統合時の更新方法：空欄補完 ⇄ CSVで上書き */}
+                {mergeByName && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 26, fontSize: 12, color: "#9a7b12" }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                      <input type="radio" name="merge-mode" checked={!overwrite} onChange={() => setOverwrite(false)} disabled={pending} />
+                      <span>空欄のみ補完（既存の入力値は変更しない）</span>
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 700, color: "#b45309" }}>
+                      <input type="radio" name="merge-mode" checked={overwrite} onChange={() => setOverwrite(true)} disabled={pending} />
+                      <span>CSVの値で上書き更新（精度の高いデータで既存を修正）</span>
+                    </label>
+                    {overwrite && <span style={{ fontSize: 10.5, color: "#b42318" }}>※ CSVに値がある項目だけ上書きします（CSVが空の項目は既存を維持）。スキルは既存に追加します。</span>}
+                  </div>
+                )}
+              </div>
 
               <div className="muted" style={{ fontSize: 10.5 }}>※「取込不可（✗）」は常に除外。<b>重要データ完備</b>＝スキル・単価{kind === "jobs" ? "・クライアント" : ""}が揃った行のみ。質を担保するなら「完備のみ」を推奨します。{mergeByName && kind === "candidates" && importable.length > 1000 && <span style={{ color: "#b45309" }}>（{importable.length}件＋既存統合ONの大量取込は数分かかる場合があります。プログレスバーが0%のまま見えても処理中です）</span>}</div>
             </div>
