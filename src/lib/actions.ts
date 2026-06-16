@@ -123,7 +123,7 @@ function initialsOf(name: string): string {
 const normKey = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　]/g, "").replace(/[（）()・,，、。．.\-－_/／]/g, "");
 
 /** 人材CSVの取り込み (service role)。バッチで insert。 */
-export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null, opts?: { mergeByName?: boolean }) {
+export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null, opts?: { mergeByName?: boolean; overwrite?: boolean }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -212,12 +212,19 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       for (const f of FILL) {
         const cur = (ex as any)[f];
         const nv = (r as any)[f];
-        if ((cur == null || cur === "") && nv != null && nv !== "") merged[f] = nv;
+        // overwrite=true：CSVに値があれば既存を上書き（正しい情報で更新）。
+        // overwrite=false：既存が空のときだけ補完。
+        if (nv != null && nv !== "" && (opts?.overwrite || cur == null || cur === "")) merged[f] = nv;
       }
       const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
       const newSkills: string[] = Array.isArray(r.skills) ? r.skills : [];
-      const union = Array.from(new Set([...curSkills, ...newSkills]));
-      if (union.length !== curSkills.length) merged.skills = union;
+      if (opts?.overwrite && newSkills.length > 0) {
+        // 上書き：CSVのスキルを正とする（既存分も足して取りこぼし防止のため和集合）。
+        merged.skills = Array.from(new Set([...newSkills, ...curSkills]));
+      } else {
+        const union = Array.from(new Set([...curSkills, ...newSkills]));
+        if (union.length !== curSkills.length) merged.skills = union;
+      }
       mergedRows.push(merged);
     }
     // ★ 一括 upsert（id 衝突＝既存ID指定の UPDATE）に変更し、N回の往復を1〜数回に圧縮
@@ -1903,7 +1910,7 @@ export type JobInput = {
 };
 
 /** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
-export async function importJobs(records: JobInput[], sourceLabel: string, operator?: string | null, opts?: { mergeExisting?: boolean }) {
+export async function importJobs(records: JobInput[], sourceLabel: string, operator?: string | null, opts?: { mergeExisting?: boolean; overwrite?: boolean }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -1973,12 +1980,17 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
       for (const f of FILL) {
         const cur = (ex as any)[f];
         const nv = (r as any)[f];
-        if ((cur == null || cur === "") && nv != null && nv !== "") m[f] = nv;
+        // overwrite=true：CSVに値があれば上書き。false：既存が空のときだけ補完。
+        if (nv != null && nv !== "" && (opts?.overwrite || cur == null || cur === "")) m[f] = nv;
       }
       const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
       const newSkills: string[] = Array.isArray((r as any).skills) ? (r as any).skills : [];
-      const union = Array.from(new Set([...curSkills, ...newSkills]));
-      if (union.length !== curSkills.length) m.skills = union;
+      if (opts?.overwrite && newSkills.length > 0) {
+        m.skills = Array.from(new Set([...newSkills, ...curSkills]));
+      } else {
+        const union = Array.from(new Set([...curSkills, ...newSkills]));
+        if (union.length !== curSkills.length) m.skills = union;
+      }
       mergedRows.push(m);
     }
     // ★ 一括 upsert（id 衝突＝既存IDの UPDATE）に変更
