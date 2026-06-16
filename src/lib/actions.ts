@@ -818,30 +818,15 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
 
   // 提案者の既定＝本人（ログイン中）
   let proposerName = (proposer ?? "").trim() || null;
-  let recordPrivileged = false;
   try {
     const me = await currentAccess();
-    if (me) {
-      if (!proposerName) proposerName = (me.name ?? "").trim() || null;
-      const { canManageDept } = await import("./roles");
-      recordPrivileged = me.role === "admin" || canManageDept(me.teamRole ?? null);
-    }
+    if (me && !proposerName) proposerName = (me.name ?? "").trim() || null;
   } catch { /* 未ログインでも続行 */ }
 
-  // 打合せ未済企業への提案ゲート（案件のクライアント＋人材の所属企業）。createProposal と同条件。
-  //   管理者/マネージャー/リーダーはスキップ。
-  if (!recordPrivileged) {
-    const candCompany = (cand.source_company ?? cand.company ?? "").toString().trim();
-    // 案②：片方が打合せ済なら提案OK。両方未済の場合のみ拒否。
-    const gate = await gateAllowsProposal(admin, [
-      { label: "案件の", name: (job.client_name ?? "").toString().trim() },
-      { label: "人材の所属", name: candCompany },
-    ]);
-    if (!gate.allowed) {
-      const names = gate.unmet.map((t) => `${t.label}企業「${t.name}」`).join(" と ");
-      return { ok: false, error: `${names} のどちらも打ち合わせ・顔合わせの記録がありません。少なくとも一方の打合せ記録が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。` };
-    }
-  }
+  // ※ 以前ここに「打合せ未済企業への提案ゲート」があり、非権限ユーザー（一般メンバー）が
+  //   打合せ記録の無い企業には「提案する」で保存できなかった（権限者は素通り）。
+  //   アカウントによって保存できる/できないが分かれる原因になっていたため撤廃する。
+  //   提案の記録は後から提案管理で確認・整理できるため、記録時点でブロックしない。
 
   // クロージング担当の既定＝案件の outside_owner（無ければ企業マスタ owner）。アウトサイドへトスアップしやすく。
   let defaultCloser: string | null = (job.outside_owner ?? "").trim() || null;
