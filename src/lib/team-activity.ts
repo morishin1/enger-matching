@@ -1,6 +1,6 @@
 // メンバー別アクティビティ集計（ダッシュボード／KPI推移の「誰が何をやったか」一覧）。
 //   指標は KPI推移と同じ5つに統一（提案 / コンタクト / 調整中 / 日程確定 / 成約）。
-//     ・提案     : proposals.proposer（created_at が期間内）
+//     ・提案     : ステータスが「提案中」以降の提案を proposer に加算（承認待ち/所属確認/失注は除外・created_at が期間内）
 //     ・コンタクト: 架電状況が未架電/空白以外（closer に加算・updated_at 起点）
 //     ・調整中   : 案件/人材の通知のいずれかが「処理中/完了」（closer に加算・updated_at 起点）
 //     ・日程確定 : 現在ステータスが「面談」のもの＝面談フォルダ件数（closer に加算・stage_updated_at 起点）
@@ -65,8 +65,8 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   };
 
   for (const p of props) {
-    // 提案＝提案者。承認待ち/差戻し中は除外（未実施扱い）。
-    if (isApproved(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
+    // 提案＝提案者。ステータスが「提案中」以降に到達したもののみ（承認待ち/所属確認/見送り/失注は除外）。
+    if (isApproved(p) && metricFlags.isProposed(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
     // それ以外＝CL担当（closer）
     const ev = p.stage_updated_at ?? p.updated_at ?? null;
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;
