@@ -3,7 +3,7 @@
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
-import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft } from "@/lib/actions";
+import { createProposal, isProposerPrivileged, getProposalTokens } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
@@ -174,17 +174,22 @@ function validateSide(
 }
 
 export function MailComposeWizard({
-  job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null, initialApprovalStatus = null, members = [],
+  job, cand, score, initialSaved = false, initialSavedId = null, initialProposer = null, initialApprovalStatus = null, initialDraft = null, members = [],
 }: {
   job: any; cand: any; score: number;
   initialSaved?: boolean; initialSavedId?: string | null; initialProposer?: string | null;
   /** 既存提案の承認状態。"approved" のときは提案者本人もこの画面から送信できる（要件4）。 */
   initialApprovalStatus?: string | null;
+  /** 既存提案の下書き（pending_mail）。差戻し後の再編集などで定型文に戻さず復元するため。 */
+  initialDraft?: { job?: { to?: string; cc?: string; subject?: string; body?: string }; cand?: { to?: string; cc?: string; subject?: string; body?: string } } | null;
   /** 承認者プルダウンの選択肢（社内メンバー名）。空のときは下の保存ボタンは無効。 */
   members?: string[];
 }) {
   // 既存提案が承認済みなら、権限の有無にかかわらず送信ボタンを出す（提案者も送れる）。
   const approved = (initialApprovalStatus ?? "").trim() === "approved";
+  // 下書き（pending_mail）があればそれを初期値にして「定型文に戻る」事故を防ぐ（要件①）。
+  const dJob = initialDraft?.job ?? null;
+  const dCand = initialDraft?.cand ?? null;
   const [step, setStep] = useState<1 | 2>(initialSaved ? 2 : 1);
   const [proposer, setProposer] = useState(initialProposer ?? "");
   // 承認者（必須）：保存時に approver として createProposal に渡す
@@ -193,16 +198,16 @@ export function MailComposeWizard({
   //   以前は useEffect で後追いで body をセットしていたため、初期マウント時に空のテキストエリアが
   //   見え（auto-resize の高さ計算が空状態で行われ）、結果として本文が見えない事故が発生していた。
   const [clientForm, setClientForm] = useState<MailForm>(() => ({
-    email: job?.contact_email ?? "",
-    cc: "",
-    subject: buildJobMailSubject(job),
-    body: buildJobMailContent(job, cand),
+    email: (dJob?.to ?? "") || (job?.contact_email ?? ""),
+    cc: dJob?.cc ?? "",
+    subject: (dJob?.subject ?? "") || buildJobMailSubject(job),
+    body: (dJob?.body ?? "") || buildJobMailContent(job, cand),
   }));
   const [candForm, setCandForm] = useState<MailForm>(() => ({
-    email: cand?.email || cand?.contact_email || "",
-    cc: "",
-    subject: buildCandMailSubject(),
-    body: buildCandMailContent(job, cand),
+    email: (dCand?.to ?? "") || cand?.email || cand?.contact_email || "",
+    cc: dCand?.cc ?? "",
+    subject: (dCand?.subject ?? "") || buildCandMailSubject(),
+    body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
   const [clientErrors, setClientErrors] = useState<MailErrors>({});
   const [candErrors, setCandErrors] = useState<MailErrors>({});
@@ -229,35 +234,8 @@ export function MailComposeWizard({
     })();
     return () => { cancelled = true; };
   }, [initialSaved, initialSavedId, jobToken, candToken]);
-  // 差戻し後など、既存提案を再度開いたときに以前書いた下書き(pending_mail)を復元する。
-  //   そうしないとフォームが定型文に戻ってしまい、承認者の差戻しコメントを受けて修正
-  //   しようとした提案者の作業が消えてしまう。1回だけ読み込む（編集中に上書きしない）。
-  const [draftLoaded, setDraftLoaded] = useState(false);
-  useEffect(() => {
-    if (!initialSavedId || draftLoaded) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await getProposalDraft(initialSavedId);
-        if (cancelled || !r.ok || !r.mail) { setDraftLoaded(true); return; }
-        const j = r.mail.job ?? {}; const c = r.mail.cand ?? {};
-        setClientForm((prev) => ({
-          email:   typeof j.to === "string" && j.to ? j.to : prev.email,
-          cc:      typeof j.cc === "string" ? j.cc : prev.cc,
-          subject: typeof j.subject === "string" && j.subject ? j.subject : prev.subject,
-          body:    typeof j.body === "string" && j.body ? j.body : prev.body,
-        }));
-        setCandForm((prev) => ({
-          email:   typeof c.to === "string" && c.to ? c.to : prev.email,
-          cc:      typeof c.cc === "string" ? c.cc : prev.cc,
-          subject: typeof c.subject === "string" && c.subject ? c.subject : prev.subject,
-          body:    typeof c.body === "string" && c.body ? c.body : prev.body,
-        }));
-      } catch { /* fail-soft：下書きが取れなければ定型文のまま使う */ }
-      finally { if (!cancelled) setDraftLoaded(true); }
-    })();
-    return () => { cancelled = true; };
-  }, [initialSavedId, draftLoaded]);
+  // 下書き(pending_mail)はサーバ側(mail-compose page)が initialDraft として渡すため、
+  //   ここでの後追いフェッチは不要（定型文がちらつかず、確実に下書きから始まる）。
   // 防御策：step=2（プレビュー段階）に到達してもトークンが無いなら、ローカル生成して
   // 必ずボタン HTML を作る。送信時に createProposal(preTokens) 経由で DB と同期される。
   //   ※ 既存提案(initialSavedId)の場合は getProposalTokens が self-heal で必ず DB のトークンを
