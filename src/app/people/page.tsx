@@ -134,7 +134,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, is_focus, created_at";
+      const baseCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, is_focus, created_at";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;
@@ -229,6 +229,18 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         const approvedSet = await getApprovedCompanySet();
         for (const p of people) (p as any).company_approved = isCompanyApproved(approvedSet, p.source_company || p.company);
       } catch { /* 承認集合の取得失敗は無視（バッジ非表示） */ }
+
+      // 「提案あり」タグ用：この人材に紐づく提案が1件でもあるかを付与（誤削除防止の目印）。
+      try {
+        const ids = people.map((p: any) => p.id).filter(Boolean) as string[];
+        if (ids.length > 0) {
+          const pr: any = await sb.from("proposals").select("candidate_id").in("candidate_id", ids).limit(5000);
+          if (!pr.error) {
+            const set = new Set<string>((pr.data ?? []).map((r: any) => r.candidate_id).filter(Boolean));
+            for (const p of people) (p as any).has_proposal = set.has((p as any).id);
+          }
+        }
+      } catch { /* proposals 未整備でも無視 */ }
 
       // フィルタ用の選択肢（職種・所属区分の distinct）。リモート・国籍は固定区分（REMOTE_OPTIONS / NATIONALITY_OPTIONS）。
       try {
