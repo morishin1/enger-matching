@@ -187,6 +187,8 @@ export function MailComposeWizard({
 }) {
   // 既存提案が承認済みなら、権限の有無にかかわらず送信ボタンを出す（提案者も送れる）。
   const approved = (initialApprovalStatus ?? "").trim() === "approved";
+  // 差戻し（rejected）は「未申請」と同じ扱いにして、メール修正後にもう一度「承認申請」を出せるようにする。
+  const rejected = (initialApprovalStatus ?? "").trim() === "rejected";
   // 下書き（pending_mail）があればそれを初期値にして「定型文に戻る」事故を防ぐ（要件①）。
   const dJob = initialDraft?.job ?? null;
   const dCand = initialDraft?.cand ?? null;
@@ -230,7 +232,7 @@ export function MailComposeWizard({
   const [candErrors, setCandErrors] = useState<MailErrors>({});
   const [initialized, setInitialized] = useState(true); // 初期値で済んでいるので true で開始
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(initialSaved);
+  const [saved, setSaved] = useState(initialSaved && !rejected);
   const [_savedId, setSavedId] = useState<string | null>(initialSavedId);
   const [jobToken, setJobToken] = useState<string | null>(null);
   const [candToken, setCandToken] = useState<string | null>(null);
@@ -354,7 +356,10 @@ export function MailComposeWizard({
       );
       if (res.ok) {
         setSaved(true); setSavedId(res.id ?? null);
-        if (res.existed) {
+        if (rejected) {
+          // 差戻し後の再申請：承認待ちへ戻して再通知済み。
+          setMsg(`再申請しました。${approverName}さんがメール内容を確認し、承認して送信します。`);
+        } else if (res.existed) {
           setJobToken(null);
           setCandToken(null);
           setMsg(`既に提案済みです。メール下書きを更新しました（${approverName}さんが承認して送信します）`);
@@ -435,6 +440,11 @@ export function MailComposeWizard({
 
       {step === 2 && (
         <>
+          {rejected && !saved && (
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#b42318", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
+              🔴 この提案は差し戻されました。内容を修正のうえ、承認者を選んで「📨 承認申請」で再申請してください。
+            </div>
+          )}
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <MailPreviewCard
               title="案件側メール" dotColor="#ef4444"

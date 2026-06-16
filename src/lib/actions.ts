@@ -634,29 +634,65 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   //   limit(1) で先頭を取り、既存があれば必ず existed として返す（冪等）。
   const { data: dups } = await admin.from("proposals").select("id").eq("job_id", job.id).eq("candidate_id", cand.id).limit(1);
   if (dups && dups.length > 0) {
-    // 既存提案に「新しいメールを送り直す」ケース：メールのトークンをDBへ反映し、
-    //   回答も「未回答」にリセットする。これをしないと、
-    //   ① 新メールのリンクが旧トークンと一致せず「URL無効」になる
-    //   ② 過去の回答（見送り等）が残り、相手が「話を進める」を押しても旧回答が表示される
-    //   という不具合になる（再提案・失注からの再送で発生）。
+    const dupId = dups[0].id;
+    const nowIso = new Date().toISOString();
+    const approverNameDup = (approver ?? "").trim();
+    // 提案者名・権限を解決（再申請時の承認状態リセットに使う）。
+    let proposerNameDup = (proposer ?? "").trim() || null;
+    let privDup = false;
+    try {
+      const me = await currentAccess();
+      if (me) {
+        if (!proposerNameDup) proposerNameDup = (me.name ?? "").trim() || null;
+        const { canManageDept } = await import("./roles");
+        privDup = me.role === "admin" || canManageDept(me.teamRole ?? null);
+      }
+    } catch { /* 未ログインでも続行 */ }
+
+    const upd: Record<string, any> = { updated_at: nowIso };
+    // 既存提案に最新メールのトークン／回答リセットを反映（リンク切れ・旧回答残り対策）。
     if (hasMailTokens) {
-      const upd: Record<string, any> = {
-        job_action_token, cand_action_token,
-        job_action_type: "未回答", cand_action_type: "未回答",
-        updated_at: new Date().toISOString(),
-      };
-      if (pendingMail) upd.pending_mail = pendingMail; // 承認者送信用に最新メール下書きを保存
-      try {
-        let r: any = await admin.from("proposals").update(upd).eq("id", dups[0].id);
-        if (r.error && /pending_mail|column/i.test(r.error.message)) {
-          const { pending_mail: _drop, ...rest } = upd;
-          await admin.from("proposals").update(rest).eq("id", dups[0].id);
-        }
-      } catch { /* token列が未整備でも既存返却は続行 */ }
+      upd.job_action_token = job_action_token; upd.cand_action_token = cand_action_token;
+      upd.job_action_type = "未回答"; upd.cand_action_type = "未回答";
     }
+    if (pendingMail) upd.pending_mail = pendingMail; // 承認者送信用の最新下書き
+    // 承認の再申請：差戻し(rejected)/承認待ちを「pending」へ戻し、承認者を更新。
+    //   これが無いと差戻し後に修正・再申請しても rejected のままで承認ボタンが押せない。
+    let isReRequest = false;
+    if (!privDup && approverNameDup) {
+      upd.approval_status = "pending"; upd.approved_at = null; upd.reject_reason = null;
+      upd.approver = approverNameDup; upd.stage = "承認待ち"; upd.stage_updated_at = nowIso;
+      isReRequest = true;
+    } else if (privDup && !approverNameDup) {
+      // 権限者の直接送信：承認済み・所属確認へ。
+      upd.approval_status = "approved"; upd.reject_reason = null;
+      upd.stage = "所属確認"; upd.stage_updated_at = nowIso; upd.approved_at = nowIso;
+    }
+    try {
+      let r: any = await admin.from("proposals").update(upd).eq("id", dupId);
+      if (r.error && /pending_mail|approval_status|approved_at|reject_reason|approver|stage_updated_at|column/i.test(r.error.message)) {
+        // 承認系/下書き/滞留列が未整備の旧環境ではトークン更新だけにフォールバック。
+        const safe: Record<string, any> = { updated_at: nowIso };
+        if (hasMailTokens) { safe.job_action_token = job_action_token; safe.cand_action_token = cand_action_token; safe.job_action_type = "未回答"; safe.cand_action_type = "未回答"; }
+        await admin.from("proposals").update(safe).eq("id", dupId);
+      }
+    } catch { /* token列が未整備でも既存返却は続行 */ }
+
+    // 再申請なら承認者（指名＋承認権限者全員）へ通知。
+    if (isReRequest) {
+      const who = [job.title, cand.name].filter(Boolean).join(" × ");
+      const recipients = new Set<string>();
+      if (approverNameDup) recipients.add(approverNameDup);
+      for (const n of await listApproverNames()) recipients.add(n);
+      if (proposerNameDup) recipients.delete(proposerNameDup);
+      const body = `${proposerNameDup ?? "担当者"} さんが内容を修正して再申請しました${who ? `：${who}` : ""}。\n提案管理の「承認」タブで確認し、承認のうえメールを送信してください。`;
+      for (const r of recipients) await notify(r, "提案の承認依頼（再申請）", body, "approval");
+    }
+
     revalidatePath("/proposals");
+    revalidatePath("/matching");
     bustCounts();
-    return { ok: true, id: dups[0].id, existed: true };
+    return { ok: true, id: dupId, existed: true };
   }
 
   // ※ 以前ここで「打合せ未実施の企業への提案ゲート」を掛け、非権限ユーザー（=承認依頼を出す
