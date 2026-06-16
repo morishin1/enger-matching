@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 function Stars({ score }: { score: number }) {
@@ -10,6 +10,11 @@ function Stars({ score }: { score: number }) {
 
 type Ranked = { candidate: any; score: number; dupCount?: number; dupNos?: number[]; flow?: { compat: "ok" | "ng" | "unknown" } };
 
+// AI再ランキング結果と表示モードを案件単位で永続化するための localStorage キー。
+//   再訪時に「タブで切替」状態がそのまま使えるようにする（トークン無駄消費の防止）。
+const AI_STORE_KEY = (jobNo: number) => `enger.match.ai.v1.${jobNo}`;
+const VIEW_STORE_KEY = (jobNo: number) => `enger.match.view.v1.${jobNo}`;
+
 export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, jobForAI }: {
   jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; jobForAI: any;
 }) {
@@ -17,6 +22,32 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
   const [view, setView] = useState<"rule" | "ai">("rule"); // 既定はルール順（AI未使用＝コスト0）
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // 初期マウント時に localStorage から復元（同じ案件を再度開いてもAI評価をそのまま使える）。
+  //   候補集合（candidate_no の集合）が変わっていなければ復元する。
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (hydrated.current) return; hydrated.current = true;
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(AI_STORE_KEY(jobNo)) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ids: number[]; entries: Array<[number, { score: number; reason: string }]> };
+        const ids = new Set<number>(parsed.ids ?? []);
+        const cur = new Set<number>(ranked.map((r) => r.candidate.candidate_no));
+        // 候補集合が一致する間のみ復元（人材が変わったら次回 rerank 時に上書き）。
+        let same = ids.size === cur.size; if (same) for (const x of ids) if (!cur.has(x)) { same = false; break; }
+        if (same && Array.isArray(parsed.entries) && parsed.entries.length > 0) {
+          setAi(new Map(parsed.entries));
+          const v = localStorage.getItem(VIEW_STORE_KEY(jobNo));
+          if (v === "ai" || v === "rule") setView(v);
+          else setView("ai");
+        }
+      }
+    } catch { /* JSON 破損・localStorage 不可は無視 */ }
+  }, [jobNo, ranked]);
+  // view の変更は永続化（次回開いた時の既定表示が一致する）。
+  useEffect(() => {
+    try { if (typeof window !== "undefined") localStorage.setItem(VIEW_STORE_KEY(jobNo), view); } catch { /* noop */ }
+  }, [view, jobNo]);
 
   const linkFor = (no: number) => `/matching?tab=${tab}&job=${jobNo}&cand=${no}`;
 
@@ -44,6 +75,14 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
       const m = new Map<number, { score: number; reason: string }>();
       for (const r of data.results) m.set(r.candidate_no, { score: r.score, reason: r.reason });
       setAi(m); setView("ai");
+      // 永続化：候補集合と評価マップを保存し、次回マッチング結果画面を開いてもタブで切替可能に。
+      try {
+        if (typeof window !== "undefined") {
+          const ids = ranked.map((r) => r.candidate.candidate_no);
+          const entries = Array.from(m.entries());
+          localStorage.setItem(AI_STORE_KEY(jobNo), JSON.stringify({ ids, entries, savedAt: Date.now() }));
+        }
+      } catch { /* localStorage 不可は無視 */ }
       setMsg(data.cached
         ? "AI順に切替（キャッシュ・回数消費なし）"
         : `AIで再ランキングしました（上位10件）${typeof data.remaining === "number" ? ` ／ 本日の残り ${data.remaining}/${data.limit ?? 10} 回` : ""}`);

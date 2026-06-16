@@ -4,7 +4,7 @@
 //   案件 → 人材側の RankList と対になるコンポーネント。
 //   上位10件の案件を AI が人材視点で文脈評価して並べ替える（/api/match-rerank-jobs）。
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 function Stars({ score }: { score: number }) {
@@ -17,6 +17,10 @@ const salaryLabel = (lo?: number | null, hi?: number | null) =>
 
 type RankedJob = { job: any; score: number };
 
+// AI再ランキング結果と表示モードを人材単位で永続化（再訪時にタブ切替で復元）。
+const AI_STORE_KEY = (personNo: number) => `enger.match.aijobs.v1.${personNo}`;
+const VIEW_STORE_KEY = (personNo: number) => `enger.match.viewjobs.v1.${personNo}`;
+
 export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, candForAI }: {
   personNo: number; tab: string; selJobNo?: number; ranked: RankedJob[]; proposedJobIds?: Set<string>; candForAI: any;
 }) {
@@ -24,6 +28,28 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
   const [view, setView] = useState<"rule" | "ai">("rule"); // 既定はルール順（AI未使用＝コスト0）
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (hydrated.current) return; hydrated.current = true;
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(AI_STORE_KEY(personNo)) : null;
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ids: number[]; entries: Array<[number, { score: number; reason: string }]> };
+        const ids = new Set<number>(parsed.ids ?? []);
+        const cur = new Set<number>(ranked.map((r) => r.job.job_no));
+        let same = ids.size === cur.size; if (same) for (const x of ids) if (!cur.has(x)) { same = false; break; }
+        if (same && Array.isArray(parsed.entries) && parsed.entries.length > 0) {
+          setAi(new Map(parsed.entries));
+          const v = localStorage.getItem(VIEW_STORE_KEY(personNo));
+          if (v === "ai" || v === "rule") setView(v);
+          else setView("ai");
+        }
+      }
+    } catch { /* noop */ }
+  }, [personNo, ranked]);
+  useEffect(() => {
+    try { if (typeof window !== "undefined") localStorage.setItem(VIEW_STORE_KEY(personNo), view); } catch { /* noop */ }
+  }, [view, personNo]);
 
   const linkFor = (jno: number) => `/matching?person=${personNo}&tab=${tab}&job=${jno}`;
 
@@ -49,6 +75,14 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
       const m = new Map<number, { score: number; reason: string }>();
       for (const r of data.results) m.set(r.job_no, { score: r.score, reason: r.reason });
       setAi(m); setView("ai");
+      // 永続化：再訪時にタブ切替で復元できるよう保存。
+      try {
+        if (typeof window !== "undefined") {
+          const ids = ranked.map((r) => r.job.job_no);
+          const entries = Array.from(m.entries());
+          localStorage.setItem(AI_STORE_KEY(personNo), JSON.stringify({ ids, entries, savedAt: Date.now() }));
+        }
+      } catch { /* noop */ }
       setMsg(data.cached
         ? "AI順に切替（キャッシュ・回数消費なし）"
         : `AIで再ランキングしました（上位10件）${typeof data.remaining === "number" ? ` ／ 本日の残り ${data.remaining}/${data.limit ?? 10} 回` : ""}`);
