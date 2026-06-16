@@ -3256,11 +3256,45 @@ export async function saveKpiTargets(input: {
   const isManager = canManageDept(access.teamRole);
   if (input.scope === "team" && access.role !== "admin" && !isManager)
     return { ok: false, error: "チーム目標は管理者/マネージャーのみ設定できます" };
-  if (input.scope === "person" && access.role !== "admin" && !isManager && (input.ownerEmail ?? "") !== access.email)
-    return { ok: false, error: "他人の目標は変更できません" };
 
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "DB 接続できません" }; }
+
+  // 個人目標：email が空でも名前から app_users/staff で引き直す（クライアントが email を
+  //   解決できなくても admin/マネージャーの保存が通るようにする）。
+  let ownerEmail = (input.ownerEmail ?? "").trim().toLowerCase();
+  const ownerName = (input.ownerName ?? "").trim();
+  if (input.scope === "person" && !ownerEmail && ownerName) {
+    try {
+      const { ownerMatches } = await import("./owner-match");
+      let au: any = await admin.from("app_users").select("name, email, role").in("role", ["admin", "agent"]);
+      if (au.error) au = await admin.from("app_users").select("name, email");
+      const list = (au.data ?? []) as any[];
+      const exact = list.find((u) => String(u?.name ?? "").trim() === ownerName);
+      const loose = exact ? null : list.find((u) => ownerMatches(String(u?.name ?? ""), ownerName));
+      const matched = exact ?? loose;
+      if (matched?.email) ownerEmail = String(matched.email).trim().toLowerCase();
+    } catch { /* noop */ }
+    if (!ownerEmail) {
+      try {
+        const st: any = await admin.from("staff").select("name, email").not("email", "is", null);
+        const { ownerMatches } = await import("./owner-match");
+        const list = (st.data ?? []) as any[];
+        const exact = list.find((s) => String(s?.name ?? "").trim() === ownerName);
+        const loose = exact ? null : list.find((s) => ownerMatches(String(s?.name ?? ""), ownerName));
+        const matched = exact ?? loose;
+        if (matched?.email) ownerEmail = String(matched.email).trim().toLowerCase();
+      } catch { /* noop */ }
+    }
+  }
+
+  // 権限：個人目標は admin/マネージャー or 本人のみ。email が解決できていない場合はここで弾く。
+  if (input.scope === "person") {
+    if (access.role !== "admin" && !isManager && ownerEmail !== access.email.toLowerCase())
+      return { ok: false, error: "他人の目標は変更できません" };
+    if (!ownerEmail)
+      return { ok: false, error: `「${ownerName || "対象メンバー"}」のメールが解決できませんでした。設定→アカウントで該当メンバーのメールを登録してください。` };
+  }
 
   const metrics = Object.entries(input.targets).filter(([, v]) => typeof v === "number" && v >= 0);
   if (metrics.length === 0) return { ok: true };
@@ -3269,15 +3303,15 @@ export async function saveKpiTargets(input: {
   let del: any = admin.from("kpi_targets").delete()
     .eq("scope", input.scope).eq("week_start", input.weekStart)
     .in("metric", metrics.map(([m]) => m));
-  if (input.scope === "person") del = del.eq("owner_email", input.ownerEmail ?? "");
+  if (input.scope === "person") del = del.eq("owner_email", ownerEmail);
   else                          del = del.eq("team_key", input.teamKey ?? "its");
   const dr = await del;
   if (dr.error) return { ok: false, error: dr.error.message };
 
   const rows = metrics.map(([metric, target]) => ({
     scope: input.scope,
-    owner_email: input.scope === "person" ? (input.ownerEmail ?? "") : null,
-    owner_name:  input.scope === "person" ? (input.ownerName  ?? null) : null,
+    owner_email: input.scope === "person" ? ownerEmail : null,
+    owner_name:  input.scope === "person" ? (ownerName || null) : null,
     team_key:    input.scope === "team"   ? (input.teamKey    ?? "its") : null,
     week_start:  input.weekStart,
     metric,
@@ -3287,6 +3321,7 @@ export async function saveKpiTargets(input: {
   const ir = await admin.from("kpi_targets").insert(rows);
   if (ir.error) return { ok: false, error: ir.error.message };
   revalidatePath("/dashboard");
+  revalidatePath("/kpi");
   return { ok: true };
 }
 
