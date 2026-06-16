@@ -244,6 +244,36 @@ function roleGroup(text: string | null | undefined): string | null {
   return null;
 }
 
+// ---- 尚可（向可）スキル：案件本文(detail)の【尚可/向可スキル】セクションを抽出し、
+//   候補スキルがそこに含まれるかで「歓迎要件の充足」を加点する（必須に次ぐ第2軸）。
+const NICE_HEADER_RE = /【\s*(?:尚可|向可|歓迎|あれば尚可|尚\s?可)[^】]*】/;
+export function preferredSkillMatch(job: Job, c: Candidate): string[] {
+  const detail = (job.detail ?? "").toString();
+  if (!detail) return [];
+  const idx = detail.search(NICE_HEADER_RE);
+  if (idx < 0) return [];
+  // 見出し以降〜次の見出し/区切りまでを尚可セクションとみなす
+  const after = detail.slice(idx + (detail.slice(idx).match(NICE_HEADER_RE)?.[0]?.length ?? 0));
+  const end = after.search(/【|＝{3,}|─{3,}|━{3,}|∞{3,}|\n\s*\n\s*\n/);
+  const section = (end >= 0 ? after.slice(0, end) : after).toLowerCase();
+  if (!section.trim()) return [];
+  const matched: string[] = [];
+  for (const s of (c.skills ?? [])) {
+    const raw = String(s ?? "").trim().toLowerCase();
+    const cn = canon(s).toLowerCase();
+    if ((raw && section.includes(raw)) || (cn && section.includes(cn))) matched.push(s);
+  }
+  return Array.from(new Set(matched));
+}
+
+// ---- 経験業務カテゴリ：案件(role_label+title)と候補(title+exp)の役割カテゴリが一致するか。
+//   候補の経験テキスト(exp)も見て、より確度高くカテゴリ一致を判定する（第3軸）。
+export function experienceCategoryMatch(job: Job, c: Candidate): { jobCat: string | null; candCat: string | null; match: boolean } {
+  const jobCat = roleGroup([job.role_label, job.title].filter(Boolean).join(" "));
+  const candCat = roleGroup([c.title, c.exp].filter(Boolean).join(" "));
+  return { jobCat, candCat, match: !!jobCat && jobCat === candCat };
+}
+
 function verdictOf(score: number, excluded: boolean): Verdict {
   if (excluded) return "提案不可";
   if (score >= 75) return "提案推奨";
@@ -300,6 +330,10 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
   let weighted = skill100 * 0.80 + salary100 * 0.08 + remote100 * 0.05 + timing100 * 0.04 + age100 * 0.03;
 
+  // ---- 尚可スキル・経験カテゴリ（第2・第3軸）----
+  const niceMatched = preferredSkillMatch(job, c);        // 尚可スキルの充足
+  const expCat = experienceCategoryMatch(job, c);          // 経験業務カテゴリの一致
+
   // ---- ボーナス ----
   let bonus = 0;
   // マージン理想：5〜10万 = +2 / 1〜4万 or 11〜15万 = +1
@@ -311,10 +345,23 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (isPP) bonus += 1;
   // 業界経験 +1（推定なので控えめ）
   if (ind.match.length > 0) bonus += 1;
+  // ② 尚可スキル：充足ぶんを加点（最大 +4）。必須に次ぐ歓迎要件。
+  if (niceMatched.length > 0) bonus += Math.min(4, niceMatched.length);
+  // ③ 経験業務カテゴリ一致 +2 / 不一致は減点せず注意のみ。
+  if (expCat.match) bonus += 2;
 
   // ---- ハードフィルター ----
   let score = Math.round(Math.min(100, weighted + bonus));
   if (ngNat) score = 0;
+  // ① 必須スキルゲート（最優先・多重チェック）：
+  //   案件企業は「必須スキル」で土俵が決まる。一致率が低い候補は、単価/勤務/経験が良くても
+  //   上位・提案推奨に出さない。重み付けスコアに加え、ここで上限を被せて二重に担保する。
+  //   ・必須の半分未満 → 49点上限（＝提案推奨にしない）
+  //   ・必須の1/4未満 → 29点上限（＝提案不可圏）
+  if (!ngNat && jobSkills.length > 0) {
+    if (skillPct < 0.25) score = Math.min(score, 29);
+    else if (skillPct < 0.5) score = Math.min(score, 49);
+  }
   // 単価大幅超過のセーフティ（旧ロジック踏襲：致命差は上限を被せる）
   if (!ngNat && overage != null && overage > 20) score = Math.min(score, 40);
   else if (!ngNat && overage != null && overage > 10) score = Math.min(score, 65);
@@ -342,8 +389,13 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
     if (matchedSkills.length === jobSkills.length) notes.push({ level: "green", text: `必須スキル ${jobSkills.length}/${jobSkills.length} 完全一致` });
     else if (skillPct >= 0.8) notes.push({ level: "green", text: `必須スキル ${matchedSkills.length}/${jobSkills.length} 一致（不足: ${missingSkills.slice(0, 3).join("・")}）` });
     else if (skillPct >= 0.5) notes.push({ level: "yellow", text: `必須スキル一部欠落 ${matchedSkills.length}/${jobSkills.length}（不足: ${missingSkills.slice(0, 3).join("・")}）` });
-    else notes.push({ level: "red", text: `必須スキル不足 ${matchedSkills.length}/${jobSkills.length}（不足: ${missingSkills.slice(0, 3).join("・")}）` });
+    else notes.push({ level: "red", text: `🚫 必須スキル不足 ${matchedSkills.length}/${jobSkills.length}（土俵に乗りにくい・不足: ${missingSkills.slice(0, 3).join("・")}）` });
   }
+  // ② 尚可スキル：充足があれば緑で加点理由を明示
+  if (niceMatched.length > 0) notes.push({ level: "green", text: `尚可スキル一致（${niceMatched.slice(0, 4).join("・")}）` });
+  // ③ 経験業務カテゴリ
+  if (expCat.match) notes.push({ level: "green", text: `経験業務カテゴリ一致（${expCat.jobCat}）` });
+  else if (expCat.jobCat && expCat.candCat && expCat.jobCat !== expCat.candCat) notes.push({ level: "yellow", text: `経験業務カテゴリに差（案件: ${expCat.jobCat} / 候補: ${expCat.candCat}）要確認` });
 
   if (overage != null && overage > 20) notes.push({ level: "red", text: `単価が予算より約${overage}万円高く調整困難` });
   else if (overage != null && overage > 10) notes.push({ level: "yellow", text: `単価が予算より約${overage}万円高い（要交渉）` });
