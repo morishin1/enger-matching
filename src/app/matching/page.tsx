@@ -150,6 +150,8 @@ async function attachCompanyContact(sb: any, items: any[], companyKey: "client_n
       if (!k) continue;
       if (!it.contact_name && cnMap[k]) it.contact_name = cnMap[k];
       if (!it.contact_email && ceMap[k]) it.contact_email = ceMap[k];
+      // 企業マスタの窓口メールは別フィールドにも保持（CC自動反映で案件窓口と併せて使う）。
+      if (ceMap[k]) it.company_contact_email = ceMap[k];
     }
   } catch { /* noop */ }
 }

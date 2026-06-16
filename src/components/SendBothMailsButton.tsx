@@ -180,7 +180,7 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
           </select>
         </label>
         <div style={{ fontSize: 11, color: "var(--color-ink-3)", background: "var(--color-surface-soft)", borderRadius: 8, padding: "7px 10px", lineHeight: 1.6 }}>
-          <div>差出人表示：<b>{me.name || "（あなたの名前）"}</b> &lt;{senderAddr(st.sender)}&gt;</div>
+          <div>差出人表示：<b>株式会社エイト{me.name ? ` ${me.name}` : ""}</b> &lt;{senderAddr(st.sender)}&gt;</div>
           <div>返信先：<b>{SHARED_MAILBOX}</b>（共有・全員が対応可）</div>
           <div>CC：<b>{me.email || "（あなたのメール）"}</b>（自動追加）{st.cc ? ` ＋ ${st.cc}` : ""}</div>
         </div>
