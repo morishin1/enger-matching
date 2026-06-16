@@ -343,9 +343,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
 
         if (person?.skills?.length) {
-          const buildJ = (cols: string) => {
+          const buildJ = (cols: string, safe = true) => {
             // 新着優先：job_no 降順（登録が新しい順）で取得。古い案件が上位に居座らないように。
-            let q = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", person.skills);
+            //   削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合）。
+            let q: any = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", person.skills);
+            if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
             if (tab === "focus") q = q.eq("is_focus", true);
             return q.order("job_no", { ascending: false }).limit(tab === "focus" ? 500 : 200);
           };
@@ -353,6 +355,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name`);
           if (jr.error) jr = await buildJ(JOB_BASE);
+          if (jr.error) jr = await buildJ(JOB_BASE, false); // deleted_at/is_closed 列が無い旧環境のみ無フィルタ
           // 古い/充足案件を除外（充足は常に・古いは showStale=false のとき）
           const _open = applyOpenness((jr.data ?? []) as any[]);
           hiddenFilledCount += _open.filledCount; hiddenStaleCount += _open.staleHidden;
@@ -404,12 +407,17 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           const { getAutoMatchTop } = await import("@/lib/ranking100");
           autoTop = await getAutoMatchTop();
         } catch { /* ランキング取得失敗時はセクション非表示で続行 */ }
-        const buildList = (cols: string) =>
-          sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}").order("job_no", { ascending: false }).limit(120);
+        // 削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合させる）。
+        const buildList = (cols: string, safe = true) => {
+          let q: any = sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}");
+          if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
+          return q.order("job_no", { ascending: false }).limit(120);
+        };
         let jlRes: any = await buildList(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`);
         if (jlRes.error) jlRes = await buildList(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
         if (jlRes.error) jlRes = await buildList(`${JOB_BASE}, contact_email, contact_name`);
         if (jlRes.error) jlRes = await buildList(JOB_BASE);
+        if (jlRes.error) jlRes = await buildList(JOB_BASE, false); // deleted_at/is_closed 列が無い旧環境のみ無フィルタ
         // 充足/古い案件を選択ドロップダウンから除外（充足は常に・古いは showStale=false のとき）
         const _openList = applyOpenness(jlRes.data ?? []);
         hiddenFilledCount += _openList.filledCount; hiddenStaleCount += _openList.staleHidden;
@@ -447,11 +455,19 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
         if (job?.skills?.length) {
           // 新着優先：candidate_no 降順（＝登録が新しい順）で取得。古い候補が上位に居座る問題の対策。
-          const buildC = (cols: string) => sb.from("candidates").select(cols).overlaps("skills", job.skills).order("candidate_no", { ascending: false }).limit(200);
+          //   ★削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外する。
+          //     以前は JS 側の !c.deleted_at だけで弾いていたが、列省略フォールバックの SELECT では
+          //     deleted_at が取れず、削除済み人材がマッチングに出る（一覧には無い）不具合があった。
+          const buildC = (cols: string, safe = true) => {
+            let q: any = sb.from("candidates").select(cols).overlaps("skills", job.skills);
+            if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
+            return q.order("candidate_no", { ascending: false }).limit(200);
+          };
           let cr: any = await buildC(CAND_RICH);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
+          if (cr.error) cr = await buildC(CAND_BASE, false); // deleted_at/is_closed 列が無い旧環境のみ無フィルタ
           // 旧データで contact_email が無い候補は同じ source_company の他候補から流用（メールは同じSES窓口）
           const candList = (cr.data ?? []) as any[];
           // 指定された candidate_no が skills-overlap で取得できていない場合は個別に取得して追加
