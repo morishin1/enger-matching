@@ -5,6 +5,7 @@ import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
+import { notifySlack, appUrl } from "@/lib/slack";
 import type { Verdict } from "@/lib/client-feedback";
 
 type Result = { ok: boolean; error?: string };
@@ -83,6 +84,23 @@ export async function createClientJob(input: {
       is_published: false,
     });
     if (error) return { ok: false, error: error.message };
+    // Slack 通知：承認待ちが入ったことを社内に知らせる。/jobs の「企業掲載の承認待ち」へ直リンク。
+    try {
+      const company = access.companyName ?? "—";
+      const title = input.title.trim();
+      const role = input.role_label?.trim();
+      const budget = (input.salary_min || input.salary_max)
+        ? `${input.salary_min ?? ""}〜${input.salary_max ?? ""}万円` : "—";
+      const approveUrl = appUrl("/jobs");
+      const portalUrl = appUrl("/portal/jobs");
+      await notifySlack({
+        text: `📝 案件掲載の申請：${company} / ${title}（No.${nextNo}）`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*📝 案件掲載の申請がありました*\n• 申請企業: *${company}*\n• 案件: *${title}* (No.${nextNo})${role ? `\n• 職種: ${role}` : ""}\n• 予算: ${budget}` } },
+          { type: "context", elements: [{ type: "mrkdwn", text: `<${approveUrl}|承認 (/jobs 企業掲載の承認待ち)> ／ <${portalUrl}|企業ポータル>` }] },
+        ],
+      });
+    } catch { /* Slack 失敗は無視 */ }
     revalidatePath("/portal/jobs");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
