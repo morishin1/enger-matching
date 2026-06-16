@@ -34,15 +34,12 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
     try {
       const raw = typeof window !== "undefined" ? localStorage.getItem(AI_STORE_KEY(personNo)) : null;
       if (raw) {
-        const parsed = JSON.parse(raw) as { ids: number[]; entries: Array<[number, { score: number; reason: string }]> };
-        const ids = new Set<number>(parsed.ids ?? []);
-        const cur = new Set<number>(ranked.map((r) => r.job.job_no));
-        let same = ids.size === cur.size; if (same) for (const x of ids) if (!cur.has(x)) { same = false; break; }
-        if (same && Array.isArray(parsed.entries) && parsed.entries.length > 0) {
+        const parsed = JSON.parse(raw) as { entries: Array<[number, { score: number; reason: string }]>; savedAt?: number };
+        const fresh = !parsed.savedAt || (Date.now() - parsed.savedAt) < 24 * 3600 * 1000;
+        if (fresh && Array.isArray(parsed.entries) && parsed.entries.length > 0) {
           setAi(new Map(parsed.entries));
           const v = localStorage.getItem(VIEW_STORE_KEY(personNo));
-          if (v === "ai" || v === "rule") setView(v);
-          else setView("ai");
+          setView(v === "rule" ? "rule" : "ai");
         }
       }
     } catch { /* noop */ }
@@ -60,8 +57,10 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
   }, [ranked, ai, aiActive]);
 
   const rerank = async () => {
-    // 既に取得済みなら再フェッチせずAI順に切替（再課金なし）
-    if (ai) { setView("ai"); setMsg("AI順に切り替えました（前回の評価を再利用）"); return; }
+    // 既に評価があり、現在の上位案件がすべて評価済みなら再フェッチせずAI順に切替（再課金なし）。
+    if (ai && ranked.slice(0, 10).every((r) => ai.has(r.job.job_no))) {
+      setView("ai"); setMsg("AI順に切り替えました（前回の評価を再利用）"); return;
+    }
     setLoading(true); setMsg(null);
     try {
       const jobs = ranked.slice(0, 10).map((r) => ({

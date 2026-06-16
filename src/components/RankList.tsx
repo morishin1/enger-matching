@@ -23,23 +23,20 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   // 初期マウント時に localStorage から復元（同じ案件を再度開いてもAI評価をそのまま使える）。
-  //   候補集合（candidate_no の集合）が変わっていなければ復元する。
+  //   候補が多少入れ替わっても復元する（AI順では評価のある候補が上位・無い候補は末尾）。
+  //   24時間以内に保存したものだけ復元（古すぎる評価は使わない）。
   const hydrated = useRef(false);
   useEffect(() => {
     if (hydrated.current) return; hydrated.current = true;
     try {
       const raw = typeof window !== "undefined" ? localStorage.getItem(AI_STORE_KEY(jobNo)) : null;
       if (raw) {
-        const parsed = JSON.parse(raw) as { ids: number[]; entries: Array<[number, { score: number; reason: string }]> };
-        const ids = new Set<number>(parsed.ids ?? []);
-        const cur = new Set<number>(ranked.map((r) => r.candidate.candidate_no));
-        // 候補集合が一致する間のみ復元（人材が変わったら次回 rerank 時に上書き）。
-        let same = ids.size === cur.size; if (same) for (const x of ids) if (!cur.has(x)) { same = false; break; }
-        if (same && Array.isArray(parsed.entries) && parsed.entries.length > 0) {
+        const parsed = JSON.parse(raw) as { entries: Array<[number, { score: number; reason: string }]>; savedAt?: number };
+        const fresh = !parsed.savedAt || (Date.now() - parsed.savedAt) < 24 * 3600 * 1000;
+        if (fresh && Array.isArray(parsed.entries) && parsed.entries.length > 0) {
           setAi(new Map(parsed.entries));
           const v = localStorage.getItem(VIEW_STORE_KEY(jobNo));
-          if (v === "ai" || v === "rule") setView(v);
-          else setView("ai");
+          setView(v === "rule" ? "rule" : "ai");
         }
       }
     } catch { /* JSON 破損・localStorage 不可は無視 */ }
@@ -59,8 +56,11 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
   }, [ranked, ai, aiActive]);
 
   const rerank = async () => {
-    // 既に取得済みなら再フェッチせずAI順に切替（再課金なし）
-    if (ai) { setView("ai"); setMsg("AI順に切り替えました（前回の評価を再利用）"); return; }
+    // 既に評価があり、現在の上位候補がすべて評価済みなら、再フェッチせずAI順に切替（再課金なし）。
+    //   候補が入れ替わって未評価が混じる場合は再取得（多くはサーバ側キャッシュで無料）。
+    if (ai && ranked.slice(0, 10).every((r) => ai.has(r.candidate.candidate_no))) {
+      setView("ai"); setMsg("AI順に切り替えました（前回の評価を再利用）"); return;
+    }
     setLoading(true); setMsg(null);
     try {
       // コスト最小化のため上位10件だけAIに渡す。スキルシートのAI要約があれば文脈として同梱。
