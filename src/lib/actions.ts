@@ -659,28 +659,13 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     return { ok: true, id: dups[0].id, existed: true };
   }
 
-  // 打ち合わせ/顔合わせ未実施の企業への提案ゲート。
-  //   案件側（job.client_name）に加え、人材側（cand の所属企業 = source_company || company）も対象。
-  //   どちらも「meetings に記録あり」または「companies.meeting_done = true」で「打合せ済」と判定。
-  //   どれも該当しない企業へは、管理者/マネージャー以外は提案できない（無闇な提案で信用を損なわないため）。
-  //   meetings / companies が未整備の環境では誤ブロック防止のためゲートを無効化。
-  {
-    const me = await currentAccess();
-    const { canManageDept } = await import("./roles");
-    const privileged = !me || me.role === "admin" || canManageDept(me.teamRole ?? null);
-    if (!privileged) {
-      const candCompany = ((cand as any).source_company ?? (cand as any).company ?? "").toString().trim();
-      // 案②：案件の企業 or 人材の所属企業の片方が打合せ済なら提案OK。両方未済の場合のみ拒否。
-      const gate = await gateAllowsProposal(admin, [
-        { label: "案件の", name: (job.client_name ?? "").toString().trim() },
-        { label: "人材の所属", name: candCompany },
-      ]);
-      if (!gate.allowed) {
-        const names = gate.unmet.map((t) => `${t.label}企業「${t.name}」`).join(" と ");
-        return { ok: false, error: `${names} のどちらも打ち合わせ・顔合わせの記録がありません。少なくとも一方の打合せ記録が必要です。先に「打合せ記録」を登録するか、上長に依頼してください。` };
-      }
-    }
-  }
+  // ※ 以前ここで「打合せ未実施の企業への提案ゲート」を掛け、非権限ユーザー（=承認依頼を出す
+  //   メンバー）が打合せ記録の無い企業へ提案できないようにしていた。
+  //   しかし承認フローでは、承認者（管理者/マネージャー）が送信前に必ず内容をレビューするため、
+  //   この時点でブロックすると「打合せ未登録の案件には承認依頼すら出せない（=1件しか送れない）」
+  //   状態になり、複数件の承認依頼が出せなかった。
+  //   → 承認依頼の段階ではゲートを掛けず、レビュー（承認）を実質的なゲートとする。
+  //   （直接送信できる権限者は元々このゲート対象外。）
 
   // デフォルトのクロージング担当 = 案件企業の担当者（案件の outside_owner、無ければ企業マスタの owner）。後で変更可。
   let defaultCloser: string | null = (job.outside_owner ?? "").trim() || null;
