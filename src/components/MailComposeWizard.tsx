@@ -3,7 +3,7 @@
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
-import { createProposal, isProposerPrivileged, getProposalTokens } from "@/lib/actions";
+import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
@@ -253,8 +253,37 @@ export function MailComposeWizard({
     })();
     return () => { cancelled = true; };
   }, [initialSaved, initialSavedId, jobToken, candToken]);
-  // 下書き(pending_mail)はサーバ側(mail-compose page)が initialDraft として渡すため、
-  //   ここでの後追いフェッチは不要（定型文がちらつかず、確実に下書きから始まる）。
+  // 下書き(pending_mail)は通常はサーバ側(mail-compose page)が initialDraft として渡す。
+  //   ただしマッチング画面の「📤 送信する」(SendMailModalButton)経由では initialDraft が無い。
+  //   承認後は提案が承認タブから外れ、依頼者はこの経路で送信するため、下書きが定型文に
+  //   戻って消えて見える問題があった。initialDraft が無く既存提案がある場合は、ここで
+  //   getProposalDraft を取得してフォームへ反映する（1回だけ）。
+  const [draftLoaded, setDraftLoaded] = useState(!!initialDraft);
+  useEffect(() => {
+    if (draftLoaded || !initialSavedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await getProposalDraft(initialSavedId);
+        if (cancelled || !r.ok || !r.mail) { setDraftLoaded(true); return; }
+        const j = r.mail.job ?? {}; const c = r.mail.cand ?? {};
+        setClientForm((prev) => ({
+          email:   typeof j.to === "string" && j.to ? j.to : prev.email,
+          cc:      typeof j.cc === "string" ? j.cc : prev.cc,
+          subject: typeof j.subject === "string" && j.subject ? j.subject : prev.subject,
+          body:    typeof j.body === "string" && j.body ? j.body : prev.body,
+        }));
+        setCandForm((prev) => ({
+          email:   typeof c.to === "string" && c.to ? c.to : prev.email,
+          cc:      typeof c.cc === "string" ? c.cc : prev.cc,
+          subject: typeof c.subject === "string" && c.subject ? c.subject : prev.subject,
+          body:    typeof c.body === "string" && c.body ? c.body : prev.body,
+        }));
+      } catch { /* fail-soft：取れなければ定型文のまま */ }
+      finally { if (!cancelled) setDraftLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, [initialSavedId, draftLoaded]);
   // 防御策：step=2（プレビュー段階）に到達してもトークンが無いなら、ローカル生成して
   // 必ずボタン HTML を作る。送信時に createProposal(preTokens) 経由で DB と同期される。
   //   ※ 既存提案(initialSavedId)の場合は getProposalTokens が self-heal で必ず DB のトークンを
