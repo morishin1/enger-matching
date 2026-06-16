@@ -31,6 +31,32 @@
   --color-accent-soft: #e7eee9;
 }
 
+/* ダークモード（html[data-theme="dark"] で有効化）。
+   ベース色（bg/surface/ink/border）のみ反転する最小スコープ。
+   ブランド/警告色やコンポーネント内のハードコード色には踏み込まない（白系バッジは残る前提）。 */
+html[data-theme="dark"] {
+  --color-bg:           #0b1220;
+  --color-bg-warm:      #0e1626;
+  --color-surface:      #121a2b;
+  --color-surface-soft: #16203a;
+  --color-surface-inset:#1d2a44;
+  --color-border:       #25304b;
+  --color-border-strong:#33405f;
+
+  --color-ink:   #e5ecf6;
+  --color-ink-2: #cdd5e3;
+  --color-ink-3: #97a3b6;
+  --color-ink-4: #6b7894;
+  --color-ink-5: #4a566f;
+
+  /* ブランドのごく薄いトーン（白に近い）は背景に埋もれるため、ダーク用に少し持ち上げる */
+  --color-brand-25: #102438;
+  --color-brand-50: #122a44;
+  --color-brand-75: #133252;
+  --color-brand-100:#163a62;
+  color-scheme: dark;
+}
+
 /* ユーザー企業(client)向けはグリーン基調にテーマ変更（brandトークンを上書き） */
 .theme-client {
   --color-brand-900: #064e3b;

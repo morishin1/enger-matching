@@ -84,6 +84,12 @@ export default async function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         <link rel="stylesheet" href={fontsHref} />
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
+        {/* ダークモードのちらつき(FOUC)防止：localStorage の選択を hydrate 前に <html data-theme> へ反映。 */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('enger.theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}`,
+          }}
+        />
       </head>
       <body suppressHydrationWarning>
         <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard}>{children}</AppShell>

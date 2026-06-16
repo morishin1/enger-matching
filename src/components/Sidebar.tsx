@@ -7,6 +7,7 @@ import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
 import { type Role, hasSalesFunction } from "@/lib/roles";
 import { isMenuAllowed } from "@/lib/menu-permissions";
+import { ThemeToggle } from "./ThemeToggle";
 
 type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
 type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
@@ -167,6 +168,10 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
       {analysis.length > 0 && renderGroup("振り返り・分析", analysis)}
       {tools.length > 0 && renderGroup("その他", tools)}
 
+      {/* サイドバー下部：ダークモード切替 */}
+      <div style={{ marginTop: "auto", paddingTop: 12 }}>
+        <ThemeToggle />
+      </div>
     </aside>
   );
 
