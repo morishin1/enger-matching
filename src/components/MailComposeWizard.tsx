@@ -429,11 +429,23 @@ export function MailComposeWizard({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Header bar */}
-      <div className="card" style={{ padding: "16px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+      <div className="card" style={{ padding: "16px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
         <div className="muted" style={{ fontSize: 11.5 }}>
           {job.title} <span style={{ opacity: 0.4 }}>×</span> {cand.name}
         </div>
         <StepBar current={step} />
+        {/* 担当者（提案者）：選んだ人がそのまま提案管理の「提案者」として保存される（双方向に連動）。
+            選択肢は実際の提案者リスト（members）。未選択時はログイン者が自動で提案者になる。 */}
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--color-ink-3)", marginTop: 2 }}
+          title="このメール（提案）の担当者。選んだ人が提案管理の「提案者」になります。">
+          担当者（提案者）
+          <select value={proposer} onChange={(e) => setProposer(e.target.value)}
+            style={{ fontFamily: "inherit", fontSize: 12.5, padding: "5px 10px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", minWidth: 160 }}>
+            <option value="">— 自動（ログイン者）—</option>
+            {members.filter(Boolean).map((m) => <option key={m} value={m}>{m}</option>)}
+            {proposer && !members.includes(proposer) && <option value={proposer}>{proposer}</option>}
+          </select>
+        </label>
       </div>
 
       {step === 1 && (
