@@ -15,7 +15,8 @@ export type ActivityRow = {
   name: string;
   email: string | null;
   actual: Record<Metric, number>;
-  target: Record<Metric, number>; // 期間に按分した目標
+  target: Record<Metric, number>;       // 期間に按分した目標（表セルの「/N」表示用）
+  weeklyTarget: Record<Metric, number>; // 期間按分前の "本来の週次目標"（編集モーダル初期値用）
   total: number;                  // 実績合計（一目の活動量）
   targetTotal: number;            // 目標合計
 };
@@ -31,7 +32,7 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   const { start, end, members } = opts;
   const rows: ActivityRow[] = members.map((m) => ({
     name: m.name, email: m.email ?? null,
-    actual: zeroMetrics(), target: zeroMetrics(), total: 0, targetTotal: 0,
+    actual: zeroMetrics(), target: zeroMetrics(), weeklyTarget: zeroMetrics(), total: 0, targetTotal: 0,
   }));
   if (!dbConfigured || members.length === 0) return rows;
 
@@ -91,7 +92,10 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
           const row = rows.find((r) => (r.email ?? "").toLowerCase() === String(t.owner_email ?? "").toLowerCase());
           if (row && METRIC_ORDER.includes(t.metric)) {
             // 週次 → 期間按分（営業日比）。日/週/月いずれでも自然に効く。
-            row.target[t.metric as Metric] = Math.round((Number(t.target) * bd) / 5);
+            //   表セル表示用は按分後（target）、編集モーダルの初期値用は按分前（weeklyTarget）。
+            const weekly = Number(t.target) || 0;
+            row.weeklyTarget[t.metric as Metric] = weekly;
+            row.target[t.metric as Metric] = Math.round((weekly * bd) / 5);
           }
         }
       }

@@ -29,11 +29,13 @@ export type TeamMemberMeta = { name: string; email: string | null };
 
 export function TeamActivityBoard({
   rows, periodLabel, teamTarget = {} as Partial<Record<Metric, number>>,
+  teamWeeklyTarget = {} as Partial<Record<Metric, number>>,
   viewer, weekStart, proposalOwners,
 }: {
   rows: ActivityRow[];
   periodLabel: string;
-  teamTarget?: Partial<Record<Metric, number>>;
+  teamTarget?: Partial<Record<Metric, number>>;       // 期間按分後（テーブル表示用）
+  teamWeeklyTarget?: Partial<Record<Metric, number>>; // 期間按分前の週次値（モーダル初期値用）
   viewer?: TeamActivityViewer;
   weekStart?: string;        // 'YYYY-MM-DD'（編集モーダル用。未指定なら編集不可）
   proposalOwners?: { proposers: string[]; closers: string[] }; // メンバー編集用の現在値
@@ -172,7 +174,7 @@ export function TeamActivityBoard({
       )}
       {modal === "team" && weekStart && (
         <TargetEditModal scope="team" weekStart={weekStart} title="チーム目標を編集（週次）" subtitle="会社全体（its）の週次目標。期間に応じて按分されます。"
-          initial={teamTarget} onClose={() => setModal(null)} />
+          initial={teamWeeklyTarget} onClose={() => setModal(null)} />
       )}
       {modal === "people" && weekStart && (
         <PeopleTargetsModal weekStart={weekStart} rows={rows} onClose={() => setModal(null)} />
@@ -244,15 +246,16 @@ function TargetEditModal(props: {
 // 各メンバーの週次目標を一覧で編集。チーム目標との「割り振り」UI。
 function PeopleTargetsModal({ weekStart, rows, onClose }: { weekStart: string; rows: ActivityRow[]; onClose: () => void }) {
   const router = useRouter();
-  // 期間按分前の "本来の週次目標" を持っていないので、表示中の target をそのまま初期値にする。
-  //   ※ 週単位での編集なので、期間が週以外（=日/月など）の場合は表示中の値が按分後である点に注意。
-  //   ここでは「現在表示値」を初期に提示し、保存時は週次として upsert する（kpi_targets の仕様通り）。
+  // 初期値は r.weeklyTarget（kpi_targets に保存された週次の生値）。
+  //   ・期間が day/month/quarter のときも、ここは「週次」の値を見せる（モーダル単位は「件/週」固定）
+  //   ・以前は r.target（期間按分後）を初期値にしていたため、保存→再オープンで値が縮小する
+  //     バグがあった（例：100/週で保存→day表示で20が見える→そのまま保存→次回20/週として扱われ→さらに4が表示）
   const [vals, setVals] = useState<Record<string, Record<Metric, string>>>(() => {
     const o: Record<string, Record<Metric, string>> = {};
     for (const r of rows) {
       const k = r.email ?? r.name;
       o[k] = {} as any;
-      for (const m of METRIC_ORDER) o[k][m] = String(r.target[m] || "");
+      for (const m of METRIC_ORDER) o[k][m] = String(r.weeklyTarget[m] || "");
     }
     return o;
   });
