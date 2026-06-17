@@ -7,7 +7,8 @@ import { useEffect, useState, useTransition, Fragment, type CSSProperties } from
 import { sendMailAction } from "@/lib/actions";
 import { BUTTON_PLACEHOLDER, NOTICE_TEXT } from "./JobMailBodyCard";
 
-type Sender = { key: "enger" | "8grp"; label: string; address: string };
+type SenderKey = "enger" | "8grp" | "its";
+type Sender = { key: SenderKey; label: string; address: string };
 
 export function SendMailButton({
   to, cc, subject, body, buttonHtml, relatedKind, relatedId, label = "📨 送信", className = "btn brand",
@@ -50,7 +51,7 @@ function SendModal({ to, cc, subject, body, buttonHtml, relatedKind, relatedId, 
   const [pending, start] = useTransition();
   const [senders, setSenders] = useState<Sender[] | null>(null);
   const [me, setMe] = useState<{ name: string | null; email: string | null }>({ name: null, email: null });
-  const [sender, setSender] = useState<"enger" | "8grp">("enger");
+  const [sender, setSender] = useState<SenderKey>("its");
   const [eTo, setETo] = useState(to);
   const [eCc, setECc] = useState(cc ?? "");
   const [eSubject, setESubject] = useState(subject);
@@ -67,9 +68,9 @@ function SendModal({ to, cc, subject, body, buttonHtml, relatedKind, relatedId, 
     fetch("/api/mail/senders").then((r) => r.json()).then((d) => {
       if (d.ok) {
         setSenders(d.senders); if (d.me) setMe(d.me);
-        // 既定の差出人は共有Gmail寄りの「8grp」（設定されていれば）
+        // 既定の差出人は共有Gmail「its（its@gw.8grp.co.jp）」（設定されていれば）
         const list = (d.senders ?? []) as Sender[];
-        const preferred = list.find((s) => s.key === "8grp") ?? list[0];
+        const preferred = list.find((s) => s.key === "its") ?? list[0];
         if (preferred) setSender(preferred.key);
       }
     }).catch(() => setSenders([]));
@@ -104,22 +105,28 @@ function SendModal({ to, cc, subject, body, buttonHtml, relatedKind, relatedId, 
         <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 12 }}>
           {noSenders ? (
             <div style={{ fontSize: 12.5, color: "#9a7b12", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 8, padding: "10px 12px" }}>
-              送信元（SMTP）が未設定です。Vercel 環境変数に <span className="mono">SMTP_HOST</span> と
-              <span className="mono"> SMTP_ENGER_USER/PASS</span>（または <span className="mono">SMTP_8GRP_USER/PASS</span>）を設定してください。
+              送信元（SMTP）が未設定です。Vercel 環境変数に
+              <span className="mono"> SMTP_ITS_USER/PASS</span>（Google Workspace 経由・推奨）か
+              <span className="mono"> SMTP_HOST</span> + <span className="mono">SMTP_ENGER_USER/PASS</span>（Xserver 経由）を設定してください。
             </div>
           ) : (
             <>
-              <label style={lbl}>差出人（ドメイン）
-                <select value={sender} onChange={(e) => setSender(e.target.value as any)} style={inp} disabled={!senders}>
+              <label style={lbl}>差出人
+                <select value={sender} onChange={(e) => setSender(e.target.value as SenderKey)} style={inp} disabled={!senders}>
                   {(senders ?? []).map((s) => <option key={s.key} value={s.key}>{s.label} — {s.address}</option>)}
                 </select>
               </label>
-              {/* 実際にどう送られるかのプレビュー：表示名=ログイン者 / 返信先=ログイン者のメール */}
-              <div style={{ fontSize: 11.5, color: "var(--color-ink-3)", background: "var(--color-surface-soft)", borderRadius: 8, padding: "8px 11px", lineHeight: 1.7 }}>
-                <div>差出人表示：<b>{me.name || "（あなたの名前）"}</b> &lt;{(senders ?? []).find((s) => s.key === sender)?.address ?? "—"}&gt;</div>
-                <div>返信先：<b>{me.email || "（あなたのメール）"}</b>（相手が返信するとあなたに届きます）</div>
-                <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>※ 配信のため送信元アドレスは共有箱のままです。名前と返信先がログイン中のあなたになります。</div>
-              </div>
+              {(() => {
+                const addr = (senders ?? []).find((s) => s.key === sender)?.address ?? "—";
+                return (
+                  <div style={{ fontSize: 11.5, color: "var(--color-ink-3)", background: "var(--color-surface-soft)", borderRadius: 8, padding: "8px 11px", lineHeight: 1.7 }}>
+                    <div>差出人：<b>{addr}</b></div>
+                    <div>差出人表示：<b>{addr}</b></div>
+                    <div>返信先：<b>its@gw.8grp.co.jp</b>（共有・全員が対応可）</div>
+                    <div>CC：<b>{me.email || "（あなたのメール）"}</b>（自動追加）</div>
+                  </div>
+                );
+              })()}
               <label style={lbl}>宛先（To）<input value={eTo} onChange={(e) => setETo(e.target.value)} placeholder="to@example.com（カンマ区切りで複数可）" style={inp} /></label>
               <label style={lbl}>CC（任意）<input value={eCc} onChange={(e) => setECc(e.target.value)} placeholder="cc@example.com" style={inp} /></label>
               <label style={lbl}>件名<input value={eSubject} onChange={(e) => setESubject(e.target.value)} style={inp} /></label>
