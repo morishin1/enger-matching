@@ -2093,8 +2093,21 @@ export async function findSimilarCandidates(input: { name?: string | null; compa
 // ----- 手動1件 upsert（新規登録モーダル用） ----------------------------------
 // 重複時はスキップせず「再公開＋更新」する。空欄項目は既存値を保持。
 
-/** 案件の手動1件 upsert。title×client_name で既存があれば更新、無ければ挿入。 */
-export async function upsertJobManual(rec: JobInput) {
+/** 案件の手動1件 upsert。title×client_name で既存があれば更新、無ければ挿入。
+ *  updatePolicy で「既存があるときの上書き方針」を制御できる：
+ *    - "full"        既定。提供された全項目を上書き
+ *    - "price-only"  金額系（salary_min/max/salary_label）のみ上書き
+ *    - "period-only" 募集時期系（start_date）のみ上書き
+ *    - "fill-empty"  既存が空の項目だけ補完（既に値がある項目は据え置き）
+ *    - "skip"        既存があれば何もしない（新規時のみ挿入） */
+export type UpdatePolicy = "full" | "price-only" | "period-only" | "fill-empty" | "skip";
+
+const PRICE_FIELDS_JOB = new Set(["salary_min", "salary_max", "salary_label"]);
+const PERIOD_FIELDS_JOB = new Set(["start_date"]);
+const PRICE_FIELDS_CAND = new Set(["rate", "rate_num"]);
+const PERIOD_FIELDS_CAND = new Set(["avail"]);
+
+export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: UpdatePolicy }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!rec.title?.trim()) return { ok: false as const, error: "案件名は必須です" };
@@ -2129,13 +2142,30 @@ export async function upsertJobManual(rec: JobInput) {
   };
 
   const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.operator; delete c.owner_company; return c; };
+  const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
+    // skip: 既存があれば何もしない（新規時のみ挿入したいケース）
+    if (policy === "skip") return { ok: true as const, action: "skipped" as const, job_no: jobNo, republished: false };
+
+    // fill-empty: 既存行の値を取得し、既存が空の項目だけ更新対象に含める
+    let existingFields: Record<string, any> | null = null;
+    if (policy === "fill-empty") {
+      const ex: any = await admin.from("jobs").select("*").eq("id", id).maybeSingle();
+      existingFields = ex.data ?? null;
+    }
+
     const update: Record<string, any> = { is_published: true, imported_at: now };
     for (const [k, v] of Object.entries(row)) {
       if (k === "is_published" || k === "imported_at" || k === "created_at" || k === "operator" || k === "owner_company") continue; // operator/所有は登録時のみ
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
+      if (policy === "price-only" && !PRICE_FIELDS_JOB.has(k)) continue;
+      if (policy === "period-only" && !PERIOD_FIELDS_JOB.has(k)) continue;
+      if (policy === "fill-empty" && existingFields) {
+        const cur = existingFields[k];
+        if (cur != null && cur !== "" && !(Array.isArray(cur) && cur.length === 0)) continue;
+      }
       update[k] = v;
     }
     let r: any = await admin.from("jobs").update(update).eq("id", id);
@@ -2180,8 +2210,9 @@ export async function upsertJobManual(rec: JobInput) {
   return { ok: true as const, action: "inserted", job_no: r.data?.job_no };
 }
 
-/** 人材の手動1件 upsert。name×company で既存があれば更新、無ければ挿入。 */
-export async function upsertCandidateManual(rec: CandidateInput) {
+/** 人材の手動1件 upsert。name×company で既存があれば更新、無ければ挿入。
+ *  updatePolicy で「既存があるときの上書き方針」を制御できる（UpdatePolicy 型参照）。 */
+export async function upsertCandidateManual(rec: CandidateInput, opts?: { updatePolicy?: UpdatePolicy }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!rec.name?.trim()) return { ok: false as const, error: "氏名は必須です" };
@@ -2214,12 +2245,27 @@ export async function upsertCandidateManual(rec: CandidateInput) {
   };
 
   const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
+  const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
+    if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
+
+    let existingFields: Record<string, any> | null = null;
+    if (policy === "fill-empty") {
+      const ex: any = await admin.from("candidates").select("*").eq("id", id).maybeSingle();
+      existingFields = ex.data ?? null;
+    }
+
     const update: Record<string, any> = { imported_at: now };
     for (const [k, v] of Object.entries(row)) {
       if (k === "imported_at" || k === "operator" || k === "owner_company") continue; // operator/所有は登録時のみ
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
+      if (policy === "price-only" && !PRICE_FIELDS_CAND.has(k)) continue;
+      if (policy === "period-only" && !PERIOD_FIELDS_CAND.has(k)) continue;
+      if (policy === "fill-empty" && existingFields) {
+        const cur = existingFields[k];
+        if (cur != null && cur !== "" && !(Array.isArray(cur) && cur.length === 0)) continue;
+      }
       update[k] = v;
     }
     let r: any = await admin.from("candidates").update(update).eq("id", id);
@@ -2751,7 +2797,7 @@ export async function parseEntityText(kind: "candidates" | "jobs", text: string)
   return { ok: true, fields };
 }
 
-export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>): Promise<{ ok: boolean; job_no?: number; error?: string }> {
+export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; job_no?: number; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
   const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
@@ -2774,7 +2820,7 @@ export async function registerInboxAsJob(inboxId: string, override?: Partial<Job
     // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
     source_mail_url: gmailMessageUrl(row.gmail_message_id),
   };
-  const res = await upsertJobManual(input);
+  const res = await upsertJobManual(input, { updatePolicy: opts?.updatePolicy });
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "案件作成に失敗しました" };
 
   let by_email: string | null = null;
@@ -2790,7 +2836,7 @@ export async function registerInboxAsJob(inboxId: string, override?: Partial<Job
   return { ok: true, job_no: (res as any).job_no };
 }
 
-export async function registerInboxAsCandidate(inboxId: string, override?: Partial<CandidateInput>): Promise<{ ok: boolean; candidate_no?: number; error?: string }> {
+export async function registerInboxAsCandidate(inboxId: string, override?: Partial<CandidateInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; candidate_no?: number; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
   const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
@@ -2810,7 +2856,7 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
     // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
     source_mail_url: gmailMessageUrl(row.gmail_message_id),
   };
-  const res = await upsertCandidateManual(input);
+  const res = await upsertCandidateManual(input, { updatePolicy: opts?.updatePolicy });
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "人材作成に失敗しました" };
 
   let by_email: string | null = null;
@@ -2968,14 +3014,16 @@ export async function bulkPreviewFromGmail(opts: {
 
 export async function bulkRegisterFromGmail(input: {
   kind: "jobs" | "candidates"; items: { inbox_id: string; override?: any }[];
+  updatePolicy?: UpdatePolicy;
 }): Promise<{ ok: boolean; registered?: number; failed?: number; error?: string }> {
   if (!Array.isArray(input.items) || input.items.length === 0) return { ok: false, error: "登録対象がありません" };
   let registered = 0, failed = 0;
+  const updatePolicy = input.updatePolicy ?? "full";
   for (const it of input.items) {
     try {
       const res = input.kind === "jobs"
-        ? await registerInboxAsJob(it.inbox_id, it.override as Partial<JobInput> | undefined)
-        : await registerInboxAsCandidate(it.inbox_id, it.override as Partial<CandidateInput> | undefined);
+        ? await registerInboxAsJob(it.inbox_id, it.override as Partial<JobInput> | undefined, { updatePolicy })
+        : await registerInboxAsCandidate(it.inbox_id, it.override as Partial<CandidateInput> | undefined, { updatePolicy });
       if (res.ok) registered++; else failed++;
     } catch { failed++; }
   }
