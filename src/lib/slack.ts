@@ -4,12 +4,12 @@
 //
 // 設定:
 //   SLACK_WEBHOOK_URL    Slack Incoming Webhook の URL（必須・コードに直書きしない）
-//   NEXT_PUBLIC_APP_URL  リンク先のベース URL（例: https://dx.enger.jp）。未設定時は相対パスのみ表示。
+//   NEXT_PUBLIC_SITE_URL リンク先のベース URL（例: https://dx.enger.jp）。未設定時は dx.enger.jp。
 
-const BASE_URL = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
+const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://dx.enger.jp").replace(/\/$/, "");
 
-/** ベース URL を付けた絶対 URL を返す。未設定なら相対のまま。 */
-export const appUrl = (path: string): string => (BASE_URL ? `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}` : path);
+/** ベース URL を付けた絶対 URL を返す。 */
+export const appUrl = (path: string): string => `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 
 /** Slack に通知。失敗時も例外にしない。 */
 export async function notifySlack(payload: { text: string; blocks?: any[] }): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
