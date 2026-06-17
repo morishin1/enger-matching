@@ -11,7 +11,8 @@ import { ownerMatches } from "./owner-match";
 export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 
 // 指標（2026/06 改訂）。提案以外は CL担当（closer）に加算する。
-//   proposal  : 提案。期間内に作成された提案を提案者に加算（提案管理の件数と一致させる）。
+//   proposal  : 提案。期間内に作成され、現在ステータスが「提案中」以降の提案を提案者に加算
+//                （所属確認フォルダ・承認待ち・失注/見送りは除外）。
 //               承認待ち・差戻し中（=まだ提案として確定していない）のみ除外。所属確認/提案中以降や
 //               見送り/失注/稼働は「作成された提案」として計上する。
 //   contact   : コンタクト数。架電状況が「未架電」「空白」以外＝接触済。CL に加算。
@@ -199,7 +200,8 @@ export async function getKpiSnapshot(opts: {
 
   let proposal = 0, contact = 0, adjusting = 0, schedule = 0, deal = 0;
   for (const p of props) {
-    if (isApproved(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
+    // 提案：現在ステータスが「提案中」以降のみ計上（所属確認・承認待ち・失注/見送りは除外）。
+    if (isApproved(p) && a.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
     if (!isCloser(p)) continue;
     const ev = p.stage_updated_at ?? p.updated_at ?? null;     // ステージ変化の起点
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;  // 任意更新（架電/通知）の起点

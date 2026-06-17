@@ -65,8 +65,10 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   };
 
   for (const p of props) {
-    // 提案＝提案者。期間内に作成された提案を計上（提案管理の件数と一致）。承認待ち/差戻しは除外。
-    if (isApproved(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
+    // 提案＝提案者。期間内に作成され、現在ステータスが「提案中」以降の提案のみ計上。
+    //   除外: 承認待ち(approval_status=pending) / 所属確認 / 失注 / 見送り 等
+    //   ＝KPI推移の「提案」列と同じ母数。所属確認フォルダ滞留の提案は含めない。
+    if (isApproved(p) && metricFlags.isProposed(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
     // それ以外＝CL担当（closer）
     const ev = p.stage_updated_at ?? p.updated_at ?? null;
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;
