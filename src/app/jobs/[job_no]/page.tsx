@@ -43,7 +43,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
     try {
       const sb = engerClient();
       // 拡張カラムが無い環境でも落ちないようフォールバック
-      const cols = "job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
+      const cols = "id, job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
       let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
@@ -63,6 +63,22 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
 
   const origMailUrl = gmailMessageUrl(j.source_mail_url) || j.source_mail_url || gmailSearchUrl([j.client_name, j.title].filter(Boolean).join(" "));
   const clientApproved = isCompanyApproved(await getApprovedCompanySet(), j.client_name);
+
+  // この案件への応募（LP「応募する」経由 = enger.applications）。案件単位で誰が応募したか辿れるように。
+  let applicants: { id: string; engineer_name: string | null; stage: string | null; created_at: string }[] = [];
+  if (dbConfigured && j.id) {
+    try {
+      const sb = engerClient();
+      const ar: any = await sb.from("applications")
+        .select("id, engineer_name, stage, created_at")
+        .eq("job_id", j.id).order("created_at", { ascending: false }).limit(200);
+      applicants = (ar.data ?? []) as any[];
+    } catch { /* applications 未整備でも詳細は出す */ }
+  }
+  const APP_STAGE_TONE: Record<string, string> = {
+    "応募": "#64748b", "書類選考": "#64748b", "面談": "#0b5cab", "面談合格": "#0b5cab", "稼働": "#067647", "見送り": "#b42318",
+  };
+  const fmtApp = (s: string) => { const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getMonth() + 1}/${d.getDate()}`; };
 
   return (
     <div className="page">
@@ -123,6 +139,30 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         <Row label="窓口担当者" value={j.contact_name} />
         <Row label="窓口メール" value={j.contact_email} />
         <Row label="案件詳細" value={j.detail} />
+      </div>
+
+      {/* この案件への応募（LP「応募する」経由）。選考管理と同じ enger.applications を案件単位で表示。 */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--color-brand-700)" }}>how_to_reg</span>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>この案件への応募</h2>
+          <span className="tag brand" style={{ fontSize: 11, fontWeight: 700 }}>{applicants.length}件</span>
+          <Link href="/engineers" className="muted" style={{ marginLeft: "auto", fontSize: 11.5, textDecoration: "underline" }}>LP登録者一覧 →</Link>
+        </div>
+        {applicants.length === 0 ? (
+          <div className="muted" style={{ fontSize: 12.5 }}>まだ応募はありません。（LP「応募する」経由の応募がここに表示されます）</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {applicants.map((a) => (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+                <div className="ava" style={{ width: 32, height: 32, fontSize: 12, flex: "0 0 32px" }}>{(a.engineer_name ?? "?").slice(0, 1)}</div>
+                <div style={{ minWidth: 0, flex: 1, fontSize: 13, fontWeight: 600 }}>{a.engineer_name || "（氏名未取得）"}</div>
+                <span className="muted" style={{ fontSize: 11 }}>応募 {fmtApp(a.created_at)}</span>
+                <span style={{ flex: "0 0 auto", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, color: "#fff", background: APP_STAGE_TONE[a.stage ?? "応募"] ?? "#64748b" }}>{a.stage || "応募"}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

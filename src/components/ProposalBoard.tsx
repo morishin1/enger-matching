@@ -152,6 +152,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
                 : (p.job_title ?? "—")}
             </div>
             <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {p.lp_direct && <span title="LP（enger.jp）からの直接応募" style={{ color: "#067647", fontWeight: 700 }}>📥 </span>}
               {(p.candidate_name ?? "—")} {p.company ? `· ${p.company}` : ""}{p.proposer ? ` · ${p.proposer}` : ""}
             </div>
           </div>
@@ -179,6 +180,9 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
               </span>
             ) : (
               <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>登録元 未設定</span>
+            )}
+            {p.lp_direct && (
+              <span title="エンジニアがLP（enger.jp）から直接応募した提案" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>📥 LP直接応募</span>
             )}
             <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4, alignItems: "center" }} title="左:案件側 / 右:人材側 通知ステータス（赤=未処理）">
               <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={9} />

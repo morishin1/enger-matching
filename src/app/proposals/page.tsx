@@ -37,7 +37,7 @@ export default async function ProposalsPage() {
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "id, job_id, candidate_id, job_title, company, candidate_name, c_init, rate, score, stage, created_at";
+      const base = "id, job_id, candidate_id, job_title, company, candidate_name, c_init, rate, score, stage, created_at, next_action";
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await sb.from("proposals")
         .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`)
@@ -119,6 +119,9 @@ export default async function ProposalsPage() {
             if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed; }
             if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed; }
             p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
+            // LP（enger.jp）からのエンジニア直接応募は next_action に「エンジニア直接応募（LP）」が入る。
+            //   営業起点の提案と区別できるよう lp_direct フラグを派生させ、ボード/リストでバッジ表示する。
+            p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));
           }
         } catch { /* 列未整備でも続行 */ }
         // 稼働化済(稼働/旧稼働決定)・見送り・失注 はボードから除外

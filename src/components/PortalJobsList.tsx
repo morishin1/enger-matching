@@ -17,6 +17,7 @@ export type PortalJob = {
   posted_by_client?: boolean | null;
   proposalCount: number;
   activeCount: number;
+  applicantCount?: number;   // LP「応募する」経由の応募者数（enger.applications）
 };
 
 const statusBadge = (j: PortalJob) => {
@@ -83,6 +84,9 @@ export function PortalJobsList({ jobs }: { jobs: PortalJob[] }) {
               <div style={{ marginTop: "auto", paddingTop: 8, borderTop: "1px solid var(--color-border)", display: "flex", gap: 14, fontSize: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <span>ご提案 <b>{j.proposalCount}</b> 件</span>
                 <span style={{ color: "var(--color-brand-700, #0b5cab)" }}>進行中 <b>{j.activeCount}</b> 件</span>
+                {(j.applicantCount ?? 0) > 0 && (
+                  <a href="/portal/selection" title="応募者の選考状況を見る" style={{ color: "#067647", textDecoration: "none", fontWeight: 700 }}>応募 <b>{j.applicantCount}</b> 人 →</a>
+                )}
                 <a
                   href={`https://twitter.com/intent/tweet?${new URLSearchParams({ text: `【エンジニア募集】${[j.role_label, remote(j.remote_type), salary(j.salary_min, j.salary_max)].filter(Boolean).join(" · ")}\n${(j.skills ?? []).slice(0,4).join(" / ")}\n詳細・ご応募はENGERから👇\n#エンジニア募集 #エンジニア転職`, url: "https://enger.jp/jobs" }).toString()}`}
                   target="_blank" rel="noopener"
