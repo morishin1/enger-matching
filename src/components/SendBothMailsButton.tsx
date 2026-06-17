@@ -8,7 +8,8 @@ import { sendMailAction } from "@/lib/actions";
 import { BUTTON_PLACEHOLDER, NOTICE_TEXT } from "./JobMailBodyCard";
 import { SHARED_MAILBOX } from "@/lib/proposal-constants";
 
-type Sender = { key: "enger" | "8grp"; label: string; address: string };
+type SenderKey = "enger" | "8grp" | "its";
+type Sender = { key: SenderKey; label: string; address: string };
 
 export type MailSide = {
   /** ラベル（例: 案件側 / 人材側） */
@@ -63,7 +64,7 @@ function buildHtmlBody(text: string, buttonHtml: string): string {
 }
 
 type SideState = {
-  sender: "enger" | "8grp";
+  sender: SenderKey;
   to: string;
   cc: string;
   subject: string;
@@ -79,8 +80,8 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
   const [senders, setSenders] = useState<Sender[] | null>(null);
   const [me, setMe] = useState<{ name: string | null; email: string | null }>({ name: null, email: null });
 
-  const [job, setJob] = useState<SideState>({ sender: "enger", to: jobSide.to, cc: jobSide.cc ?? "", subject: jobSide.subject });
-  const [cand, setCand] = useState<SideState>({ sender: "enger", to: candSide.to, cc: candSide.cc ?? "", subject: candSide.subject });
+  const [job, setJob] = useState<SideState>({ sender: "its", to: jobSide.to, cc: jobSide.cc ?? "", subject: jobSide.subject });
+  const [cand, setCand] = useState<SideState>({ sender: "its", to: candSide.to, cc: candSide.cc ?? "", subject: candSide.subject });
 
   const [jobErr, setJobErr] = useState<string | null>(null);
   const [candErr, setCandErr] = useState<string | null>(null);
@@ -101,9 +102,10 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
       if (d.ok) {
         setSenders(d.senders);
         if (d.me) setMe(d.me);
-        // 既定の送信元は共有Gmail寄りの「8grp」（その箱が設定されていれば）。なければ先頭。
+        // 既定の送信元は共有Gmailの「its（its@gw.8grp.co.jp）」。Google Workspace 経由で
+        // 送信され、Gmail の「送信済み」に自動保存される。未設定なら先頭。
         const list: Sender[] = d.senders ?? [];
-        const preferred = list.find((s) => s.key === "8grp") ?? list[0];
+        const preferred = list.find((s) => s.key === "its") ?? list[0];
         if (preferred) {
           setJob((p) => ({ ...p, sender: preferred.key }));
           setCand((p) => ({ ...p, sender: preferred.key }));
@@ -157,7 +159,7 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
   const inp: CSSProperties = { fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)", width: "100%", boxSizing: "border-box" };
   const lbl: CSSProperties = { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" };
   const noSenders = senders && senders.length === 0;
-  const senderAddr = (key: "enger" | "8grp") => (senders ?? []).find((s) => s.key === key)?.address ?? "—";
+  const senderAddr = (key: SenderKey) => (senders ?? []).find((s) => s.key === key)?.address ?? "—";
 
   const renderSide = (
     side: MailSide,
@@ -174,13 +176,14 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
         {res?.ok && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#067647", fontWeight: 700 }}>✓ 送信済み</span>}
       </div>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-        <label style={lbl}>差出人（ドメイン）
-          <select value={st.sender} onChange={(e) => setSt((p) => ({ ...p, sender: e.target.value as "enger" | "8grp" }))} style={inp} disabled={!senders || res?.ok}>
+        <label style={lbl}>差出人
+          <select value={st.sender} onChange={(e) => setSt((p) => ({ ...p, sender: e.target.value as SenderKey }))} style={inp} disabled={!senders || res?.ok}>
             {(senders ?? []).map((s) => <option key={s.key} value={s.key}>{s.label} — {s.address}</option>)}
           </select>
         </label>
         <div style={{ fontSize: 11, color: "var(--color-ink-3)", background: "var(--color-surface-soft)", borderRadius: 8, padding: "7px 10px", lineHeight: 1.6 }}>
-          <div>差出人表示：<b>株式会社エイト{me.name ? ` ${me.name}` : ""}</b> &lt;{senderAddr(st.sender)}&gt;</div>
+          <div>差出人：<b>{senderAddr(st.sender)}</b></div>
+          <div>差出人表示：<b>{senderAddr(st.sender)}</b></div>
           <div>返信先：<b>{SHARED_MAILBOX}</b>（共有・全員が対応可）</div>
           <div>CC：<b>{me.email || "（あなたのメール）"}</b>（自動追加）{st.cc ? ` ＋ ${st.cc}` : ""}</div>
         </div>
@@ -226,18 +229,27 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
         <div style={{ padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
           {noSenders ? (
             <div style={{ fontSize: 12.5, color: "#9a7b12", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 8, padding: "10px 12px" }}>
-              送信元（SMTP）が未設定です。Vercel 環境変数に <span className="mono">SMTP_HOST</span> と
-              <span className="mono"> SMTP_ENGER_USER/PASS</span>（または <span className="mono">SMTP_8GRP_USER/PASS</span>）を設定してください。
+              送信元（SMTP）が未設定です。Vercel 環境変数に
+              <span className="mono"> SMTP_ITS_USER/PASS</span>（Google Workspace 経由・推奨）か
+              <span className="mono"> SMTP_HOST</span> + <span className="mono">SMTP_ENGER_USER/PASS</span>（Xserver 経由）を設定してください。
             </div>
           ) : (
             <>
               <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>
-                ※ 「この内容で2通送信」を押すと、案件側・人材側の両方へ同時に送信します。名前と返信先はログイン中のあなたになります。
+                ※ 「この内容で2通送信」を押すと、案件側・人材側の両方へ同時に送信します。返信先は共有メールボックスです。
               </div>
-              <div style={{ fontSize: 11.5, color: "#067647", background: "#e7f7ee", border: "1px solid #bfe3cc", borderRadius: 8, padding: "8px 11px", display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16 }}>forward_to_inbox</span>
-                送信メールは共有Gmail <b style={{ margin: "0 2px" }}>{SHARED_MAILBOX}</b> にBCCで自動コピーされます（全員がGmailで送信内容を確認可能）。
-              </div>
+              {(() => {
+                const bothIts = job.sender === "its" && cand.sender === "its";
+                const note = bothIts
+                  ? `送信メールは共有Gmail ${SHARED_MAILBOX} の「送信済み」フォルダに自動保存されます（全員が確認可能）。`
+                  : `送信メールは共有Gmail ${SHARED_MAILBOX} にBCCで自動コピーされます（全員がGmailで確認可能）。`;
+                return (
+                  <div style={{ fontSize: 11.5, color: "#067647", background: "#e7f7ee", border: "1px solid #bfe3cc", borderRadius: 8, padding: "8px 11px", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16 }}>forward_to_inbox</span>
+                    <span>{note}</span>
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
                 {renderSide(jobSide, job, setJob, jobErr, setJobErr, jobRes)}
                 {renderSide(candSide, cand, setCand, candErr, setCandErr, candRes)}

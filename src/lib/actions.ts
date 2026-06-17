@@ -3187,7 +3187,7 @@ export async function autoIngestFromGmail(opts?: {
 // メール送信（Xserver SMTP・差出人ドメイン選択可）
 // ────────────────────────────────────────────────────────
 export async function sendMailAction(input: {
-  sender: "enger" | "8grp"; to: string; subject: string; text: string;
+  sender: "enger" | "8grp" | "its"; to: string; subject: string; text: string;
   html?: string | null;
   cc?: string | null; bcc?: string | null; replyTo?: string | null;
   relatedKind?: string | null; relatedId?: string | null;
@@ -3197,16 +3197,14 @@ export async function sendMailAction(input: {
   const role = access?.role ?? "admin";
   if (role !== "admin" && role !== "agent") return { ok: false, error: "メール送信の権限がありません" };
 
-  // 差出人表示名は必ず社名「株式会社エイト」を冠する。
-  //   取引先がメール/着信時に "ENGER事務局" 等では株式会社エイトと認識できず、コールが
-  //   スムーズに進まない問題への対処。担当者名があれば「株式会社エイト 〇〇」と併記する。
-  const personName = access?.name?.trim() || null;
-  const senderName = personName ? `株式会社エイト ${personName}` : "株式会社エイト";
+  // 差出人表示はメーラ側 (SMTP_*_FROM_NAME) の既定値（無ければアドレス自身）を使う。
+  //   個人名で名乗らない方針：取引先には共有メールボックス運用であることを示し、
+  //   担当者不在時も他メンバーが対応できる体制をヘッダ上でも明確にする。
   const { SHARED_MAILBOX } = await import("./proposal-constants");
+  const { availableSenders, sendMail } = await import("./mailer");
 
   // 返信先＝共有メールボックス（its@gw.8grp.co.jp）。相手が単純に「返信」しても共有箱に届き、
   //   担当者が不在でも他のメンバーが対応できる。明示指定があればそちらを優先。
-  //   → 個人アドレス宛だと本人しか気づけず、メンバー間でメール対応を引き継げない問題への対処。
   const replyTo = input.replyTo?.trim() || SHARED_MAILBOX;
 
   // CC に送信者本人（ログイン者）の個人アドレスを自動追加。
@@ -3218,20 +3216,24 @@ export async function sendMailAction(input: {
   }
   const mergedCc = ccList.join(", ") || null;
 
-  // 送信内容を全員が共有Gmailで閲覧できるよう、共有メールボックスへ必ずBCCコピーを送る。
-  //   ・受信側からは見えない（BCCのため）
-  //   ・共有Gmail受信箱に届くため、誰がいくらで提案したか、どの担当者向けに送ったか全員が確認可能
+  // BCC は SHARED_MAILBOX へのコピー（送信内容の共有保管用）。
+  //   ただし送信元アドレス自体が SHARED_MAILBOX のとき（sender=its）は、
+  //   Gmail が「送信済み」に自動保存するので自己BCCは不要・むしろ二重保存になる。
+  const senderProfile = availableSenders().find((s) => s.key === input.sender);
+  const senderAddr = (senderProfile?.address ?? "").toLowerCase();
+  const sharedAddr = SHARED_MAILBOX.toLowerCase();
+  const skipShareBcc = senderAddr === sharedAddr;
+
   const bccList = (input.bcc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!bccList.some((a) => a.toLowerCase() === SHARED_MAILBOX.toLowerCase())) {
+  if (!skipShareBcc && !bccList.some((a) => a.toLowerCase() === sharedAddr)) {
     bccList.push(SHARED_MAILBOX);
   }
-  const mergedBcc = bccList.join(", ");
+  const mergedBcc = bccList.join(", ") || null;
 
-  const { sendMail } = await import("./mailer");
   const res = await sendMail({
     sender: input.sender, to: input.to, subject: input.subject, text: input.text,
     html: input.html || null,
-    cc: mergedCc, bcc: mergedBcc, replyTo, fromNameOverride: senderName,
+    cc: mergedCc, bcc: mergedBcc, replyTo,
   });
   if (!res.ok) return { ok: false, error: res.error };
 
@@ -3250,7 +3252,7 @@ export async function sendMailAction(input: {
 }
 
 /** SMTP 接続テスト（管理者）。設定が正しいか本文を送らず確認。 */
-export async function testSmtpAction(sender: "enger" | "8grp"): Promise<{ ok: boolean; error?: string }> {
+export async function testSmtpAction(sender: "enger" | "8grp" | "its"): Promise<{ ok: boolean; error?: string }> {
   const access = await currentAccess();
   if ((access?.role ?? "admin") !== "admin") return { ok: false, error: "管理者のみ実行できます" };
   const { verifySmtp } = await import("./mailer");
