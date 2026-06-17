@@ -238,19 +238,8 @@ export function ProposalComposer({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* 件名 */}
-      <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
-        件名：<b style={{ color: "var(--color-ink)" }}>{replyThreadUrl ? `（返信）元の件名に「Re:」が付きます` : composeSubject}</b>
-        {tpl.to ? <span className="muted" style={{ marginLeft: 8 }}>宛先 {tpl.to}</span> : <span className="muted" style={{ marginLeft: 8 }}>宛先は手入力</span>}
-      </div>
-
-      {/* 本文（編集可） */}
-      <textarea
-        value={effectiveBody}
-        onChange={(e) => { setBody(e.target.value); setTouched(true); }}
-        rows={8}
-        style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 12.5, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", background: "var(--color-surface)" }}
-      />
+      {/* 件名行と本文プレビューはここでは出さない（実際の編集は /mail-compose 全画面ウィザードで行う）。
+          「📄 本文コピー」は下のアクション行から使える（コピーされるのは tpl.body 既定文面）。 */}
 
       {/* ① 元メールを開く（読む用）：案件・人材それぞれの原本 */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingBottom: 4, borderBottom: "1px dashed var(--color-border)" }}>
