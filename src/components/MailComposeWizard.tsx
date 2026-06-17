@@ -223,8 +223,10 @@ export function MailComposeWizard({
     // 送信先：下書き → 人材の email/contact_email（SES窓口）→ 取込元本文(note)から抽出 の順。
     //   CSV取込・旧データで窓口メールが未登録でも、元メール本文から返信先を拾って送れるようにする。
     email: candToInit,
-    // CC：人材側メールにも案件先担当者を入れ、案件確認の認識ズレを防ぐ。
-    cc: (dCand?.cc ?? "") || ccDefaultFor(candToInit),
+    // CC：人材側メールには案件先担当者を自動挿入しない。
+    //   人材（パートナーSES）側に案件先のメアドが漏れると、企業情報の取り扱い意図に
+    //   反するため、デフォルトは下書きの CC のみ（=通常は空）。
+    cc: (dCand?.cc ?? ""),
     subject: (dCand?.subject ?? "") || buildCandMailSubject(),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
