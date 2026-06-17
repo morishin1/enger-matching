@@ -105,7 +105,9 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
       {activity.length > 0 && (
         <div style={{ padding: "0 18px" }}>
           <TeamActivityBoard rows={activity} periodLabel={PERIOD_LABEL[period]}
-            teamTarget={teamTarget} weekStart={weekStart.toISOString().slice(0, 10)}
+            teamTarget={teamTarget}
+            teamWeeklyTarget={teamWeeklyForBoard as Partial<Record<Metric, number>>}
+            weekStart={weekStart.toISOString().slice(0, 10)}
             viewer={{ role: access.role, teamRole: access.teamRole ?? null, isAdmin: access.role === "admin", isManager: viewerIsManager }}
             proposalOwners={proposalOwnersForBoard} />
         </div>

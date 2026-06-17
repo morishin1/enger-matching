@@ -33,7 +33,9 @@ export async function MemberActivitySection({ access }: {
         <Link href="/kpi" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>📊 KPI推移・目標を編集 →</Link>
       </div>
       <TeamActivityBoard rows={rows} periodLabel="今日"
-        teamTarget={teamTarget} weekStart={weekStart.toISOString().slice(0, 10)}
+        teamTarget={teamTarget}
+        teamWeeklyTarget={teamWeekly as Partial<Record<Metric, number>>}
+        weekStart={weekStart.toISOString().slice(0, 10)}
         viewer={{ role: access.role, teamRole: access.teamRole ?? null, isAdmin: access.role === "admin", isManager: canManageDept(access.teamRole ?? null) }}
         proposalOwners={owners} />
     </div>
