@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
 import { ProposalComposer } from "@/components/ProposalComposer";
+import { MatchChecklist } from "@/components/MatchChecklist";
 import { RankList } from "@/components/RankList";
 import { RankJobList } from "@/components/RankJobList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
@@ -879,6 +880,17 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                       <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} row={c} /></div>
                     </div>
+
+                    {/* 提案前チェック（確認ポイント）。決定論的 notes ＋ 任意でAIアドバイス。 */}
+                    <MatchChecklist
+                      notes={sel.notes}
+                      jobNo={job?.job_no ?? null}
+                      candNo={c?.candidate_no ?? null}
+                      job={{ title: job?.title, skills: job?.skills, salary_label: salaryLabel(job?.salary_min, job?.salary_max), remote_type: remoteLabel(job?.remote_type), flow_note: job?.flow_note }}
+                      cand={{ title: c.title, skills: c.skills, rate: c.rate ?? salaryLabel(c.salary_min, c.salary_max), nationality: CAND_NAT_LABEL[classifyCandNationality(c.nationality)], age_band: c.age_band, avail: c.avail, remote_pref: remoteLabel(c.remote_pref) }}
+                      score={sel.score}
+                      verdict={sel.verdict}
+                    />
 
                     {/* 提案フォームを最上部に（すぐ送れるように） */}
                     <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score}
