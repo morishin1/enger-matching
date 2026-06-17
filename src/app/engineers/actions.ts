@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { engerAdmin, publicAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
-import { classifySource } from "@/lib/engineers";
+import { classifySource, listEngineers } from "@/lib/engineers";
 import { notifySlack, appUrl } from "@/lib/slack";
 
 type Result = { ok: boolean; error?: string };
@@ -230,6 +230,64 @@ export async function convertEngineerToCandidate(engineerId: string): Promise<{ 
     if (ins.error) return { ok: false, error: ins.error.message };
     revalidatePath("/people");
     return { ok: true, candidate_no: ins.data?.candidate_no };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * LP(public.profiles)で登録された全エンジニアを enger.candidates に一括取込（自動同期）。
+ *   - cron（auto-ingest）から定期実行され、人材一覧(/people)に常に反映させる。
+ *   - 重複は氏名一致で除外（convertEngineerToCandidate と同じ基準＝同名は同一人物とみなす）。
+ *   - source_csv に登録元(engineer:<key>) を記録して辿れるようにする。
+ * 返り値: created=新規取込件数 / skipped=既存等でスキップした件数。
+ */
+export async function syncLpRegistrantsToCandidates(opts?: { limit?: number }): Promise<{ ok: boolean; created?: number; skipped?: number; error?: string }> {
+  try {
+    const { rows, available } = await listEngineers();
+    if (!available) return { ok: false, error: "LP(profiles) を参照できません" };
+    let admin: ReturnType<typeof engerAdmin>;
+    try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+
+    // 既存 candidate 名の集合（氏名一致で重複取込を防ぐ）。
+    const ex: any = await admin.from("candidates").select("name").limit(20000);
+    const existing = new Set<string>(((ex.data ?? []) as any[]).map((r) => String(r.name ?? "").trim()).filter(Boolean));
+
+    const toInsert: Record<string, any>[] = [];
+    for (const e of rows) {
+      const name = (e.display_name || e.github_login || e.name || "").trim();
+      if (!name || existing.has(name)) continue;
+      existing.add(name); // 取込対象内の同名重複も1件に抑える
+      const skills = (Array.isArray(e.skills) ? e.skills.map((s: any) => s?.name).filter(Boolean) : []) as string[];
+      const allSkills = e.primary_language ? [e.primary_language, ...skills] : skills;
+      const rate = e.estimated_pay_mid ? `¥${e.estimated_pay_mid}万`
+        : (e.estimated_pay_low && e.estimated_pay_high ? `¥${e.estimated_pay_low}〜${e.estimated_pay_high}万` : null);
+      const initials = (name.split(/\s+/)[0]?.[0] ?? "") + (name.split(/\s+/)[1]?.[0] ?? "");
+      toInsert.push({
+        name,
+        initials,
+        title: e.headline || e.primary_language || null,
+        skills: normalizeSkills(allSkills),
+        rate,
+        exp: e.bio?.toString().slice(0, 500) || null,
+        status: "提案可",
+        email: e.email || null,
+        skill_sheet_url: e.skill_sheet_url || null,
+        source_csv: `engineer:${e.source.key}`,
+        imported_at: new Date().toISOString(),
+      });
+    }
+    if (opts?.limit && toInsert.length > opts.limit) toInsert.length = opts.limit;
+    if (toInsert.length === 0) return { ok: true, created: 0, skipped: rows.length };
+
+    const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.skill_sheet_url; return c; };
+    let ins: any = await admin.from("candidates").insert(toInsert);
+    if (ins.error && /skill_sheet_url|email|column/i.test(ins.error.message)) {
+      ins = await admin.from("candidates").insert(toInsert.map(stripped));
+    }
+    if (ins.error) return { ok: false, error: ins.error.message };
+    revalidatePath("/people");
+    return { ok: true, created: toInsert.length, skipped: rows.length - toInsert.length };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

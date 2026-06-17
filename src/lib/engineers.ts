@@ -213,9 +213,13 @@ export type Application = {
   status?: string;
   stage: string;
   created_at: string;
+  /** 案件マスタから補完（応募一覧で案件詳細・元メールに辿れるようにする・派生フィールド） */
+  source_mail_url?: string | null;
 };
 
-/** エンジニアからの応募（enger.applications）。engineer_id でグルーピング。 */
+/** エンジニアからの応募（enger.applications）。engineer_id でグルーピング。
+ *  案件名だけだと詳細に辿れないため、jobs マスタを引いて job_no（詳細リンク用）と
+ *  source_mail_url（元メールリンク用）を各応募に補完する。 */
 export async function listApplications(): Promise<Record<string, Application[]>> {
   if (!dbConfigured) return {};
   try {
@@ -226,8 +230,32 @@ export async function listApplications(): Promise<Record<string, Application[]>>
       .order("created_at", { ascending: false })
       .limit(2000);
     if (error) return {};
+    const apps = (data ?? []) as Application[];
+
+    // 案件マスタ参照用のキーを収集（job_id 優先・無ければ job_no）。
+    const jobIds = Array.from(new Set(apps.map((a) => a.job_id).filter(Boolean))) as string[];
+    const jobNos = Array.from(new Set(apps.map((a) => a.job_no).filter(Boolean))) as string[];
+    const byId = new Map<string, { job_no: string | null; source_mail_url: string | null }>();
+    const byNo = new Map<string, { job_no: string | null; source_mail_url: string | null }>();
+    try {
+      if (jobIds.length > 0) {
+        const jr: any = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000);
+        for (const j of (jr.data ?? [])) byId.set(String(j.id), { job_no: j.job_no != null ? String(j.job_no) : null, source_mail_url: j.source_mail_url ?? null });
+      }
+      const missingNos = jobNos.filter((n) => !Array.from(byId.values()).some((v) => v.job_no === n));
+      if (missingNos.length > 0) {
+        const jr2: any = await sb.from("jobs").select("id, job_no, source_mail_url").in("job_no", missingNos).limit(2000);
+        for (const j of (jr2.data ?? [])) byNo.set(String(j.job_no), { job_no: j.job_no != null ? String(j.job_no) : null, source_mail_url: j.source_mail_url ?? null });
+      }
+    } catch { /* source_mail_url 列が無い古い環境でも応募一覧は出す */ }
+
     const map: Record<string, Application[]> = {};
-    for (const r of (data ?? []) as Application[]) {
+    for (const r of apps) {
+      const hit = (r.job_id && byId.get(r.job_id)) || (r.job_no && byNo.get(r.job_no)) || null;
+      if (hit) {
+        if (!r.job_no && hit.job_no) r.job_no = hit.job_no;
+        r.source_mail_url = hit.source_mail_url;
+      }
       (map[r.engineer_id] ??= []).push(r);
     }
     return map;
