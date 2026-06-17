@@ -888,6 +888,16 @@ export function JobBulkExtractButton() { return <BulkExtractButton kind="jobs" /
 
 // ---- Gmail から AI 一括取込（新方式・CSV不要） ------------------------------
 // Gmail を直接同期 → AIで kind 判定／構造化 → 該当する案件/人材だけプレビュー → 一括登録
+// 取込時の更新方針プリセット。同じ案件/人材が既に登録されているときの上書き挙動。
+type UpdatePolicyKey = "full" | "price-only" | "period-only" | "fill-empty" | "skip";
+const UPDATE_POLICY_OPTIONS: { key: UpdatePolicyKey; label: string; desc: string }[] = [
+  { key: "full",        label: "全項目上書き（既定）",   desc: "メールから読み取れた全項目を既存案件/人材に上書きします。" },
+  { key: "price-only",  label: "金額のみ更新",            desc: "単価・想定報酬の項目だけ上書きし、他は据え置きます。" },
+  { key: "period-only", label: "募集時期のみ更新",         desc: "開始時期・稼働可能時期だけ上書きし、他は据え置きます。" },
+  { key: "fill-empty",  label: "空欄のみ補完",            desc: "既存が空の項目だけ補完します（既に値がある項目は触りません）。" },
+  { key: "skip",        label: "新規だけ追加（既存はそのまま）", desc: "既存があるメールはスキップ。新しいメールだけ登録します。" },
+];
+
 function GmailBulkImportButton({ kind }: { kind: "candidates" | "jobs" }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -897,6 +907,7 @@ function GmailBulkImportButton({ kind }: { kind: "candidates" | "jobs" }) {
   const [meta, setMeta] = useState<{ synced: number; extracted: number } | null>(null);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [updatePolicy, setUpdatePolicy] = useState<UpdatePolicyKey>("full");
   const noun = kind === "jobs" ? "案件" : "人材";
 
   const close = () => { if (!loading && !pending) { setOpen(false); setItems([]); setPicked(new Set()); setMeta(null); setMsg(null); } };
@@ -924,7 +935,7 @@ function GmailBulkImportButton({ kind }: { kind: "candidates" | "jobs" }) {
     if (targets.length === 0) { setMsg({ ok: false, text: "登録する行を選択してください" }); return; }
     setMsg(null);
     start(async () => {
-      const res = await bulkRegisterFromGmail({ kind, items: targets.map((t) => ({ inbox_id: t.inbox_id })) });
+      const res = await bulkRegisterFromGmail({ kind, items: targets.map((t) => ({ inbox_id: t.inbox_id })), updatePolicy });
       if (!res.ok) { setMsg({ ok: false, text: res.error || "登録に失敗しました" }); return; }
       setMsg({ ok: true, text: `${res.registered ?? 0} 件を登録しました${res.failed ? `（失敗 ${res.failed} 件）` : ""}` });
       router.refresh();
@@ -1012,7 +1023,14 @@ function GmailBulkImportButton({ kind }: { kind: "candidates" | "jobs" }) {
               {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
             </div>
 
-            <div style={{ borderTop: "1px solid var(--color-border)", padding: "12px 16px", display: "flex", gap: 8, justifyContent: "flex-end", background: "var(--color-surface)" }}>
+            <div style={{ borderTop: "1px solid var(--color-border)", padding: "12px 16px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "var(--color-surface)" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }} title={UPDATE_POLICY_OPTIONS.find((o) => o.key === updatePolicy)?.desc}>
+                <span>同名既存への上書き</span>
+                <select value={updatePolicy} onChange={(e) => setUpdatePolicy(e.target.value as UpdatePolicyKey)} style={{ fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+                  {UPDATE_POLICY_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+              </label>
+              <div style={{ flex: 1 }} />
               <button className="btn ghost" onClick={close} disabled={loading || pending}>キャンセル</button>
               <button className="btn brand" onClick={register} disabled={pending || loading || picked.size === 0}>
                 {pending ? "登録中…" : `選択した ${picked.size} 件を登録`}
