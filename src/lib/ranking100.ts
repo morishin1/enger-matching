@@ -9,12 +9,17 @@ import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "./supabase";
 import { scoreMatch, canon, type Job, type Candidate } from "./match";
 
+export type DimStatus = { pct: number; known: boolean };
+
 export type RankedPair = {
   rank: number;
   skillPct: number;           // 0-100（必須スキル一致率）
   matchedCount: number;       // 一致した必須スキル数
   jobSkillCount: number;      // 案件の必須スキル数（分母）
   score: number;              // 総合マッチスコア 0-100（自動マッチングと同じ scoreMatch）
+  baseScore: number;          // ボーナス除外の基礎スコア（5次元のみ）
+  bonus: number;              // 別枠ボーナス（マージン/PP/業界/尚可/経験カテゴリ）
+  dims: { skill: DimStatus; salary: DimStatus; remote: DimStatus; timing: DimStatus; age: DimStatus };
   matchedSkills: string[];    // 一致したスキル（人材側の元表記）
   missingSkills: string[];    // 案件で必要だが人材に無いスキル
   candExtraSkills: string[];  // 人材は持っているが案件に無いスキル
@@ -94,7 +99,7 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
     // 「人材が持っている案件外スキル」（参考表示用）：人材スキルから一致分を除いたもの。
     const jset = new Set<string>((h.job.skills as string[]).map(canon));
     const extras = (h.cand.skills as string[]).filter((s) => !jset.has(canon(s)));
-    return { ...h, score: m.score, matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras, matchedCount: m.matchedSkills.length, jobSkillCount };
+    return { ...h, score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims, matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras, matchedCount: m.matchedSkills.length, jobSkillCount };
   });
   scored.sort((a, b) =>
     (b.score - a.score)
@@ -110,6 +115,9 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
     matchedCount: h.matchedCount,
     jobSkillCount: h.jobSkillCount,
     score: h.score,
+    baseScore: h.baseScore,
+    bonus: h.bonus,
+    dims: h.dims,
     matchedSkills: h.matchedSkills,
     missingSkills: h.missingSkills,
     candExtraSkills: h.candExtraSkills,
@@ -204,7 +212,7 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
     // 新しい案件・新しい人材ほど加点（最大 +10）。高マッチ率が主軸、同程度なら新しい組合せを上位に。
     const fresh = (freshnessBonus(h.job.created_at) + freshnessBonus(h.cand.created_at)) * 5;
     return {
-      ...h, score: m.score, combined: m.score + fresh,
+      ...h, score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims, combined: m.score + fresh,
       matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras,
       matchedCount: m.matchedSkills.length, jobSkillCount: (h.job.skills as string[]).length,
     };
@@ -236,6 +244,9 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
     matchedCount: h.matchedCount,
     jobSkillCount: h.jobSkillCount,
     score: h.score,
+    baseScore: h.baseScore,
+    bonus: h.bonus,
+    dims: h.dims,
     matchedSkills: h.matchedSkills,
     missingSkills: h.missingSkills,
     candExtraSkills: h.candExtraSkills,

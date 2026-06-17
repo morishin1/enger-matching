@@ -45,6 +45,8 @@ export type Note = { level: "red" | "yellow" | "green"; text: string };
 export type Verdict = "提案推奨" | "条件付き提案推奨" | "条件付き提案検討" | "提案不可";
 export type MatchResult = {
   score: number;                          // 0-100（ボーナス込み・上限100）
+  baseScore: number;                      // ボーナスを含めない基礎スコア（5次元のみ・上限100）
+  bonus: number;                          // 別枠の加点（情報の確実性から付与）
   matchedSkills: string[];
   missingSkills: string[];
   reasons: string[];                      // 互換用：notes.text の配列
@@ -53,6 +55,14 @@ export type MatchResult = {
   excluded?: boolean;                     // 国籍NGなどでハード除外
   flow?: { compat: FlowCompat; jobCat: string; candCat: string; jobLabel: string; candLabel: string };  // 商流（バッジ表示用・新マトリックス）
   breakdown: { skill: number; salary: number; remote: number; timing: number; age: number; bonus: number };
+  /** 内訳ミニバー / 不明指摘などの表示用に、各次元の評価ステータスを返す */
+  dims: {
+    skill:  { pct: number; known: boolean };
+    salary: { pct: number; known: boolean };
+    remote: { pct: number; known: boolean };
+    timing: { pct: number; known: boolean };
+    age:    { pct: number; known: boolean };
+  };
 };
 
 // スキル正規化は正典辞書（skills.ts）に集約。
@@ -67,15 +77,17 @@ export function overlapSkills(jobSkills?: string[] | null, candSkills?: string[]
 }
 
 // ---- 勤務形態（旧 remote） ----
-function remoteFit(jobRemote: string | null | undefined, candPref: string | null | undefined): number {
+function remoteFit(jobRemote: string | null | undefined, candPref: string | null | undefined): { fit: number; known: boolean } {
   const cp = candPref ?? "";
   const wantsFull = /フル/.test(cp);
   const wantsRemote = /リモート|在宅/.test(cp);
   const onsiteOk = /出社|常駐|可/.test(cp);
-  if (jobRemote === "full_remote") return wantsRemote || wantsFull ? 1 : onsiteOk ? 0.6 : 0.4;
-  if (jobRemote === "partial_remote") return wantsRemote || onsiteOk ? 1 : 0.6;
-  if (jobRemote === "onsite") return onsiteOk || !wantsFull ? 0.8 : 0.3;
-  return 0.6;
+  const jobKnown = jobRemote === "full_remote" || jobRemote === "partial_remote" || jobRemote === "onsite";
+  const candKnown = !!cp.trim();
+  if (jobRemote === "full_remote") return { fit: wantsRemote || wantsFull ? 1 : onsiteOk ? 0.6 : 0.4, known: jobKnown && candKnown };
+  if (jobRemote === "partial_remote") return { fit: wantsRemote || onsiteOk ? 1 : 0.6, known: jobKnown && candKnown };
+  if (jobRemote === "onsite") return { fit: onsiteOk || !wantsFull ? 0.8 : 0.3, known: jobKnown && candKnown };
+  return { fit: 0.55, known: false }; // 情報不明 → 中庸
 }
 
 // ---- 単価 / マージン ----
@@ -89,19 +101,21 @@ function candRange(c: Candidate): { min: number | null; max: number | null } {
   }
   return { min, max };
 }
-/** 単価適合(0-1) + 予算超過幅(万円) + マージン(万円・予算上限-希望下限) */
-function salaryGap(job: Job, c: Candidate): { fit: number; overage: number | null; margin: number | null } {
+/** 単価適合(0-1) + 予算超過幅(万円) + マージン(万円・予算上限-希望下限) + 情報の確実性。
+ *   ・known=false（不明）の場合は中庸 0.55 を返し、満点には乗らないようにする。
+ *     → 「不明だから100%」を防ぎ、確実な適合だけが上位に来る。 */
+function salaryGap(job: Job, c: Candidate): { fit: number; overage: number | null; margin: number | null; known: boolean } {
   const jMax = job.salary_max ?? job.salary_min;
   const { min: cMin, max: cMax } = candRange(c);
-  if (jMax == null || cMin == null) return { fit: 0.7, overage: null, margin: null };
+  if (jMax == null || cMin == null) return { fit: 0.55, overage: null, margin: null, known: false };
   if (cMin <= jMax) {
     const margin = jMax - cMin; // ＋なら余裕（理想5〜10万）
-    return { fit: (cMax ?? cMin) <= jMax ? 1 : 0.85, overage: 0, margin };
+    return { fit: (cMax ?? cMin) <= jMax ? 1 : 0.85, overage: 0, margin, known: true };
   }
   const over = cMin - jMax;
-  if (over <= 10) return { fit: 0.55, overage: over, margin: -over };
-  if (over <= 20) return { fit: 0.25, overage: over, margin: -over };
-  return { fit: 0.08, overage: over, margin: -over };
+  if (over <= 10) return { fit: 0.55, overage: over, margin: -over, known: true };
+  if (over <= 20) return { fit: 0.25, overage: over, margin: -over, known: true };
+  return { fit: 0.08, overage: over, margin: -over, known: true };
 }
 
 // ---- 稼働時期 ----
@@ -118,14 +132,14 @@ function monthOfDate(d?: string | null): number | null {
   if (!d) return null;
   const m = /^(\d{4})-(\d{2})/.exec(d); return m ? Number(m[2]) : null;
 }
-/** 稼働時期適合 0-1（差0=1, 差1=0.7, 差2=0.4, 差3=0.2, 4以上=0.05） */
-function timingFit(job: Job, c: Candidate): { fit: number; jobM: number | null; candM: number | null } {
+/** 稼働時期適合 0-1（差0=1, 差1=0.7, 差2=0.4, 差3=0.2, 4以上=0.05） + 情報の確実性。 */
+function timingFit(job: Job, c: Candidate): { fit: number; jobM: number | null; candM: number | null; known: boolean } {
   const jobM = monthOfDate(job.start_date) ?? monthOfText(job.detail);
   const candM = monthOfText(c.avail) ?? monthOfText(c.status);
-  if (jobM == null || candM == null) return { fit: 0.6, jobM, candM }; // 不明は中庸（採点に効きすぎない）
+  if (jobM == null || candM == null) return { fit: 0.5, jobM, candM, known: false }; // 不明は中庸（採点に効きすぎない・100%にも乗らない）
   const diff = Math.min(Math.abs(jobM - candM), 12 - Math.abs(jobM - candM));
   const fit = diff === 0 ? 1 : diff === 1 ? 0.7 : diff === 2 ? 0.4 : diff === 3 ? 0.2 : 0.05;
-  return { fit, jobM, candM };
+  return { fit, jobM, candM, known: true };
 }
 
 // ---- 年齢 ----
@@ -138,27 +152,31 @@ function bandsOfText(t?: string | null): number[] {
   return out;
 }
 function ageOfBand(b?: string | null): number | null { const m = AGE_BAND_RE.exec(b ?? ""); AGE_BAND_RE.lastIndex = 0; return m ? Number(m[1]) : null; }
-/** job.detail 内の "30代まで" "20〜40代" "若手" を解釈し、候補の age_band と適合度を返す。 */
-function ageFit(job: Job, c: Candidate): { fit: number; mismatch: boolean; jobRange: string | null } {
+/** job.detail 内の "30代まで" "20〜40代" "若手" を解釈し、候補の age_band と適合度を返す。
+ *   known=true は「案件の年代要件と候補の年代が両方分かっていて適合判定済み」または
+ *   「案件側に年代要件が無く問題なし」のいずれか。情報不足で判定できない場合は known=false。 */
+function ageFit(job: Job, c: Candidate): { fit: number; mismatch: boolean; jobRange: string | null; known: boolean } {
   const candAge = ageOfBand(c.age_band);
   const text = `${job.detail ?? ""} ${job.title ?? ""}`;
   const bands = bandsOfText(text);
   const youngOnly = /若手|ヤング/.test(text);
   const seniorOnly = /シニア|ベテラン/.test(text);
+  // 案件側に年代要件無し かつ 候補年代不明 → 不確実だが減点しすぎないよう中庸
   if (candAge == null) {
-    if (bands.length === 0 && !youngOnly && !seniorOnly) return { fit: 0.7, mismatch: false, jobRange: null };
-    return { fit: 0.5, mismatch: false, jobRange: bands.length ? `${bands.join("〜")}代` : (youngOnly ? "若手" : "シニア") };
+    if (bands.length === 0 && !youngOnly && !seniorOnly) return { fit: 0.7, mismatch: false, jobRange: null, known: false };
+    return { fit: 0.5, mismatch: false, jobRange: bands.length ? `${bands.join("〜")}代` : (youngOnly ? "若手" : "シニア"), known: false };
   }
-  if (bands.length === 0 && !youngOnly && !seniorOnly) return { fit: 1, mismatch: false, jobRange: null };
-  if (youngOnly && candAge >= 50) return { fit: 0.1, mismatch: true, jobRange: "若手" };
-  if (seniorOnly && candAge < 30) return { fit: 0.3, mismatch: true, jobRange: "シニア" };
+  // 案件側に年代要件無し（条件なし） → 候補は何歳でも適合
+  if (bands.length === 0 && !youngOnly && !seniorOnly) return { fit: 1, mismatch: false, jobRange: null, known: true };
+  if (youngOnly && candAge >= 50) return { fit: 0.1, mismatch: true, jobRange: "若手", known: true };
+  if (seniorOnly && candAge < 30) return { fit: 0.3, mismatch: true, jobRange: "シニア", known: true };
   if (bands.length) {
     const lo = Math.min(...bands), hi = Math.max(...bands);
-    if (candAge >= lo && candAge <= hi) return { fit: 1, mismatch: false, jobRange: `${lo}〜${hi}代` };
+    if (candAge >= lo && candAge <= hi) return { fit: 1, mismatch: false, jobRange: `${lo}〜${hi}代`, known: true };
     const diff = candAge < lo ? lo - candAge : candAge - hi;
-    return { fit: diff <= 10 ? 0.4 : 0.1, mismatch: diff > 10, jobRange: `${lo}〜${hi}代` };
+    return { fit: diff <= 10 ? 0.4 : 0.1, mismatch: diff > 10, jobRange: `${lo}〜${hi}代`, known: true };
   }
-  return { fit: 0.7, mismatch: false, jobRange: null };
+  return { fit: 0.7, mismatch: false, jobRange: null, known: false };
 }
 
 // ---- 国籍ハードフィルター ----
@@ -312,8 +330,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   origJobSkills.forEach((s, i) => { if (candSet.has(jobSkills[i])) matchedSkills.push(s); else missingSkills.push(s); });
   const skillPct = jobSkills.length ? matchedSkills.length / jobSkills.length : (c.skills?.length ? 0.3 : 0);
 
-  const { fit: salaryFit, overage, margin } = salaryGap(job, c);
-  const { fit: remote } = { fit: remoteFit(job.remote_type, c.remote_pref) };
+  const { fit: salaryFit, overage, margin, known: salaryKnown } = salaryGap(job, c);
+  const { fit: remoteFitV, known: remoteKnown } = remoteFit(job.remote_type, c.remote_pref);
   const timing = timingFit(job, c);
   const age = ageFit(job, c);
   const ind = industryMatch(job, c);
@@ -324,7 +342,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // ---- 100点配点 ----
   const skill100 = Math.round(skillPct * 100);            // 0-100（重み80）
   const salary100 = Math.round(salaryFit * 100);          // 0-100（重み8）
-  const remote100 = Math.round(remote * 100);             // 0-100（重み5）
+  const remote100 = Math.round(remoteFitV * 100);         // 0-100（重み5）
   const timing100 = Math.round(timing.fit * 100);         // 0-100（重み4）
   const age100 = Math.round(age.fit * 100);               // 0-100（重み3）
 
@@ -351,8 +369,18 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (expCat.match) bonus += 2;
 
   // ---- ハードフィルター ----
-  let score = Math.round(Math.min(100, weighted + bonus));
-  if (ngNat) score = 0;
+  //   baseScore: 5次元のみのスコア（0-100）。ボーナスを含めない。
+  //   score    : baseScore + ボーナス を 0-100 にキャップ。
+  //   どちらも 100% に乗せるには「全次元が known かつ満点」が必要。
+  //   1つでも known=false（情報不明）があると、5次元の合計が満点に届かないため、
+  //   "情報不足のまま100%" を構造的に防げる。
+  const allKnown = salaryKnown && remoteKnown && timing.known && age.known;
+  // 100% は「全次元 known かつ全て満点」のときだけ許す。それ以外は最大99に丸める。
+  let baseScore = Math.round(weighted);
+  if (!allKnown && baseScore >= 100) baseScore = 99;
+  let score = Math.round(Math.min(100, baseScore + bonus));
+  if (!allKnown && score >= 100) score = 99;
+  if (ngNat) { score = 0; baseScore = 0; }
   // ① 必須スキルゲート（最優先・多重チェック）：
   //   案件企業は「必須スキル」で土俵が決まる。一致率が低い候補は、単価/勤務/経験が良くても
   //   上位・提案推奨に出さない。重み付けスコアに加え、ここで上限を被せて二重に担保する。
@@ -403,8 +431,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   else if (margin != null && margin > 10) notes.push({ level: "green", text: `単価に余裕あり（約${margin}万円の余裕）` });
   else if (overage == null) notes.push({ level: "yellow", text: "単価情報が不足／要相談（交渉で調整可）" });
 
-  if (remote >= 0.9) notes.push({ level: "green", text: "勤務形態 適合" });
-  else if (remote >= 0.6) notes.push({ level: "yellow", text: "勤務形態に軽微なズレ（要確認）" });
+  if (remoteFitV >= 0.9) notes.push({ level: "green", text: "勤務形態 適合" });
+  else if (remoteFitV >= 0.6) notes.push({ level: "yellow", text: "勤務形態に軽微なズレ（要確認）" });
   else notes.push({ level: "red", text: "勤務形態 ミスマッチ" });
 
   if (timing.jobM != null && timing.candM != null) {
@@ -446,11 +474,20 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
   return {
     score,
+    baseScore,
+    bonus,
     matchedSkills, missingSkills, reasons, notes,
     verdict,
     excluded: hardExcluded || undefined,
     flow: { compat: fm.compat, jobCat: fm.jobCat, candCat: fm.candCat, jobLabel: JOB_FLOW_LABEL[fm.jobCat], candLabel: CAND_FLOW_LABEL[fm.candCat] },
     breakdown: { skill: skill100, salary: salary100, remote: remote100, timing: timing100, age: age100, bonus },
+    dims: {
+      skill:  { pct: skill100,  known: jobSkills.length > 0 },
+      salary: { pct: salary100, known: salaryKnown },
+      remote: { pct: remote100, known: remoteKnown },
+      timing: { pct: timing100, known: timing.known },
+      age:    { pct: age100,    known: age.known },
+    },
   };
 }
 
