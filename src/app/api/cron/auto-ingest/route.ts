@@ -5,6 +5,7 @@
 //   ※ Vercel Hobby は関数 60秒上限なので、1回あたりの処理件数を絞って多頻度で流す設計。
 
 import { autoIngestFromGmail } from "@/lib/actions";
+import { syncLpRegistrantsToCandidates } from "@/app/engineers/actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +27,13 @@ async function handle(req: Request) {
 
   const t0 = Date.now();
   const res = await autoIngestFromGmail({ dryRun, max });
+  // LP(profiles) 登録者を人材一覧(candidates)へ自動取込。失敗してもメール取込結果は返す。
+  let lpSync: { ok: boolean; created?: number; skipped?: number; error?: string } | null = null;
+  if (!dryRun) {
+    try { lpSync = await syncLpRegistrantsToCandidates(); } catch (e) { lpSync = { ok: false, error: String((e as any)?.message ?? e) }; }
+  }
   const ms = Date.now() - t0;
-  return Response.json({ ...res, ms });
+  return Response.json({ ...res, lpSync, ms });
 }
 
 export const GET = handle;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
@@ -463,7 +464,20 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                 return (
                   <div key={a.id} style={{ fontSize: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ color: "var(--color-ink-2)", fontWeight: 600, minWidth: 0, flex: 1 }}>{a.job_title || a.job_no || "案件"}</span>
+                      {/* 案件名は詳細ページ(/jobs/[job_no])へのリンク。job_no が無い場合はテキスト。 */}
+                      {a.job_no ? (
+                        <Link href={`/jobs/${a.job_no}`} target="_blank" rel="noopener noreferrer" title="案件詳細を開く"
+                          style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 600, minWidth: 0, flex: 1, textDecoration: "none" }}>
+                          {a.job_title || `No.${a.job_no}`}
+                          <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 400, marginLeft: 6 }}>No.{a.job_no}</span>
+                        </Link>
+                      ) : (
+                        <span style={{ color: "var(--color-ink-2)", fontWeight: 600, minWidth: 0, flex: 1 }}>{a.job_title || "案件"}</span>
+                      )}
+                      {a.source_mail_url && (
+                        <a href={a.source_mail_url} target="_blank" rel="noopener noreferrer" title="案件の元メール（Gmail）を開く"
+                          style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, textDecoration: "none" }}>↗ 元メール</a>
+                      )}
                       <button type="button" onClick={() => openIntroMail(detail, a.job_title || a.job_no || "ご案件")} title="案件側へ人材紹介メールをGmailで作成" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, cursor: "pointer" }}>📧 紹介メール</button>
                       <span className="muted" style={{ fontSize: 10.5 }}>{fmtDate(a.created_at)}</span>
                     </div>
