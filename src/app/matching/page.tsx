@@ -17,7 +17,6 @@ import { ConfirmJobButton } from "@/components/ConfirmJobButton";
 import { FlowSteps } from "@/components/FlowSteps";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { MatchingModeTabs } from "@/components/MatchingModeTabs";
-import { Ranking100View } from "@/components/Ranking100View";
 import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
@@ -270,8 +269,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let job: any = null;
   let ranked: any[] = [];
   // 自動マッチング上位（おすすめの組み合わせ TOP10）
-  let autoTop: { rows: any[]; jobsScanned: number; candsScanned: number; pairsHit: number } = { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
-
   // 注力(ウォッチリスト)モード用
   let focusJobs: any[] = [];   // ♥お気に入り（手動・is_focus）
   let focusCands: any[] = [];
@@ -411,11 +408,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
-        // 上部に「おすすめの組み合わせ TOP10」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
-        try {
-          const { getAutoMatchTop } = await import("@/lib/ranking100");
-          autoTop = await getAutoMatchTop();
-        } catch { /* ランキング取得失敗時はセクション非表示で続行 */ }
         // 削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合させる）。
         const buildList = (cols: string, safe = true) => {
           let q: any = sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}");
@@ -806,18 +798,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {opennessBanner}
 
-      {/* おすすめの組み合わせ TOP10（高マッチ率 × 新しい案件 × 新しい人材・人材/案件の重複なし）。
-          案件側から1件ずつ探す従来動線に代えて、全体最適の組み合わせを自動提示する。 */}
-      {autoTop.rows.length > 0 && (
-        <Ranking100View
-          rows={autoTop.rows}
-          meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
-          title="🔥 おすすめの組み合わせ TOP10"
-          subtitle={<>高マッチ率 × 新しい案件 × 新しい人材を重み付けした<b>案件×人材の組み合わせ</b>を自動表示（同じ人材・同じ案件は重複しません）。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
-        />
-      )}
-
-      {/* 以下は案件を1件選んで候補を見る従来ツール（ドリルダウン用）。 */}
+      {/* 以下は案件を1件選んで候補を見る従来ツール（ドリルダウン用）。
+          ※「おすすめの組み合わせ TOP10」は別タブ（ランキング100）に集約したため、自動マッチング画面では非表示。 */}
       {selectedJobWarning(job)}
 
       {job && (
@@ -888,9 +870,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, CAND_NAT_LABEL[classifyCandNationality(c.nationality)], c.affiliation, remoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, remoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
                         <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
+                          <span>国籍 <b style={{ color: "var(--color-ink)" }}>{CAND_NAT_LABEL[classifyCandNationality(c.nationality)]}</b></span>
                           {c.exp != null && String(c.exp).trim() !== "" && <span>経験年数 <b style={{ color: "var(--color-ink)" }}>{/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp}</b></span>}
                         </div>
                       </div>
