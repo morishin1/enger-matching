@@ -368,6 +368,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                     <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{p.candidate_name ?? "—"}</div>
+                      {p.lp_direct && <span title="LP（enger.jp）からの直接応募" style={{ display: "inline-block", marginTop: 2, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>📥 LP直接応募</span>}
                     </div>
                   </div>
                 </td>

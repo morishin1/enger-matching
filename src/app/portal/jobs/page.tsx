@@ -22,7 +22,7 @@ export default async function PortalJobsPage() {
     try {
       const sb = engerClient();
       const like = `%${companyName}%`;
-      const cols = "job_no, title, role_label, salary_min, salary_max, remote_type, status, skills, contract_types, review_status, is_published, posted_by_client";
+      const cols = "id, job_no, title, role_label, salary_min, salary_max, remote_type, status, skills, contract_types, review_status, is_published, posted_by_client";
       const [jr, pr] = await Promise.all([
         // 公開中の自社案件 + 自社が掲載した案件（審査中/却下含む）
         sb.from("jobs").select(cols)
@@ -32,10 +32,21 @@ export default async function PortalJobsPage() {
         sb.from("proposals").select("job_title, stage").ilike("company", like).limit(500),
       ]);
       const props = pr.data ?? [];
-      jobs = (jr.data ?? []).map((j: any) => {
+      const jobRows = (jr.data ?? []) as any[];
+      // 各案件への応募（LP「応募する」経由 = enger.applications）を job_id で集計。
+      //   企業ポータルでも案件カードに「応募 N人」を出し、選考管理へ誘導する。
+      const jobIds = jobRows.map((j) => j.id).filter(Boolean);
+      const appCount = new Map<string, number>();
+      if (jobIds.length) {
+        try {
+          const ar: any = await sb.from("applications").select("job_id").in("job_id", jobIds).limit(2000);
+          for (const a of (ar.data ?? [])) { const k = String(a.job_id); appCount.set(k, (appCount.get(k) ?? 0) + 1); }
+        } catch { /* applications 未整備でも案件一覧は出す */ }
+      }
+      jobs = jobRows.map((j: any) => {
         const mine = props.filter((p: any) => (p.job_title ?? "") === (j.title ?? ""));
         const active = mine.filter((p: any) => p.stage !== "見送り" && p.stage !== "失注");
-        return { ...j, proposalCount: mine.length, activeCount: active.length } as PortalJob;
+        return { ...j, proposalCount: mine.length, activeCount: active.length, applicantCount: appCount.get(String(j.id)) ?? 0 } as PortalJob;
       });
     } catch {
       note = "データの取得に失敗しました。時間をおいて再度お試しください。";
