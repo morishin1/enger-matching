@@ -77,7 +77,9 @@ export type SendInput = {
   fromNameOverride?: string | null; // 差出人表示名の上書き（未指定なら env 既定 or アドレス）
 };
 
-export type SendResult = { ok: true; messageId: string; from: string } | { ok: false; error: string };
+export type SendResult =
+  | { ok: true; messageId: string; from: string; response?: string | null; accepted?: string[]; rejected?: string[] }
+  | { ok: false; error: string };
 
 /** 送信元アドレスからドメインを取り出す（EHLO名に使う）。 */
 function domainOf(addr: string): string {
@@ -115,7 +117,7 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
   const displayName = (input.fromNameOverride?.trim()) || cfg.fromName;
   const from = `${displayName} <${cfg.user}>`;
   try {
-    const info = await transporter.sendMail({
+    const info: any = await transporter.sendMail({
       from,
       to: input.to.trim(),
       cc: input.cc?.trim() || undefined,
@@ -125,9 +127,20 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
       text: input.text,
       html: input.html || undefined,
     });
-    return { ok: true, messageId: info.messageId, from };
+    // 診断ログ：nodemailer の SMTP 応答（response / accepted / rejected）を残す。
+    //   「アプリ上は送信成功だが受信者に届かない」事象（Gmail Workspace 側の post-SMTP
+    //   silent drop 等）を追跡できるよう、per-recipient の状態を必ず記録。
+    const accepted = Array.isArray(info?.accepted) ? info.accepted.map((a: any) => String(a)) : [];
+    const rejected = Array.isArray(info?.rejected) ? info.rejected.map((a: any) => String(a)) : [];
+    const response: string | null = typeof info?.response === "string" ? info.response : null;
+    try {
+      console.log(`[mailer] sent sender=${input.sender} to=${input.to} cc=${input.cc ?? ""} bcc=${input.bcc ?? ""} messageId=${info?.messageId ?? ""} accepted=${accepted.join(",")} rejected=${rejected.join(",")} response=${response ?? ""}`);
+    } catch { /* logging失敗で送信成功を覆さない */ }
+    return { ok: true, messageId: info?.messageId, from, response, accepted, rejected };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    try { console.warn(`[mailer] send failed sender=${input.sender} to=${input.to} error=${msg}`); } catch { /* noop */ }
+    return { ok: false, error: msg };
   }
 }
 

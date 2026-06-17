@@ -70,7 +70,7 @@ type SideState = {
   subject: string;
 };
 
-type SideResult = { ok: boolean; text: string } | null;
+type SideResult = { ok: boolean; text: string; messageId?: string | null } | null;
 
 function SendBothModal({ jobSide, candSide, onClose, onSent }: {
   jobSide: MailSide; candSide: MailSide;
@@ -143,8 +143,8 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
         jobRes?.ok ? Promise.resolve(skip) : jobMissing ? Promise.resolve(null) : sendOne(jobSide, job),
         candRes?.ok ? Promise.resolve(skip) : candMissing ? Promise.resolve(null) : sendOne(candSide, cand),
       ]);
-      if (jr) setJobRes(jr.ok ? { ok: true, text: "✓ 送信しました" } : { ok: false, text: jr.error || "送信に失敗しました" });
-      if (cr) setCandRes(cr.ok ? { ok: true, text: "✓ 送信しました" } : { ok: false, text: cr.error || "送信に失敗しました" });
+      if (jr) setJobRes(jr.ok ? { ok: true, text: "✓ 送信しました", messageId: (jr as any).messageId ?? null } : { ok: false, text: jr.error || "送信に失敗しました" });
+      if (cr) setCandRes(cr.ok ? { ok: true, text: "✓ 送信しました", messageId: (cr as any).messageId ?? null } : { ok: false, text: cr.error || "送信に失敗しました" });
       // 宛先のある側がすべて成功したら完了扱い（宛先の無い側は対象外）。
       const jobDone = jobMissing || (jr?.ok ?? jobRes?.ok ?? false);
       const candDone = candMissing || (cr?.ok ?? candRes?.ok ?? false);
@@ -173,7 +173,19 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-soft)" }}>
         <div style={{ width: 11, height: 11, borderRadius: "50%", background: side.dotColor, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ink)" }}>{side.label}</span>
-        {res?.ok && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#067647", fontWeight: 700 }}>✓ 送信済み</span>}
+        {res?.ok && (
+          <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11.5, color: "#067647", fontWeight: 700 }}>✓ 送信済み</span>
+            {res.messageId && (
+              <button type="button"
+                onClick={() => { try { void navigator.clipboard.writeText(String(res.messageId)); } catch { /* noop */ } }}
+                title={`Message-ID: ${res.messageId}\nクリックでコピー。Workspace 管理コンソールのメールログ検索に貼って配送状態を確認できます。`}
+                style={{ fontSize: 10.5, padding: "2px 8px", borderRadius: 99, border: "1px solid #bfe3cc", background: "#e7f7ee", color: "#067647", fontWeight: 700, cursor: "pointer" }}>
+                📋 ID コピー
+              </button>
+            )}
+          </span>
+        )}
       </div>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
         <label style={lbl}>差出人

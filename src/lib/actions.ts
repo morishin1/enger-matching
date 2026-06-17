@@ -3285,16 +3285,30 @@ export async function sendMailAction(input: {
   });
   if (!res.ok) return { ok: false, error: res.error };
 
-  // 送信ログを残す（列未整備でも送信自体は成功扱い）
+  // 送信ログを残す（列未整備でも送信自体は成功扱い）。
+  //   SMTP 応答（accepted/rejected/response）も記録して、「アプリは送信成功だが受信者に届かない」
+  //   事象（Workspace 側 silent drop 等）を後から追跡できるようにする。
+  const smtpResponse = (res as any).response ?? null;
+  const smtpAccepted = Array.isArray((res as any).accepted) ? (res as any).accepted.join(", ") : null;
+  const smtpRejected = Array.isArray((res as any).rejected) ? (res as any).rejected.join(", ") : null;
   try {
     const admin = engerAdmin();
-    await admin.from("mail_sent").insert({
+    const baseRow: Record<string, any> = {
       sender_key: input.sender, from_address: res.from, to_address: input.to,
       cc_address: mergedCc || null, bcc_address: mergedBcc || null,
       subject: input.subject, body: input.text, message_id: res.messageId,
       sent_by_email: access?.email ?? null, sent_by_name: access?.name ?? null,
       related_kind: input.relatedKind || null, related_id: input.relatedId || null,
-    });
+      smtp_response: smtpResponse,
+      smtp_accepted: smtpAccepted,
+      smtp_rejected: smtpRejected,
+    };
+    let ir: any = await admin.from("mail_sent").insert(baseRow);
+    if (ir.error && /smtp_response|smtp_accepted|smtp_rejected|column/i.test(ir.error.message ?? "")) {
+      // smtp_* 列が未マイグレ環境向けフォールバック
+      const { smtp_response: _r, smtp_accepted: _a, smtp_rejected: _j, ...legacy } = baseRow;
+      ir = await admin.from("mail_sent").insert(legacy);
+    }
   } catch { /* ログ失敗は無視 */ }
   return { ok: true, messageId: res.messageId };
 }
