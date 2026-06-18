@@ -96,12 +96,11 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
             )}
             {n != null && n > 0 && (
               <span
-                className="material-symbols-outlined"
-                title={`直近7日の新着 ${n} 件`}
+                title={`24時間以内の新着 ${n} 件`}
                 aria-label={`新着 ${n} 件`}
-                style={{ fontSize: 18, lineHeight: 1, color: "var(--color-danger, #dc2626)", fontVariationSettings: "'FILL' 1" }}
+                style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em", fontWeight: 800, borderRadius: 99, background: "var(--color-danger, #dc2626)", color: "#fff", lineHeight: 1.4 }}
               >
-                fiber_new
+                NEW
               </span>
             )}
           </Link>
