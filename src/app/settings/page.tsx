@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AccountManager } from "@/components/AccountManager";
+import { redirect } from "next/navigation";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { MatchWindowEditor } from "@/components/MatchWindowEditor";
@@ -11,7 +11,6 @@ import { loadMenuPermissions } from "@/lib/menu-permissions";
 import { loadReportScopes } from "@/lib/report-scope";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
-import { listAccounts } from "@/lib/accounts";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -21,11 +20,11 @@ export const dynamic = "force-dynamic";
 const yen = (usd: number) => `¥${Math.round(usd * YEN_PER_USD).toLocaleString("ja-JP")}`;
 
 // 設定タブの定義。URL ?tab=... で切替。
+//   ※「アカウント・権限」は /settings/approvals（ユーザー管理）に統合・廃止済（重複入口の解消）。
 const TABS = [
   { key: "ai",        label: "AI使用量",          icon: "smart_toy",       desc: "各AIの呼び出し回数と概算コスト" },
   { key: "focus",     label: "マッチング設定",    icon: "target",          desc: "マッチング対象期間・「注力」の閾値" },
   { key: "quality",   label: "品質ルール",        icon: "rule",            desc: "提案の自動失格・警告ルール" },
-  { key: "accounts",  label: "アカウント・権限",  icon: "manage_accounts", desc: "メンバーの権限・部署・職能" },
   { key: "menus",     label: "メニュー権限",      icon: "lock",            desc: "役職別にサイドバーの表示メニューを設定" },
 ] as const;
 type TabKey = typeof TABS[number]["key"];
@@ -43,6 +42,8 @@ async function getQuality(): Promise<{ rules: Rule[]; available: boolean; ngCoun
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const sp = await searchParams;
+  // 旧「アカウント・権限」タブは /settings/approvals に統合済。直リンクから遷移。
+  if (sp.tab === "accounts") redirect("/settings/approvals");
   const tab: TabKey = (TABS.find((t) => t.key === sp.tab)?.key ?? "ai") as TabKey;
 
   // アクティブタブだけ取得（縦量だけでなく無駄な往復も削減）
@@ -50,7 +51,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const focusCriteria = tab === "focus" ? await loadFocusCriteria() : null;
   const matchWindow = tab === "focus" ? await loadMatchWindow() : null;
   const quality = tab === "quality" ? await getQuality() : null;
-  const accounts = tab === "accounts" ? await listAccounts() : null;
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
   const reportScopes = tab === "menus" ? await loadReportScopes() : null;
   const proposalOwnersData = tab === "menus" ? await Promise.all([loadProposalOwners(), getStaff()]).then(([po, staff]) => ({ initial: po ?? { proposers: staff.members, closers: staff.members }, suggestions: staff.members })) : null;
@@ -66,7 +66,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Settings · 設定</div>
           <h1>設定</h1>
-          <div className="sub">アカウント・権限、注力の定義、品質ルール、AI使用量を管理します。提案者・クロージング担当の選択肢は「アカウント・権限管理」の社内メンバー（管理者・エージェント）から自動で作られます。</div>
+          <div className="sub">注力の定義、品質ルール、AI使用量、メニュー権限などを管理します。アカウントの承認・権限・部署・職能の設定は <Link href="/settings/approvals" style={{ color: "var(--color-brand-700)", fontWeight: 700 }}>ユーザー管理</Link> へ。</div>
         </div>
       </div>
 
@@ -75,7 +75,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <span style={{ fontSize: 12.5, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="explore" /> 主要設定：</span>
         <Link href="/settings/team-kgi" className="btn ghost btn-xs" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="flag" /> チームKGI設定</Link>
         <Link href="/settings/person-kgi" className="btn ghost btn-xs" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="sports_score" /> 個人KGI設定</Link>
-        <Link href="/settings/approvals" className="btn ghost btn-xs" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="how_to_reg" /> アカウント承認</Link>
+        <Link href="/settings/approvals" className="btn ghost btn-xs" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="manage_accounts" /> ユーザー管理</Link>
       </div>
 
       {/* タブナビ（URLベース） */}
@@ -158,10 +158,6 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       {tab === "quality" && quality && (
         <div id="quality"><QualityRules rules={quality.rules} available={quality.available} ngCount={quality.ngCount} /></div>
-      )}
-
-      {tab === "accounts" && accounts && (
-        <div id="accounts"><AccountManager accounts={accounts} /></div>
       )}
 
       {tab === "menus" && menuPerms && reportScopes && proposalOwnersData && (
