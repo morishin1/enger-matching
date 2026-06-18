@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
-import { AffiliationSelect } from "./AffiliationSelect";
 import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
@@ -135,7 +134,7 @@ const PEOPLE_COLS: Col[] = [
   { key: "salary", label: "単価", width: 110, num: true, render: (p) => <span style={{ fontWeight: 600 }}>{p.rate ?? "—"}</span> },
   // スキルシートは独立カラムを廃止し、アクション列のシートアイコンに集約（フィルタは維持）。
   { key: "skill_sheet", label: "スキルシート", filterOnly: true, filterKey: "skill_sheet", filterLabel: "スキルシート" },
-  { key: "affiliation", label: "所属区分", width: 130, filterKey: "affiliation", filterLabel: "所属区分", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
+  { key: "affiliation", label: "所属区分", width: 130, filterKey: "affiliation", filterLabel: "所属区分", render: (p) => <span style={{ fontSize: 12, color: p.affiliation ? "var(--color-ink)" : "var(--color-ink-4)" }}>{p.affiliation || "—"}</span> },
   // 国籍・年代を一覧に常時表示（プロフィールを開かなくても判断できるように）
   { key: "nationality", label: "国籍", width: 100, filterKey: "nationality", filterLabel: "国籍",
     render: (p) => {
