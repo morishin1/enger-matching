@@ -55,7 +55,12 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
 
   const cur = TABS.find((t) => t.key === tab)!;
   // ステータス絞り込み（承認待ち / 承認済み / すべて）。役割タブ内のサブタブ。
-  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "all">("pending");
+  //   既定：そのタブに「承認待ち」があれば承認待ち／無ければ承認済み。
+  //   営業・管理者タブは大半が承認済みのため、既定が「承認待ち」固定だと「いなくなった」ように見える事故が起きていた。
+  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "all">(() => {
+    const initialRole: Role = "candidate";
+    return accounts.some((a) => a.role === initialRole && a.status === "pending") ? "pending" : "approved";
+  });
   const inRole = accounts.filter((a) => a.role === cur.role);
   const rolePending = inRole.filter((a) => a.status === "pending").length;
   const roleApproved = inRole.filter((a) => a.status !== "pending").length;
@@ -117,8 +122,13 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     setSelected(next);
   };
 
-  // タブ切替時に選択をリセット
-  const setTabSafe = (k: TabKey) => { setSelected(new Set()); setStatusFilter("pending"); setTab(k); };
+  // タブ切替時に選択をリセット＋既定サブタブを自動判定（承認待ちがあれば承認待ち／なければ承認済み）。
+  const setTabSafe = (k: TabKey) => {
+    setSelected(new Set());
+    const pc = pendingCount[k] ?? 0;
+    setStatusFilter(pc > 0 ? "pending" : "approved");
+    setTab(k);
+  };
 
   const performBulkDelete = async () => {
     if (selected.size === 0) return;
@@ -319,7 +329,24 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
       {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
 
       {rows.length === 0 ? (
-        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30, fontSize: 13 }}>{cur.label}の登録はまだありません。</div>
+        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30, fontSize: 13 }}>
+          {/* フィルタで隠れているだけなら、別フィルタへの導線を出す（"いなくなった"誤解の防止）。 */}
+          {statusFilter === "pending" && roleApproved > 0 ? (
+            <>承認待ちはありません。
+              <button type="button" onClick={() => setStatusFilter("approved")} style={{ marginLeft: 8, fontSize: 12.5, color: "var(--color-brand-700)", background: "transparent", border: 0, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit" }}>
+                承認済み {roleApproved} 件を表示
+              </button>
+            </>
+          ) : statusFilter === "approved" && rolePending > 0 ? (
+            <>承認済みはありません。
+              <button type="button" onClick={() => setStatusFilter("pending")} style={{ marginLeft: 8, fontSize: 12.5, color: "var(--color-brand-700)", background: "transparent", border: 0, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit" }}>
+                承認待ち {rolePending} 件を表示
+              </button>
+            </>
+          ) : (
+            <>{cur.label}の登録はまだありません。</>
+          )}
+        </div>
       ) : (
         <div className="card flush">
           <div className="tbl-scroll" style={{ overflowX: "auto" }}>
