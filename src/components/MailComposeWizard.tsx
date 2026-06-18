@@ -232,6 +232,12 @@ export function MailComposeWizard({
   }));
   const [clientErrors, setClientErrors] = useState<MailErrors>({});
   const [candErrors, setCandErrors] = useState<MailErrors>({});
+  // 1メールに複数案件が記載されている場合の「提案する案件」選択。
+  //   案件側マッチングは元メール全文(detail)で判定するため当たるが、提案文の【案件名】は
+  //   1案件目固定だった。ここで元メールを案件分割し、人材スキルに最も合う案件を既定選択＋切替可にする。
+  const [subJobs, setSubJobs] = useState<{ title: string; skills: string[] }[]>([]);
+  const [subJobIdx, setSubJobIdx] = useState<number>(0);
+  const [subJobLoading, setSubJobLoading] = useState(false);
   const [initialized, setInitialized] = useState(true); // 初期値で済んでいるので true で開始
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(initialSaved && !rejected);
@@ -345,6 +351,63 @@ export function MailComposeWizard({
     setClientErrors((prev) => ({ ...prev, [field]: undefined }));
   };
 
+  // 本文中の「【案件名】：…」行を、選択した案件名に差し替える（本文の他の編集は保持）。
+  const applyFeaturedJobTitle = (title: string) => {
+    const t = String(title ?? "").trim();
+    if (!t) return;
+    setClientForm((prev) => {
+      const line = `【案件名】：　${t}`;
+      const body = /【案件名】[：:].*/.test(prev.body)
+        ? prev.body.replace(/【案件名】[：:].*/, line)
+        : prev.body;
+      return { ...prev, body };
+    });
+  };
+
+  // 1メールに複数案件があるか判定 → 分割 → 人材スキルに最も合う案件を既定選択。
+  useEffect(() => {
+    const detail = String(job?.detail ?? job?.description ?? "");
+    if (!detail) return;
+    // 軽量ゲート：複数案件っぽい時だけ AI 分割を呼ぶ（単一案件で無駄に課金しない）。
+    const multiHint =
+      /案件\s*[②-⑨2-9]/.test(detail) ||
+      (detail.match(/【\s*案件名/g)?.length ?? 0) >= 2 ||
+      (detail.match(/■\s*案件/g)?.length ?? 0) >= 2 ||
+      /[2-9]\s*件|複数案件/.test(String(job?.title ?? ""));
+    if (!multiHint) return;
+    let cancelled = false;
+    setSubJobLoading(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/extract-bulk", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: detail, kind: "jobs" }),
+        });
+        const data = await res.json();
+        if (cancelled || !data.ok) return;
+        const recs: any[] = Array.isArray(data.records) ? data.records : [];
+        const jobs = recs
+          .map((r) => ({ title: String(r.title ?? "").trim(), skills: Array.isArray(r.skills) ? r.skills.map((s: any) => String(s ?? "").trim()).filter(Boolean) : [] }))
+          .filter((j) => j.title);
+        if (jobs.length < 2) return; // 1件なら従来どおり
+        // 人材スキルとの一致数が最大の案件を既定に。
+        const norm = (s: string) => s.toLowerCase().replace(/[\s.・\-_／/]/g, "");
+        const candSet = new Set((Array.isArray(cand?.skills) ? cand.skills : []).map((s: any) => norm(String(s ?? ""))));
+        const score = (sk: string[]) => sk.reduce((n, s) => n + (candSet.has(norm(s)) ? 1 : 0), 0);
+        let bestIdx = 0, bestScore = -1;
+        jobs.forEach((j, i) => { const sc = score(j.skills); if (sc > bestScore) { bestScore = sc; bestIdx = i; } });
+        setSubJobs(jobs);
+        setSubJobIdx(bestIdx);
+        // 既定案件を本文に反映（1案件目固定だった【案件名】を、合う案件に直す）。
+        applyFeaturedJobTitle(jobs[bestIdx].title);
+      } catch { /* 分割失敗時は従来どおり単一案件で続行 */ }
+      finally { if (!cancelled) setSubJobLoading(false); }
+    })();
+    return () => { cancelled = true; };
+    // job/cand はマウント時固定。初回のみ実行。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const updateCandForm = (field: keyof MailForm, v: string) => {
     setCandForm((prev) => ({ ...prev, [field]: v }));
     setCandErrors((prev) => ({ ...prev, [field]: undefined }));
@@ -452,6 +515,28 @@ export function MailComposeWizard({
 
       {step === 1 && (
         <>
+          {(subJobLoading || subJobs.length >= 2) && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 14px", marginBottom: 12, border: "1px solid var(--color-brand-200, #cfe1f7)", background: "var(--color-brand-25, #f0f6ff)", borderRadius: 10 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-brand-700, #0b5cab)" }}>📑 この元メールには複数案件があります</span>
+              {subJobLoading ? (
+                <span className="muted" style={{ fontSize: 12 }}>案件を分割中…</span>
+              ) : (
+                <>
+                  <label style={{ fontSize: 12, color: "var(--color-ink-3)", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    提案する案件
+                    <select value={subJobIdx}
+                      onChange={(e) => { const i = Number(e.target.value); setSubJobIdx(i); applyFeaturedJobTitle(subJobs[i]?.title ?? ""); }}
+                      style={{ fontSize: 12.5, padding: "5px 10px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", maxWidth: 420 }}>
+                      {subJobs.map((j, i) => (
+                        <option key={i} value={i}>{`${i + 1}. ${j.title}`}{j.skills.length ? `（${j.skills.slice(0, 4).join("・")}）` : ""}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="muted" style={{ fontSize: 11 }}>※ 人材スキルに最も合う案件を既定で選択。本文の【案件名】に反映されます。</span>
+                </>
+              )}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
             <JobMailBodyCard
               form={clientForm}
