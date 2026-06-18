@@ -111,6 +111,7 @@ export type CandidateInput = {
   email?: string | null;          // 人材本人の連絡先（あれば）
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
+  source_mail_subject?: string | null; // 元メール件名（メール送信時の Re: 件名生成・返信スレッド統合に利用）
   operator?: string | null;        // 登録担当（KPI集計用・新規登録時のみ記録）
 };
 
@@ -2237,6 +2238,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
     source_mail_url: rec.source_mail_url?.trim() || null,
+    source_mail_subject: rec.source_mail_subject?.trim() || null,
     operator: rec.operator?.trim() || null,
     owner_company: ownerCompany,
     score: 0,
@@ -2244,7 +2246,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -2269,7 +2271,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
       update[k] = v;
     }
     let r: any = await admin.from("candidates").update(update).eq("id", id);
-    if (r.error && /skill_sheet_url|email|source_mail_url|owner_company|column/i.test(r.error.message)) {
+    if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|owner_company|column/i.test(r.error.message)) {
       r = await admin.from("candidates").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
@@ -2287,7 +2289,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
   if (exRow?.id) return updateExisting(exRow.id, exRow.candidate_no);
 
   let r: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
-  if (r.error && /skill_sheet_url|email|source_mail_url|owner_company|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|owner_company|column/i.test(r.error.message)) {
     r = await admin.from("candidates").insert(stripCols(row)).select("candidate_no").maybeSingle();
   }
   // 一意制約に当たった場合は既存人材の更新へフォールバック（重複エラーにしない）
@@ -2855,6 +2857,8 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
     contact_email: row.from_email ?? null,
     // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
     source_mail_url: gmailMessageUrl(row.gmail_message_id),
+    // 元メールの件名スナップショット。送信時に「Re: <元件名>」として返信スレッドに乗せる。
+    source_mail_subject: row.subject ?? null,
   };
   const res = await upsertCandidateManual(input, { updatePolicy: opts?.updatePolicy });
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "人材作成に失敗しました" };

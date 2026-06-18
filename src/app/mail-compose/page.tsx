@@ -24,16 +24,31 @@ export default async function MailComposePage({
     "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, contact_email, contact_name, source_mail_url, work_location, start_date";
   // contact_name は candidates テーブルには存在せず attachCompanyContact で動的付与されるため除外
   const CAND =
-    "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, note, source_mail_url, email, contact_email, skill_sheet_url";
+    "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, note, source_mail_url, source_mail_subject, email, contact_email, skill_sheet_url";
 
   // JOB は fallback 付き（contact_name / source_mail_url が無い古いスキーマに対応）
   let jr: any = await sb.from("jobs").select(JOB).eq("job_no", jobNo).maybeSingle();
   if (jr.error) jr = await sb.from("jobs").select("id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, contact_email, contact_name, work_location, start_date").eq("job_no", jobNo).maybeSingle();
 
   let cr: any = await sb.from("candidates").select(CAND).eq("candidate_no", candNo).maybeSingle();
+  // source_mail_subject 列が未マイグレ環境向けの中間フォールバック
+  if (cr.error) cr = await sb.from("candidates").select("id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, note, source_mail_url, email, contact_email, skill_sheet_url").eq("candidate_no", candNo).maybeSingle();
   if (cr.error) cr = await sb.from("candidates").select("id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, email, contact_email").eq("candidate_no", candNo).maybeSingle();
 
   if (!jr.data || !cr.data) return notFound();
+
+  // source_mail_subject が未保存の人材（古い取込）向けに、source_mail_url から
+  // inbox_emails.subject を取り直してメモリ上で補完する（DBは更新しない・読み取りのみ）。
+  try {
+    if (cr.data && !cr.data.source_mail_subject && typeof cr.data.source_mail_url === "string") {
+      const m = cr.data.source_mail_url.match(/[/#]([A-Za-z0-9]{16,})(?:[/?]|$)/);
+      const gmailId = m?.[1] ?? null;
+      if (gmailId) {
+        const ix: any = await sb.from("inbox_emails").select("subject").eq("gmail_message_id", gmailId).maybeSingle();
+        if (ix?.data?.subject) (cr.data as any).source_mail_subject = ix.data.subject;
+      }
+    }
+  } catch { /* inbox_emails 参照失敗時は固定件名にフォールバック */ }
 
   // 案件先担当者を CC へ自動反映するため、企業マスタの窓口メールを案件に付与する
   //   （案件の contact_email＝案件窓口 と併せて CC に入れ、案件確認の認識ズレを防ぐ）。
