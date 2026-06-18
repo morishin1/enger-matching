@@ -182,6 +182,26 @@ export async function deleteEngineerAction(id: string): Promise<Result> {
   return { ok: true };
 }
 
+/** LP登録者（public.profiles）を複数まとめて削除（admin / agent）。
+ *  削除対象は profiles のみに限定（app_users 等の内部アカウントは触らない＝権限昇格防止）。
+ *  ※ OAuth(GitHub/Google)の auth ユーザーは残るため、本人が再ログインすると LP 側で再生成される
+ *    可能性がある。一覧からの除去（重複アプローチ防止・整理）が目的。 */
+export async function bulkDeleteEngineers(ids: string[]): Promise<{ ok: boolean; deleted?: number; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const clean = Array.from(new Set((ids ?? []).map((s) => String(s ?? "").trim()).filter(Boolean)));
+  if (clean.length === 0) return { ok: false, error: "削除対象がありません" };
+  try {
+    const pub = publicAdmin();
+    const r: any = await pub.from("profiles").delete().in("id", clean).select("id");
+    if (r.error) return { ok: false, error: r.error.message };
+    revalidatePath("/engineers");
+    return { ok: true, deleted: Array.isArray(r.data) ? r.data.length : clean.length };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /**
  * サイト経由登録のエンジニア(public.profiles)を、enger.candidates に「候補者」として
  * 取り込み、マッチング画面でそのまま使えるようにする。

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate, bulkDeleteEngineers } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 import { StageBar } from "./StageBar";
 import { Icons } from "./icons";
@@ -135,6 +135,11 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
   const [detail, setDetail] = useState<Engineer | null>(null);
   const [matchingBusy, setMatchingBusy] = useState<string | null>(null);
   const [matchingMsg, setMatchingMsg] = useState<string | null>(null);
+  // 一括削除用の選択状態
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const goMatching = (e: Engineer) => {
     setMatchingBusy(e.id); setMatchingMsg(null);
     convertEngineerToCandidate(e.id).then((res) => {
@@ -179,6 +184,28 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  // 表示中（このページ）の全選択トグル
+  const visibleIds = pageRows.map((e) => e.id);
+  const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someChecked = visibleIds.some((id) => selected.has(id));
+  const toggleAll = () => setSelected((s) => {
+    const n = new Set(s);
+    if (allChecked) for (const id of visibleIds) n.delete(id);
+    else for (const id of visibleIds) n.add(id);
+    return n;
+  });
+  const performBulkDelete = () => {
+    if (selected.size === 0) return;
+    setBulkBusy(true); setMatchingMsg(null);
+    const ids = [...selected];
+    bulkDeleteEngineers(ids).then((res) => {
+      setBulkBusy(false); setConfirmDel(false);
+      if (!res.ok) { setMatchingMsg(res.error || "削除に失敗しました"); return; }
+      setSelected(new Set());
+      setMatchingMsg(`✓ ${res.deleted ?? ids.length} 名を削除しました`);
+      router.refresh();
+    });
+  };
   const buildPages = (cur1: number, count: number) => {
     const win = [1, 2, cur1 - 1, cur1, cur1 + 1, count - 1, count].filter((n) => n >= 1 && n <= count);
     const uniq = [...new Set(win)].sort((a, b) => a - b);
@@ -231,6 +258,11 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
           <table className="tbl tbl-compact">
             <thead>
               <tr>
+                <th style={{ width: 34, textAlign: "center" }}>
+                  <input type="checkbox" aria-label="表示中をすべて選択" checked={allChecked}
+                    ref={(el) => { if (el) el.indeterminate = !allChecked && someChecked; }}
+                    onChange={toggleAll} style={{ accentColor: "var(--color-brand-600)" }} />
+                </th>
                 <th style={{ width: 96 }}>人材ID</th>
                 <th style={{ width: 104 }}>ステータス</th>
                 <th>氏名</th>
@@ -248,7 +280,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={13} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+                <tr><td colSpan={14} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
               ) : pageRows.map((e) => {
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
@@ -258,7 +290,13 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 return (
                   <tr key={e.id} className="clickable"
                     onClick={(ev) => { if ((ev.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setDetail(e); }}
-                    title="クリックで詳細">
+                    title="クリックで詳細"
+                    style={selected.has(e.id) ? { background: "var(--color-brand-25, #f0f6ff)" } : undefined}>
+                    <td style={{ textAlign: "center" }}>
+                      <input type="checkbox" aria-label={`${e.display_name || e.github_login || e.name || e.id} を選択`}
+                        checked={selected.has(e.id)} onChange={() => toggleOne(e.id)}
+                        style={{ accentColor: "var(--color-brand-600)" }} />
+                    </td>
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>{shortId(e.id)}</span></td>
                     <td><Fresh d={e.created_at} /></td>
                     <td>
@@ -320,6 +358,41 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
             </tbody>
           </table>
         </div>
+
+        {/* 一括操作バー（1件以上選択で出現）。LP登録者の整理・重複除去用。 */}
+        {selected.size > 0 && (
+          <div role="region" aria-label="一括操作"
+            style={{ position: "sticky", bottom: 0, zIndex: 40, marginTop: 6, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+              padding: "10px 14px", borderRadius: 12, background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", boxShadow: "0 -8px 24px rgba(15,23,42,.12)" }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{selected.size} 名選択中</span>
+            <button type="button" className="btn ghost btn-xs" onClick={() => setSelected(new Set())} disabled={bulkBusy}>選択解除</button>
+            <button type="button" onClick={() => setConfirmDel(true)} disabled={bulkBusy}
+              style={{ marginLeft: "auto", padding: "7px 16px", borderRadius: 8, border: "1px solid #f7c5cf", background: "#fdecef", color: "#b42318", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              🗑 選択した {selected.size} 名を削除
+            </button>
+          </div>
+        )}
+
+        {/* 削除確認モーダル */}
+        {confirmDel && (
+          <div onClick={() => !bulkBusy && setConfirmDel(false)} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(15,36,64,.5)", display: "grid", placeItems: "center", padding: 20 }}>
+            <div onClick={(ev) => ev.stopPropagation()} className="card" style={{ width: "min(440px, 96vw)", padding: 20 }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 800 }}>{selected.size} 名のLP登録者を削除します</h3>
+              <p style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7, margin: "0 0 14px" }}>
+                この操作は取り消せません。LP登録（public.profiles）から該当行を削除します。
+                <br />※ 取込済みの候補者（人材一覧）データは削除されません。
+              </p>
+              {matchingMsg && <div style={{ fontSize: 12, color: "var(--color-danger)", marginBottom: 10 }}>{matchingMsg}</div>}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button type="button" className="btn ghost btn-xs" onClick={() => setConfirmDel(false)} disabled={bulkBusy}>キャンセル</button>
+                <button type="button" onClick={performBulkDelete} disabled={bulkBusy}
+                  style={{ padding: "7px 16px", borderRadius: 8, border: 0, background: "#b42318", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", opacity: bulkBusy ? 0.6 : 1 }}>
+                  {bulkBusy ? "削除中…" : "削除する"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="tbl-foot muted" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
           <span style={{ whiteSpace: "nowrap" }}>{filtered.length.toLocaleString("ja-JP")} 名</span>
