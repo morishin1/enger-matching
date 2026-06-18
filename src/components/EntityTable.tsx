@@ -7,7 +7,6 @@ import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
-import { AffiliationSelect } from "./AffiliationSelect";
 import { EditCandidateButton, EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
@@ -173,7 +172,7 @@ const PEOPLE_COLS: Col[] = [
       ? <a href={p.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
       : <span className="muted" style={{ fontSize: 12 }}>—</span>,
   },
-  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <AffiliationSelect candidateNo={p.candidate_no} value={p.affiliation ?? null} /> },
+  { key: "affiliation", label: "所属区分", width: 130, filterLabel: "所属区分", filter: (p) => p.affiliation || "未設定", render: (p) => <span style={{ fontSize: 12, color: p.affiliation ? "var(--color-ink)" : "var(--color-ink-4)" }}>{p.affiliation || "—"}</span> },
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (p) => salaryBand(p.salary_max ?? p.salary_min ?? parseRate(p.rate)) },
 ];
 
