@@ -253,22 +253,24 @@ export function ProposalComposer({
 
       {/* ② シンプル送信操作：1つのメインCTAで両方送信＋確認プレビュー */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        {job?.job_no != null && cand?.candidate_no != null ? (
-          <SendMailModalButton job={job} cand={cand} score={score} members={members}
-            alreadyProposed={saved} proposalId={savedId} proposer={sender || null} />
-        ) : (
-          <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
-            style={{ fontSize: 13, padding: "0 22px", height: 38 }}
-            title="クライアント宛と人材宛の Gmail を1クリックで両方開きます（送信前に内容を確認）">
-            📤 送信する（クライアント＋人材へ）
-          </button>
-        )}
-        {/* 提案を記録する（承認・メール送信なし）。提案先を失わない／アウトサイドへトスアップ用。 */}
+        {/* 手順を明示するため、①提案する → ②送信する の順序で番号付き。
+            未保存(=未提案)時は「①📋 提案する」を最初に出し、提案管理に記録してから送信に進む。 */}
         {!saved && (
           <button type="button" className="btn" onClick={recordOnly} disabled={recording}
             style={{ background: "#0b5cab", color: "#fff", border: 0 }}
             title="このペアを「提案済み」にします（メール送信や承認は不要・提案管理に記録）">
-            {recording ? "処理中…" : "📋 提案する"}
+            {recording ? "処理中…" : "①📋 提案する"}
+          </button>
+        )}
+        {job?.job_no != null && cand?.candidate_no != null ? (
+          <SendMailModalButton job={job} cand={cand} score={score} members={members}
+            alreadyProposed={saved} proposalId={savedId} proposer={sender || null}
+            label="②📤 送信する（クライアント＋人材へ）" />
+        ) : (
+          <button type="button" className="btn-mail block" onClick={() => setSendOpen(true)}
+            style={{ fontSize: 13, padding: "0 22px", height: 38 }}
+            title="クライアント宛と人材宛の Gmail を1クリックで両方開きます（送信前に内容を確認）">
+            ②📤 送信する（クライアント＋人材へ）
           </button>
         )}
         {/* 承認者の選択＆「承認に出す」は廃止：メール送信モーダル側に集約（送信＝承認に出す＋送信）。

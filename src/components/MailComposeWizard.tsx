@@ -192,7 +192,11 @@ export function MailComposeWizard({
   // 下書き（pending_mail）があればそれを初期値にして「定型文に戻る」事故を防ぐ（要件①）。
   const dJob = initialDraft?.job ?? null;
   const dCand = initialDraft?.cand ?? null;
-  const [step, setStep] = useState<1 | 2>(initialSaved ? 2 : 1);
+  // 既存提案があっても、最初は必ず編集画面(step=1)から開始する（編集 → 確認 → 送信のフロー）。
+  //   以前は initialSaved ? 2 : 1 で「提案済み」のときに確認画面に直行していたが、
+  //   ①📋提案する→②📤送信する の流れで使うと2回目以降の操作時に編集を飛ばして
+  //   いきなり確認画面が出てしまい混乱の原因になっていた。
+  const [step, setStep] = useState<1 | 2>(1);
   const [proposer, setProposer] = useState(initialProposer ?? "");
   // 承認者（必須）：保存時に approver として createProposal に渡す
   const [approver, setApprover] = useState("");
@@ -559,8 +563,30 @@ export function MailComposeWizard({
               origMailBody={(cand?.note ?? cand?.exp ?? null) as string | null}
             />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <Link href={backUrl} className="btn ghost" style={{ textDecoration: "none" }}>キャンセル</Link>
+            {/* メンバー（権限者でない）は編集画面からも直接「承認申請」を出せるようにする。
+                以前は確認画面まで進まないと承認申請ボタンに辿り着けず、メンバーが詰まる事故が起きていた。
+                既に承認済みのとき（recordProposal等で approved 扱いになっている等）は申請不要のためボタンは隠す。 */}
+            {!privileged && !approved && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }}
+                  title="承認者（必須）。選んだ人が提案ボードで承認するまで「承認待ち」になります。">
+                  承認者
+                  <select value={approver} onChange={(e) => setApprover(e.target.value)} disabled={saving}
+                    style={{ fontFamily: "inherit", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: `1px solid ${approver ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", minWidth: 130 }}>
+                    <option value="">— 選択 —</option>
+                    {members.filter((m) => m && m !== proposer).map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="btn" onClick={handleRequestApproval}
+                  disabled={saving || !approver}
+                  title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します`}
+                  style={{ fontWeight: 700 }}>
+                  {saving ? "処理中…" : "📨 承認申請"}
+                </button>
+              </div>
+            )}
             <button type="button" className="btn brand" onClick={handleNext}>確認画面へ →</button>
           </div>
         </>
@@ -654,9 +680,11 @@ export function MailComposeWizard({
           {/* 補助操作（編集に戻る・次の導線）は下段に控えめに配置 */}
           <div style={{ display: "flex", justifyContent: "center", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" className="btn ghost" onClick={() => setStep(1)}>← 編集に戻る</button>
+            {saved && !approved && !privileged && (
+              <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1", fontWeight: 700 }}>✓ 承認に出し済み</span>
+            )}
             {saved && (
               <>
-                <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1", fontWeight: 700 }}>✓ 承認に出し済み</span>
                 <Link href="/proposals" style={{
                   display: "inline-flex", alignItems: "center", gap: 6,
                   padding: "9px 18px", borderRadius: 10, textDecoration: "none",
