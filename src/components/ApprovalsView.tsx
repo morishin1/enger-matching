@@ -5,9 +5,10 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Account, Role } from "@/lib/accounts";
-import { approveAccount, bulkDeleteAccounts, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity } from "@/app/settings/account-actions";
+import { approveAccount, bulkDeleteAccounts, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity, createAgent, resetAccountPassword, backfillAuthForActiveAccounts, setAccountDepartment, setAccountTeamRole, setAccountFunctions, setAccountTimecard, deleteAccount } from "@/app/settings/account-actions";
 import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 import { detectSuspicion } from "@/lib/account-suspicion";
+import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
 
 type TabKey = "candidate" | "client" | "partner" | "freelance" | "agent" | "admin";
 const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
@@ -67,6 +68,24 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   // 削除確認モーダル
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+  // 「+ エージェント追加」フォームの表示
+  const [showCreate, setShowCreate] = useState(false);
+  // 仮パスワードの表示（作成・再発行直後の1回限り）
+  const [cred, setCred] = useState<{ email: string; password: string; note: string } | null>(null);
+  // 「ログイン不可を一括修復」結果
+  const [backfill, setBackfill] = useState<{ made: { email: string; password?: string }[]; failed: { email: string; error?: string }[] } | null>(null);
+  // 仮パスワード発行系の共通ラッパ
+  const runCred = (fn: () => Promise<{ ok: boolean; password?: string; email?: string; error?: string }>, email: string, note: string) => {
+    setBusyId(email); setMsg(null);
+    start(async () => {
+      const res = await fn();
+      setBusyId(null);
+      if (!res.ok) { setMsg({ ok: false, text: res.error || "操作に失敗しました" }); return; }
+      if (res.password) setCred({ email: res.email || email, password: res.password, note });
+      else setMsg({ ok: true, text: note });
+      router.refresh();
+    });
+  };
 
   // 怪しさ判定（行ごと）。承認待ちかつ怪しい行を上に並べる助けになる。
   const suspicionMap = useMemo(() => {
@@ -137,6 +156,113 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* 管理者向けツールバー（エージェント追加・ログイン不可一括修復）。
+          AccountManager に分散していた機能をここへ集約し、ユーザー管理を1画面に統合。 */}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button type="button" disabled={pending} onClick={async () => {
+          if (!confirm("ログイン用パスワードが未発行の有効アカウントについて、仮パスワードを一括発行します。\n発行直後のみ画面に表示されます。本人に共有後、各自で変更してもらってください。よろしいですか？")) return;
+          start(async () => {
+            const r = await backfillAuthForActiveAccounts();
+            if (!r.ok) { setMsg({ ok: false, text: r.error ?? "一括発行に失敗しました" }); return; }
+            const made = (r.results ?? []).filter((x) => x.password);
+            const failed = (r.results ?? []).filter((x) => x.error);
+            if (made.length === 0 && failed.length === 0) { setMsg({ ok: true, text: "発行が必要なアカウントはありませんでした（全員ログイン可能です）" }); return; }
+            setBackfill({ made, failed });
+          });
+        }}
+          title="auth に居ないアカウント全員に仮パスワードを発行します"
+          style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", color: "#0b5cab", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          🔧 ログイン不可を一括修復
+        </button>
+        <button type="button" onClick={() => setShowCreate((v) => !v)}
+          style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--color-brand-600, #0095D9)", background: showCreate ? "var(--color-brand-50, #eaf4fd)" : "#fff", color: "var(--color-brand-700, #0b5cab)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          {showCreate ? "× 閉じる" : "＋ エージェント追加"}
+        </button>
+      </div>
+
+      {/* 仮パスワード（1回限り表示） */}
+      {cred && (
+        <div style={{ background: "#ecfdf3", border: "1px solid #abefc6", borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#067647", marginBottom: 6 }}>✅ {cred.note}</div>
+          <div style={{ fontSize: 12, color: "#475569", marginBottom: 8 }}>本人に下記を伝えてください。<b>このパスワードは今だけ表示されます</b>（再表示不可・初回ログイン後に本人が変更）。</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "#64748b" }}>メール</span>
+            <code style={{ fontSize: 13, background: "#fff", border: "1px solid #d1fadf", borderRadius: 6, padding: "5px 9px" }}>{cred.email}</code>
+            <span style={{ fontSize: 12, color: "#64748b" }}>仮パスワード</span>
+            <code style={{ fontSize: 13, fontWeight: 700, background: "#fff", border: "1px solid #d1fadf", borderRadius: 6, padding: "5px 9px", letterSpacing: ".02em" }}>{cred.password}</code>
+            <button type="button" onClick={() => { void navigator.clipboard?.writeText(`${cred.email} / ${cred.password}`); }}
+              style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid #abefc6", background: "#fff", fontSize: 11.5, fontWeight: 700, color: "#067647", cursor: "pointer" }}>コピー</button>
+            <button type="button" onClick={() => setCred(null)}
+              style={{ padding: "5px 10px", borderRadius: 7, border: "1px solid var(--color-border)", background: "#fff", fontSize: 11.5, cursor: "pointer", color: "#6b7280", marginLeft: "auto" }}>閉じる</button>
+          </div>
+        </div>
+      )}
+
+      {/* 一括修復の結果 */}
+      {backfill && (
+        <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0b5cab" }}>🔧 ログイン不可アカウントを修復しました（{backfill.made.length} 件）</div>
+            <button type="button" onClick={() => { void navigator.clipboard?.writeText(backfill.made.map((x) => `${x.email} / ${x.password}`).join("\n")); }}
+              style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid #bfdbfe", background: "#fff", fontSize: 11, fontWeight: 700, color: "#0b5cab", cursor: "pointer" }}>全てコピー</button>
+            <button type="button" onClick={() => setBackfill(null)}
+              style={{ padding: "4px 9px", borderRadius: 6, border: "1px solid var(--color-border)", background: "#fff", fontSize: 11, cursor: "pointer", color: "#6b7280", marginLeft: "auto" }}>閉じる</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: "#475569", marginBottom: 8 }}>下記の仮パスワードを本人に共有してください。<b>この画面を閉じると再表示はできません</b>。</div>
+          {backfill.made.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflowY: "auto", background: "#fff", border: "1px solid #dbeafe", borderRadius: 6, padding: 8 }}>
+              {backfill.made.map((x) => (
+                <div key={x.email} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
+                  <code style={{ flex: 1 }}>{x.email}</code>
+                  <code style={{ fontWeight: 700, color: "#0b5cab" }}>{x.password}</code>
+                </div>
+              ))}
+            </div>
+          )}
+          {backfill.failed.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11.5, color: "#b42318" }}>
+              失敗 {backfill.failed.length} 件：{backfill.failed.map((f) => f.email).join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 新規エージェント作成フォーム */}
+      {showCreate && (
+        <form
+          action={(fd) => runCred(() => createAgent(fd), String(fd.get("email") ?? ""), "アカウントを作成しました")}
+          style={{ background: "var(--color-brand-25, #f5fbff)", border: "1px solid var(--color-brand-100, #cfe9fb)", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input name="name" placeholder="氏名" style={{ flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }} />
+            <input name="email" type="email" required placeholder="メールアドレス（ログインID）" style={{ flex: 2, minWidth: 200, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }} />
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select name="role" defaultValue="agent" style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }}>
+              <option value="agent">エージェント</option>
+              <option value="admin">管理者</option>
+              <option value="client">ユーザー企業</option>
+            </select>
+            <input type="hidden" name="position" value="" />
+            <input name="company_name" placeholder="会社名（企業の場合）" style={{ flex: 1, minWidth: 140, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 12.5 }} />
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+            <span className="muted" style={{ fontSize: 10.5, marginRight: 2 }}>職能（兼務可）：</span>
+            {FUNCTIONS.map((fn) => (
+              <label key={fn} className="tag" style={{ cursor: "pointer", fontSize: 10.5, display: "inline-flex", alignItems: "center", gap: 4, background: "var(--color-surface-inset)", color: "var(--color-ink-3)" }}>
+                <input type="checkbox" name="functions" value={fn} style={{ width: 13, height: 13 }} />{fn}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button type="submit" disabled={pending}
+              style={{ padding: "8px 16px", borderRadius: 8, border: 0, background: "var(--color-brand-600, #0095D9)", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", opacity: pending ? 0.6 : 1 }}>
+              {pending ? "作成中…" : "作成して仮パスワードを発行"}
+            </button>
+            <span className="muted" style={{ fontSize: 11 }}>仮パスワードは自動生成され、作成後に1回だけ表示されます。</span>
+          </div>
+        </form>
+      )}
+
       {/* タブ */}
       <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
         {TABS.map((t) => {
@@ -260,7 +386,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                         })()}
                       </td>
                       <td>
-                        <select disabled={busy || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))} defaultValue={(a as any).owner_agent_email ?? ""}
+                        <select disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))} defaultValue={(a as any).owner_agent_email ?? ""}
                           onChange={(e) => {
                             const em = e.target.value || null;
                             const ag = agents.find((x) => x.email === em);
@@ -275,7 +401,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                         {(a as any).owner_agent_name && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{(a as any).owner_agent_name}</div>}
                       </td>
                       <td>
-                        <input type="text" defaultValue={(a as any).note ?? ""} disabled={busy || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
+                        <input type="text" defaultValue={(a as any).note ?? ""} disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
                           placeholder="連絡・面談メモ"
                           onBlur={(e) => {
                             const v = e.target.value.trim();
@@ -310,7 +436,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                               : <button type="button" className="btn btn-xs" disabled={busy} style={{ background: "#067647", borderColor: "#067647", color: "#fff" }} onClick={() => run(a.id, () => setAccountMeetingDone(a.id, true), "面談済みにしました（詳細解放）")}>面談済みにする</button>
                           )}
                           {/* 区分の付け替え（誤って別区分で登録された場合の救済） */}
-                          <select defaultValue={a.role} disabled={busy || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
+                          <select defaultValue={a.role} disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
                             onChange={(e) => { const r = e.target.value as Role; run(a.id, () => setAccountRole(a.id, r as any), "区分を変更しました"); }}
                             style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
                             <option value="client">企業</option>
@@ -320,10 +446,10 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                             <option value="agent">営業</option>
                             <option value="admin">管理者</option>
                           </select>
-                          {/* メール送信＋面談予定（展開）。LP仮想行は承認後に有効化（履歴はDB id 必須） */}
+                          {/* 詳細（権限編集／メール送信／面談予定）。LP仮想行は履歴・メール部分は使えないが、開けるようにして承認待ちガイドを見せる */}
                           {!(a.id.startsWith("profile:") || a.id.startsWith("auth:")) && (
-                            <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="メール送信／面談予定を開く">
-                              {expanded === a.id ? "閉じる" : "📧 連絡・面談"}
+                            <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="権限編集／メール送信／面談予定を開く">
+                              {expanded === a.id ? "閉じる" : "🔐 詳細・権限"}
                             </button>
                           )}
                         </div>
@@ -333,6 +459,62 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                   const expandedRow = expanded === a.id ? (
                     <tr key={`${a.id}-x`}>
                       <td colSpan={9} style={{ background: "var(--color-surface-soft)", padding: 12 }}>
+                        {/* 権限編集（部署・役職・職能・タイムカード・PW再発行・削除）— 承認済みかつ agent/admin のみ。
+                            承認待ちはここを表示せず、権限が付与されていないことを明示する。 */}
+                        {a.status !== "pending" && (a.role === "agent" || a.role === "admin") && (
+                          <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 10, padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--color-ink-2)" }}>🔐 権限・所属（{a.email}）</div>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                              <span className="muted" style={{ fontSize: 10.5 }}>部署：</span>
+                              <select defaultValue={a.department ?? ""} disabled={busy}
+                                onChange={(e) => run(a.id, () => setAccountDepartment(a.id, e.target.value || null), "部署を変更しました")}
+                                style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 11.5 }}>
+                                <option value="">部署なし</option>
+                                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                              <span className="muted" style={{ fontSize: 10.5 }}>役職：</span>
+                              <select defaultValue={a.team_role ?? ""} disabled={busy}
+                                onChange={(e) => run(a.id, () => setAccountTeamRole(a.id, (e.target.value || null) as any), "役職を変更しました")}
+                                style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 11.5 }}>
+                                <option value="">役職なし</option>
+                                {TEAM_ROLES.map((r) => <option key={r} value={r}>{TEAM_ROLE_LABEL[r]}</option>)}
+                              </select>
+                              <label title="バイト/副業向けのタイムカード（本人打刻）を有効化" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-ink-3)", cursor: "pointer" }}>
+                                <input type="checkbox" defaultChecked={!!(a as any).is_timecard_user} disabled={busy}
+                                  onChange={(e) => run(a.id, () => setAccountTimecard(a.id, e.target.checked), "タイムカード設定を保存しました")} />
+                                タイムカード
+                              </label>
+                            </div>
+                            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                              <span className="muted" style={{ fontSize: 10.5, marginRight: 2 }}>職能（兼務可）：</span>
+                              {FUNCTIONS.map((fn) => { const on = (a.functions ?? []).includes(fn); return (
+                                <button key={fn} type="button" disabled={busy}
+                                  onClick={() => run(a.id, () => setAccountFunctions(a.id, on ? (a.functions ?? []).filter((x) => x !== fn) : [...(a.functions ?? []), fn]), "職能を保存しました")}
+                                  className="tag" style={{ cursor: "pointer", fontSize: 10.5, border: 0, background: on ? "var(--color-brand-600)" : "var(--color-surface-inset)", color: on ? "#fff" : "var(--color-ink-3)" }}>{fn}</button>
+                              ); })}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                              <button type="button" disabled={busy}
+                                onClick={() => { if (confirm(`${a.email} のパスワードを再発行しますか？新しい仮パスワードが表示され、現在のパスワードは無効になります。`)) runCred(() => resetAccountPassword(a.email), a.email, "パスワードを再発行しました"); }}
+                                title="パスワード再発行"
+                                style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#0b5cab" }}>
+                                🔑 PW再発行
+                              </button>
+                              <button type="button" disabled={busy}
+                                onClick={() => { if (confirm(`${a.email} を削除しますか？`)) run(a.id, () => deleteAccount(a.id), "削除しました"); }}
+                                title="アカウント削除"
+                                style={{ padding: "6px 11px", borderRadius: 8, border: "1px solid var(--color-border)", background: "#fff", fontSize: 12, cursor: "pointer", color: "#b42318" }}>
+                                × 削除
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {/* 承認待ち向けの注意：権限はまだ何も付与されていない */}
+                        {a.status === "pending" && (
+                          <div style={{ background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: "#9a7b12" }}>
+                            ⏳ このアカウントは <b>承認待ち</b> です。区分・担当・メモ・権限の編集は<b>承認後</b>に有効化されます。
+                          </div>
+                        )}
                         <ApprovalDetailPanel account={a} emails={activity[a.id]?.emails ?? []} meetings={activity[a.id]?.meetings ?? []} />
                       </td>
                     </tr>
