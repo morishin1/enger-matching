@@ -10,15 +10,54 @@ import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 import { detectSuspicion } from "@/lib/account-suspicion";
 import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
 
-type TabKey = "candidate" | "client" | "partner" | "freelance" | "agent" | "admin";
-const TABS: { key: TabKey; label: string; role: Role; hint: string }[] = [
-  { key: "candidate", label: "エンジニア", role: "candidate", hint: "承認すると人材ダッシュボードを利用できます。" },
-  { key: "client", label: "企業", role: "client", hint: "承認すると自社ポータル（案件掲載・おすすめ人材・選考）を利用できます。" },
-  { key: "partner", label: "パートナー企業", role: "partner", hint: "承認すると、自社＋共有の案件/人材でマッチングできます。他社情報は匿名表示で漏洩防止。" },
-  { key: "freelance", label: "副業エージェント", role: "freelance", hint: "ag.enger.jp から登録した個人。自分＋共有でマッチング。他社は匿名表示で漏洩防止。" },
-  { key: "agent", label: "営業", role: "agent", hint: "承認すると営業業務（マッチング・提案等）を利用できます。" },
-  { key: "admin", label: "管理者", role: "admin", hint: "全機能にアクセスできます。" },
+type TabKey = "candidate" | "client" | "partner" | "freelance" | "agent" | "backoffice" | "admin";
+type GroupKey = "proper" | "partner";
+
+const TAB_META: Record<TabKey, { label: string; role: Role; hint: string }> = {
+  // ── プロパー（社内）──
+  agent:      { label: "エージェント",   role: "agent",     hint: "社内の営業メンバー。承認すると営業業務（マッチング・提案等）を利用できます。" },
+  backoffice: { label: "バックオフィス", role: "agent",     hint: "社内のバックオフィス職（部署=バックオフィス／職能=バックオフィスのみ）。営業業務メニューは非表示。" },
+  admin:      { label: "管理者",         role: "admin",     hint: "社内の管理者。全機能にアクセスできます。" },
+  // ── ビジネスパートナー（外部・LP流入）──
+  candidate:  { label: "エンジニア",       role: "candidate", hint: "enger.jp(LP)から登録した人材。承認すると人材ダッシュボードを利用できます。" },
+  client:     { label: "企業",            role: "client",    hint: "LPから登録したエンド企業。承認すると自社ポータル（案件掲載・おすすめ人材・選考）を利用できます。" },
+  partner:    { label: "パートナー企業",   role: "partner",   hint: "LPから登録した社外パートナー。自社＋共有でマッチング（他社情報は匿名表示で漏洩防止）。" },
+  freelance:  { label: "副業エージェント", role: "freelance", hint: "ag.enger.jp から登録した個人。自分＋共有でマッチング（他社は匿名表示で漏洩防止）。" },
+};
+
+// 2階層タブ：プロパー（社内）／ビジネスパートナー（外部＝LP流入）。
+const GROUPS: { key: GroupKey; label: string; sub: string; tabs: TabKey[] }[] = [
+  { key: "proper",  label: "プロパー（社内）",         sub: "社内メンバー（営業・バックオフィス・管理者）", tabs: ["agent", "backoffice", "admin"] },
+  { key: "partner", label: "ビジネスパートナー（外部）", sub: "LPから登録された社外の人材・企業・パートナー", tabs: ["candidate", "client", "partner", "freelance"] },
 ];
+
+/** agent ロールのうち「バックオフィス職」を判定（部署=バックオフィス、または職能がバックオフィスのみ）。
+ *   新規登録(職能未設定)はエージェント扱い。承認後に部署/職能を設定してバックオフィスへ振り分ける。 */
+function isBackOffice(a: Account): boolean {
+  if (a.role !== "agent") return false;
+  if ((a.department ?? "").trim() === "バックオフィス") return true;
+  const fns = a.functions ?? [];
+  return fns.includes("バックオフィス") && !fns.includes("営業");
+}
+
+/** アカウントが属する表示用 TabKey を返す（agent はバックオフィス判定で振り分け）。 */
+function tabOf(a: Account): TabKey {
+  if (a.role === "agent") return isBackOffice(a) ? "backoffice" : "agent";
+  return a.role as TabKey;
+}
+
+/** 初期表示：承認待ちが最多のタブ（＝対応が必要な場所）を開く。無ければプロパー＞エージェントの承認済み。 */
+function computeInitialSelection(accounts: Account[]): { group: GroupKey; tab: TabKey; status: "pending" | "approved" } {
+  const pc: Record<TabKey, number> = { candidate: 0, client: 0, partner: 0, freelance: 0, agent: 0, backoffice: 0, admin: 0 };
+  for (const a of accounts) if (a.status === "pending") pc[tabOf(a)]++;
+  let bestTab: TabKey | null = null, bestN = 0;
+  (Object.keys(pc) as TabKey[]).forEach((t) => { if (pc[t] > bestN) { bestN = pc[t]; bestTab = t; } });
+  if (bestTab) {
+    const g = GROUPS.find((x) => x.tabs.includes(bestTab as TabKey))!.key;
+    return { group: g, tab: bestTab, status: "pending" };
+  }
+  return { group: "proper", tab: "agent", status: "approved" };
+}
 
 const STATUS_BADGE: Record<string, { l: string; c: string; bg: string }> = {
   pending: { l: "承認待ち", c: "#b45309", bg: "#fff6e0" },
@@ -31,7 +70,10 @@ const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new
 
 export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; agents?: { email: string | null; name: string | null }[] }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("candidate");
+  // 既定は「承認待ちが居るグループ/タブ」を自動で開く（無ければプロパー＞エージェント）。マウント時のみ算出。
+  const init = useMemo(() => computeInitialSelection(accounts), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [group, setGroup] = useState<GroupKey>(init.group);
+  const [tab, setTab] = useState<TabKey>(init.tab);
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -47,21 +89,26 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     }
   };
 
+  // タブ別の承認待ち件数（agent はバックオフィス判定で2タブに振り分け）。
   const pendingCount = useMemo(() => {
-    const m: Record<TabKey, number> = { candidate: 0, client: 0, partner: 0, freelance: 0, agent: 0, admin: 0 };
-    for (const a of accounts) if (a.status === "pending") m[a.role as TabKey] = (m[a.role as TabKey] ?? 0) + 1;
+    const m: Record<TabKey, number> = { candidate: 0, client: 0, partner: 0, freelance: 0, agent: 0, backoffice: 0, admin: 0 };
+    for (const a of accounts) if (a.status === "pending") { const k = tabOf(a); m[k] = (m[k] ?? 0) + 1; }
     return m;
   }, [accounts]);
+  // グループ別の承認待ち合計（グループタブのバッジ用）。
+  const groupPending = useMemo(() => {
+    const m: Record<GroupKey, number> = { proper: 0, partner: 0 };
+    for (const g of GROUPS) m[g.key] = g.tabs.reduce((n, t) => n + (pendingCount[t] ?? 0), 0);
+    return m;
+  }, [pendingCount]);
 
-  const cur = TABS.find((t) => t.key === tab)!;
+  const cur = TAB_META[tab];
   // ステータス絞り込み（承認待ち / 承認済み / すべて）。役割タブ内のサブタブ。
   //   既定：そのタブに「承認待ち」があれば承認待ち／無ければ承認済み。
   //   営業・管理者タブは大半が承認済みのため、既定が「承認待ち」固定だと「いなくなった」ように見える事故が起きていた。
-  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "all">(() => {
-    const initialRole: Role = "candidate";
-    return accounts.some((a) => a.role === initialRole && a.status === "pending") ? "pending" : "approved";
-  });
-  const inRole = accounts.filter((a) => a.role === cur.role);
+  const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "all">(init.status);
+  // 該当タブのアカウント（agent はバックオフィス判定で分離）。
+  const inRole = accounts.filter((a) => tabOf(a) === tab);
   const rolePending = inRole.filter((a) => a.status === "pending").length;
   const roleApproved = inRole.filter((a) => a.status !== "pending").length;
   const rows = inRole
@@ -128,6 +175,16 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     const pc = pendingCount[k] ?? 0;
     setStatusFilter(pc > 0 ? "pending" : "approved");
     setTab(k);
+  };
+  // グループ切替：そのグループ内で「承認待ちが最多のタブ」を既定で開く（無ければ先頭タブ）。
+  const setGroupSafe = (g: GroupKey) => {
+    setGroup(g);
+    const tabs = GROUPS.find((x) => x.key === g)!.tabs;
+    const withPending = tabs.filter((t) => (pendingCount[t] ?? 0) > 0);
+    const next = withPending.length > 0
+      ? withPending.reduce((best, t) => ((pendingCount[t] ?? 0) > (pendingCount[best] ?? 0) ? t : best), withPending[0])
+      : tabs[0];
+    setTabSafe(next);
   };
 
   const performBulkDelete = async () => {
@@ -273,13 +330,38 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
         </form>
       )}
 
-      {/* タブ */}
-      <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
-        {TABS.map((t) => {
-          const active = tab === t.key;
-          const pc = pendingCount[t.key] ?? 0;
+      {/* 第1階層：プロパー（社内）／ビジネスパートナー（外部） */}
+      <div role="tablist" aria-label="区分" style={{ display: "inline-flex", gap: 4, padding: 4, background: "var(--color-surface-inset)", borderRadius: 12, alignSelf: "flex-start", flexWrap: "wrap" }}>
+        {GROUPS.map((g) => {
+          const on = group === g.key;
+          const gp = groupPending[g.key] ?? 0;
           return (
-            <button key={t.key} type="button" role="tab" aria-selected={active} onClick={() => setTabSafe(t.key)}
+            <button key={g.key} type="button" role="tab" aria-selected={on} onClick={() => setGroupSafe(g.key)} title={g.sub}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 18px", borderRadius: 9, border: 0, cursor: "pointer", fontFamily: "inherit",
+                background: on ? "var(--color-surface)" : "transparent",
+                color: on ? "var(--color-brand-700)" : "var(--color-ink-3)",
+                boxShadow: on ? "0 1px 3px rgba(15,23,42,0.10)" : "none",
+                fontSize: 14, fontWeight: on ? 800 : 600,
+              }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>{g.key === "proper" ? "badge" : "handshake"}</span>
+              <span>{g.label}</span>
+              {gp > 0 && <span className="badge hot" style={{ fontSize: 10, padding: "1px 7px" }}>{gp}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {/* グループ説明 */}
+      <div className="muted" style={{ fontSize: 11.5, marginTop: -4 }}>{GROUPS.find((g) => g.key === group)?.sub}</div>
+
+      {/* 第2階層：グループ内の区分タブ */}
+      <div role="tablist" aria-label="役割" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
+        {GROUPS.find((g) => g.key === group)!.tabs.map((tk) => {
+          const t = TAB_META[tk];
+          const active = tab === tk;
+          const pc = pendingCount[tk] ?? 0;
+          return (
+            <button key={tk} type="button" role="tab" aria-selected={active} onClick={() => setTabSafe(tk)} title={t.hint}
               style={{ padding: "10px 18px", background: "transparent", border: 0, borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent", color: active ? "var(--color-brand-700)" : "var(--color-ink-3)", fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span>{t.label}</span>
               {pc > 0 && <span className="badge hot" style={{ fontSize: 10, padding: "1px 7px" }}>{pc}</span>}
