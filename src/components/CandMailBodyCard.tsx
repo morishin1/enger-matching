@@ -1,6 +1,7 @@
 "use client";
 
 import { PROPOSERS, SHARED_MAILBOX } from "@/lib/proposal-constants";
+import { reSubject } from "@/lib/gmail";
 
 import { BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
@@ -19,10 +20,15 @@ ITS事業部
 デキルがあふれる社会をつくる - 「株式会社エイト」公式ホームページ
 異なるアイデアと先進技術を融合し、革新的なサービスを生み出す。コラボレーションとテクノロジーで、企業の課題解決と新たな価値創造を支援します。`;
 
-const CAND_SUBJECT = "【案件のご紹介】希望条件に合致する案件のお知らせ";
+// 人材取込元メール(SES窓口/エージェント)に「Re: <元件名>」で返信し、Gmail に
+// スレッド統合させて相手の受信箱の元スレッドに返信として届くようにする。
+// 元件名が無い古い人材は固定件名へフォールバック（その場合は新規メール扱い）。
+const CAND_SUBJECT_FALLBACK = "【案件のご紹介】希望条件に合致する案件のお知らせ";
 
-export function buildCandMailSubject(): string {
-  return CAND_SUBJECT;
+export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null): string {
+  const orig = String(cand?.source_mail_subject ?? "").trim();
+  if (orig) return reSubject(orig);
+  return CAND_SUBJECT_FALLBACK;
 }
 
 export function buildCandMailContent(job: any, cand: any): string {

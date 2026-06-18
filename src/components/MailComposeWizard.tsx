@@ -227,7 +227,7 @@ export function MailComposeWizard({
     //   人材（パートナーSES）側に案件先のメアドが漏れると、企業情報の取り扱い意図に
     //   反するため、デフォルトは下書きの CC のみ（=通常は空）。
     cc: (dCand?.cc ?? ""),
-    subject: (dCand?.subject ?? "") || buildCandMailSubject(),
+    subject: (dCand?.subject ?? "") || buildCandMailSubject(cand),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
   const [clientErrors, setClientErrors] = useState<MailErrors>({});
