@@ -112,6 +112,7 @@ export type CandidateInput = {
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
   source_mail_subject?: string | null; // 元メール件名（メール送信時の Re: 件名生成・返信スレッド統合に利用）
+  source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
   operator?: string | null;        // 登録担当（KPI集計用・新規登録時のみ記録）
 };
 
@@ -1913,6 +1914,7 @@ export type JobInput = {
   contact_name?: string | null;   // 案件窓口の担当者名
   contact_email?: string | null;  // 案件窓口＝元メールの送信元（返信先）
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
+  source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
   operator?: string | null;        // 登録担当（KPI集計用）
 };
 
@@ -2108,6 +2110,57 @@ const PERIOD_FIELDS_JOB = new Set(["start_date"]);
 const PRICE_FIELDS_CAND = new Set(["rate", "rate_num"]);
 const PERIOD_FIELDS_CAND = new Set(["avail"]);
 
+// 元メール情報（リンク/件名/受信日時）は汎用ループから外し、専用ロジックで「最新メールが勝つ」よう更新する。
+const SOURCE_MAIL_FIELDS = new Set(["source_mail_url", "source_mail_subject", "source_mail_at"]);
+
+/**
+ * 元メール情報（source_mail_url / source_mail_subject / source_mail_at）の更新分を解決する。
+ *   ・取込は received_at 降順（新しい順）で処理されるため、同一案件/人材の新旧メールが
+ *     1バッチに混ざると「最後に処理された＝最古」が上書きしてしまう順序依存バグがあった。
+ *   ・ここでは受信日時(source_mail_at)で比較し、"新しいメールのときだけ" 上書きする。
+ *     これで取込順に関係なく、常に最新メールのリンク/件名が残る
+ *     （＝ENGERから送ると最新メールへの返信になる）。
+ *   ・price-only / period-only / skip では元メール情報は触らない。
+ *   ・fill-empty は既存が空のときだけ補完。
+ */
+async function resolveSourceMailUpdate(
+  admin: ReturnType<typeof engerAdmin>, table: "candidates" | "jobs",
+  id: string, row: Record<string, any>, policy: UpdatePolicy,
+): Promise<Record<string, any>> {
+  if (policy === "price-only" || policy === "period-only" || policy === "skip") return {};
+  const incomingUrl = row.source_mail_url ?? null;
+  const incomingSubject = row.source_mail_subject ?? null;
+  const incomingAt = row.source_mail_at ?? null;
+  if (!incomingUrl && !incomingSubject && !incomingAt) return {};
+
+  let existing: any = null;
+  try {
+    const ex: any = await admin.from(table).select("source_mail_at, source_mail_url").eq("id", id).maybeSingle();
+    existing = ex.error ? null : (ex.data ?? null);
+  } catch { existing = null; }
+
+  const pack = () => {
+    const out: Record<string, any> = {};
+    if (incomingUrl) out.source_mail_url = incomingUrl;
+    if (incomingSubject) out.source_mail_subject = incomingSubject;
+    if (incomingAt) out.source_mail_at = incomingAt;
+    return out;
+  };
+
+  // fill-empty: 既存に元メールURLが無いときだけ補完
+  if (policy === "fill-empty") return existing?.source_mail_url ? {} : pack();
+
+  // full: 最新が勝つ。受信日時で比較。
+  const exAt = existing?.source_mail_at ? new Date(existing.source_mail_at).getTime() : null;
+  const inAt = incomingAt ? new Date(incomingAt).getTime() : null;
+  let overwrite: boolean;
+  if (inAt != null && exAt != null) overwrite = inAt >= exAt;       // 双方に日時 → 新しい方を採用
+  else if (inAt != null && exAt == null) overwrite = true;          // 既存に日時無 → 新情報で更新
+  else if (inAt == null && exAt == null) overwrite = true;          // 双方不明 → 最新登録で更新（従来挙動）
+  else overwrite = false;                                           // incoming不明・既存に日時あり → 既存維持
+  return overwrite ? pack() : {};
+}
+
 export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: UpdatePolicy }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
@@ -2134,6 +2187,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     contact_name: rec.contact_name?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
     source_mail_url: rec.source_mail_url?.trim() || null,
+    source_mail_at: rec.source_mail_at ?? null,
     rank: "-",
     is_published: true,
     source_csv: "manual",
@@ -2142,7 +2196,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.operator; delete c.owner_company; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
@@ -2159,6 +2213,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     const update: Record<string, any> = { is_published: true, imported_at: now };
     for (const [k, v] of Object.entries(row)) {
       if (k === "is_published" || k === "imported_at" || k === "created_at" || k === "operator" || k === "owner_company") continue; // operator/所有は登録時のみ
+      if (SOURCE_MAIL_FIELDS.has(k)) continue; // 元メール情報は下で「最新が勝つ」判定して更新
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       if (policy === "price-only" && !PRICE_FIELDS_JOB.has(k)) continue;
@@ -2169,8 +2224,10 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
       }
       update[k] = v;
     }
+    // 元メール情報は受信日時で「最新メールが勝つ」よう更新（取込順に依存しない）。
+    Object.assign(update, await resolveSourceMailUpdate(admin, "jobs", id, row, policy));
     let r: any = await admin.from("jobs").update(update).eq("id", id);
-    if (r.error && /contact_email|contact_name|source_mail_url|owner_company|column/i.test(r.error.message)) {
+    if (r.error && /contact_email|contact_name|source_mail_url|source_mail_at|owner_company|column/i.test(r.error.message)) {
       r = await admin.from("jobs").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
@@ -2194,7 +2251,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
   // 新規 INSERT
   row.created_at = now;
   let r: any = await admin.from("jobs").insert(row).select("job_no").maybeSingle();
-  if (r.error && /contact_email|contact_name|source_mail_url|owner_company|column/i.test(r.error.message)) {
+  if (r.error && /contact_email|contact_name|source_mail_url|source_mail_at|owner_company|column/i.test(r.error.message)) {
     r = await admin.from("jobs").insert(stripCols(row)).select("job_no").maybeSingle();
   }
   // 一意制約に当たった場合（直前の検索では拾えなかった既存行がある）は、
@@ -2239,6 +2296,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     contact_email: rec.contact_email?.trim() || null,
     source_mail_url: rec.source_mail_url?.trim() || null,
     source_mail_subject: rec.source_mail_subject?.trim() || null,
+    source_mail_at: rec.source_mail_at ?? null,
     operator: rec.operator?.trim() || null,
     owner_company: ownerCompany,
     score: 0,
@@ -2246,7 +2304,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -2260,6 +2318,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     const update: Record<string, any> = { imported_at: now };
     for (const [k, v] of Object.entries(row)) {
       if (k === "imported_at" || k === "operator" || k === "owner_company") continue; // operator/所有は登録時のみ
+      if (SOURCE_MAIL_FIELDS.has(k)) continue; // 元メール情報は下で「最新が勝つ」判定して更新
       if (v == null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       if (policy === "price-only" && !PRICE_FIELDS_CAND.has(k)) continue;
@@ -2270,8 +2329,10 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
       }
       update[k] = v;
     }
+    // 元メール情報は受信日時で「最新メールが勝つ」よう更新（取込順に依存しない）。
+    Object.assign(update, await resolveSourceMailUpdate(admin, "candidates", id, row, policy));
     let r: any = await admin.from("candidates").update(update).eq("id", id);
-    if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|owner_company|column/i.test(r.error.message)) {
+    if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|source_mail_at|owner_company|column/i.test(r.error.message)) {
       r = await admin.from("candidates").update(stripCols(update)).eq("id", id);
     }
     if (r.error) return { ok: false as const, error: r.error.message };
@@ -2289,7 +2350,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
   if (exRow?.id) return updateExisting(exRow.id, exRow.candidate_no);
 
   let r: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|owner_company|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|source_mail_at|owner_company|column/i.test(r.error.message)) {
     r = await admin.from("candidates").insert(stripCols(row)).select("candidate_no").maybeSingle();
   }
   // 一意制約に当たった場合は既存人材の更新へフォールバック（重複エラーにしない）
@@ -2821,6 +2882,8 @@ export async function registerInboxAsJob(inboxId: string, override?: Partial<Job
     contact_name: row.from_name ?? null,
     // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
     source_mail_url: gmailMessageUrl(row.gmail_message_id),
+    // 元メール受信日時。再取込時に「最新メールを元メールに残す」比較に使う。
+    source_mail_at: row.received_at ?? null,
   };
   const res = await upsertJobManual(input, { updatePolicy: opts?.updatePolicy });
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "案件作成に失敗しました" };
@@ -2859,6 +2922,8 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
     source_mail_url: gmailMessageUrl(row.gmail_message_id),
     // 元メールの件名スナップショット。送信時に「Re: <元件名>」として返信スレッドに乗せる。
     source_mail_subject: row.subject ?? null,
+    // 元メール受信日時。再取込時に「最新メールを元メールに残す」比較に使う。
+    source_mail_at: row.received_at ?? null,
   };
   const res = await upsertCandidateManual(input, { updatePolicy: opts?.updatePolicy });
   if (!res.ok) return { ok: false, error: ("error" in res ? res.error : undefined) || "人材作成に失敗しました" };
