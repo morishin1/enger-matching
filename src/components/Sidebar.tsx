@@ -218,7 +218,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                       <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
                       {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
                       {newN != null && newN > 0 && (
-                        <span className="badge hot" style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em" }} title={`直近7日の新着 ${newN} 件`}>NEW</span>
+                        <span style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em", fontWeight: 800, borderRadius: 99, background: "var(--color-danger, #dc2626)", color: "#fff" }} title={`24時間以内の新着 ${newN} 件`}>NEW</span>
                       )}
                     </Link>
                   );
