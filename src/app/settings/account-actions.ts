@@ -2,7 +2,7 @@
 
 import { randomBytes } from "crypto";
 import { revalidatePath, revalidateTag } from "next/cache";
-import { engerAdmin, authAdmin } from "@/lib/supabase";
+import { engerAdmin, authAdmin, publicAdmin } from "@/lib/supabase";
 import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
 
@@ -592,20 +592,26 @@ async function deleteOneAccountInternal(
     const sb = engerAdmin();
     if (id.startsWith("profile:")) {
       const pid = id.slice("profile:".length);
+      // profiles は public スキーマ。engerAdmin (enger スキーマ) から触ると見つからないため publicAdmin を使う。
+      //   以前 engerAdmin().from("profiles") を呼んで silently スキーマ未存在エラー → catchで握り潰し、
+      //   UI は「成功」を返すのに実体は残る、という挙動（LP登録者が一括削除で消えない症状の根因）があった。
+      const pub = publicAdmin();
       // メール確定 → profile削除
       let em = (email ?? "").toLowerCase().trim() || null;
       if (!em) {
         try {
-          const pr: any = await sb.from("profiles").select("email").eq("id", pid).maybeSingle();
+          const pr: any = await pub.from("profiles").select("email").eq("id", pid).maybeSingle();
           em = (pr.data?.email ?? null)?.toLowerCase().trim() || null;
-        } catch { /* ignore */ }
+        } catch { /* メール取得失敗は致命ではない */ }
       }
-      try { await sb.from("profiles").delete().eq("id", pid); } catch { /* テーブル無い環境はスキップ */ }
+      // profile 本体を削除。失敗したら全体を失敗扱いにして UI に伝える（旧:catchで握り潰し）。
+      const { error: pErr } = await pub.from("profiles").delete().eq("id", pid);
+      if (pErr) return { ok: false, error: `LP profile 削除に失敗: ${pErr.message}` };
       if (em) {
         try {
           const authId = await findAuthUserIdByEmail(em);
           if (authId) await authAdmin().auth.admin.deleteUser(authId);
-        } catch { /* ignore */ }
+        } catch { /* auth 同期失敗は致命ではない */ }
       }
       await audit(id, em, "delete_lp_profile", null, actor);
       return { ok: true };
