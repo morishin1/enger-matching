@@ -60,6 +60,31 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // 企業名を貼り付けて一括で「打合せ済み（承認）」登録するパネル。
+  //   未登録の企業名でも bulkSetCompaniesMeetingDone が新規作成＋meeting_done=true にする。
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteMsg, setPasteMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const submitPaste = async (done: boolean) => {
+    const names = Array.from(new Set(
+      pasteText.split(/\r?\n|,|、|\t/).map((s) => s.trim()).filter(Boolean)
+    ));
+    if (names.length === 0) { setPasteMsg({ ok: false, text: "企業名を入力してください（1行に1社）" }); return; }
+    setPasteBusy(true); setPasteMsg(null);
+    try {
+      const res = await bulkSetCompaniesMeetingDone(names, done);
+      if (res.ok) {
+        setPasteMsg({ ok: true, text: `${res.updated} 社を${done ? "打合せ済み（承認）で登録/更新" : "未打合せに更新"}しました` });
+        setPasteText("");
+        router.refresh();
+      } else {
+        setPasteMsg({ ok: false, text: res.error ?? "登録に失敗しました" });
+      }
+    } catch (e) {
+      setPasteMsg({ ok: false, text: e instanceof Error ? e.message : "登録に失敗しました" });
+    } finally { setPasteBusy(false); }
+  };
   const toggleSel = (name: string) => setSelected((prev) => { const next = new Set(prev); next.has(name) ? next.delete(name) : next.add(name); return next; });
   const clearSel = () => setSelected(new Set());
   const doBulkMeetingDone = async (done: boolean) => {
@@ -277,9 +302,38 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>grid_view</span>
             </button>
           </div>
+          <button className="btn btn-xs" onClick={() => { setPasteOpen(true); setPasteMsg(null); }} title="企業名を貼り付けて一括で『打合せ済み（承認）』登録">
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>playlist_add_check</span><span>一括で打合せ済み登録</span>
+          </button>
           <button className="btn brand btn-xs" onClick={() => setModal("new")}><Icons.plus /><span>新規登録</span></button>
         </div>
       </div>
+
+      {/* 企業名を貼り付けて一括で「打合せ済み（承認）」登録するモーダル。 */}
+      {pasteOpen && (
+        <div onClick={() => !pasteBusy && setPasteOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(15,36,64,.5)", display: "grid", placeItems: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(560px, 96vw)", maxHeight: "90vh", overflowY: "auto", padding: 20 }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 800 }}>企業を一括登録（打合せ済み・承認）</h3>
+            <p style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7, margin: "0 0 12px" }}>
+              企業名を<b>1行に1社</b>（カンマ・読点区切りも可）で貼り付けてください。
+              既存企業は打合せ済みに更新、未登録の企業は<b>新規作成して打合せ済み（承認）</b>にします。
+            </p>
+            <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={10} disabled={pasteBusy}
+              placeholder={"株式会社ABC\n日本通信技術株式会社\n…"}
+              style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", background: "var(--color-surface)", boxSizing: "border-box" }} />
+            <div style={{ fontSize: 11.5, color: "var(--color-ink-4)", marginTop: 4 }}>
+              {pasteText.split(/\r?\n|,|、|\t/).map((s) => s.trim()).filter(Boolean).length} 社を認識
+            </div>
+            {pasteMsg && <div style={{ fontSize: 12.5, marginTop: 10, color: pasteMsg.ok ? "#067647" : "var(--color-danger)" }}>{pasteMsg.text}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setPasteOpen(false)} disabled={pasteBusy}>閉じる</button>
+              <button type="button" className="btn brand btn-xs" onClick={() => submitPaste(true)} disabled={pasteBusy}>
+                {pasteBusy ? "登録中…" : "打合せ済み（承認）で一括登録"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── リスト表示（既定） ── */}
       {view === "list" && (
