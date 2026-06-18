@@ -66,9 +66,11 @@ export async function getTeamActivity(opts: { start: Date; end: Date; members: M
   };
 
   for (const p of props) {
-    // 提案＝提案者。期間内に作成され、現在ステータスが「提案中」以降の提案のみ計上。
-    //   除外: 承認待ち(approval_status=pending) / 所属確認 / 失注 / 見送り 等
-    //   ＝KPI推移の「提案」列と同じ母数。所属確認フォルダ滞留の提案は含めない。
+    // 提案＝提案者。期間内に作成され、提案中以降に到達 OR 見送り/失注（提案後に流れた）もの。
+    //   除外: 承認待ち(approval_status=pending) / 所属確認（提案前）。
+    //   ＝見送りでも「提案した活動」は件数として残す（提案・コンタクト・調整中は活動量として遡って消さない）。
+    //   成約(合格)・日程確定(面談) は現ステージ基準のため、見送りになれば自然に外れる（後日見送り＝過去に遡ってマイナス）。
+    //   ※ 削除(deleteProposal)は物理削除のため、全メトリクスから自動的に除外される（過去含む）。
     if (isApproved(p) && metricFlags.isProposed(p) && inIso(p.created_at)) bumpByName(p.proposer, "proposal");
     // それ以外＝CL担当（closer）
     const ev = p.stage_updated_at ?? p.updated_at ?? null;
