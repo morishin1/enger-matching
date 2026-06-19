@@ -381,6 +381,11 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
         <OwnerLostBreakdown byProposer={data.byProposer} byCloser={data.byCloser} />
       )}
 
+      {/* 時間帯分析：提案／クロージングの時間帯分布と反応率（仮説検証用）。 */}
+      {filtered.length > 0 && (
+        <TimeAnalysisCard items={filtered} />
+      )}
+
       {/* 連絡継続判断 */}
       {data.companies.length > 0 && (
         <div className="card" style={{ padding: 14 }}>
@@ -610,6 +615,254 @@ function OwnerLostBreakdown({ byProposer, byCloser }: { byProposer: OwnerStat[];
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// 時間帯バケット（6区分）。SES営業の活動リズム（営業時間・昼休み・終了前駆け込み・残業）を捉える。
+const TIME_BUCKETS = [
+  { key: "morning", label: "朝 6-9時",     color: "#fbbf24" },
+  { key: "am",      label: "午前 9-12時",   color: "#10b981" },
+  { key: "noon",    label: "昼 12-14時",    color: "#0ea5e9" },
+  { key: "pm",      label: "午後 14-17時",  color: "#6366f1" },
+  { key: "evening", label: "夕方 17-19時",  color: "#a855f7" },
+  { key: "night",   label: "夜 19-翌6時",   color: "#64748b" },
+] as const;
+type BucketKey = typeof TIME_BUCKETS[number]["key"];
+
+function hourBucket(d: Date): BucketKey {
+  const h = d.getHours(); // JST 表示はブラウザのローカル時刻に依存（社内利用前提）
+  if (h >= 6 && h < 9)  return "morning";
+  if (h >= 9 && h < 12) return "am";
+  if (h >= 12 && h < 14) return "noon";
+  if (h >= 14 && h < 17) return "pm";
+  if (h >= 17 && h < 19) return "evening";
+  return "night";
+}
+
+// 時間帯分析用：「成約系（合格含む）／失注系」の判定。ファイル上部の WON_STAGES は稼働限定のため別途定義。
+const TIME_WON_STAGES = new Set(["合格", "面談合格", "稼働", "稼働決定"]);
+const TIME_LOST_STAGES = new Set(["見送り", "失注"]);
+function isTimeWon(p: any): boolean { return TIME_WON_STAGES.has(String(p?.stage ?? "")); }
+function isTimeLost(p: any): boolean { return TIME_LOST_STAGES.has(String(p?.stage ?? "")); }
+
+// SVG ドーナツ円グラフ（凡例なし版・本体のみ）。
+function Donut({ data, size = 180 }: { data: { label: string; value: number; color: string }[]; size?: number }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return <div className="muted" style={{ fontSize: 11, textAlign: "center", padding: 20 }}>データなし</div>;
+  const r = size / 2 - 6;
+  const cx = size / 2, cy = size / 2;
+  let acc = 0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="時間帯分布円グラフ">
+      {data.filter((d) => d.value > 0).map((d, i) => {
+        const a0 = (acc / total) * Math.PI * 2 - Math.PI / 2; acc += d.value;
+        const a1 = (acc / total) * Math.PI * 2 - Math.PI / 2;
+        const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+        const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+        const large = a1 - a0 > Math.PI ? 1 : 0;
+        // 単一スライス（=100%）のときは full circle を描く
+        if (data.filter((x) => x.value > 0).length === 1) {
+          return <circle key={i} cx={cx} cy={cy} r={r} fill={d.color}><title>{`${d.label}: ${d.value}件`}</title></circle>;
+        }
+        return (
+          <path key={i} d={`M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`} fill={d.color} stroke="#fff" strokeWidth={1.5}>
+            <title>{`${d.label}: ${d.value}件（${Math.round((d.value / total) * 100)}%）`}</title>
+          </path>
+        );
+      })}
+      <circle cx={cx} cy={cy} r={r * 0.55} fill="#fff" />
+      <text x={cx} y={cy - 2} textAnchor="middle" fontSize={11} fill="var(--color-ink-3)">合計</text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fontSize={18} fontWeight={800} fill="var(--color-ink)">{total}</text>
+    </svg>
+  );
+}
+
+function TimeAnalysisCard({ items }: { items: any[] }) {
+  const [view, setView] = useState<"proposal" | "closing">("proposal");
+
+  // 提案時間帯：created_at の時間（全提案）
+  // クロージング時間帯：stage_updated_at の時間（終了系＝成約/失注のみ）
+  const buckets = useMemo(() => {
+    type B = { total: number; won: number; lost: number; byPerson: Record<string, number> };
+    const init = (): Record<BucketKey, B> => Object.fromEntries(TIME_BUCKETS.map((b) => [b.key, { total: 0, won: 0, lost: 0, byPerson: {} }])) as any;
+    const propB = init();
+    const closeB = init();
+    for (const p of items) {
+      // 提案時間帯：全提案を対象に、created_at で集計。勝率も合わせて算出。
+      const ct = p.created_at ? new Date(p.created_at) : null;
+      if (ct && !isNaN(ct.getTime())) {
+        const k = hourBucket(ct);
+        propB[k].total++;
+        if (isTimeWon(p)) propB[k].won++;
+        else if (isTimeLost(p)) propB[k].lost++;
+        const who = (p.proposer ?? "").trim() || "（未割当）";
+        propB[k].byPerson[who] = (propB[k].byPerson[who] || 0) + 1;
+      }
+      // クロージング時間帯：終了系のみ、stage_updated_at（無ければ updated_at）で集計。
+      if (isTimeWon(p) || isTimeLost(p)) {
+        const t = p.stage_updated_at || p.updated_at;
+        const ct2 = t ? new Date(t) : null;
+        if (ct2 && !isNaN(ct2.getTime())) {
+          const k = hourBucket(ct2);
+          closeB[k].total++;
+          if (isTimeWon(p)) closeB[k].won++;
+          if (isTimeLost(p)) closeB[k].lost++;
+          const who = (p.closer ?? "").trim() || "（未割当）";
+          closeB[k].byPerson[who] = (closeB[k].byPerson[who] || 0) + 1;
+        }
+      }
+    }
+    return { proposal: propB, closing: closeB };
+  }, [items]);
+
+  const cur = view === "proposal" ? buckets.proposal : buckets.closing;
+  const donutData = TIME_BUCKETS.map((b) => ({ label: b.label, value: cur[b.key].total, color: b.color }));
+  const grandTotal = donutData.reduce((s, d) => s + d.value, 0);
+
+  // 担当者×時間帯のクロス表。誰がどの時間に動いているか。
+  const people = useMemo(() => {
+    const s = new Set<string>();
+    for (const b of TIME_BUCKETS) for (const k of Object.keys(cur[b.key].byPerson)) s.add(k);
+    return [...s].sort((a, b) => {
+      const ta = TIME_BUCKETS.reduce((n, x) => n + (cur[x.key].byPerson[a] || 0), 0);
+      const tb = TIME_BUCKETS.reduce((n, x) => n + (cur[x.key].byPerson[b] || 0), 0);
+      return tb - ta;
+    }).slice(0, 8);
+  }, [cur]);
+
+  const TabBtn = ({ k, label, n }: { k: "proposal" | "closing"; label: string; n: number }) => {
+    const active = view === k;
+    return (
+      <button type="button" onClick={() => setView(k)}
+        style={{
+          fontFamily: "inherit", fontSize: 12.5, fontWeight: active ? 800 : 600, cursor: "pointer",
+          padding: "6px 14px", borderRadius: 99, border: `1px solid ${active ? "var(--color-brand-600)" : "var(--color-border)"}`,
+          background: active ? "var(--color-brand-600)" : "#fff", color: active ? "#fff" : "var(--color-ink-2)",
+        }}>
+        {label}<span style={{ marginLeft: 6, opacity: 0.85, fontWeight: 700 }}>{n}</span>
+      </button>
+    );
+  };
+
+  const propTotal = Object.values(buckets.proposal).reduce((s, b) => s + b.total, 0);
+  const closeTotal = Object.values(buckets.closing).reduce((s, b) => s + b.total, 0);
+
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <Header title="🕐 時間帯分析（提案／クロージング）" hint="どの時間帯に動いている案件が反応が良いか／誰がどの時間に動いているかを可視化。仮説の検証用。" />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        <TabBtn k="proposal" label="📝 提案時間帯（created_at）" n={propTotal} />
+        <TabBtn k="closing"  label="🎯 クロージング時間帯（決着時刻）" n={closeTotal} />
+      </div>
+
+      {grandTotal === 0 ? (
+        <div className="muted" style={{ fontSize: 12, padding: 16 }}>
+          {view === "proposal" ? "この期間に提案がありません。" : "この期間にクロージング（決着）した案件がありません。"}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 220px) 1fr", gap: 16, alignItems: "start", flexWrap: "wrap" }}>
+          {/* 円グラフ */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <Donut data={donutData} size={200} />
+          </div>
+
+          {/* 反応率テーブル（時間帯別 勝率） */}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "var(--color-ink-3)", marginBottom: 6 }}>
+              時間帯別 反応率（勝率＝成約 ÷（成約＋失注））
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--color-border)", color: "var(--color-ink-3)", fontSize: 11 }}>
+                    <th style={{ textAlign: "left", padding: "5px 8px" }}>時間帯</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px" }}>件数</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px" }}>成約</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px" }}>失注</th>
+                    <th style={{ textAlign: "right", padding: "5px 8px" }}>勝率</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {TIME_BUCKETS.map((b) => {
+                    const v = cur[b.key];
+                    const decided = v.won + v.lost;
+                    const wr = decided > 0 ? Math.round((v.won / decided) * 100) : null;
+                    const wrColor = wr == null ? "var(--color-ink-4)" : wr >= 50 ? "#067647" : wr >= 30 ? "#9a7b12" : "#b42318";
+                    return (
+                      <tr key={b.key} style={{ borderBottom: "1px dashed var(--color-border)" }}>
+                        <td style={{ padding: "5px 8px" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: 3, background: b.color }} />
+                            {b.label}
+                          </span>
+                        </td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700 }}>{v.total}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", color: "#067647" }}>{v.won || "—"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", color: "#b42318" }}>{v.lost || "—"}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 800, color: wrColor }}>
+                          {wr == null ? "—" : `${wr}%`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 担当者×時間帯のクロス表（誰がいつ動いてる） */}
+          {people.length > 0 && (
+            <div style={{ gridColumn: "1 / -1", marginTop: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "var(--color-ink-3)", marginBottom: 6 }}>
+                {view === "proposal" ? "提案者" : "クロージング担当"} × 時間帯（件数）
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--color-border)", color: "var(--color-ink-3)", fontSize: 10.5 }}>
+                      <th style={{ textAlign: "left", padding: "4px 8px" }}>担当</th>
+                      {TIME_BUCKETS.map((b) => (
+                        <th key={b.key} style={{ textAlign: "center", padding: "4px 6px" }}>{b.label.replace(/\s.*/, "")}</th>
+                      ))}
+                      <th style={{ textAlign: "right", padding: "4px 8px" }}>合計</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {people.map((name) => {
+                      const sum = TIME_BUCKETS.reduce((n, b) => n + (cur[b.key].byPerson[name] || 0), 0);
+                      return (
+                        <tr key={name} style={{ borderBottom: "1px dashed var(--color-border)" }}>
+                          <td style={{ padding: "4px 8px", fontWeight: 700 }}>{name}</td>
+                          {TIME_BUCKETS.map((b) => {
+                            const v = cur[b.key].byPerson[name] || 0;
+                            const pct = sum > 0 ? v / sum : 0;
+                            const tone = pct >= 0.4 ? "#0b5cab" : pct >= 0.2 ? "#5a9bd4" : pct > 0 ? "#9ec2e7" : "transparent";
+                            return (
+                              <td key={b.key} style={{ padding: "4px 6px", textAlign: "center", background: tone, color: pct >= 0.4 ? "#fff" : "var(--color-ink-2)", fontWeight: 700 }}>
+                                {v || ""}
+                              </td>
+                            );
+                          })}
+                          <td style={{ padding: "4px 8px", textAlign: "right", fontWeight: 800 }}>{sum}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>
+                ※ 上位8名まで表示。セルの色が濃いほど、その人にとって主要な時間帯。
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="muted" style={{ fontSize: 10.5, marginTop: 10, lineHeight: 1.7 }}>
+        ⏰ 時間帯は提案＝<b>created_at</b>、クロージング＝<b>stage_updated_at</b>（最終ステージ遷移時刻）で判定。クロージングは成約/失注になった案件のみが対象。
+        勝率が高い時間帯に提案を集中させる／低い時間帯の動き方を見直す等の仮説に活用してください。
+      </div>
     </div>
   );
 }
