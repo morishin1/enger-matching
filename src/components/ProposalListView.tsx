@@ -376,6 +376,13 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                   <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
                   {na.text}
                 </span>
+                {/* 通知ステータス（読み取り専用ドット。クリック変更は展開後のNotifyChipで） */}
+                <span style={{ flex: "0 0 auto", display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
+                  <span title={`案件側: ${isPending(p.job_notify_status) ? "未処理" : p.job_notify_status === "in_progress" ? "処理中" : "完了"}`}
+                    style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.job_notify_status) ? "#dc2626" : p.job_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
+                  <span title={`人材側: ${isPending(p.cand_notify_status) ? "未処理" : p.cand_notify_status === "in_progress" ? "処理中" : "完了"}`}
+                    style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.cand_notify_status) ? "#dc2626" : p.cand_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
+                </span>
                 {/* 提案日（右端・補助情報） */}
                 <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
               </div>
