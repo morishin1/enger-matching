@@ -376,6 +376,11 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
         </div>
       )}
 
+      {/* 担当者別 失注傾向＋スピード（提案者 / クロージング をタブで切替）。失注フェーズ分布の直下に配置。 */}
+      {(data.byProposer.length > 0 || data.byCloser.length > 0) && (
+        <OwnerLostBreakdown byProposer={data.byProposer} byCloser={data.byCloser} />
+      )}
+
       {/* 連絡継続判断 */}
       {data.companies.length > 0 && (
         <div className="card" style={{ padding: 14 }}>
@@ -500,113 +505,7 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
         </div>
       )}
 
-      {/* 提案者別 失注（理由＋スピード） — 提案を出した人ベースの責務分析 */}
-      {data.byProposer.length > 0 && (
-        <div className="card" style={{ padding: 14 }}>
-          <Header title="📝 提案者別 失注傾向＋スピード" hint="提案を起票した人（提案者）でグルーピング。スキル/単価系が多い → マッチング精度の見直し。" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {[...data.byProposer].sort((a, b) => b.lost - a.lost).map((p) => {
-              const total = p.lost;
-              const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
-              const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
-              const lagArr = [...p.lagDays].sort((a, b) => a - b);
-              const lagAvg = lagArr.length ? Math.round(lagArr.reduce((a, b) => a + b, 0) / lagArr.length) : null;
-              const lagMed = lagArr.length ? lagArr[Math.floor(lagArr.length / 2)] : null;
-              const slow = lagArr.filter((d) => d >= 15).length;
-              return (
-                <div key={p.name} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
-                    <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won} ／ 勝率 {p.won + p.lost === 0 ? 0 : Math.round((p.won / (p.won + p.lost)) * 100)}%</span>
-                    {lagAvg != null && (
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
-                        background: lagAvg >= 15 ? "#fdecef" : lagAvg >= 7 ? "#fff6e0" : "#e7f7ee",
-                        color:      lagAvg >= 15 ? "#b42318" : lagAvg >= 7 ? "#9a7b12" : "#067647",
-                      }} title={`平均 ${lagAvg}日 / 中央値 ${lagMed}日 / 15日以上 ${slow}件`}>
-                        ⏱ 平均{lagAvg}日（中央値 {lagMed}日）{slow > 0 ? ` ・ 長期化${slow}件` : ""}
-                      </span>
-                    )}
-                  </div>
-                  {total > 0 ? (
-                    <>
-                      <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", background: "var(--color-surface-inset)" }}>
-                        {top.map(([r, n], i) => (
-                          <div key={r} title={`${r}: ${n}`} style={{ width: `${(n as number / total) * 100}%`, background: palette[i % palette.length] }} />
-                        ))}
-                      </div>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
-                        {top.map(([r, n], i) => (
-                          <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 99, background: palette[i % palette.length] }} />
-                            {r}（{n}）
-                          </span>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="muted" style={{ fontSize: 11 }}>失注なし</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* クロージング担当別 失注（理由＋スピード） — クロージングを担当した人ベースの責務分析 */}
-      {data.byCloser.length > 0 && (
-        <div className="card" style={{ padding: 14 }}>
-          <Header title="🎯 クロージング担当別 失注傾向＋スピード" hint="クロージング（決定段階の交渉）を担当した人でグルーピング。フォロー/連絡系・条件交渉系が多い → クロージング動きの見直し。" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {[...data.byCloser].sort((a, b) => b.lost - a.lost).map((p) => {
-              const total = p.lost;
-              const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
-              const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
-              const lagArr = [...p.lagDays].sort((a, b) => a - b);
-              const lagAvg = lagArr.length ? Math.round(lagArr.reduce((a, b) => a + b, 0) / lagArr.length) : null;
-              const lagMed = lagArr.length ? lagArr[Math.floor(lagArr.length / 2)] : null;
-              const slow = lagArr.filter((d) => d >= 15).length;
-              return (
-                <div key={p.name} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
-                    <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won} ／ 勝率 {p.won + p.lost === 0 ? 0 : Math.round((p.won / (p.won + p.lost)) * 100)}%</span>
-                    {lagAvg != null && (
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
-                        background: lagAvg >= 15 ? "#fdecef" : lagAvg >= 7 ? "#fff6e0" : "#e7f7ee",
-                        color:      lagAvg >= 15 ? "#b42318" : lagAvg >= 7 ? "#9a7b12" : "#067647",
-                      }} title={`平均 ${lagAvg}日 / 中央値 ${lagMed}日 / 15日以上 ${slow}件`}>
-                        ⏱ 平均{lagAvg}日（中央値 {lagMed}日）{slow > 0 ? ` ・ 長期化${slow}件` : ""}
-                      </span>
-                    )}
-                  </div>
-                  {total > 0 ? (
-                    <>
-                      <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", background: "var(--color-surface-inset)" }}>
-                        {top.map(([r, n], i) => (
-                          <div key={r} title={`${r}: ${n}`} style={{ width: `${(n as number / total) * 100}%`, background: palette[i % palette.length] }} />
-                        ))}
-                      </div>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
-                        {top.map(([r, n], i) => (
-                          <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: 99, background: palette[i % palette.length] }} />
-                            {r}（{n}）
-                          </span>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="muted" style={{ fontSize: 11 }}>失注なし</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* 担当者別 失注（提案者 / クロージング をタブ切替） — 失注フェーズ分布の直下は下に移動済 */}
 
       {/* 失注ログ（担当者・理由・スピード一覧） */}
       {data.lostRows.length > 0 && (
@@ -625,6 +524,92 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
           <li><b>失注時の感触</b>（手応えタグ）— 「条件あえば即」「完全NG」など強弱</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+// 担当者別 失注傾向＋スピード。提案者 / クロージング担当 をタブで切り替えて表示。
+type OwnerStat = { name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] };
+function OwnerLostBreakdown({ byProposer, byCloser }: { byProposer: OwnerStat[]; byCloser: OwnerStat[] }) {
+  // 既定は提案者。提案者が空でクロージングだけある場合はクロージングを初期表示。
+  const [view, setView] = useState<"proposer" | "closer">(byProposer.length > 0 ? "proposer" : "closer");
+  const rows = view === "proposer" ? byProposer : byCloser;
+  const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
+  const hint = view === "proposer"
+    ? "提案を起票した人（提案者）でグルーピング。スキル/単価系が多い → マッチング精度の見直し。"
+    : "クロージング（決定段階の交渉）を担当した人でグルーピング。フォロー/連絡系・条件交渉系が多い → クロージング動きの見直し。";
+
+  const TabBtn = ({ k, label, n }: { k: "proposer" | "closer"; label: string; n: number }) => {
+    const active = view === k;
+    return (
+      <button type="button" onClick={() => setView(k)}
+        style={{
+          fontFamily: "inherit", fontSize: 12.5, fontWeight: active ? 800 : 600, cursor: "pointer",
+          padding: "6px 14px", borderRadius: 99, border: `1px solid ${active ? "var(--color-brand-600)" : "var(--color-border)"}`,
+          background: active ? "var(--color-brand-600)" : "#fff", color: active ? "#fff" : "var(--color-ink-2)",
+        }}>
+        {label}<span style={{ marginLeft: 6, opacity: 0.85, fontWeight: 700 }}>{n}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <Header title="👤 担当者別 失注傾向＋スピード" hint={hint} />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <TabBtn k="proposer" label="📝 提案者" n={byProposer.length} />
+        <TabBtn k="closer" label="🎯 クロージング" n={byCloser.length} />
+      </div>
+      {rows.length === 0 ? (
+        <div className="muted" style={{ fontSize: 12 }}>対象の担当者がいません。</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {[...rows].sort((a, b) => b.lost - a.lost).map((p) => {
+            const total = p.lost;
+            const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
+            const lagArr = [...p.lagDays].sort((a, b) => a - b);
+            const lagAvg = lagArr.length ? Math.round(lagArr.reduce((a, b) => a + b, 0) / lagArr.length) : null;
+            const lagMed = lagArr.length ? lagArr[Math.floor(lagArr.length / 2)] : null;
+            const slow = lagArr.filter((d) => d >= 15).length;
+            return (
+              <div key={p.name} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
+                  <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won} ／ 勝率 {p.won + p.lost === 0 ? 0 : Math.round((p.won / (p.won + p.lost)) * 100)}%</span>
+                  {lagAvg != null && (
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                      background: lagAvg >= 15 ? "#fdecef" : lagAvg >= 7 ? "#fff6e0" : "#e7f7ee",
+                      color:      lagAvg >= 15 ? "#b42318" : lagAvg >= 7 ? "#9a7b12" : "#067647",
+                    }} title={`平均 ${lagAvg}日 / 中央値 ${lagMed}日 / 15日以上 ${slow}件`}>
+                      ⏱ 平均{lagAvg}日（中央値 {lagMed}日）{slow > 0 ? ` ・ 長期化${slow}件` : ""}
+                    </span>
+                  )}
+                </div>
+                {total > 0 ? (
+                  <>
+                    <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", background: "var(--color-surface-inset)" }}>
+                      {top.map(([r, n], i) => (
+                        <div key={r} title={`${r}: ${n}`} style={{ width: `${(n as number / total) * 100}%`, background: palette[i % palette.length] }} />
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
+                      {top.map(([r, n], i) => (
+                        <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 99, background: palette[i % palette.length] }} />
+                          {r}（{n}）
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <span className="muted" style={{ fontSize: 11 }}>失注なし</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
