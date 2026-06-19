@@ -13,7 +13,7 @@ import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskJobs } from "@/lib/tenant";
 import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
 import { JOB_FLOW_OPTIONS } from "@/lib/flow";
-import { getApprovedCompanySet, getApprovedCompanyNames, isCompanyApproved } from "@/lib/company-approval";
+import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -162,15 +162,31 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const fresh = fStatus ? freshRange(fStatus) : null;
       const rOr = fRank ? rankOr(fRank) : null;
 
-      // 承認状況フィルタ用：打合せ済（承認）企業名の一覧をクエリ前に取得。
-      //   approved   = client_name が承認済み企業名のいずれかに一致。
-      //   unapproved = 一致しない or client_name が空（未登録）。
-      let approvedNames: string[] = [];
-      if (fApproved) { try { approvedNames = await getApprovedCompanyNames(); } catch { /* 取得失敗時はフィルタ無効 */ } }
-      const pgInList = (names: string[]) => `(${names.map((n) => `"${n.replace(/"/g, '""')}"`).join(",")})`;
+      // 承認状況フィルタ：client_name が打合せ済（承認）企業かで絞る。
+      //   旧実装は承認済み企業「名」を or(...not.in...) 文字列に展開しており、対象が多い・特殊文字を
+      //   含むと PostgREST クエリが失敗する潜在リスクがあった（人材一覧で同型の不具合が発生）。
+      //   対策として、承認済みの job_no を事前に解決し、整数の in()/not.in() で安全に絞る。
+      //   判定は isCompanyApproved（バリアント承認のカスケード込み）を使い、一覧バッジと一致させる。
+      let approvedJobNos: number[] = [];
+      let approvalReady = false;
+      if (fApproved) {
+        try {
+          const approvedSet = await getApprovedCompanySet();
+          if (approvedSet.size) {
+            let allRes: any = await sb.from("jobs").select("job_no, client_name").is("deleted_at", null).limit(20000);
+            if (allRes.error) allRes = await sb.from("jobs").select("job_no, client_name").limit(20000);
+            for (const r of allRes.data ?? []) {
+              if (r.job_no == null) continue;
+              if (isCompanyApproved(approvedSet, r.client_name)) approvedJobNos.push(r.job_no);
+            }
+          }
+          approvalReady = true;
+        } catch { /* 取得失敗時はフィルタ無効（全件表示にフォールバック） */ }
+      }
       const applyApproved = (qb: any) => {
-        if (fApproved === "approved") return approvedNames.length ? qb.in("client_name", approvedNames) : qb.eq("job_no", -1);
-        if (fApproved === "unapproved" && approvedNames.length) return qb.or(`client_name.is.null,client_name.not.in.${pgInList(approvedNames)}`);
+        if (!fApproved || !approvalReady) return qb;
+        if (fApproved === "approved") return approvedJobNos.length ? qb.in("job_no", approvedJobNos) : qb.eq("job_no", -1);
+        if (fApproved === "unapproved") return approvedJobNos.length ? qb.not("job_no", "in", `(${approvedJobNos.join(",")})`) : qb;
         return qb;
       };
 
