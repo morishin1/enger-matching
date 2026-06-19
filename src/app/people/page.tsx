@@ -10,7 +10,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
 import { CAND_FLOW_OPTIONS } from "@/lib/flow";
-import { getApprovedCompanySet, getApprovedCompanyNames, isCompanyApproved } from "@/lib/company-approval";
+import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { CAND_NAT_UNKNOWN_SQL_KEYS } from "@/lib/nationality";
 
 export const dynamic = "force-dynamic";
@@ -140,22 +140,32 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const fresh = fStatus ? freshRange(fStatus) : null;
       const rOr = fRank ? rankOr(fRank) : null;
 
-      // 承認状況フィルタ用：打合せ済（承認）企業名の一覧をクエリ前に取得。
-      //   人材の所属は source_company / company のいずれか。どちらかが承認済みなら「承認済み」とみなす。
-      let approvedNames: string[] = [];
-      if (fApproved) { try { approvedNames = await getApprovedCompanyNames(); } catch { /* 取得失敗時はフィルタ無効 */ } }
-      const pgInList = (names: string[]) => `(${names.map((n) => `"${n.replace(/"/g, '""')}"`).join(",")})`;
+      // 承認状況フィルタ：所属企業（source_company / company のいずれか）が打合せ済（承認）かで絞る。
+      //   旧実装は承認済み企業「名」の巨大な in() を URL に2列分展開しており、企業数が多い・特殊文字を含む
+      //   と PostgREST クエリが失敗し、承認済み/未承認の両方が常に0件になっていた（複数件あるのに両方空＝
+      //   クエリ失敗の証左）。対策として、承認済みの candidate_no を事前に解決し、整数の in()/not.in() で
+      //   安全に絞る。判定は isCompanyApproved（バリアント承認のカスケード込み）を使い、バッジと完全一致させる。
+      let approvedNos: number[] = [];
+      let approvalReady = false;
+      if (fApproved) {
+        try {
+          const approvedSet = await getApprovedCompanySet();
+          if (approvedSet.size) {
+            // 所属企業の判定に必要な軽量3列のみを全件取得（ゴミ箱は除外。未マイグレ環境はフォールバック）。
+            let allRes: any = await sb.from("candidates").select("candidate_no, source_company, company").is("deleted_at", null).limit(20000);
+            if (allRes.error) allRes = await sb.from("candidates").select("candidate_no, source_company, company").limit(20000);
+            for (const r of allRes.data ?? []) {
+              if (r.candidate_no == null) continue;
+              if (isCompanyApproved(approvedSet, r.source_company || r.company)) approvedNos.push(r.candidate_no);
+            }
+          }
+          approvalReady = true; // approvedSet が空でも「承認済み0件」として正しく機能させる
+        } catch { /* 取得失敗時はフィルタ無効（全件表示にフォールバック） */ }
+      }
       const applyApproved = (qb: any) => {
-        if (fApproved === "approved") {
-          if (!approvedNames.length) return qb.eq("candidate_no", -1);
-          const L = pgInList(approvedNames);
-          return qb.or(`source_company.in.${L},company.in.${L}`);
-        }
-        if (fApproved === "unapproved" && approvedNames.length) {
-          const L = pgInList(approvedNames);
-          // 「いずれの所属も承認済みでない」= (source_company null/未一致) かつ (company null/未一致)
-          return qb.or(`source_company.is.null,source_company.not.in.${L}`).or(`company.is.null,company.not.in.${L}`);
-        }
+        if (!fApproved || !approvalReady) return qb;
+        if (fApproved === "approved") return approvedNos.length ? qb.in("candidate_no", approvedNos) : qb.eq("candidate_no", -1);
+        if (fApproved === "unapproved") return approvedNos.length ? qb.not("candidate_no", "in", `(${approvedNos.join(",")})`) : qb;
         return qb;
       };
 
