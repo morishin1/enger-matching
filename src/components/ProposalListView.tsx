@@ -151,6 +151,8 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   //   1社の複数募集に対し同じ案件が重複して並び、コンタクト確認が漏れる問題への対応。
   const [groupByJob, setGroupByJob] = useState(true);
   const [active, setActive] = useState<any | null>(null);
+  // アコーディオン：行クリックでインラインの詳細を開閉（uniform な行＋必要な時だけ展開）。
+  const [openId, setOpenId] = useState<string | null>(null);
   const isPending = (v: any) => v == null || v === "pending";
 
   const handleDelete = (p: any) => {
@@ -238,9 +240,6 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     return out;
   }, [rows, groups, groupByJob]);
 
-  const th: React.CSSProperties = { textAlign: "left", padding: "10px 12px", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, whiteSpace: "nowrap" };
-  const td: React.CSSProperties = { padding: "10px 12px", fontSize: 12.5, verticalAlign: "middle" };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* ステージ別サマリ（クリックで絞り込み）。件数だけでなく
@@ -320,119 +319,119 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
         </button>
       </div>
 
-      {/* テーブル */}
-      <div className="card" style={{ padding: 0, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <th style={th}>提案日時</th>
-              <th style={th}>人材</th>
-              <th style={th}>案件</th>
-              <th style={th}>提案者 / CL</th>
-              <th style={th}>更新日</th>
-              <th style={th}>ステータス</th>
-              <th style={th}>ネクストアクション</th>
-              <th style={th}>通知</th>
-              <th style={{ ...th, textAlign: "center" }}>詳細</th>
-              <th style={{ ...th, textAlign: "center" }}>削除</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={10} style={{ ...td, textAlign: "center", color: "var(--color-ink-4)", padding: 36 }}>該当する提案がありません。</td></tr>
-            )}
-            {displayItems.map((it: any) => {
-              if (it.type === "header") {
-                const g = it.g; const top = g.items[0];
-                return (
-                  <tr key={`h-${g.key}`} style={{ background: "var(--color-surface-soft)", borderTop: "2px solid var(--color-border)" }}>
-                    <td colSpan={10} style={{ ...td, padding: "8px 12px" }}>
-                      <span style={{ fontWeight: 800, color: "var(--color-ink)" }}>{top.job_title ?? "—"}</span>
-                      {top.company && <span className="muted" style={{ marginLeft: 8, fontSize: 11.5 }}>{top.company}</span>}
-                      <span className="tag brand" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
-                    </td>
-                  </tr>
-                );
-              }
-              const p = it.p; const member = it.member;
-              const na = nextActionFor(p);
-              const naTone = URGENCY_TONE[na.urgency];
-              const closerName = p.closer ?? p.company_owner;
-              return (
-              <tr key={p.id} onClick={() => setActive(p)} style={{ borderBottom: "1px solid var(--color-border)", cursor: "pointer", opacity: busyId === p.id ? 0.5 : 1 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-soft)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDateTime(p.created_at)}</td>
-                <td style={td}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{p.candidate_name ?? "—"}</div>
-                      {p.lp_direct && <span title="LP（enger.jp）からの直接応募" style={{ display: "inline-block", marginTop: 2, fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>📥 LP直接応募</span>}
-                    </div>
+      {/* アコーディオン式リスト：行は uniform。クリックで詳細をインライン展開。 */}
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        {rows.length === 0 && (
+          <div style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 36, fontSize: 13 }}>該当する提案がありません。</div>
+        )}
+        {displayItems.map((it: any) => {
+          if (it.type === "header") {
+            const g = it.g; const top = g.items[0];
+            return (
+              <div key={`h-${g.key}`} style={{ background: "var(--color-surface-soft)", borderTop: "2px solid var(--color-border)", padding: "8px 14px" }}>
+                <span style={{ fontWeight: 800, color: "var(--color-ink)" }}>{top.job_title ?? "—"}</span>
+                {top.company && <span className="muted" style={{ marginLeft: 8, fontSize: 11.5 }}>{top.company}</span>}
+                <span className="tag brand" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
+              </div>
+            );
+          }
+          const p = it.p; const member = it.member;
+          const na = nextActionFor(p);
+          const naTone = URGENCY_TONE[na.urgency];
+          const closerName = p.closer ?? p.company_owner;
+          const open = openId === p.id;
+          return (
+            <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)", opacity: busyId === p.id ? 0.5 : 1 }}>
+              {/* サマリ行（uniform・クリックで開閉） */}
+              <div
+                onClick={() => setOpenId(open ? null : p.id)}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", background: open ? "var(--color-surface-soft)" : "transparent" }}
+                onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = "var(--color-surface-soft)"; }}
+                onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = "transparent"; }}>
+                {/* 開閉インジケータ */}
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-ink-4)", transition: "transform .15s", transform: open ? "rotate(90deg)" : "none", flexShrink: 0 }}>chevron_right</span>
+                {/* 人材 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 0 200px", minWidth: 0 }}>
+                  <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
+                    {p.lp_direct && <span title="LP（enger.jp）からの直接応募" style={{ display: "inline-block", marginTop: 1, fontSize: 9.5, fontWeight: 700, padding: "0 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>📥 LP直接応募</span>}
                   </div>
-                </td>
-                <td style={td}>
+                </div>
+                {/* 案件 */}
+                <div style={{ flex: "1 1 auto", minWidth: 0 }}>
                   {member ? (
-                    <span className="muted" style={{ fontSize: 11, paddingLeft: 12, color: "var(--color-ink-4)" }}>↳ 同案件</span>
+                    <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>↳ 同案件</span>
                   ) : (
                     <>
-                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.job_title ?? "—"}</div>
-                      <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>{p.company ?? ""}</div>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</div>
+                      <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}</div>
                     </>
                   )}
-                </td>
-                <td style={td}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
-                    <PersonTag role="P" name={p.proposer} />
-                    <PersonTag role="CL" name={closerName === "未割当" ? null : closerName} />
+                </div>
+                {/* ステータス */}
+                <div style={{ flex: "0 0 auto" }}><StageBadge stage={normStage(p.stage)} /></div>
+                {/* ネクストアクション */}
+                <span title={`緊急度: ${na.urgency}`} style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
+                  {na.text}
+                </span>
+                {/* 提案日（右端・補助情報） */}
+                <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
+              </div>
+
+              {/* 詳細パネル（展開時のみ） */}
+              {open && (
+                <div style={{ padding: "4px 14px 14px 46px", display: "flex", flexDirection: "column", gap: 10, background: "var(--color-surface-soft)" }}>
+                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 12 }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>提案者 / クロージング</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <PersonTag role="P" name={p.proposer} />
+                        <PersonTag role="CL" name={closerName === "未割当" ? null : closerName} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>受信側の応答</div>
+                      <div style={{ display: "inline-flex", gap: 4 }}>
+                        <ActionChip type={p.job_action_type}  side="job"  />
+                        <ActionChip type={p.cand_action_type} side="cand" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>通知ステータス（クリックで変更）</div>
+                      <div style={{ display: "inline-flex", gap: 4 }}>
+                        <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
+                        <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>提案日時 / 更新日</div>
+                      <div style={{ color: "var(--color-ink-2)" }}>{fmtDateTime(p.created_at)} ／ {fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</div>
+                    </div>
                   </div>
-                </td>
-                <td style={{ ...td, whiteSpace: "nowrap", color: "var(--color-ink-3)" }}>{fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</td>
-                <td style={td}>
-                  <StageBadge stage={normStage(p.stage)} />
-                  {/* 失注/見送りなら理由をその場に表示（前まで見えていた失注理由を復活） */}
+                  {/* 失注/見送りなら理由を表示 */}
                   {(p.stage === "見送り" || p.stage === "失注") && p.lost_reason && (
-                    <div style={{ marginTop: 4, fontSize: 10.5, color: "#b42318" }} title={p.lost_reason_note ?? undefined}>
-                      💔 {p.lost_reason}{p.lost_phase ? `（${p.lost_phase}）` : ""}
+                    <div style={{ fontSize: 11.5, color: "#b42318" }} title={p.lost_reason_note ?? undefined}>
+                      💔 {p.lost_reason}{p.lost_phase ? `（${p.lost_phase}）` : ""}{p.lost_reason_note ? ` — ${p.lost_reason_note}` : ""}
                     </div>
                   )}
-                </td>
-                <td style={td}>
-                  <span title={`緊急度: ${na.urgency}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
-                    {na.text}
-                  </span>
-                </td>
-                <td style={td}>
-                  <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
-                    {/* 受信側の応答ステータス（PR #130 で導入された action_type 列を使用） */}
-                    <div style={{ display: "inline-flex", gap: 4 }}>
-                      <ActionChip type={p.job_action_type}  side="job"  />
-                      <ActionChip type={p.cand_action_type} side="cand" />
-                    </div>
-                    {/* 営業側のフォロー進捗（通知ステータス〇） */}
-                    <div style={{ display: "inline-flex", gap: 4 }}>
-                      <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
-                      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
-                    </div>
+                  {/* 操作 */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => setActive(p)} className="btn brand btn-xs">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px", marginRight: 2 }}>edit</span>
+                      詳細・編集を開く
+                    </button>
+                    <button type="button" onClick={() => handleDelete(p)} className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy && busyId === p.id}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px", marginRight: 2 }}>delete</span>
+                      削除
+                    </button>
                   </div>
-                </td>
-                <td style={{ ...td, textAlign: "center" }}>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setActive(p); }} className="btn ghost btn-xs" aria-label="詳細を開く" title="詳細を開く">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-brand-700)" }}>mail</span>
-                  </button>
-                </td>
-                <td style={{ ...td, textAlign: "center" }}>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); handleDelete(p); }} className="btn ghost btn-xs" aria-label="提案を削除" title="提案を削除（元に戻せません）" disabled={busy && busyId === p.id}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-danger)" }}>delete</span>
-                  </button>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="muted" style={{ fontSize: 11.5 }}>{rows.length} 件を表示中{stageFilter || ownerFilter || q ? "（絞り込み適用中）" : ""}</div>
