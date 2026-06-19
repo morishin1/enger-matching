@@ -132,6 +132,7 @@ type Aggregated = {
     phases: Record<string, number>;
   }>;
   byProposer: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
+  byCloser: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
   // 提案→失注 までのタイムラグ（日）。スピード改善のための分布・上位の遅い案件を保持。
   lagBuckets: Array<{ label: string; range: [number, number]; n: number }>;
   lagStats: { avg: number | null; median: number | null; p90: number | null; total: number };
@@ -144,6 +145,7 @@ function analyze(items: HItem[]): Aggregated {
   const reasons: Record<string, number> = {};
   const companies: Record<string, any> = {};
   const byProposer: Record<string, any> = {};
+  const byCloser: Record<string, any> = {};
   const lostRowsRaw: Aggregated["lostRows"] = [];
   let lost = 0, won = 0;
 
@@ -200,6 +202,24 @@ function analyze(items: HItem[]): Aggregated {
     } else {
       byProposer[proposer].won++;
     }
+
+    // クロージング担当別の集計（提案者と別に責務を見るため）。
+    //   失注は「契約クロージング段階の判断・交渉」に強く効くため、CL担当別の理由分布も併記する。
+    const closer = (p.closer ?? "").trim() || "（未割当）";
+    if (!byCloser[closer]) byCloser[closer] = { name: closer, won: 0, lost: 0, reasons: {}, lagDays: [] };
+    if (isLost) {
+      byCloser[closer].lost++;
+      const r = p.lost_reason || "（理由未入力）";
+      byCloser[closer].reasons[r] = (byCloser[closer].reasons[r] || 0) + 1;
+      const createdT = new Date(p.created_at || 0).getTime();
+      const lostT = new Date(p.stage_updated_at || p.updated_at || 0).getTime();
+      if (createdT && lostT && lostT >= createdT) {
+        const days = Math.max(0, Math.round((lostT - createdT) / 86400000));
+        byCloser[closer].lagDays.push(days);
+      }
+    } else {
+      byCloser[closer].won++;
+    }
   }
 
   const now = Date.now();
@@ -246,6 +266,7 @@ function analyze(items: HItem[]): Aggregated {
     phases, reasons, topReasons, topPhase,
     companies: companyList,
     byProposer: Object.values(byProposer).map((p: any) => p) as Aggregated["byProposer"],
+    byCloser: Object.values(byCloser).map((c: any) => c) as Aggregated["byCloser"],
     lagBuckets, lagStats,
     lostRows: lostRowsRaw.sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0)),
   };
@@ -479,12 +500,66 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
         </div>
       )}
 
-      {/* 担当者別 失注（理由＋スピード） */}
+      {/* 提案者別 失注（理由＋スピード） — 提案を出した人ベースの責務分析 */}
       {data.byProposer.length > 0 && (
         <div className="card" style={{ padding: 14 }}>
-          <Header title="👤 担当者別 失注傾向＋スピード" hint="ラグが大きい担当ほど『決定までに時間がかかっている』。スキル/単価系が多い → マッチング精度。フォロー/連絡系が多い → 接触ペース見直し。" />
+          <Header title="📝 提案者別 失注傾向＋スピード" hint="提案を起票した人（提案者）でグルーピング。スキル/単価系が多い → マッチング精度の見直し。" />
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[...data.byProposer].sort((a, b) => b.lost - a.lost).map((p) => {
+              const total = p.lost;
+              const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
+              const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
+              const lagArr = [...p.lagDays].sort((a, b) => a - b);
+              const lagAvg = lagArr.length ? Math.round(lagArr.reduce((a, b) => a + b, 0) / lagArr.length) : null;
+              const lagMed = lagArr.length ? lagArr[Math.floor(lagArr.length / 2)] : null;
+              const slow = lagArr.filter((d) => d >= 15).length;
+              return (
+                <div key={p.name} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
+                    <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won} ／ 勝率 {p.won + p.lost === 0 ? 0 : Math.round((p.won / (p.won + p.lost)) * 100)}%</span>
+                    {lagAvg != null && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                        background: lagAvg >= 15 ? "#fdecef" : lagAvg >= 7 ? "#fff6e0" : "#e7f7ee",
+                        color:      lagAvg >= 15 ? "#b42318" : lagAvg >= 7 ? "#9a7b12" : "#067647",
+                      }} title={`平均 ${lagAvg}日 / 中央値 ${lagMed}日 / 15日以上 ${slow}件`}>
+                        ⏱ 平均{lagAvg}日（中央値 {lagMed}日）{slow > 0 ? ` ・ 長期化${slow}件` : ""}
+                      </span>
+                    )}
+                  </div>
+                  {total > 0 ? (
+                    <>
+                      <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", background: "var(--color-surface-inset)" }}>
+                        {top.map(([r, n], i) => (
+                          <div key={r} title={`${r}: ${n}`} style={{ width: `${(n as number / total) * 100}%`, background: palette[i % palette.length] }} />
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
+                        {top.map(([r, n], i) => (
+                          <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 99, background: palette[i % palette.length] }} />
+                            {r}（{n}）
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="muted" style={{ fontSize: 11 }}>失注なし</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* クロージング担当別 失注（理由＋スピード） — クロージングを担当した人ベースの責務分析 */}
+      {data.byCloser.length > 0 && (
+        <div className="card" style={{ padding: 14 }}>
+          <Header title="🎯 クロージング担当別 失注傾向＋スピード" hint="クロージング（決定段階の交渉）を担当した人でグルーピング。フォロー/連絡系・条件交渉系が多い → クロージング動きの見直し。" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[...data.byCloser].sort((a, b) => b.lost - a.lost).map((p) => {
               const total = p.lost;
               const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
               const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
