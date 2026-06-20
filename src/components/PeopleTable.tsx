@@ -32,10 +32,23 @@ function freshnessLabel(d: string | null): string {
   if (days <= 14) return "4〜14日前";
   return "それ以前";
 }
+// 取込（インポート）日時の短縮表示。例: 6/19 14:30。ステータス列でバッジ下に併記する。
+const importDateTime = (d: string | null) => {
+  if (!d) return null;
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return null;
+  return `${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+};
 const Fresh = ({ d }: { d: string | null }) => {
   const label = freshnessLabel(d);
   const tone = label === "新着" ? "new" : label === "3日以内" ? "soon" : label === "4〜14日前" ? "mid" : "old";
-  return <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>;
+  const dt = importDateTime(d);
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
+      <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>
+      {dt && <span className="muted" style={{ fontSize: 10.5, lineHeight: 1.2 }} title="取込（インポート）日時">{dt}</span>}
+    </span>
+  );
 };
 
 // リモート希望（自由テキスト）を 3 区分の表示ラベルへ正規化。
