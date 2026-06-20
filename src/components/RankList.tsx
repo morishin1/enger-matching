@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
+
+// 単価表示（rate が無いとき salary_min/max から組み立て）。
+const salaryLabel = (lo?: number | null, hi?: number | null) =>
+  lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "";
 
 function Stars({ score }: { score: number }) {
   const n = Math.max(0, Math.min(5, Math.round(score / 20)));
@@ -165,12 +170,19 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                   )}
                 </div>
                 {(() => {
-                  const co = c.source_company || c.company || "";
-                  const coAff = co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation || "");
+                  // 職種・クライアント名（所属会社名）は出さず、人材の「単価 / 所属区分 / 国籍 / 年代」のみを表示。
+                  //   会社名が長くて他情報が埋もれる問題への対応（要望）。
+                  const nat = classifyCandNationality(c.nationality);
+                  const natLabel = nat === "unknown" ? "国籍不明" : CAND_NAT_LABEL[nat];
+                  const sub = [
+                    c.rate || salaryLabel(c.salary_min, c.salary_max),
+                    c.affiliation,
+                    natLabel,
+                    c.age_band,
+                  ].filter(Boolean).join(" · ");
                   return (
                     <>
-                      {/* 会社名は AI 相性表示中でも常に出す（人材を会社で識別できるように） */}
-                      <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title ?? "—"}{coAff ? ` · ${coAff}` : ""}</div>
+                      <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub || "—"}</div>
                       {aiv && <div style={{ fontSize: 10.5, color: "var(--color-brand-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🤖 {aiv.reason}</div>}
                     </>
                   );
