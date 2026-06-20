@@ -24,6 +24,7 @@ import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
 import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -385,6 +386,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             } catch { /* noop */ }
           }
           rankedJobs = rankJobs(person as any, (jobList as Job[]).filter((j: any) => !j?.deleted_at), 10);
+          // 元メールリンクを直近受信メールへ更新（同人材／同案件／同送信元の最新メールに飛ぶ）。
+          if (person) await attachLatestSourceMail(sb, "candidate", [person]);
+          await attachLatestSourceMail(sb, "job", rankedJobs.map((r: any) => r.job));
         }
         // この人材が既に提案済みの案件（提案済み表示用）
         if (person?.id) {
@@ -515,6 +519,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             }
           }
         }
+        // 元メールリンクを直近受信メールへ更新（同案件／同人材／同送信元の最新メールに飛ぶ）。
+        if (job) await attachLatestSourceMail(sb, "job", [job]);
+        await attachLatestSourceMail(sb, "candidate", ranked.map((r: any) => r.candidate));
         // この案件で既に提案済みの人材（提案済み表示用）
         if (job?.id) {
           try { const { data } = await sb.from("proposals").select("id, candidate_id, proposer, created_at").eq("job_id", job.id); for (const r of (data ?? []) as any[]) { if (r.candidate_id) { proposedCandIds.add(r.candidate_id); proposalIdByCand.set(r.candidate_id, r.id); proposalInfoByCand.set(r.candidate_id, { proposer: r.proposer ?? null, createdAt: r.created_at ?? null }); } } } catch { /* proposals未整備でも続行 */ }

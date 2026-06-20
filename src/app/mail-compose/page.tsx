@@ -3,6 +3,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MailComposeWizard } from "@/components/MailComposeWizard";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,11 @@ export default async function MailComposePage({
   if (cr.error) cr = await sb.from("candidates").select("id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, email, contact_email").eq("candidate_no", candNo).maybeSingle();
 
   if (!jr.data || !cr.data) return notFound();
+
+  // 元メールリンク（メール編集画面の「↗ 元メール」）を直近受信メールへ更新。
+  //   同案件／同人材／同送信元の最新メールに飛ぶようにする。
+  await attachLatestSourceMail(sb, "job", [jr.data]);
+  await attachLatestSourceMail(sb, "candidate", [cr.data]);
 
   // source_mail_subject が未保存の人材（古い取込）向けに、source_mail_url から
   // inbox_emails.subject を取り直してメモリ上で補完する（DBは更新しない・読み取りのみ）。

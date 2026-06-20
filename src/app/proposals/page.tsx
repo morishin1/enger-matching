@@ -10,6 +10,7 @@ import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { Collapsible } from "@/components/Collapsible";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +87,8 @@ export default async function ProposalsPage() {
         // ① 案件: 元メール本文(detail)も取得 → ドロワーの2カラム比較に使う。列が無ければ source_mail_url だけにフォールバック。
         const fetchJobs = async () => {
           if (!jobIds.length) return [];
-          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, detail, is_closed").in("id", jobIds).limit(2000);
+          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, source_mail_at, contact_email, detail, is_closed").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, detail, is_closed").in("id", jobIds).limit(2000);
           if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, detail").in("id", jobIds).limit(2000);
           if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000);
           return r.error ? [] : nq(r.data);
@@ -94,7 +96,8 @@ export default async function ProposalsPage() {
         // ② 人材: 元メール本文(note)も取得。列が無ければ exp、それも無ければ source_mail_url だけ。
         const fetchCands = async () => {
           if (!candIds.length) return [];
-          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp, is_closed").in("id", candIds).limit(2000);
+          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, source_mail_at, contact_email, note, exp, is_closed").in("id", candIds).limit(2000);
+          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp, is_closed").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds).limit(2000);
           return r.error ? [] : nq(r.data);
@@ -105,6 +108,10 @@ export default async function ProposalsPage() {
           titles.length  ? sb.from("jobs").select("title, outside_owner").in("title", titles).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
           compNms.length ? sb.from("companies").select("name, owner").in("name", compNms).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
         ]);
+
+        // 元メールリンク（ProposalDetailModal の「案件の元メール／人材の元メール」）を直近受信メールへ更新。
+        await attachLatestSourceMail(sb, "job", jn as any[]);
+        await attachLatestSourceMail(sb, "candidate", cn as any[]);
 
         try {
           const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean }> = {};
