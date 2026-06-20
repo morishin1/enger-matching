@@ -66,7 +66,7 @@ export type MatchResult = {
 };
 
 // スキル正規化は正典辞書（skills.ts）に集約。
-import { canon, normToken as norm } from "./skills";
+import { canon, normToken as norm, skillMentionRegex } from "./skills";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL, type FlowCompat } from "./flow";
 export { canon };
 
@@ -311,6 +311,10 @@ export function preferredSkillMatch(job: Job, c: Candidate): string[] {
   const end = after.search(/【|＝{3,}|─{3,}|━{3,}|∞{3,}|\n\s*\n\s*\n/);
   const section = (end >= 0 ? after.slice(0, end) : after).toLowerCase();
   if (!section.trim()) return [];
+  // 多重チェック（第2軸：尚可スキル）。①候補の skills[] と尚可セクションの照合 →
+  // ②候補の経歴/PR本文にもセクション内の各スキル候補が出ているかを substring 走査。
+  // 短いトークンの誤検出を避けるため、配列照合は従来どおりトリム/canon の包含で、
+  // 本文照合はセクション内の "明らかなスキル名らしき" 部分（句読点/区切りで分割）で行う。
   const matched: string[] = [];
   for (const s of (c.skills ?? [])) {
     const raw = String(s ?? "").trim().toLowerCase();
@@ -362,8 +366,23 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   const jobSkills = (job.skills ?? []).map(canon);
   const candSet = new Set((c.skills ?? []).map(canon));
   const origJobSkills = job.skills ?? [];
-  const matchedSkills: string[] = []; const missingSkills: string[] = [];
-  origJobSkills.forEach((s, i) => { if (candSet.has(jobSkills[i])) matchedSkills.push(s); else missingSkills.push(s); });
+  // ── 多重チェック（第1軸：必須スキル）─────────────────────────────────────
+  //   ①配列(skills[])での canon 一致 → ②本文(経歴/PR/職種/会社/スキルシート要約)に
+  //   スキル名の言及があるかの正規表現マッチ、の順で照合する。
+  //   営業/取込時点で skills[] への登録が漏れていても、本文に明記があれば「救う」ことで、
+  //   案件企業側の「土俵に乗らない」誤判定を減らす。本文ヒットしたぶんは UI で
+  //   「スキル列に未登録（登録推奨）」として区別表示する。
+  const candText = [c.exp, c.note, (c as any).skill_sheet_summary, c.title, c.company]
+    .filter(Boolean).map((s) => String(s)).join("\n");
+  const matchedSkills: string[] = []; const missingSkills: string[] = []; const textHitSkills: string[] = [];
+  origJobSkills.forEach((s, i) => {
+    if (candSet.has(jobSkills[i])) { matchedSkills.push(s); return; }
+    if (candText) {
+      const re = skillMentionRegex(s);
+      if (re && re.test(candText)) { matchedSkills.push(s); textHitSkills.push(s); return; }
+    }
+    missingSkills.push(s);
+  });
   const skillPct = jobSkills.length ? matchedSkills.length / jobSkills.length : (c.skills?.length ? 0.3 : 0);
 
   const { fit: salaryFit, overage, margin, known: salaryKnown } = salaryGap(job, c);
@@ -454,6 +473,10 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
     else if (skillPct >= 0.8) notes.push({ level: "green", text: `必須スキル ${matchedSkills.length}/${jobSkills.length} 一致（不足: ${missingSkills.slice(0, 3).join("・")}）` });
     else if (skillPct >= 0.5) notes.push({ level: "yellow", text: `必須スキル一部欠落 ${matchedSkills.length}/${jobSkills.length}（不足: ${missingSkills.slice(0, 3).join("・")}）` });
     else notes.push({ level: "red", text: `🚫 必須スキル不足 ${matchedSkills.length}/${jobSkills.length}（土俵に乗りにくい・不足: ${missingSkills.slice(0, 3).join("・")}）` });
+    // 本文ヒットで救った必須スキルがあれば、登録漏れの是正を促す（注意喚起）。
+    if (textHitSkills.length > 0) {
+      notes.push({ level: "yellow", text: `必須スキル ${textHitSkills.slice(0, 3).join("・")} は人材のスキル列に未登録（経歴/PRに記載あり・登録推奨）` });
+    }
   }
   // ② 尚可スキル：充足があれば緑で加点理由を明示
   if (niceMatched.length > 0) notes.push({ level: "green", text: `尚可スキル一致（${niceMatched.slice(0, 4).join("・")}）` });
