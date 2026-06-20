@@ -11,10 +11,16 @@ import { ownerMatches } from "./owner-match";
 
 export type ActivityMember = { name: string; email: string | null };
 
-export async function resolveActivityMembers(access: { role: string; teamRole?: string | null; department?: string | null }): Promise<ActivityMember[]> {
+export async function resolveActivityMembers(
+  access: { role: string; teamRole?: string | null; department?: string | null },
+  opts?: { allowMember?: boolean },
+): Promise<ActivityMember[]> {
   const isAdmin = access.role === "admin";
   const isManager = canManageDept(access.teamRole ?? null);
-  if (!isAdmin && !isManager) return [];
+  // 通常は admin/マネージャーのみ（ダッシュボード等）。allowMember=true のときは一般メンバーにも
+  //   名簿（proposal_owners）ベースの一覧を返す（KPI推移の「メンバー別アクティビティ」表示用）。
+  //   ※ 編集系（メンバー編集/チーム目標/メンバー目標）は表示側で isAdmin/isManager により非表示のまま。
+  if (!isAdmin && !isManager && !opts?.allowMember) return [];
 
   const sb = (() => { try { return engerAdmin(); } catch { return null; } })();
 
