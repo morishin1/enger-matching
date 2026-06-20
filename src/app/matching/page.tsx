@@ -416,10 +416,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
         // 上部に「おすすめの組み合わせ TOP10」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
-        try {
-          const { getAutoMatchTop } = await import("@/lib/ranking100");
-          autoTop = await getAutoMatchTop();
-        } catch { /* TOP10 取得失敗時はセクション非表示で続行 */ }
+        //   ただし個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）は
+        //   絞り込み結果に集中させるため非表示にする（要望対応）。その場合は取得自体スキップ。
+        if (!sp.job && !sp.person) {
+          try {
+            const { getAutoMatchTop } = await import("@/lib/ranking100");
+            autoTop = await getAutoMatchTop();
+          } catch { /* TOP10 取得失敗時はセクション非表示で続行 */ }
+        }
         // 削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合させる）。
         const buildList = (cols: string, safe = true) => {
           let q: any = sb.from("jobs").select(cols).eq("is_published", true).neq("skills", "{}");
@@ -817,9 +821,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           上部の「おすすめの組み合わせ TOP10」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
           その下に、案件を1件選んで候補人材を絞り込む従来ビュー（左：ランキング／右：詳細）を表示する。 */}
 
-      {/* 🔥 自動マッチング全体最適 TOP10（tab=auto のみ表示）。
-          1案件×1人材のペアを高マッチ率×新着重み付けで上位10件抽出。各行クリックで横並び比較ドロワーが開く。 */}
-      {tab === "auto" && autoTop.rows.length > 0 && (
+      {/* 🔥 自動マッチング全体最適 TOP10。
+          メニューの「マッチング」を直接押した時（案件/人材を指定していない＝tab=autoの初期状態）のみ
+          上部に表示する。個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）
+          は、絞り込み結果に集中できるよう非表示にする（要望対応）。 */}
+      {tab === "auto" && !sp.job && !sp.person && autoTop.rows.length > 0 && (
         <Ranking100View
           rows={autoTop.rows}
           meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
