@@ -45,7 +45,7 @@ function remotePrefLabel(raw?: string | null): string | null {
   const cp = (raw ?? "").trim();
   if (!cp) return null;
   if (/フル/.test(cp)) return "フルリモート希望";
-  if (/リモート|在宅/.test(cp)) return "一部リモート可";
+  if (/リモート|在宅/.test(cp)) return "一部リモート可希望";
   if (/出社|常駐/.test(cp)) return "出社可";
   return cp; // 未分類はそのまま表示
 }

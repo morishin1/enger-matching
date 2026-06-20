@@ -38,7 +38,7 @@ const SKILL_SHEET_OPTIONS = [
 // ※ 分類の優先順位は PeopleTable.remotePrefLabel と必ず一致させること。
 const REMOTE_OPTIONS = [
   { value: "remote", label: "フルリモート希望" },
-  { value: "hybrid", label: "一部リモート可" },
+  { value: "hybrid", label: "一部リモート可希望" },
   { value: "onsite", label: "出社可" },
 ];
 // 国籍は 3 区分の固定フィルタ。外国籍は「日本以外の国籍が入っている」を表すため、literal 一致ではなく
