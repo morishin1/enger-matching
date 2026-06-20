@@ -83,9 +83,11 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
 
   // メンバー別アクティビティ（誰が何をやったか）。admin/経営=全員、マネージャー/リーダー=自部署。
   //   メンバーは staff(active) ∪ proposal_owners で解決（3名固定にならず、編集UIから増減できる）。
+  //   ※ 一般メンバーにも表示する（allowMember）。編集系ボタン（メンバー編集/チーム目標/
+  //     メンバー目標）は TeamActivityBoard 側で admin/マネージャーのみ表示のまま。
   const activityMembers = await resolveActivityMembers({
     role: access.role, teamRole: access.teamRole, department: access.department,
-  });
+  }, { allowMember: true });
   const activity = activityMembers.length > 0
     ? await getTeamActivity({ start: range.start, end: range.end, members: activityMembers })
     : [];
