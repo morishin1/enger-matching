@@ -154,13 +154,26 @@ function bandsOfText(t?: string | null): number[] {
 function ageOfBand(b?: string | null): number | null { const m = AGE_BAND_RE.exec(b ?? ""); AGE_BAND_RE.lastIndex = 0; return m ? Number(m[1]) : null; }
 /** job.detail 内の "30代まで" "20〜40代" "若手" を解釈し、候補の age_band と適合度を返す。
  *   known=true は「案件の年代要件と候補の年代が両方分かっていて適合判定済み」または
- *   「案件側に年代要件が無く問題なし」のいずれか。情報不足で判定できない場合は known=false。 */
+ *   「案件側に年代要件が無く問題なし」のいずれか。情報不足で判定できない場合は known=false。
+ *   ※ 単独の "X代" や "X代まで/以下" は **上限のみ** として解釈する（下限なし＝若い候補も適合）。
+ *      "X代以上/以降" は下限のみ。"X〜Y代" のような範囲表現のみ両側で判定。
+ *      これにより、案件側の希望年齢範囲内の候補（特に若い側）が誤ってミスマッチ判定されるのを防ぐ。 */
 function ageFit(job: Job, c: Candidate): { fit: number; mismatch: boolean; jobRange: string | null; known: boolean } {
   const candAge = ageOfBand(c.age_band);
   const text = `${job.detail ?? ""} ${job.title ?? ""}`;
   const bands = bandsOfText(text);
   const youngOnly = /若手|ヤング/.test(text);
   const seniorOnly = /シニア|ベテラン/.test(text);
+  // 一方向制約の検出（"X代まで"/"以下"/"以内" → 上限のみ、"X代以上"/"以降"/"超" → 下限のみ）。
+  const hasUpperModifier = /[1-9]0\s*代\s*(?:まで|以下|以内)/.test(text);
+  const hasLowerModifier = /[1-9]0\s*代\s*(?:以上|以降|超)/.test(text);
+  // 明示的な範囲表現（"X〜Y代" や "X代〜Y代"）の両端を取得。
+  //   bandsOfText は "代" を要求するため "20〜40代" は [40] しか拾わない（下限を取り損ねる）。
+  //   ここでは範囲表現を直接マッチさせて lo/hi の両方を確保する。
+  const rangeMatch = text.match(/([1-9]0)\s*代?\s*[〜~\-から]\s*([1-9]0)\s*代/);
+  const hasRange = !!rangeMatch;
+  const rangeLo = rangeMatch ? Math.min(Number(rangeMatch[1]), Number(rangeMatch[2])) : null;
+  const rangeHi = rangeMatch ? Math.max(Number(rangeMatch[1]), Number(rangeMatch[2])) : null;
   // 案件側に年代要件無し かつ 候補年代不明 → 不確実だが減点しすぎないよう中庸
   if (candAge == null) {
     if (bands.length === 0 && !youngOnly && !seniorOnly) return { fit: 0.7, mismatch: false, jobRange: null, known: false };
@@ -171,10 +184,33 @@ function ageFit(job: Job, c: Candidate): { fit: number; mismatch: boolean; jobRa
   if (youngOnly && candAge >= 50) return { fit: 0.1, mismatch: true, jobRange: "若手", known: true };
   if (seniorOnly && candAge < 30) return { fit: 0.3, mismatch: true, jobRange: "シニア", known: true };
   if (bands.length) {
-    const lo = Math.min(...bands), hi = Math.max(...bands);
-    if (candAge >= lo && candAge <= hi) return { fit: 1, mismatch: false, jobRange: `${lo}〜${hi}代`, known: true };
-    const diff = candAge < lo ? lo - candAge : candAge - hi;
-    return { fit: diff <= 10 ? 0.4 : 0.1, mismatch: diff > 10, jobRange: `${lo}〜${hi}代`, known: true };
+    const minB = Math.min(...bands), maxB = Math.max(...bands);
+    // 下限・上限の決定:
+    //   ・範囲表現あり（"X〜Y代"）  → 両側（lo=min, hi=max）
+    //   ・"X代まで/以下/以内" のみ → 上限のみ（lo=null, hi=max）
+    //   ・"X代以上/以降/超" のみ   → 下限のみ（lo=min, hi=null）
+    //   ・修飾語なしの単独 "X代"    → 上限として解釈（若い候補を年齢で弾かない＝要望対応）
+    let lo: number | null;
+    let hi: number | null;
+    let raw: string;
+    if (hasRange && rangeLo !== null && rangeHi !== null) {
+      lo = rangeLo; hi = rangeHi; raw = lo === hi ? `${lo}代` : `${lo}〜${hi}代`;
+    } else if (hasLowerModifier && !hasUpperModifier) {
+      lo = minB; hi = null; raw = `${minB}代〜`;
+    } else {
+      // 上限あり or 修飾語なし: 上限制約とみなす
+      lo = null; hi = maxB; raw = `〜${maxB}代`;
+    }
+    const tooOld = hi !== null && candAge > hi;
+    const tooYoung = lo !== null && candAge < lo;
+    if (!tooOld && !tooYoung) return { fit: 1, mismatch: false, jobRange: raw, known: true };
+    if (tooOld) {
+      const diff = candAge - (hi as number);
+      return { fit: diff <= 10 ? 0.4 : 0.1, mismatch: diff > 10, jobRange: raw, known: true };
+    }
+    // 下限割れ（明示的に "X代以上" のときのみ）: 大きく外れる場合のみミスマッチ。
+    const diff = (lo as number) - candAge;
+    return { fit: diff <= 10 ? 0.5 : 0.2, mismatch: diff > 15, jobRange: raw, known: true };
   }
   return { fit: 0.7, mismatch: false, jobRange: null, known: false };
 }
