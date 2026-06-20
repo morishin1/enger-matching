@@ -123,6 +123,30 @@ function htmlToText(html: string): string {
     .replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/** 元メールの RFC822 Message-ID ヘッダだけを取得する軽量版。
+ *   返信メール送信時に In-Reply-To / References ヘッダへ入れてスレッド連結するために使う。
+ *   format=metadata で Message-ID ヘッダのみ要求するため、フル取得より速く・帯域も小さい。
+ *   Gmail 認証が未設定／取得失敗時は null（呼び出し側はフォールバックで通常送信）。 */
+export async function fetchOriginalMessageId(gmailId: string): Promise<string | null> {
+  try {
+    if (!gmailId) return null;
+    const token = await getAccessToken();
+    if (!token) return null;
+    const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(gmailId)}?format=metadata&metadataHeaders=Message-ID`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const data: any = await r.json();
+    const headers: any[] = data?.payload?.headers ?? [];
+    const raw = headerVal(headers, "Message-ID") ?? headerVal(headers, "Message-Id");
+    if (!raw) return null;
+    // <abc@example.com> の形式に揃える（無ければ追加）。
+    const trimmed = String(raw).trim();
+    return /^<.+>$/.test(trimmed) ? trimmed : `<${trimmed.replace(/^<|>$/g, "")}>`;
+  } catch {
+    return null;
+  }
+}
+
 /** メッセージ1件の本体を取得して正規化。 */
 export async function fetchMessage(id: string): Promise<{ ok: true; msg: GmailMessage } | { ok: false; error: string }> {
   const token = await getAccessToken();

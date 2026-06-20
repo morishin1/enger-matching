@@ -15,7 +15,20 @@ type Loaded = {
   jobToken: string | null;
   candToken: string | null;
   jobTitle: string | null; company: string | null; candName: string | null;
+  jobSourceMailUrl: string | null;
+  candSourceMailUrl: string | null;
 };
+
+// source_mail_url から Gmail メッセージID（16進）を取り出す。
+//   返信スレッド連結のため In-Reply-To ヘッダ解決に使う。失敗時は null。
+function extractGmailId(v?: string | null): string | null {
+  if (!v) return null;
+  const s = String(v).trim().replace(/^["']+|["']+$/g, "");
+  if (!s) return null;
+  if (/^[0-9a-f]{8,}$/i.test(s)) return s;
+  const m = s.match(/[/#?&](?:th=|all\/|inbox\/|sent\/)?([0-9a-f]{12,})(?:[/?&]|$)/i);
+  return m?.[1] ?? null;
+}
 
 function buildButtonHtml(siteUrl: string, token: string): string {
   const agreeUrl  = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("話を進める")}`;
@@ -41,7 +54,7 @@ export function ApproveAndSendButton({ proposalId, jobNo, candNo }: { proposalId
       const r = await getProposalPendingMail(proposalId);
       if (!r.ok) { setErr(r.error); return; }
       if (!r.mail) { setErr("メール下書きが保存されていません。提案者にメール作成画面から再申請を依頼してください。"); return; }
-      setData({ job: r.mail.job, cand: r.mail.cand, jobToken: r.jobToken, candToken: r.candToken, jobTitle: r.jobTitle, company: r.company, candName: r.candName });
+      setData({ job: r.mail.job, cand: r.mail.cand, jobToken: r.jobToken, candToken: r.candToken, jobTitle: r.jobTitle, company: r.company, candName: r.candName, jobSourceMailUrl: r.jobSourceMailUrl, candSourceMailUrl: r.candSourceMailUrl });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "取得に失敗しました");
     } finally { setLoading(false); }
@@ -99,6 +112,7 @@ export function ApproveAndSendButton({ proposalId, jobNo, candNo }: { proposalId
                         buttonHtml: jobButtonHtml,
                         relatedKind: "proposal_job",
                         relatedId: jobNo != null ? String(jobNo) : undefined,
+                        originalGmailId: extractGmailId(data.jobSourceMailUrl),
                       }}
                       candSide={{
                         label: "人材側メール", dotColor: "#3b82f6",
@@ -107,6 +121,7 @@ export function ApproveAndSendButton({ proposalId, jobNo, candNo }: { proposalId
                         buttonHtml: candButtonHtml,
                         relatedKind: "proposal_cand",
                         relatedId: candNo != null ? String(candNo) : undefined,
+                        originalGmailId: extractGmailId(data.candSourceMailUrl),
                       }}
                     />
                   </div>
