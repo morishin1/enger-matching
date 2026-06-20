@@ -348,6 +348,20 @@ export function MailComposeWizard({
   const candOrigUrl = gmailMessageUrl(cand?.source_mail_url)
     || (cand?.name ? gmailSearchUrl([cand?.source_company, cand?.name].filter(Boolean).join(" ")) : null);
 
+  // 送信時のスレッド連結用：元メール(受信箱)の Gmail Message-ID を source_mail_url から抽出。
+  //   16進ID単体・Gmail URL末尾の #all/<id>・?th=<id> のいずれにも対応する。
+  //   抽出できなければ null（新規メールとして送信される）。
+  const extractGmailId = (v?: string | null): string | null => {
+    if (!v) return null;
+    const s = String(v).trim().replace(/^["']+|["']+$/g, "");
+    if (!s) return null;
+    if (/^[0-9a-f]{8,}$/i.test(s)) return s;
+    const m = s.match(/[/#?&](?:th=|all\/|inbox\/|sent\/)?([0-9a-f]{12,})(?:[/?&]|$)/i);
+    return m?.[1] ?? null;
+  };
+  const jobOrigGmailId = extractGmailId(job?.source_mail_url);
+  const candOrigGmailId = extractGmailId(cand?.source_mail_url);
+
   // 初期値で本文をセット済みのため、フォーム初期化用の useEffect は不要。
 
   const updateClientForm = (field: keyof MailForm, v: string) => {
@@ -660,6 +674,7 @@ export function MailComposeWizard({
                       buttonHtml: jobButtonHtml ?? undefined,
                       relatedKind: "proposal_job",
                       relatedId: _savedId ?? (job.job_no != null ? String(job.job_no) : undefined),
+                      originalGmailId: jobOrigGmailId,
                     }}
                     candSide={{
                       label: "人材側メール", dotColor: "#3b82f6",
@@ -667,6 +682,7 @@ export function MailComposeWizard({
                       buttonHtml: candButtonHtml ?? undefined,
                       relatedKind: "proposal_cand",
                       relatedId: _savedId ?? (cand.candidate_no != null ? String(cand.candidate_no) : undefined),
+                      originalGmailId: candOrigGmailId,
                     }}
                   />
                 </div>

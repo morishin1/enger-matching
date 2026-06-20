@@ -23,6 +23,8 @@ export type MailSide = {
   buttonHtml?: string;
   relatedKind?: string;
   relatedId?: string;
+  /** 元メール(受信箱)の Gmail メッセージID。指定すると元スレッドへの返信として送信される。 */
+  originalGmailId?: string | null;
 };
 
 export function SendBothMailsButton({
@@ -121,6 +123,7 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
       sender: st.sender, to: st.to, cc: st.cc || null, subject: st.subject,
       text: cleanText, html,
       relatedKind: side.relatedKind || null, relatedId: side.relatedId || null,
+      originalGmailId: side.originalGmailId || null,
     });
   };
 

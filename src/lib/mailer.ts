@@ -75,6 +75,11 @@ export type SendInput = {
   bcc?: string | null;
   replyTo?: string | null;      // 返信先（既定は SMTP の送信元アドレス）
   fromNameOverride?: string | null; // 差出人表示名の上書き（未指定なら env 既定 or アドレス）
+  // 元メールへの返信としてスレッド統合するための RFC822 Message-ID。
+  //   nodemailer が自動で In-Reply-To / References ヘッダを付与し、Gmail が同じスレッドに
+  //   ぶら下げて返信扱いで表示する（subject の Re: だけでなく真の RFC スレッド連結）。
+  inReplyTo?: string | null;
+  references?: string | null;
 };
 
 export type SendResult =
@@ -126,6 +131,9 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
       subject: input.subject,
       text: input.text,
       html: input.html || undefined,
+      // 元メールへの返信スレッドに連結（Gmail の「返信」と同等の表示になる）。
+      inReplyTo: input.inReplyTo?.trim() || undefined,
+      references: input.references?.trim() || input.inReplyTo?.trim() || undefined,
     });
     // 診断ログ：nodemailer の SMTP 応答（response / accepted / rejected）を残す。
     //   「アプリ上は送信成功だが受信者に届かない」事象（Gmail Workspace 側の post-SMTP

@@ -934,20 +934,36 @@ export async function approveProposal(id: string): Promise<{ ok: true } | { ok: 
 }
 
 /** 承認者用：保存されたメール下書きを取得（承認画面でプレビュー用）。 */
-export async function getProposalPendingMail(id: string): Promise<{ ok: true; mail: PendingMail | null; jobToken: string | null; candToken: string | null; jobTitle: string | null; company: string | null; candName: string | null } | { ok: false; error: string }> {
+export async function getProposalPendingMail(id: string): Promise<{ ok: true; mail: PendingMail | null; jobToken: string | null; candToken: string | null; jobTitle: string | null; company: string | null; candName: string | null; jobSourceMailUrl: string | null; candSourceMailUrl: string | null } | { ok: false; error: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
   const me = await currentAccess();
   if (!me) return { ok: false, error: "未ログインです" };
-  let r: any = await admin.from("proposals").select("id, approver, approval_status, pending_mail, job_action_token, cand_action_token, job_title, company, candidate_name").eq("id", id).maybeSingle();
+  let r: any = await admin.from("proposals").select("id, approver, approval_status, pending_mail, job_action_token, cand_action_token, job_title, company, candidate_name, job_id, candidate_id").eq("id", id).maybeSingle();
   if (r.error && /pending_mail|column/i.test(r.error.message)) {
-    r = await admin.from("proposals").select("id, approver, approval_status, job_action_token, cand_action_token, job_title, company, candidate_name").eq("id", id).maybeSingle();
+    r = await admin.from("proposals").select("id, approver, approval_status, job_action_token, cand_action_token, job_title, company, candidate_name, job_id, candidate_id").eq("id", id).maybeSingle();
   }
   if (r.error) return { ok: false, error: r.error.message };
   if (!r.data) return { ok: false, error: "提案が見つかりません" };
   const { ownerMatches } = await import("./owner-match");
   const isApprover = me.name && ownerMatches(me.name, r.data.approver ?? "");
   if (me.role !== "admin" && !isApprover) return { ok: false, error: "閲覧権限がありません（承認者のみ）" };
+
+  // 元メールへの返信スレッド連結用に、案件・人材それぞれの source_mail_url を引いて返す。
+  //   列が無い旧環境は null フォールバック（新規メール扱いで送信される）。
+  let jobSourceMailUrl: string | null = null;
+  let candSourceMailUrl: string | null = null;
+  try {
+    if (r.data.job_id) {
+      const jr: any = await admin.from("jobs").select("source_mail_url").eq("id", r.data.job_id).maybeSingle();
+      jobSourceMailUrl = jr?.data?.source_mail_url ?? null;
+    }
+    if (r.data.candidate_id) {
+      const cr: any = await admin.from("candidates").select("source_mail_url").eq("id", r.data.candidate_id).maybeSingle();
+      candSourceMailUrl = cr?.data?.source_mail_url ?? null;
+    }
+  } catch { /* 列未整備は無視 */ }
+
   return {
     ok: true,
     mail: (r.data.pending_mail ?? null) as PendingMail | null,
@@ -956,6 +972,8 @@ export async function getProposalPendingMail(id: string): Promise<{ ok: true; ma
     jobTitle: r.data.job_title ?? null,
     company: r.data.company ?? null,
     candName: r.data.candidate_name ?? null,
+    jobSourceMailUrl,
+    candSourceMailUrl,
   };
 }
 
@@ -3308,6 +3326,11 @@ export async function sendMailAction(input: {
   html?: string | null;
   cc?: string | null; bcc?: string | null; replyTo?: string | null;
   relatedKind?: string | null; relatedId?: string | null;
+  // 元メールの Gmail メッセージID（受信箱の gmail_message_id / 16進形式）。
+  //   指定すると Gmail API で RFC822 Message-ID を解決し、In-Reply-To / References
+  //   ヘッダを付けて送信。Gmail 側で元スレッドに連結された返信として表示される。
+  //   未指定または解決失敗時は通常の新規メールとして送信する（フォールバック）。
+  originalGmailId?: string | null;
 }): Promise<{ ok: boolean; error?: string; messageId?: string }> {
   // 送信は社内（管理者/エージェント）のみ
   const access = await currentAccess();
@@ -3347,10 +3370,22 @@ export async function sendMailAction(input: {
   }
   const mergedBcc = bccList.join(", ") || null;
 
+  // 元メール（受信箱）への返信スレッド連結用に RFC822 Message-ID を解決。
+  //   Gmail API で 1 件メタデータ取得（Message-ID ヘッダのみ）。失敗時は単に新規メール扱い。
+  let inReplyTo: string | null = null;
+  if (input.originalGmailId) {
+    try {
+      const { fetchOriginalMessageId } = await import("./gmail-api");
+      inReplyTo = await fetchOriginalMessageId(String(input.originalGmailId));
+    } catch { /* 解決失敗は無視（フォールバックで新規メール） */ }
+  }
+
   const res = await sendMail({
     sender: input.sender, to: input.to, subject: input.subject, text: input.text,
     html: input.html || null,
     cc: mergedCc, bcc: mergedBcc, replyTo,
+    inReplyTo,
+    references: inReplyTo,
   });
   if (!res.ok) return { ok: false, error: res.error };
 
