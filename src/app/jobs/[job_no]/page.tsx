@@ -12,6 +12,7 @@ import { ClosedBadge } from "@/components/ClosedBadge";
 import { CompanyLink } from "@/components/CompanyLink";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_TONE } from "@/lib/nationality";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
       j = r.data;
+      // 元メールリンクを直近受信メールへ更新（同案件／同送信元の最新メールに飛ぶ）。
+      if (j) await attachLatestSourceMail(sb, "job", [j]);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }

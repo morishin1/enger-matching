@@ -14,6 +14,7 @@ import { getViewerScope, maskJobs } from "@/lib/tenant";
 import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
 import { JOB_FLOW_OPTIONS } from "@/lib/flow";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -291,6 +292,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           }
         }
       } catch { /* proposals 未整備でも無視 */ }
+
+      // 「元メール」リンクを直近受信メールへ更新（同案件／同送信元の最新メールに飛ぶ）。
+      await attachLatestSourceMail(sb, "job", jobs);
 
       // フィルタ用の選択肢（職種・商流の distinct）。一覧の絞り込みとは独立に全体から収集。
       try {

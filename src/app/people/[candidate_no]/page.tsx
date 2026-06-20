@@ -12,6 +12,7 @@ import { ClosedBadge } from "@/components/ClosedBadge";
 import { CompanyLink } from "@/components/CompanyLink";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
       if (r.error) r = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
+      // 元メールリンクを直近受信メールへ更新（同人材／同送信元の最新メールに飛ぶ）。
+      if (c) await attachLatestSourceMail(sb, "candidate", [c]);
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }

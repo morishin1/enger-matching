@@ -12,6 +12,7 @@ import { getViewerScope, maskCandidates } from "@/lib/tenant";
 import { CAND_FLOW_OPTIONS } from "@/lib/flow";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { CAND_NAT_UNKNOWN_SQL_KEYS } from "@/lib/nationality";
+import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -253,6 +254,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           }
         }
       } catch { /* proposals 未整備でも無視 */ }
+
+      // 「元メール」リンクを直近受信メールへ更新（同人材／同送信元の最新メールに飛ぶ）。
+      await attachLatestSourceMail(sb, "candidate", people);
 
       // フィルタ用の選択肢（職種・所属区分の distinct）。リモート・国籍は固定区分（REMOTE_OPTIONS / NATIONALITY_OPTIONS）。
       try {
