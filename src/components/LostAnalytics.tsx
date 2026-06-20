@@ -23,6 +23,7 @@ type HItem = {
   lost_phase?: string | null;
   proposer?: string | null;
   closer?: string | null;
+  client_contact?: string | null;   // 先方担当者（勝率分析の軸）
   created_at?: string | null;
   updated_at?: string | null;
   stage_updated_at?: string | null;
@@ -133,6 +134,8 @@ type Aggregated = {
   }>;
   byProposer: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
   byCloser: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
+  // 先方担当者（クライアント窓口）別の勝率・失注理由。誰に当たると決まりやすい/落ちやすいかを見る。
+  byClientContact: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
   // 提案→失注 までのタイムラグ（日）。スピード改善のための分布・上位の遅い案件を保持。
   lagBuckets: Array<{ label: string; range: [number, number]; n: number }>;
   lagStats: { avg: number | null; median: number | null; p90: number | null; total: number };
@@ -146,6 +149,7 @@ function analyze(items: HItem[]): Aggregated {
   const companies: Record<string, any> = {};
   const byProposer: Record<string, any> = {};
   const byCloser: Record<string, any> = {};
+  const byClientContact: Record<string, any> = {};
   const lostRowsRaw: Aggregated["lostRows"] = [];
   let lost = 0, won = 0;
 
@@ -220,6 +224,22 @@ function analyze(items: HItem[]): Aggregated {
     } else {
       byCloser[closer].won++;
     }
+
+    // 先方担当者（クライアント窓口）別の集計。誰に当たると決まりやすい/落ちやすいかを可視化。
+    const contact = (p.client_contact ?? "").trim() || "（未入力）";
+    if (!byClientContact[contact]) byClientContact[contact] = { name: contact, won: 0, lost: 0, reasons: {}, lagDays: [] };
+    if (isLost) {
+      byClientContact[contact].lost++;
+      const r = p.lost_reason || "（理由未入力）";
+      byClientContact[contact].reasons[r] = (byClientContact[contact].reasons[r] || 0) + 1;
+      const createdT = new Date(p.created_at || 0).getTime();
+      const lostT = new Date(p.stage_updated_at || p.updated_at || 0).getTime();
+      if (createdT && lostT && lostT >= createdT) {
+        byClientContact[contact].lagDays.push(Math.max(0, Math.round((lostT - createdT) / 86400000)));
+      }
+    } else {
+      byClientContact[contact].won++;
+    }
   }
 
   const now = Date.now();
@@ -267,6 +287,7 @@ function analyze(items: HItem[]): Aggregated {
     companies: companyList,
     byProposer: Object.values(byProposer).map((p: any) => p) as Aggregated["byProposer"],
     byCloser: Object.values(byCloser).map((c: any) => c) as Aggregated["byCloser"],
+    byClientContact: Object.values(byClientContact).map((c: any) => c) as Aggregated["byClientContact"],
     lagBuckets, lagStats,
     lostRows: lostRowsRaw.sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0)),
   };
@@ -377,8 +398,8 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
       )}
 
       {/* 担当者別 失注傾向＋スピード（提案者 / クロージング をタブで切替）。失注フェーズ分布の直下に配置。 */}
-      {(data.byProposer.length > 0 || data.byCloser.length > 0) && (
-        <OwnerLostBreakdown byProposer={data.byProposer} byCloser={data.byCloser} />
+      {(data.byProposer.length > 0 || data.byCloser.length > 0 || data.byClientContact.length > 0) && (
+        <OwnerLostBreakdown byProposer={data.byProposer} byCloser={data.byCloser} byClientContact={data.byClientContact} />
       )}
 
       {/* 時間帯分析：提案／クロージングの時間帯分布と反応率（仮説検証用）。 */}
@@ -535,16 +556,19 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
 
 // 担当者別 失注傾向＋スピード。提案者 / クロージング担当 をタブで切り替えて表示。
 type OwnerStat = { name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] };
-function OwnerLostBreakdown({ byProposer, byCloser }: { byProposer: OwnerStat[]; byCloser: OwnerStat[] }) {
-  // 既定は提案者。提案者が空でクロージングだけある場合はクロージングを初期表示。
-  const [view, setView] = useState<"proposer" | "closer">(byProposer.length > 0 ? "proposer" : "closer");
-  const rows = view === "proposer" ? byProposer : byCloser;
+function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byProposer: OwnerStat[]; byCloser: OwnerStat[]; byClientContact: OwnerStat[] }) {
+  type View = "proposer" | "closer" | "client";
+  // 既定は提案者。提案者が空ならクロージング → 先方担当 の順で初期表示。
+  const [view, setView] = useState<View>(byProposer.length > 0 ? "proposer" : byCloser.length > 0 ? "closer" : "client");
+  const rows = view === "proposer" ? byProposer : view === "closer" ? byCloser : byClientContact;
   const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
   const hint = view === "proposer"
     ? "提案を起票した人（提案者）でグルーピング。スキル/単価系が多い → マッチング精度の見直し。"
-    : "クロージング（決定段階の交渉）を担当した人でグルーピング。フォロー/連絡系・条件交渉系が多い → クロージング動きの見直し。";
+    : view === "closer"
+      ? "クロージング（決定段階の交渉）を担当した人でグルーピング。フォロー/連絡系・条件交渉系が多い → クロージング動きの見直し。"
+      : "先方担当者（クライアント窓口）でグルーピング。勝率が低い窓口・刺さらない理由が分かる → 当て方/担当替え/フォロー強化の判断に。";
 
-  const TabBtn = ({ k, label, n }: { k: "proposer" | "closer"; label: string; n: number }) => {
+  const TabBtn = ({ k, label, n }: { k: View; label: string; n: number }) => {
     const active = view === k;
     return (
       <button type="button" onClick={() => setView(k)}
@@ -564,6 +588,7 @@ function OwnerLostBreakdown({ byProposer, byCloser }: { byProposer: OwnerStat[];
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <TabBtn k="proposer" label="📝 提案者" n={byProposer.length} />
         <TabBtn k="closer" label="🎯 クロージング" n={byCloser.length} />
+        <TabBtn k="client" label="🏢 先方担当者" n={byClientContact.length} />
       </div>
       {rows.length === 0 ? (
         <div className="muted" style={{ fontSize: 12 }}>対象の担当者がいません。</div>
