@@ -9,6 +9,7 @@ import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
+import { MatchPrecheckPanel, type PrecheckOverall } from "./MatchPrecheckPanel";
 
 function generateToken(): string {
   const bytes = new Uint8Array(24);
@@ -197,6 +198,10 @@ export function MailComposeWizard({
   //   ①📋提案する→②📤送信する の流れで使うと2回目以降の操作時に編集を飛ばして
   //   いきなり確認画面が出てしまい混乱の原因になっていた。
   const [step, setStep] = useState<1 | 2>(1);
+  // 提案前 多重チェック（L2: AI監査）の総合判定。block=必須スキル根拠ゼロ＝送信前に再確認。
+  const [precheck, setPrecheck] = useState<PrecheckOverall | null>(null);
+  // 監査結果が block でも、営業判断で送信する場合のオーバーライドフラグ。
+  const [precheckOverride, setPrecheckOverride] = useState(false);
   const [proposer, setProposer] = useState(initialProposer ?? "");
   // 承認者（必須）：保存時に approver として createProposal に渡す
   const [approver, setApprover] = useState("");
@@ -625,6 +630,19 @@ export function MailComposeWizard({
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
+          {/* 提案前 多重チェック（AI監査）：①必須スキル ②尚可スキル ③経験業務カテゴリを
+              候補テキスト（経歴/PR/スキルシート要約）と照合し、根拠引用付きで判定。
+              必須スキルに根拠ゼロがあれば overall="block" を返し、送信前に営業へ警告。 */}
+          <MatchPrecheckPanel job={job} cand={cand} onResult={(o) => { setPrecheck(o); if (o !== "block") setPrecheckOverride(false); }} />
+          {precheck === "block" && !precheckOverride && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#b42318", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
+                <input type="checkbox" checked={precheckOverride} onChange={(e) => setPrecheckOverride(e.target.checked)} />
+                必須スキルに根拠が無いことを確認のうえ送信する（営業判断で続行）
+              </label>
+            </div>
+          )}
+
           {/* メインの操作行：
               ・通常エージェント（権限なし）：承認者を選んで「📨 承認申請」（メール送信は承認者が行う）
               ・admin/マネージャー/リーダー   ：承認スキップで「📨 メールを送信」を直接押せる */}
@@ -643,15 +661,15 @@ export function MailComposeWizard({
             {!saved ? (
               privileged ? (
                 <button type="button" className="btn brand" onClick={handleSelfApproveAndSend}
-                  disabled={saving || privileged === null}
-                  title="承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"
+                  disabled={saving || privileged === null || (precheck === "block" && !precheckOverride)}
+                  title={precheck === "block" && !precheckOverride ? "提案前 多重チェックで必須スキルに根拠なし。確認後にチェックを入れて続行できます。" : "承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"}
                   style={{ fontWeight: 800 }}>
                   {saving ? "処理中…" : "📨 メールを送信"}
                 </button>
               ) : (
                 <button type="button" className="btn brand" onClick={handleRequestApproval}
-                  disabled={saving || !approver}
-                  title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
+                  disabled={saving || !approver || (precheck === "block" && !precheckOverride)}
+                  title={precheck === "block" && !precheckOverride ? "提案前 多重チェックで必須スキルに根拠なし。確認後にチェックを入れて続行できます。" : (!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`)}
                   style={{ fontWeight: 800 }}>
                   {saving ? "処理中…" : "📨 承認申請"}
                 </button>
