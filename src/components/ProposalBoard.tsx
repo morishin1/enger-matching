@@ -92,14 +92,16 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
-  // 「E3: その他」は分析でブラックボックスになりやすいので、自由記述メモを必須化する。
-  const needsLostNote = lostReason === "E3: その他";
-  const lostReady = !!lostReason && (!needsLostNote || lostNote.trim().length > 0);
+  // 失注理由メモは全失注で必須化（原因を明確にし、失注分析の精度を上げるため）。
+  //   以前は「E3: その他」のみ必須だったが、すべての理由で具体的な事情を1行残す運用へ。
+  const lostReady = !!lostReason && lostNote.trim().length > 0;
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
   const [company, setCompany] = useState(p.company ?? "");
   const [clientContact, setClientContact] = useState(p.client_contact ?? "");
   const [source, setSource] = useState(p.source ?? "");
+  // 「どの会社の誰が担当か」は勝率分析に直結するため、失注時に空なら入力を促す（保存は阻害しない）。
+  const lostContactMissing = !company.trim() || !clientContact.trim();
   const tone = STAGE_TONE[p.stage] ?? "#6b7280";
   const src = sourceMeta(p.source);
   // 左ボーダーは「登録元」の色（固定）。登録元未設定の時のみステージ色にフォールバック。
@@ -300,14 +302,20 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             <Field label="失注フェーズ" value={lostPhase} options={LOST_PHASES} onChange={setLostPhase} />
             <Field label="失注理由（主要因・必須）" value={lostReason} options={LOST_REASONS} onChange={setLostReason} />
             {!lostReason && <div style={{ fontSize: 10, color: "var(--color-danger)" }}>※ 失注理由は分析の必須項目です。選択してください。</div>}
-            {needsLostNote && (
-              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>
-                <span>理由メモ（必須・E3 を選んだ場合）</span>
-                <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="A〜D に該当しない具体的な事情を簡潔に（例: 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
-                {!lostNote.trim() && <span style={{ color: "var(--color-danger)" }}>※ E3: その他 を選んだ場合はメモが必須です（分析のため）。</span>}
-              </label>
+            {/* 理由メモは全失注で必須（原因を明確にし、失注分析の精度を上げる）。 */}
+            <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>
+              <span>理由メモ（必須）</span>
+              <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="具体的な事情を簡潔に（例: 他社が単価5万安く先に提示 / 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
+              {!lostNote.trim() && <span style={{ color: "var(--color-danger)" }}>※ 失注理由メモは必須です（原因の明確化・分析のため）。</span>}
+            </label>
+            {/* どの会社の誰が担当か（勝率分析に直結）。空なら上の「会社名・先方担当者」欄の入力を促す。 */}
+            {lostContactMissing && (
+              <div style={{ fontSize: 10, color: "#b45309", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 6, padding: "5px 7px" }}>
+                ⚠ 勝率分析のため、上の<b>会社名・先方担当者</b>を入力してから見送りにしてください（誰が・どの会社かを失注記録に残します）。
+              </div>
             )}
-            <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReady ? 1 : 0.5 }} disabled={busy || !lostReady} onClick={() => onLose(p.id, lostPhase, lostReason, lostNote.trim() || null)}>見送りにする</button>
+            <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReady ? 1 : 0.5 }} disabled={busy || !lostReady}
+              onClick={() => onLose(p.id, lostPhase, lostReason, lostNote.trim() || null, { company: company.trim() || null, client_contact: clientContact.trim() || null, proposer: proposer || null, closer: closer || null })}>見送りにする</button>
           </div>
         </div>
       )}
@@ -350,8 +358,10 @@ export function ProposalBoard({ proposals, members, proposers, closers }: { prop
     });
   };
   const onSave = (id: string, fields: any) => run(id, () => updateProposalFields(id, fields));
-  const onLose = (id: string, lost_phase: string, lost_reason: string, lost_reason_note?: string | null) =>
-    run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason, lost_reason_note: lost_reason_note ?? null }));
+  const onLose = (id: string, lost_phase: string, lost_reason: string, lost_reason_note?: string | null, extra?: Record<string, any>) =>
+    // 失注時に「どの会社の誰が担当か」（会社名・先方担当者・提案者・クロージング担当）も
+    // 併せて保存し、失注レコード単体で勝率分析に使えるようにする。
+    run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason, lost_reason_note: lost_reason_note ?? null, ...(extra ?? {}) }));
   const onDelete = (id: string) => run(id, () => deleteProposal(id));
 
   // 未知のステージ（旧仕様の "返信あり" 等の残骸や null）は新ステージにマップして

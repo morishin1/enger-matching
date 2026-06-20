@@ -87,11 +87,16 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
+  // 失注時に「どの会社の誰が担当か」を確実に記録するため、会社名・先方担当者も編集可能にする。
+  const [lostCompany, setLostCompany] = useState(p.company ?? "");
+  const [lostClientContact, setLostClientContact] = useState(p.client_contact ?? "");
 
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(p.stage)));
-  const needsLostNote = lostReason === "E3: その他";
-  const lostReady = !!lostReason && (!needsLostNote || lostNote.trim().length > 0);
+  // 失注理由メモは全失注で必須化（原因の明確化・分析精度向上）。
+  const lostReady = !!lostReason && lostNote.trim().length > 0;
+  // 「どの会社の誰が担当か」が空なら入力を促す（勝率分析に直結。保存は阻害しない）。
+  const lostContactMissing = !lostCompany.trim() || !lostClientContact.trim();
 
   // 右ドロワーのスライドイン（マウント直後に true へ）
   const [shown, setShown] = useState(false);
@@ -145,7 +150,12 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     }));
   };
   const engage = () => run(() => convertToEngagement(p.id));
-  const lose = () => run(() => updateProposalFields(p.id, { stage: "見送り", lost_phase: lostPhase, lost_reason: lostReason, lost_reason_note: lostNote.trim() || null }));
+  const lose = () => run(() => updateProposalFields(p.id, {
+    stage: "見送り", lost_phase: lostPhase, lost_reason: lostReason, lost_reason_note: lostNote.trim() || null,
+    // どの会社の誰が担当か（会社名・先方担当者・提案者・クロージング担当）も失注記録に残す。
+    company: lostCompany.trim() || null, client_contact: lostClientContact.trim() || null,
+    proposer: proposer || null, closer: closer || null,
+  }));
   const removeProposal = () => {
     if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
     start(async () => {
@@ -393,10 +403,24 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <SelField label="失注フェーズ" value={lostPhase} options={LOST_PHASES} onChange={setLostPhase} />
                 <SelField label="失注理由（必須）" value={lostReason} options={LOST_REASONS} onChange={setLostReason} />
               </div>
-              {needsLostNote && (
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)", marginTop: 10 }}>理由メモ（必須・E3）
-                  <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
+              {/* 理由メモは全失注で必須（原因の明確化・分析のため） */}
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)", marginTop: 10 }}>理由メモ（必須）
+                <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="具体的な事情を簡潔に（例: 他社が単価5万安く先に提示 / 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
+                {!lostNote.trim() && <span style={{ color: "var(--color-danger)", fontSize: 10.5 }}>※ 失注理由メモは必須です。</span>}
+              </label>
+              {/* どの会社の誰が担当か（勝率分析に直結）。失注記録に確実に残す。 */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>会社名
+                  <input type="text" value={lostCompany} onChange={(e) => setLostCompany(e.target.value)} placeholder="クライアント会社名" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
                 </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>先方担当者
+                  <input type="text" value={lostClientContact} onChange={(e) => setLostClientContact(e.target.value)} placeholder="窓口の担当者名" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                </label>
+              </div>
+              {lostContactMissing && (
+                <div style={{ fontSize: 10.5, color: "#b45309", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 6, padding: "6px 9px", marginTop: 6 }}>
+                  ⚠ 勝率分析のため、<b>会社名・先方担当者</b>を入力してから確定してください（誰が・どの会社かを失注記録に残します）。
+                </div>
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
                 <button type="button" className="btn ghost btn-sm" onClick={() => setLostOpen(false)} disabled={pending}>キャンセル</button>
