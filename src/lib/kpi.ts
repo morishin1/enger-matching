@@ -313,8 +313,39 @@ export async function getKpiHistoryTable(opts: {
   }
   const def: Partial<Record<Metric, number>> = { proposal: 20 };
 
+  // 週次表示のときの「月の目標数」：各週は “月初〜該当週” の累計を表示する。
+  //   ・通常の週           … 週目標をそのまま加算（1週目=週1, 2週目=週1+週2, …）
+  //   ・月をまたぐ週         … 週目標÷5（＝1日の目標）を基準に、各月に属する平日数ぶんを
+  //                          それぞれの月の累計へ配分（例 6/29〜7/3 → 6月へ2日分・7月へ3日分）。
+  //   各週の行は「その週の月曜が属する月」の累計を表示する（新しい月の初週から、その前の
+  //   月またぎ週で持ち越した日数分も含めて累計される）。
+  const ymKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-${j.getUTCMonth()}`; };
+  const monthCum = new Map<string, Record<Metric, number>>();
+  const cumTargetByRange: Array<Partial<Record<Metric, number>>> = [];
+  if (opts.type === "week") {
+    for (const rng of ranges) {
+      const ws = rng.weekStart.toISOString().slice(0, 10);
+      const w = targetMap.get(ws) ?? {};
+      // この週の平日(月〜金)を、属する月ごとに数える。
+      const daysByYm = new Map<string, number>();
+      for (let k = 0; k < 5; k++) { const key = ymKey(addDays(rng.weekStart, k)); daysByYm.set(key, (daysByYm.get(key) ?? 0) + 1); }
+      for (const [ym, days] of daysByYm) {
+        const cur = monthCum.get(ym) ?? { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+        for (const m of METRIC_ORDER) { const weekly = w[m] ?? def[m] ?? 0; cur[m] += (weekly / 5) * days; }
+        monthCum.set(ym, cur);
+      }
+      const rowYm = ymKey(rng.weekStart);
+      const cum = monthCum.get(rowYm) ?? { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+      const obj: Partial<Record<Metric, number>> = {};
+      for (const m of METRIC_ORDER) obj[m] = Math.round(cum[m]);
+      cumTargetByRange.push(obj);
+    }
+  }
+
   const out: KpiHistoryRow[] = [];
+  let rangeIdx = -1;
   for (const rng of ranges) {
+    rangeIdx++;
     const sIso = rng.start.toISOString(), eIso = rng.end.toISOString();
     const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
     const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
@@ -334,7 +365,11 @@ export async function getKpiHistoryTable(opts: {
     const cells = {} as Record<Metric, { actual: number; target: number }>;
     for (const m of METRIC_ORDER) {
       const weekly = w[m] ?? def[m] ?? 0;
-      cells[m] = { actual: act[m], target: scaleWeeklyTarget(weekly, opts.type, rng) };
+      // 週次は「月初〜該当週の累計（月またぎは日割り配分）」、それ以外は従来どおり期間按分。
+      const target = opts.type === "week"
+        ? (cumTargetByRange[rangeIdx]?.[m] ?? 0)
+        : scaleWeeklyTarget(weekly, opts.type, rng);
+      cells[m] = { actual: act[m], target };
     }
     out.push({ label: rng.label, start: sIso, cells });
   }

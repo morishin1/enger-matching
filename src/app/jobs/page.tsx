@@ -174,11 +174,23 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         try {
           const approvedSet = await getApprovedCompanySet();
           if (approvedSet.size) {
-            let allRes: any = await sb.from("jobs").select("job_no, client_name").is("deleted_at", null).limit(20000);
-            if (allRes.error) allRes = await sb.from("jobs").select("job_no, client_name").limit(20000);
-            for (const r of allRes.data ?? []) {
-              if (r.job_no == null) continue;
-              if (isCompanyApproved(approvedSet, r.client_name)) approvedJobNos.push(r.job_no);
+            // ★ PostgREST の max-rows（既定1000）で頭打ちにならないよう range でページ送りして全件走査する。
+            //   以前は .limit(20000) でも 1000 件で打ち切られ、1000件目以降の承認済み案件が
+            //   「未承認」フィルタに漏れていた（バッジは各行個別判定のため承認済み表示になり不一致）。
+            const PAGE = 1000;
+            let useTrashFilter = true;
+            for (let off = 0; off <= 200000; off += PAGE) {
+              let r: any = useTrashFilter
+                ? await sb.from("jobs").select("job_no, client_name").is("deleted_at", null).order("job_no", { ascending: true }).range(off, off + PAGE - 1)
+                : await sb.from("jobs").select("job_no, client_name").order("job_no", { ascending: true }).range(off, off + PAGE - 1);
+              if (r.error && useTrashFilter) { useTrashFilter = false; off -= PAGE; continue; } // deleted_at 列が無い旧環境は外して再試行
+              if (r.error) break;
+              const rows = (r.data ?? []) as any[];
+              for (const row of rows) {
+                if (row.job_no == null) continue;
+                if (isCompanyApproved(approvedSet, row.client_name)) approvedJobNos.push(row.job_no);
+              }
+              if (rows.length < PAGE) break; // 最終ページ
             }
           }
           approvalReady = true;

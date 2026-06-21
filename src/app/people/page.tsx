@@ -152,12 +152,24 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         try {
           const approvedSet = await getApprovedCompanySet();
           if (approvedSet.size) {
-            // 所属企業の判定に必要な軽量3列のみを全件取得（ゴミ箱は除外。未マイグレ環境はフォールバック）。
-            let allRes: any = await sb.from("candidates").select("candidate_no, source_company, company").is("deleted_at", null).limit(20000);
-            if (allRes.error) allRes = await sb.from("candidates").select("candidate_no, source_company, company").limit(20000);
-            for (const r of allRes.data ?? []) {
-              if (r.candidate_no == null) continue;
-              if (isCompanyApproved(approvedSet, r.source_company || r.company)) approvedNos.push(r.candidate_no);
+            // 所属企業の判定に必要な軽量3列のみを取得し、承認済みの candidate_no を集める。
+            //   ★ PostgREST の max-rows（既定1000）で頭打ちにならないよう range でページ送りして全件走査する。
+            //     以前は .limit(20000) でも 1000 件で打ち切られ、1000件目以降の承認済み人材が
+            //     「未承認」フィルタに漏れていた（バッジは各行個別判定のため承認済み表示になり不一致）。
+            const PAGE = 1000;
+            let useTrashFilter = true;
+            for (let off = 0; off <= 200000; off += PAGE) {
+              let r: any = useTrashFilter
+                ? await sb.from("candidates").select("candidate_no, source_company, company").is("deleted_at", null).order("candidate_no", { ascending: true }).range(off, off + PAGE - 1)
+                : await sb.from("candidates").select("candidate_no, source_company, company").order("candidate_no", { ascending: true }).range(off, off + PAGE - 1);
+              if (r.error && useTrashFilter) { useTrashFilter = false; off -= PAGE; continue; } // deleted_at 列が無い旧環境は外して再試行
+              if (r.error) break;
+              const rows = (r.data ?? []) as any[];
+              for (const row of rows) {
+                if (row.candidate_no == null) continue;
+                if (isCompanyApproved(approvedSet, row.source_company || row.company)) approvedNos.push(row.candidate_no);
+              }
+              if (rows.length < PAGE) break; // 最終ページ
             }
           }
           approvalReady = true; // approvedSet が空でも「承認済み0件」として正しく機能させる
