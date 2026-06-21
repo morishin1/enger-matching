@@ -147,16 +147,19 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0", lineHeight: 1.5, flexShrink: 0 }}>✓ 提案済み</span>
                   )}
                 </div>
-                {/* クライアント名は出さず、案件条件（単価・リモート・国籍/年代制限・商流）を表示 */}
-                <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[salaryLabel(j.salary_min, j.salary_max), remoteLabel(j.remote_type), (j.flow_note && j.flow_note !== "不明") ? j.flow_note : null].filter(Boolean).join(" · ")}</div>
+                {/* クライアント名は出さず、案件条件を1行・黒文字・項目名なしで表示。
+                    並び：単価 · リモート可否 · 国籍制限 · 年代制限 · 商流制限（値のみ） */}
                 {(() => {
-                  // 国籍制限・年代制限は本文(detail+title)から判定。要件がある案件のみ表示する。
                   const nat = classifyJobNationality(j.detail, j.title);
                   const age = classifyJobAge(j.detail, j.title);
-                  const parts: string[] = [];
-                  if (nat !== "unknown") parts.push(`国籍 ${JOB_NAT_LABEL[nat]}`);
-                  if (age.cat !== "unknown") parts.push(`年代 ${age.label}`);
-                  return parts.length ? <div className="muted" style={{ fontSize: 10.5, color: nat === "jp_only" || age.cat === "limited" ? "#b42318" : "var(--color-ink-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{parts.join(" · ")}</div> : null;
+                  const parts = [
+                    salaryLabel(j.salary_min, j.salary_max),
+                    remoteLabel(j.remote_type),
+                    JOB_NAT_LABEL[nat],
+                    age.label,
+                    (j.flow_note && String(j.flow_note).trim()) ? j.flow_note : "不明",
+                  ].filter(Boolean);
+                  return <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{parts.join(" · ")}</div>;
                 })()}
                 {aiv && <div style={{ fontSize: 10.5, color: "var(--color-brand-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🤖 {aiv.reason}</div>}
               </div>
