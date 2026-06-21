@@ -15,7 +15,6 @@ import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
 import { ConfirmJobButton } from "@/components/ConfirmJobButton";
-import { FlowSteps } from "@/components/FlowSteps";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { MatchingModeTabs } from "@/components/MatchingModeTabs";
 import { Ranking100View } from "@/components/Ranking100View";
@@ -23,7 +22,7 @@ import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
-import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
+import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_TONE } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
@@ -245,7 +244,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub">全案件 × 全人材から<b>必須スキル一致率 75%以上</b>のペアを抽出し、一致率順に上位100件を表示します。</div>
           </div>
         </div>
-        <FlowSteps current="matching" sub="ランキング100" />
         <MatchingPeerTabs counts={peerCounts} />
         <MatchingModeTabs />
         <Ranking100View rows={data.rows} meta={{ jobsScanned: data.jobsScanned, candsScanned: data.candsScanned, pairsHit: data.pairsHit }} />
@@ -623,7 +621,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
 
-        <FlowSteps current="matching" sub="人材 → 案件" />
         <MatchingPeerTabs counts={peerCounts} />
 
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
@@ -660,8 +657,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   {person.title && <span className="tag">{person.title}</span>}
                   {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
                   {person.affiliation && <span className="tag">{person.affiliation}</span>}
-                  <span className="tag">希望 {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
-                  <span className="tag">{person.location ?? "勤務地不明"}</span>
+                  {/* リモート希望・国籍・最寄駅を明示（国籍はトーン付きで日本/外国籍を区別） */}
+                  <span className="tag">リモート {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
+                  {(() => { const n = classifyCandNationality(person.nationality); const t = CAND_NAT_TONE[n]; return <span className="tag" style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>国籍 {CAND_NAT_LABEL[n]}</span>; })()}
+                  <span className="tag">最寄駅 {person.location ?? "不明"}</span>
                   {person.exp != null && String(person.exp).trim() !== "" && <span className="tag">経験 {/^\d+$/.test(String(person.exp).trim()) ? `${String(person.exp).trim()}年` : person.exp}</span>}
                   {person.avail && <span className="tag">稼働 {person.avail}</span>}
                   <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
@@ -744,7 +743,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
-        <FlowSteps current="matching" sub="注力" />
         <MatchingPeerTabs counts={peerCounts} />
         <MatchingModeTabs />
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
@@ -808,8 +806,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         </form>
       </div>
 
-      <FlowSteps current="matching" sub="案件 → 人材" />
-
       <MatchingPeerTabs counts={peerCounts} />
 
       <MatchingModeTabs />
@@ -859,6 +855,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 {job.work_location && <span className="tag">{job.work_location}</span>}
                 {job.flow_note && job.flow_note !== "不明" && <span className="tag">{job.flow_note}</span>}
                 {job.start_date && <span className="tag">稼働 {job.start_date}</span>}
+                {/* 国籍要件・年齢制限は本文(detail+title)から判定して明示（外国籍NG/年齢制限は赤で警告） */}
+                {(() => { const n = classifyJobNationality(job.detail, job.title); const t = JOB_NAT_TONE[n]; return <span className="tag" style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>国籍 {JOB_NAT_LABEL[n]}</span>; })()}
+                {(() => { const a = classifyJobAge(job.detail, job.title); const t = JOB_AGE_TONE[a.cat]; return <span className="tag" style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>年齢 {a.label}</span>; })()}
                 <b style={{ color: "var(--color-ink)" }}>{salaryLabel(job.salary_min, job.salary_max)}</b>
               </div>
               {job.skills?.length > 0 && (
