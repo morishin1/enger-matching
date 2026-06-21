@@ -2553,6 +2553,8 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.avail !== undefined) row.avail = trim(fields.avail);
   if (fields.location !== undefined) row.location = trim(fields.location);
   if (fields.remote_pref !== undefined) row.remote_pref = trim(fields.remote_pref);
+  if (fields.nationality !== undefined) row.nationality = trim(fields.nationality);
+  if (fields.age_band !== undefined) row.age_band = trim(fields.age_band);
   if (fields.exp !== undefined) row.exp = trim(fields.exp);
   if (fields.status !== undefined) row.status = trim(fields.status);
   if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
@@ -2567,14 +2569,14 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
   // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がないテーブル定義 → タイムスタンプは省いて再試行
     r = await admin.from("candidates").update(withoutUpdatedAt(row)).eq("candidate_no", candidateNo);
   }
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|column/i.test(r.error.message)) {
     r = await admin.from("candidates").update(stripped(withoutUpdatedAt(row))).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };

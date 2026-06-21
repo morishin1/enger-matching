@@ -103,6 +103,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     avail: c.avail ?? "",
     location: c.location ?? "",
     remote_pref: remoteBucket(c.remote_pref),
+    nationality: c.nationality ?? "",
+    age_band: c.age_band ?? "",
     status: c.status ?? "",
     skill_sheet_url: c.skill_sheet_url ?? "",
     email: c.email ?? "",
@@ -130,6 +132,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
         avail: f.avail,
         location: f.location,
         remote_pref: f.remote_pref,
+        nationality: f.nationality,
+        age_band: f.age_band,
         status: f.status,
         skill_sheet_url: f.skill_sheet_url,
         email: f.email,
@@ -170,6 +174,9 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <Field label="稼働開始" value={f.avail} onChange={set("avail")} />
               <Field label="最寄駅" value={f.location} onChange={set("location")} />
               <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
+              {/* 国籍・年代は誤インポート/手動登録の修正用に自由入力で編集可能にする（空欄で未設定）。 */}
+              <Field label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="例：日本 / 中国 / 不問（空欄で未設定）" />
+              <Field label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半（空欄で未設定）" />
               <Field label="ステータス" value={f.status} onChange={set("status")} />
               <Field label="スキルシートURL" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
               <Field label="本人メール" value={f.email} onChange={set("email")} />
