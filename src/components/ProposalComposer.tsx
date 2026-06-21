@@ -95,11 +95,6 @@ export function ProposalComposer({
     [target, job, cand, matchedSkills, missingSkills, score, sender],
   );
 
-  const copy = async (text: string, label: string) => {
-    try { await navigator.clipboard.writeText(text); setMsg(`${label}をコピーしました`); }
-    catch { setMsg("コピーに失敗しました（手動で選択してください）"); }
-  };
-
   const generate = async () => {
     setLoading(true); setMsg(null);
     try {
@@ -284,7 +279,19 @@ export function ProposalComposer({
         ) : (
           <span className="btn" style={{ cursor: "default", color: "#1aa260", borderColor: "#bfe3cc", background: "#eef8f1" }} aria-disabled>✓ 提案済み</span>
         ))}
-        <button type="button" className="btn ghost btn-xs" onClick={() => copy(effectiveBody, "本文")} title="現在開いているタブの本文をクリップボードへ">📄 本文コピー</button>
+        {/* 承認依頼：メンバーが承認依頼を出すためのボタン。
+            メール編集画面（/mail-compose）を開く＝メンバーはここから「📨 承認申請」を出せる。
+            （以前ここにあった「📄 本文コピー」は未使用のため廃止） */}
+        {job?.job_no != null && cand?.candidate_no != null && (
+          <Link
+            href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
+            target="_blank" rel="noopener noreferrer"
+            className="btn"
+            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, background: "#9a7b12", color: "#fff", border: 0 }}
+            title="メール編集画面を開いて承認依頼（承認申請）を出します。承認者がメール内容を確認して送信します。">
+            ✅ 承認依頼
+          </Link>
+        )}
         {saved && (proposedBy || proposedAt) && (
           <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-3)", marginLeft: 4 }}>
             {proposedBy ? <>提案者：<b style={{ color: "var(--color-ink-2)" }}>{proposedBy}</b></> : null}
