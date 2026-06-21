@@ -147,6 +147,32 @@ export async function fetchOriginalMessageId(gmailId: string): Promise<string | 
   }
 }
 
+/** 元メールの RFC822 Message-ID と Subject をまとめて取得する軽量版。
+ *   返信メール送信時の In-Reply-To/References（スレッド連結）＋件名一致（Gmail のスレッド表示は
+ *   ヘッダだけでなく件名一致も用いる）に使う。失敗時は両方 null。 */
+export async function fetchOriginalMessageMeta(gmailId: string): Promise<{ messageId: string | null; subject: string | null }> {
+  const empty = { messageId: null, subject: null };
+  try {
+    if (!gmailId) return empty;
+    const token = await getAccessToken();
+    if (!token) return empty;
+    const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(gmailId)}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return empty;
+    const data: any = await r.json();
+    const headers: any[] = data?.payload?.headers ?? [];
+    const rawId = headerVal(headers, "Message-ID") ?? headerVal(headers, "Message-Id");
+    const messageId = rawId
+      ? (/^<.+>$/.test(String(rawId).trim()) ? String(rawId).trim() : `<${String(rawId).trim().replace(/^<|>$/g, "")}>`)
+      : null;
+    const rawSubject = headerVal(headers, "Subject");
+    const subject = rawSubject ? String(rawSubject).trim() : null;
+    return { messageId, subject };
+  } catch {
+    return empty;
+  }
+}
+
 /** メッセージ1件の本体を取得して正規化。 */
 export async function fetchMessage(id: string): Promise<{ ok: true; msg: GmailMessage } | { ok: false; error: string }> {
   const token = await getAccessToken();
