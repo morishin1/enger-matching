@@ -3429,18 +3429,27 @@ export async function sendMailAction(input: {
   }
   const mergedBcc = bccList.join(", ") || null;
 
-  // 元メール（受信箱）への返信スレッド連結用に RFC822 Message-ID を解決。
-  //   Gmail API で 1 件メタデータ取得（Message-ID ヘッダのみ）。失敗時は単に新規メール扱い。
+  // 元メール（受信箱）への返信スレッド連結用に RFC822 Message-ID と件名を解決。
+  //   Gmail のスレッド表示は In-Reply-To/References ヘッダだけでなく「件名一致」も用いるため、
+  //   返信時は元メールの件名（Re: 付き）に強制する。これにより、件名が元メールと揃わず新規
+  //   メール扱いになっていた事象（特に人材側：source_mail_subject 欠落で固定件名にフォールバック）
+  //   を、案件側・人材側ともに根本解消する。失敗時はフォールバックで通常（新規）送信。
   let inReplyTo: string | null = null;
+  let subjectToSend = input.subject;
   if (input.originalGmailId) {
     try {
-      const { fetchOriginalMessageId } = await import("./gmail-api");
-      inReplyTo = await fetchOriginalMessageId(String(input.originalGmailId));
+      const { fetchOriginalMessageMeta } = await import("./gmail-api");
+      const meta = await fetchOriginalMessageMeta(String(input.originalGmailId));
+      inReplyTo = meta.messageId;
+      if (meta.subject) {
+        const s = meta.subject.trim();
+        subjectToSend = /^re:/i.test(s) ? s : `Re: ${s}`;
+      }
     } catch { /* 解決失敗は無視（フォールバックで新規メール） */ }
   }
 
   const res = await sendMail({
-    sender: input.sender, to: input.to, subject: input.subject, text: input.text,
+    sender: input.sender, to: input.to, subject: subjectToSend, text: input.text,
     html: input.html || null,
     cc: mergedCc, bcc: mergedBcc, replyTo,
     inReplyTo,
@@ -3459,7 +3468,7 @@ export async function sendMailAction(input: {
     const baseRow: Record<string, any> = {
       sender_key: input.sender, from_address: res.from, to_address: input.to,
       cc_address: mergedCc || null, bcc_address: mergedBcc || null,
-      subject: input.subject, body: input.text, message_id: res.messageId,
+      subject: subjectToSend, body: input.text, message_id: res.messageId,
       sent_by_email: access?.email ?? null, sent_by_name: access?.name ?? null,
       related_kind: input.relatedKind || null, related_id: input.relatedId || null,
       smtp_response: smtpResponse,
