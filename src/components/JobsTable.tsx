@@ -133,7 +133,7 @@ const JOB_COLS: Col[] = [
     key: "outside_owner", label: "エンド担当", width: 124, defaultHidden: true, filterKey: "outside_owner", filterLabel: "エンド担当",
     render: (j, ctx) => <OutsideOwnerSelect jobNo={j.job_no} value={j.outside_owner ?? null} options={ctx.outsideOptions} />,
   },
-  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterKey: "flow", filterLabel: "商流", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
+  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterKey: "flow", filterLabel: "商流制限", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterKey: "rank", filterLabel: "ランク" },
 ];
