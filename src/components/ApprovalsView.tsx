@@ -103,12 +103,19 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
   }, [pendingCount]);
 
   const cur = TAB_META[tab];
+  // 「プロパー（社内）」では役割サブタブを廃止し、社内メンバー全員を1つのリストで表示。
+  //   営業/バックオフィス/管理者は行の「区分」ドロップダウンで都度切替できる（誤区分の救済もそこで完結）。
+  //   ビジネスパートナーは外部4区分（企業/パートナー/副業/人材）が性質的に別物なのでタブのまま。
+  const isProperFlat = group === "proper";
   // ステータス絞り込み（承認待ち / 承認済み / すべて）。役割タブ内のサブタブ。
   //   既定：そのタブに「承認待ち」があれば承認待ち／無ければ承認済み。
   //   営業・管理者タブは大半が承認済みのため、既定が「承認待ち」固定だと「いなくなった」ように見える事故が起きていた。
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "all">(init.status);
-  // 該当タブのアカウント（agent はバックオフィス判定で分離）。
-  const inRole = accounts.filter((a) => tabOf(a) === tab);
+  // 該当グループ/タブのアカウント（プロパー1枚表示時はグループ内の全タブ＝社内全員）。
+  const properTabs = GROUPS.find((g) => g.key === "proper")!.tabs;
+  const inRole = isProperFlat
+    ? accounts.filter((a) => (properTabs as TabKey[]).includes(tabOf(a)))
+    : accounts.filter((a) => tabOf(a) === tab);
   const rolePending = inRole.filter((a) => a.status === "pending").length;
   const roleApproved = inRole.filter((a) => a.status !== "pending").length;
   const rows = inRole
@@ -176,10 +183,20 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     setStatusFilter(pc > 0 ? "pending" : "approved");
     setTab(k);
   };
-  // グループ切替：そのグループ内で「承認待ちが最多のタブ」を既定で開く（無ければ先頭タブ）。
+  // グループ切替：
+  //   ・プロパー（社内）はサブタブを廃止し1枚表示。グループ全体の承認待ち件数で初期サブタブを決定。
+  //   ・ビジネスパートナー（外部）はサブタブ維持。承認待ちが最多のタブを既定で開く。
   const setGroupSafe = (g: GroupKey) => {
     setGroup(g);
+    setSelected(new Set());
     const tabs = GROUPS.find((x) => x.key === g)!.tabs;
+    if (g === "proper") {
+      // プロパーは tab はダミー（フィルタは isProperFlat 経由でグループ全体を見る）
+      const groupPc = tabs.reduce((n, t) => n + (pendingCount[t] ?? 0), 0);
+      setStatusFilter(groupPc > 0 ? "pending" : "approved");
+      setTab("agent"); // ダミー
+      return;
+    }
     const withPending = tabs.filter((t) => (pendingCount[t] ?? 0) > 0);
     const next = withPending.length > 0
       ? withPending.reduce((best, t) => ((pendingCount[t] ?? 0) > (pendingCount[best] ?? 0) ? t : best), withPending[0])
@@ -354,24 +371,31 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
       {/* グループ説明 */}
       <div className="muted" style={{ fontSize: 11.5, marginTop: -4 }}>{GROUPS.find((g) => g.key === group)?.sub}</div>
 
-      {/* 第2階層：グループ内の区分タブ */}
-      <div role="tablist" aria-label="役割" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
-        {GROUPS.find((g) => g.key === group)!.tabs.map((tk) => {
-          const t = TAB_META[tk];
-          const active = tab === tk;
-          const pc = pendingCount[tk] ?? 0;
-          return (
-            <button key={tk} type="button" role="tab" aria-selected={active} onClick={() => setTabSafe(tk)} title={t.hint}
-              style={{ padding: "10px 18px", background: "transparent", border: 0, borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent", color: active ? "var(--color-brand-700)" : "var(--color-ink-3)", fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <span>{t.label}</span>
-              {pc > 0 && <span className="badge hot" style={{ fontSize: 10, padding: "1px 7px" }}>{pc}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {/* 第2階層：グループ内の区分タブ。
+          プロパー（社内）はサブタブ廃止＝メンバー一覧を1枚で表示し、区分は行のドロップダウンで切替。 */}
+      {!isProperFlat && (
+        <div role="tablist" aria-label="役割" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
+          {GROUPS.find((g) => g.key === group)!.tabs.map((tk) => {
+            const t = TAB_META[tk];
+            const active = tab === tk;
+            const pc = pendingCount[tk] ?? 0;
+            return (
+              <button key={tk} type="button" role="tab" aria-selected={active} onClick={() => setTabSafe(tk)} title={t.hint}
+                style={{ padding: "10px 18px", background: "transparent", border: 0, borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent", color: active ? "var(--color-brand-700)" : "var(--color-ink-3)", fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <span>{t.label}</span>
+                {pc > 0 && <span className="badge hot" style={{ fontSize: 10, padding: "1px 7px" }}>{pc}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
-        <div className="muted" style={{ fontSize: 11.5 }}>{cur.hint}</div>
+        <div className="muted" style={{ fontSize: 11.5 }}>
+          {isProperFlat
+            ? "社内メンバー全員を1つのリストで表示しています。区分（営業／管理者／バックオフィス）は各行の「区分」ドロップダウンで変更できます。"
+            : cur.hint}
+        </div>
         {suspectCount > 0 && (
           <button type="button" onClick={selectSuspectsOnly} title="怪しさを検知した行のみ選択します"
             style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 99,
@@ -544,17 +568,54 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                               ? <button type="button" className="btn ghost btn-xs" disabled={busy} title="面談済みを取り消し（詳細を再制限）" onClick={() => run(a.id, () => setAccountMeetingDone(a.id, false), "面談済みを取り消しました")}>✓ 面談済み</button>
                               : <button type="button" className="btn btn-xs" disabled={busy} style={{ background: "#067647", borderColor: "#067647", color: "#fff" }} onClick={() => run(a.id, () => setAccountMeetingDone(a.id, true), "面談済みにしました（詳細解放）")}>面談済みにする</button>
                           )}
-                          {/* 区分の付け替え（誤って別区分で登録された場合の救済） */}
-                          <select defaultValue={a.role} disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
-                            onChange={(e) => { const r = e.target.value as Role; run(a.id, () => setAccountRole(a.id, r as any), "区分を変更しました"); }}
-                            style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
-                            <option value="client">企業</option>
-                            <option value="partner">パートナー企業</option>
-                            <option value="freelance">副業エージェント</option>
-                            <option value="candidate">人材</option>
-                            <option value="agent">営業</option>
-                            <option value="admin">管理者</option>
-                          </select>
+                          {/* 区分の付け替え（誤って別区分で登録された場合の救済）。
+                              プロパー（社内）は「営業／バックオフィス／管理者」の3区分で切替。バックオフィスは
+                              role=agent ＋ 部署=バックオフィスで表現するため、選択時に両方を順に更新する。 */}
+                          {(() => {
+                            const currentKey: "agent" | "backoffice" | "admin" | "client" | "partner" | "freelance" | "candidate" =
+                              a.role === "agent" ? (isBackOffice(a) ? "backoffice" : "agent") : (a.role as any);
+                            return (
+                              <select defaultValue={currentKey} disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === "backoffice") {
+                                    // agent ロールへ寄せた上で部署をバックオフィスに切替（既存役割が admin 等なら役割も agent へ）
+                                    run(a.id, async () => {
+                                      if (a.role !== "agent") { const r = await setAccountRole(a.id, "agent" as any); if (!r.ok) return r; }
+                                      return setAccountDepartment(a.id, "バックオフィス");
+                                    }, "区分を「バックオフィス」に変更しました");
+                                  } else if (v === "agent") {
+                                    // 営業：役割を agent に、部署が「バックオフィス」なら部署解除
+                                    run(a.id, async () => {
+                                      if (a.role !== "agent") { const r = await setAccountRole(a.id, "agent" as any); if (!r.ok) return r; }
+                                      if ((a.department ?? "") === "バックオフィス") { const r2 = await setAccountDepartment(a.id, null); if (!r2.ok) return r2; }
+                                      return { ok: true };
+                                    }, "区分を「営業」に変更しました");
+                                  } else {
+                                    const r = v as Role;
+                                    run(a.id, () => setAccountRole(a.id, r as any), "区分を変更しました");
+                                  }
+                                }}
+                                style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+                                {isProperFlat ? (
+                                  <>
+                                    <option value="agent">営業</option>
+                                    <option value="backoffice">バックオフィス</option>
+                                    <option value="admin">管理者</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="client">企業</option>
+                                    <option value="partner">パートナー企業</option>
+                                    <option value="freelance">副業エージェント</option>
+                                    <option value="candidate">人材</option>
+                                    <option value="agent">営業</option>
+                                    <option value="admin">管理者</option>
+                                  </>
+                                )}
+                              </select>
+                            );
+                          })()}
                           {/* 詳細（権限編集／メール送信／面談予定）。LP仮想行は履歴・メール部分は使えないが、開けるようにして承認待ちガイドを見せる */}
                           {!(a.id.startsWith("profile:") || a.id.startsWith("auth:")) && (
                             <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="権限編集／メール送信／面談予定を開く">
