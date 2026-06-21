@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 
 function Stars({ score }: { score: number }) {
   const n = Math.max(0, Math.min(5, Math.round(score / 20)));
@@ -14,6 +15,8 @@ function Stars({ score }: { score: number }) {
 
 const salaryLabel = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
+const remoteLabel = (r?: string | null) =>
+  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社必須" : (r || "リモート不明");
 
 type RankedJob = { job: any; score: number };
 
@@ -144,7 +147,17 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0", lineHeight: 1.5, flexShrink: 0 }}>✓ 提案済み</span>
                   )}
                 </div>
-                <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.client_name ?? "—"} · {salaryLabel(j.salary_min, j.salary_max)}</div>
+                {/* クライアント名は出さず、案件条件（単価・リモート・国籍/年代制限・商流）を表示 */}
+                <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[salaryLabel(j.salary_min, j.salary_max), remoteLabel(j.remote_type), (j.flow_note && j.flow_note !== "不明") ? j.flow_note : null].filter(Boolean).join(" · ")}</div>
+                {(() => {
+                  // 国籍制限・年代制限は本文(detail+title)から判定。要件がある案件のみ表示する。
+                  const nat = classifyJobNationality(j.detail, j.title);
+                  const age = classifyJobAge(j.detail, j.title);
+                  const parts: string[] = [];
+                  if (nat !== "unknown") parts.push(`国籍 ${JOB_NAT_LABEL[nat]}`);
+                  if (age.cat !== "unknown") parts.push(`年代 ${age.label}`);
+                  return parts.length ? <div className="muted" style={{ fontSize: 10.5, color: nat === "jp_only" || age.cat === "limited" ? "#b42318" : "var(--color-ink-4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{parts.join(" · ")}</div> : null;
+                })()}
                 {aiv && <div style={{ fontSize: 10.5, color: "var(--color-brand-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🤖 {aiv.reason}</div>}
               </div>
               <div style={{ textAlign: "right" }}>
