@@ -151,13 +151,14 @@ export type CandFlowCategory =
   | "vendor2plus"   // 二社下以降
   | "unknown";      // 不明
 
+// フィルタ等の「表示ラベル」。value（カテゴリ）と DB 保存値(JOB_FLOW_LABEL)は不変で、表示のみここで定義。
 export const JOB_FLOW_OPTIONS: { value: Exclude<JobFlowCategory, "unknown">; label: string }[] = [
   { value: "jp_to_self",          label: "貴社まで" },
-  { value: "jp_to_self_seishain", label: "貴社正社員まで" },
-  { value: "jp_to_1",             label: "貴社一社まで" },
-  { value: "jp_to_1_seishain",    label: "貴社一社正社員まで" }, // 「貴社一社先正社員まで」は重複のため非表示
-  { value: "jp_to_2",             label: "貴社二社まで" },
-  { value: "jp_to_2_seishain",    label: "貴社二社正社員まで" },
+  { value: "jp_to_self_seishain", label: "貴社社員まで" },
+  { value: "jp_to_1",             label: "貴社一社先まで" },
+  { value: "jp_to_1_seishain",    label: "貴社一社先社員まで" },
+  { value: "jp_to_2",             label: "貴社二社先まで" },
+  { value: "jp_to_2_seishain",    label: "貴社二社先社員まで" },
   { value: "any",                 label: "商流不問" },
 ];
 
@@ -222,7 +223,12 @@ export function classifyJobFlow(value?: string | null): JobFlowCategory {
   const t = n(value);
   if (!t) return "unknown";
   // 完全一致（DB値が既に正規ラベルの場合）。
-  for (const o of JOB_FLOW_OPTIONS) if (t === n(o.label)) return o.value;
+  //   ※ フィルタの表示ラベル(JOB_FLOW_OPTIONS.label)とは独立に、正規ラベル(JOB_FLOW_LABEL＝DB保存値)で
+  //     判定する。表示ラベルを変更しても分類が壊れないようにするため。
+  for (const cat of Object.keys(JOB_FLOW_LABEL) as JobFlowCategory[]) {
+    if (cat === "unknown") continue;
+    if (t === n(JOB_FLOW_LABEL[cat])) return cat;
+  }
   if (t === n("不明")) return "unknown";
   // 同義語：「貴社一社先正社員まで」＝「貴社一社正社員まで」。
   if (/貴社一社先正社員まで|一社先正社員まで/.test(t)) return "jp_to_1_seishain";
