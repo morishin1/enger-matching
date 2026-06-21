@@ -1018,6 +1018,45 @@ export async function getProposalDraft(id: string): Promise<{ ok: true; mail: Pe
   return { ok: true, mail: (r.data.pending_mail ?? null) as PendingMail | null };
 }
 
+/** 承認者が「メール内容を確認して送信」を押した直後に呼ぶ：
+ *   承認確定＋ステージ進行（→所属確認）だけ先に行う。
+ *   実送信は別タブで `/mail-compose?send=1` から行うため、pending_mail（メール下書き）は
+ *   消さずに残す。送信完了時の記録（mail_sent_at/by）は markProposalMailSentAndApprove で行う。
+ *   ※ このアクションは冪等：既に approved/所属確認になっていてもエラーにせず ok を返す。 */
+export async function approveProposalForSend(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  const cur: any = await admin.from("proposals").select("id, approver, approval_status, stage").eq("id", id).maybeSingle();
+  if (cur.error) return { ok: false, error: cur.error.message };
+  if (!cur.data) return { ok: false, error: "提案が見つかりません" };
+  const { ownerMatches } = await import("./owner-match");
+  const isApprover = me.name && ownerMatches(me.name, cur.data.approver ?? "");
+  if (me.role !== "admin" && !isApprover) return { ok: false, error: "承認権限がありません（承認者のみ）" };
+
+  const now = new Date().toISOString();
+  const upd: Record<string, any> = {
+    approval_status: "approved",
+    approved_at: now,
+    approver_email: me.email,
+    reject_reason: null,
+    stage: "所属確認",
+    stage_updated_at: now,
+    updated_at: now,
+    // pending_mail は別タブの送信モーダルで使うため、ここでは残す。
+  };
+  let r: any = await admin.from("proposals").update(upd).eq("id", id);
+  if (r.error && /approver_email|approved_at|approval_status|stage_updated_at|column/i.test(r.error.message)) {
+    // 旧スキーマでも最低限ステージ進行は通す
+    r = await admin.from("proposals").update({ stage: "所属確認", updated_at: now }).eq("id", id);
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+  revalidatePath("/proposals");
+  bustCounts();
+  return { ok: true };
+}
+
 /** 承認者がメール送信した直後に呼ぶ：送信時刻を記録し、承認＋ステージ進行。 */
 export async function markProposalMailSentAndApprove(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   let admin: ReturnType<typeof engerAdmin>;

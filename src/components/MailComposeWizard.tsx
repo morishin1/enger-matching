@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
@@ -318,6 +319,16 @@ export function MailComposeWizard({
   const [privileged, setPrivileged] = useState<boolean | null>(null); // 取得中=null, true=権限あり
   const [autoOpenSend, setAutoOpenSend] = useState(false);
   useEffect(() => { isProposerPrivileged().then((r) => setPrivileged(!!r.privileged)).catch(() => setPrivileged(false)); }, []);
+
+  // 承認者が提案管理の「メール内容を確認して送信」から別タブで開いた直後（?send=1）は、
+  // 確認ステップ(2)へ即時遷移して「メールを送信（案件側・人材側）」モーダルを自動オープンする。
+  // 承認＋ステージ進行は親画面側（ApproveAndSendButton）で先に確定済み。
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams?.get("send") === "1") { setStep(2); setAutoOpenSend(true); }
+    // 初回マウント時のみ評価する（途中で URL を変えるユースケースは無い）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 権限者用：承認者選択なしで保存→送信モーダル自動オープン
   const handleSelfApproveAndSend = async () => {
