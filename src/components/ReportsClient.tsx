@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage, markReportReviewed } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
@@ -223,8 +223,9 @@ function ReportCard({ r, canReply }: { r: DailyReport; canReply?: boolean }) {
   );
 }
 
-/** 管理者向け：誰がいつ提出したか + 返信状況の提出カレンダー（直近14日）。 */
-function SubmissionCalendar({ members, reports, today }: { members: string[]; reports: DailyReport[]; today: string }) {
+/** 管理者向け：誰がいつ提出したか + 返信状況の提出カレンダー（直近14日）。
+ *   セルクリックで該当日報をドロワー表示（提出済セルのみ）。 */
+function SubmissionCalendar({ members, reports, today, canReply }: { members: string[]; reports: DailyReport[]; today: string; canReply?: boolean }) {
   const DAYS = 14;
   const days: string[] = [];
   const base = new Date(today + "T00:00:00");
@@ -232,12 +233,14 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
   // (author|date) → 提出・返信状況
   type Cell = { submitted: boolean; admin: boolean; ai: boolean };
   const cellMap = new Map<string, Cell>();
+  const reportMap = new Map<string, DailyReport>(); // セルクリック時に開く日報レコード
   for (const r of reports) {
     cellMap.set(`${r.author}|${r.report_date}`, {
       submitted: true,
       admin: !!r.replied_at,
       ai: !r.replied_at && !!r.ai_replied_at, // 管理者返信があれば AI フラグは出さない（最終状態を1つで表現）
     });
+    reportMap.set(`${r.author}|${r.report_date}`, r);
   }
   const getCell = (n: string, d: string): Cell => cellMap.get(`${n}|${d}`) ?? { submitted: false, admin: false, ai: false };
   // メンバー：staff名 ∪ 日報の著者
@@ -250,19 +253,35 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
   const rate = (n: string) => days.filter((d) => getCell(n, d).submitted).length;
   const repliedRate = (n: string) => days.filter((d) => { const c = getCell(n, d); return c.submitted && (c.admin || c.ai); }).length;
 
+  // セルクリックで開く日報ドロワー
+  const [drawerReport, setDrawerReport] = useState<DailyReport | null>(null);
+  const closeDrawer = () => setDrawerReport(null);
+  useEffect(() => {
+    if (!drawerReport) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") closeDrawer(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [drawerReport]);
+
   // セル表示：提出 + 返信状況を1セルで表現
   const renderCell = (n: string, d: string) => {
     const c = getCell(n, d);
     const l = dlabel(d);
+    const rep = reportMap.get(`${n}|${d}`) ?? null;
+    const clickable = !!rep;
     const baseStyle: React.CSSProperties = {
       padding: "5px 6px", textAlign: "center", borderTop: "1px solid var(--color-border)",
       background: d === today ? "var(--color-brand-25)" : l.we ? "var(--color-surface-soft)" : undefined,
       whiteSpace: "nowrap",
+      cursor: clickable ? "pointer" : "default",
     };
+    const onCellClick = clickable ? () => setDrawerReport(rep) : undefined;
+    const onCellKey = clickable ? (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrawerReport(rep); } } : undefined;
+    const cellProps = { onClick: onCellClick, onKeyDown: onCellKey, tabIndex: clickable ? 0 : undefined, role: clickable ? "button" : undefined };
     if (!c.submitted) return <td key={d} style={baseStyle}><span style={{ color: "var(--color-ink-5)" }}>・</span></td>;
-    if (c.admin) return <td key={d} style={baseStyle} title="提出済 + 管理者から返信済"><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>💬</sup></span></td>;
-    if (c.ai)    return <td key={d} style={baseStyle} title="提出済 + AIから自動返信済"><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>🤖</sup></span></td>;
-    return <td key={d} style={baseStyle} title="提出済（返信なし）"><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span></td>;
+    if (c.admin) return <td key={d} style={baseStyle} {...cellProps} title="クリックで日報を表示（提出済 + 管理者から返信済）"><span style={{ color: "#067647", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>💬</sup></span></td>;
+    if (c.ai)    return <td key={d} style={baseStyle} {...cellProps} title="クリックで日報を表示（提出済 + AIから自動返信済）"><span style={{ color: "var(--color-brand-700)", fontWeight: 800 }}>✓<sup style={{ fontSize: 9, marginLeft: 1 }}>🤖</sup></span></td>;
+    return <td key={d} style={baseStyle} {...cellProps} title="クリックで日報を表示（提出済・返信なし）"><span style={{ color: "#9a7b12", fontWeight: 800 }}>✓</span></td>;
   };
 
   // 折りたたみ。デフォルトは閉。未提出/未返信があるときだけ「展開」ボタンを目立たせる。
@@ -316,6 +335,26 @@ function SubmissionCalendar({ members, reports, today }: { members: string[]; re
           </table>
         </div>
       ))}
+
+      {/* セルをクリックして開く日報ドロワー（提出済セルのみ）。中身は通常の ReportCard を流用するため、
+          管理者の返信フロー・AI下書きなどがそのまま使える。 */}
+      {drawerReport && (
+        <div onClick={closeDrawer} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 1100 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "min(560px, 96vw)", background: "var(--color-surface)", height: "100%", overflow: "auto", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-soft)" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ color: "var(--color-brand-700)" }}>description</span>
+                <div style={{ fontSize: 13.5, fontWeight: 800 }}>{drawerReport.author} さんの日報</div>
+                <span className="mono muted" style={{ fontSize: 11 }}>{drawerReport.report_date}</span>
+              </div>
+              <button type="button" className="btn ghost btn-xs" onClick={closeDrawer} aria-label="閉じる">×</button>
+            </div>
+            <div style={{ padding: 14 }}>
+              <ReportCard r={drawerReport} canReply={canReply} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -326,7 +365,7 @@ export function ReportsClient({ author, today, actuals, reports, isAdmin = false
   return (
     <>
       {canManage && (
-        <SubmissionCalendar members={members} reports={reports} today={today} />
+        <SubmissionCalendar members={members} reports={reports} today={today} canReply={canManage} />
       )}
       {/* 自分の日報は経営・マネージャー・リーダー・メンバーが提出できる。
           管理者（本来の admin）は日報不要のため canSubmit=false でフォームを出さない。 */}
