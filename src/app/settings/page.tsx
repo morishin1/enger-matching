@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { MatchWindowEditor } from "@/components/MatchWindowEditor";
@@ -14,21 +13,23 @@ import { getStaff } from "@/lib/staff";
 import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { ApprovalsView } from "@/components/ApprovalsView";
+import { currentAccess, listAccounts, listLpPendingCandidates } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
 const yen = (usd: number) => `¥${Math.round(usd * YEN_PER_USD).toLocaleString("ja-JP")}`;
 
-// 設定タブ（簡素化）。よく使う 2 つを主タブにし、観察・滅多に触らない設定は「その他」へ集約。
-//   主：マッチング（対象期間＋注力閾値）／ メニュー権限（メニュー＋日報スコープ＋提案担当者）
-//   従：その他（AI 使用量・品質ルール）
-//   ※ ユーザー管理／チームKGI／個人KGI はページヘッダ右にリンクボタンを配置。
-const TABS = [
-  { key: "matching", label: "マッチング",     icon: "target",    desc: "マッチング対象期間と「注力」の閾値" },
-  { key: "menus",    label: "メニュー権限",   icon: "lock",      desc: "メニュー・日報閲覧・提案担当者の表示制御" },
-  { key: "other",    label: "その他",         icon: "more_horiz", desc: "AI 使用量と品質ルール（滅多に触らない設定）" },
+// 設定タブ（サイドバーを「設定」1つに集約）。よく使う設定をタブで切替。
+//   マッチング（対象期間＋注力閾値）／ メニュー権限／ ユーザー管理（管理者のみ）／ その他（AI使用量・品質ルール）
+//   ※ チームKGI／個人KGI は固有の検索パラメータを持つので別ページのまま、ヘッダ右にリンク配置。
+const TABS_ALL = [
+  { key: "matching", label: "マッチング",     icon: "target",          desc: "マッチング対象期間と「注力」の閾値" },
+  { key: "menus",    label: "メニュー権限",   icon: "lock",            desc: "メニュー・日報閲覧・提案担当者の表示制御" },
+  { key: "users",    label: "ユーザー管理",   icon: "manage_accounts", desc: "アカウントの承認・削除・担当者割当・無効化",     adminOnly: true },
+  { key: "other",    label: "その他",         icon: "more_horiz",      desc: "AI 使用量と品質ルール（滅多に触らない設定）" },
 ] as const;
-type TabKey = typeof TABS[number]["key"];
+type TabKey = typeof TABS_ALL[number]["key"];
 
 async function getQuality(): Promise<{ rules: Rule[]; available: boolean; ngCount: number }> {
   if (!dbConfigured) return { rules: [], available: false, ngCount: 0 };
@@ -43,11 +44,17 @@ async function getQuality(): Promise<{ rules: Rule[]; available: boolean; ngCoun
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const sp = await searchParams;
-  // 旧「アカウント・権限」タブは /settings/approvals に統合済。直リンクから遷移。
-  if (sp.tab === "accounts") redirect("/settings/approvals");
-  // 旧タブキーの後方互換：focus → matching、quality/ai → other に丸めて遷移崩れを防ぐ。
-  const legacy: Record<string, TabKey> = { focus: "matching", quality: "other", ai: "other" };
+  // 管理者かどうか。admin のみ「ユーザー管理」タブを表示・選択可能にする。
+  // ローカル(未認証)は admin 相当として扱う（既存ページ群と同方針）。
+  const access = await currentAccess();
+  const isAdmin = !access || access.role === "admin";
+
+  // 旧タブキーの後方互換：focus → matching、quality/ai → other、accounts → users に丸めて遷移崩れを防ぐ。
+  const legacy: Record<string, TabKey> = { focus: "matching", quality: "other", ai: "other", accounts: "users" };
   const requested = (sp.tab && legacy[sp.tab]) || (sp.tab as TabKey | undefined);
+
+  // admin 以外は users タブを除外。
+  const TABS = TABS_ALL.filter((t) => !("adminOnly" in t && t.adminOnly) || isAdmin);
   const tab: TabKey = (TABS.find((t) => t.key === requested)?.key ?? "matching") as TabKey;
 
   // アクティブタブだけ取得（縦量だけでなく無駄な往復も削減）
@@ -58,6 +65,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
   const reportScopes = tab === "menus" ? await loadReportScopes() : null;
   const proposalOwnersData = tab === "menus" ? await Promise.all([loadProposalOwners(), getStaff()]).then(([po, staff]) => ({ initial: po ?? { proposers: staff.members, closers: staff.members }, suggestions: staff.members })) : null;
+  // ユーザー管理タブ。実アカウント＋LP（profiles）の昇格待ちを合算し、ApprovalsView で承認/削除/担当者割当を行う。
+  const usersData = (tab === "users" && isAdmin)
+    ? await Promise.all([listAccounts(), listLpPendingCandidates(), getStaff()]).then(([real, lp, staff]) => ({
+        accounts: [...real, ...lp],
+        agentOptions: staff.rows
+          .filter((s: any) => s.active !== false && (s.email || s.name))
+          .map((s: any) => ({ email: s.email ?? null, name: s.name ?? null })),
+      }))
+    : null;
+  const usersPending = usersData?.accounts.filter((a) => a.status === "pending").length ?? 0;
   const maxDaily = usage ? Math.max(0.0001, ...usage.daily.map((d) => d.usd)) : 1;
 
   const Icon = ({ name, size = 16 }: { name: string; size?: number }) => (
@@ -77,13 +94,12 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div style={{ flex: "1 1 360px", minWidth: 0 }}>
           <div className="meta">Settings · 設定</div>
           <h1>設定</h1>
-          <div className="sub">マッチング・メニュー権限の調整がメイン。ユーザー承認・KGI 設定はヘッダ右のリンクから。</div>
+          <div className="sub">マッチング・メニュー権限・ユーザー管理をタブで切替。KGI 設定はヘッダ右のリンクから。</div>
         </div>
-        {/* 別ページに移動する「主要リンク」。タブとは分けて1段ナビに統一。 */}
+        {/* チームKGI／個人KGI は固有の検索パラメータを持つので別ページのまま、ヘッダ右へ。 */}
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <HeaderLink href="/settings/approvals"  icon="manage_accounts" label="ユーザー管理" />
-          <HeaderLink href="/settings/team-kgi"   icon="flag"            label="チームKGI" />
-          <HeaderLink href="/settings/person-kgi" icon="sports_score"    label="個人KGI" />
+          <HeaderLink href="/settings/team-kgi"   icon="flag"         label="チームKGI" />
+          <HeaderLink href="/settings/person-kgi" icon="sports_score" label="個人KGI" />
         </div>
       </div>
 
@@ -92,6 +108,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         style={{ display: "flex", gap: 4, padding: 4, background: "var(--color-surface-inset)", borderRadius: 12, overflowX: "auto" }}>
         {TABS.map((t) => {
           const on = t.key === tab;
+          // users タブには承認待ちバッジを表示（admin のみここに到達）
+          const badge = t.key === "users" && usersPending > 0 ? usersPending : null;
           return (
             <Link key={t.key} href={`/settings?tab=${t.key}`} role="tab" aria-selected={on} title={t.desc}
               style={{
@@ -104,6 +122,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               }}>
               <Icon name={t.icon} size={18} />
               <span>{t.label}</span>
+              {badge != null && (
+                <span className="badge hot" style={{ fontSize: 10 }}>{badge}</span>
+              )}
             </Link>
           );
         })}
@@ -114,6 +135,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div id="matching" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {matchWindow && <MatchWindowEditor initial={matchWindow} />}
           <FocusCriteriaEditor initial={focusCriteria} />
+        </div>
+      )}
+
+      {/* === ユーザー管理（admin のみ。承認待ち/承認済みの切り替えは ApprovalsView 内タブ） === */}
+      {tab === "users" && usersData && (
+        <div id="users" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            登録ユーザーを <b>企業 / 人材 / 営業</b> 等のタブで切り分け、<b>承認待ち / 承認済み</b> を分けて表示。承認・削除・担当者割当・無効化などをまとめて行えます。
+          </div>
+          <ApprovalsView accounts={usersData.accounts} agents={usersData.agentOptions} />
         </div>
       )}
 
