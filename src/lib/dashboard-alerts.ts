@@ -54,7 +54,7 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
         title: `新規ユーザーの承認待ちが ${total} 件`,
         body: realN > 0 && lpN > 0 ? `アカウント申請 ${realN}件・LP登録 ${lpN}件` : null,
         count: total,
-        href: "/settings/approvals",
+        href: "/settings?tab=users",
         cta: "ユーザー管理を開く",
       });
     } catch { /* app_users 未整備は無視 */ }

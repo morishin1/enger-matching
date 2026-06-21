@@ -669,6 +669,6 @@ export async function bulkDeleteAccounts(
   }
 
   bustMembers();
-  revalidatePath("/settings/approvals");
+  revalidatePath("/settings");
   return { ok: true, deleted, skipped, errors };
 }

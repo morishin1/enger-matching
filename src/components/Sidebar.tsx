@@ -45,16 +45,14 @@ const ANALYSIS: NavItem[] = [
   ] },
 ];
 
-// その他（補助ツール）。ユーザー管理（承認）は「設定」の子に統合（管理者しか触らない＆機能上も設定の一部）。
+// その他（補助ツール）。ユーザー管理・各種設定は /settings 内のタブに統合済み。
+//   サイドバーは「設定」1行のみ（承認待ち件数は親バッジで通知）。
 const TOOLS: NavItem[] = [
   { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
   { href: "/reports", id: "reports", label: "日報", icon: "msg" },
   { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
   { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
-  { href: "/settings", id: "settings", label: "設定", icon: "settings", children: [
-    { href: "/settings/approvals", id: "approvals", label: "ユーザー管理", count: "approvalsPending" },
-    { href: "/settings", id: "settings-main", label: "各種設定" },
-  ] },
+  { href: "/settings", id: "settings", label: "設定", icon: "settings", count: "approvalsPending" },
 ];
 
 // テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
@@ -112,7 +110,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;
   const tools0base = (isClient || isTenant) ? []
-    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings" && n.href !== "/settings/approvals") // 設定・ユーザー管理は admin のみ
+    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定（ユーザー管理含む）は admin のみ
     : TOOLS; // admin は設定・ユーザー管理含む全部
   // タイムカード（バイト/副業）。本人入力対象 or 承認者のみに表示（menuPerms の対象外＝常に出す）。
   const TIMECARD_ITEM: NavItem = { href: "/timecard", id: "timecard", label: "タイムカード", icon: "cal" };

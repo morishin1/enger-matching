@@ -1,34 +1,7 @@
 import { redirect } from "next/navigation";
-import { ApprovalsView } from "@/components/ApprovalsView";
-import { currentAccess, listAccounts, listLpPendingCandidates } from "@/lib/accounts";
-import { getStaff } from "@/lib/staff";
 
-export const dynamic = "force-dynamic";
-
-export default async function ApprovalsPage() {
-  const access = await currentAccess();
-  // ユーザー管理は管理者(admin)専用。直URLアクセスもブロック。
-  if (access && access.role !== "admin") redirect("/");
-
-  const [accountsReal, lpPending, staff] = await Promise.all([listAccounts(), listLpPendingCandidates(), getStaff()]);
-  // 実 app_users ＋ LP（profiles）から昇格待ちの人材を合算。LP分は人材タブに承認待ちで表示される。
-  const accounts = [...accountsReal, ...lpPending];
-  const agentOptions = staff.rows
-    .filter((s: any) => s.active !== false && (s.email || s.name))
-    .map((s: any) => ({ email: s.email ?? null, name: s.name ?? null }));
-  const pending = accounts.filter((a) => a.status === "pending").length;
-
-  return (
-    <div className="page">
-      <div className="page-head">
-        <div style={{ maxWidth: 820 }}>
-          <div className="meta">Users · ユーザー管理</div>
-          <h1>ユーザー管理{pending > 0 && <span className="badge hot" style={{ marginLeft: 8, fontSize: 12 }}>{pending} 件承認待ち</span>}</h1>
-          <div className="sub">登録ユーザーを<b>企業 / 人材 / 営業</b>等のタブで切り分け、<b>承認待ち / 承認済み</b>を分けて表示。承認・削除・担当者割当・無効化などをまとめて行えます。</div>
-        </div>
-      </div>
-
-      <ApprovalsView accounts={accounts} agents={agentOptions} />
-    </div>
-  );
+// ユーザー管理は /settings ページ内のタブに統合済み。
+// 既存リンクやブックマーク互換のため、ここではタブ付き URL に転送する。
+export default function ApprovalsRedirect() {
+  redirect("/settings?tab=users");
 }
