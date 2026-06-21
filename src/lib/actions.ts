@@ -527,7 +527,12 @@ export async function bulkTrashBefore(opts: {
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "meeting_time", "meeting_format", "meeting_url", "meeting_attendees", "meeting_note", "company", "source", "job_notify_status", "cand_notify_status"];
+  const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "meeting_time", "meeting_format", "meeting_url", "meeting_attendees", "meeting_note", "company", "source", "job_notify_status", "cand_notify_status",
+    // 案件側 企業担当 / 人材側 会社名・企業担当・先方担当（proposals-contacts.sql）
+    "company_contact", "cand_company", "cand_company_contact", "cand_contact"];
+  // 上記のうち proposals-contacts.sql 未適用の環境で存在しない可能性がある列。
+  // 書込みで「column ... does not exist」になったら、その列を外して再試行する。
+  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact"];
   const now = new Date().toISOString();
   const patch: Record<string, any> = { updated_at: now };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
@@ -559,22 +564,35 @@ export async function updateProposalFields(id: string, fields: Record<string, an
     const { source: _drop, ...rest } = patch;
     ({ error } = await admin.from("proposals").update(rest).eq("id", id));
   }
+  // 連絡先の追加列（proposals-contacts.sql 未適用）が無い環境では、その列を外して再試行。
+  if (error && /column/i.test(error.message) && optionalCols.some((c) => c in patch)) {
+    const rest: Record<string, any> = { ...patch };
+    for (const c of optionalCols) delete rest[c];
+    ({ error } = await admin.from("proposals").update(rest).eq("id", id));
+  }
   if (error) return { ok: false, error: error.message };
 
-  // 会社名が入力されていれば企業マスタへ紐づけ（窓口担当=client_contact / 自社担当=closer）。
+  // 会社名が入力されていれば企業マスタへ紐づけ（窓口担当=企業担当 / 自社担当=closer）。
   // 企業管理(/companies) でも「その会社の誰が担当か」を一元で確認できるようにする。
-  const company = typeof fields.company === "string" ? fields.company.trim() : "";
-  if (company) {
-    const crow: Record<string, any> = { name: company };
-    if (typeof fields.client_contact === "string" && fields.client_contact.trim()) crow.contact_name = fields.client_contact.trim();
-    if (typeof fields.closer === "string" && fields.closer.trim()) crow.owner_staff = fields.closer.trim();
+  //   ・案件側：company（クライアント名）＋ company_contact（企業担当＝窓口担当者）
+  //   ・人材側：cand_company（所属会社）＋ cand_company_contact（企業担当＝窓口担当者）
+  const syncCompanyContact = async (name?: any, contact?: any, owner?: any) => {
+    const nm = typeof name === "string" ? name.trim() : "";
+    if (!nm) return;
+    const crow: Record<string, any> = { name: nm };
+    if (typeof contact === "string" && contact.trim()) crow.contact_name = contact.trim();
+    if (typeof owner === "string" && owner.trim()) crow.owner_staff = owner.trim();
     try {
-      let r = await admin.from("companies").upsert(crow, { onConflict: "name" });
+      const r = await admin.from("companies").upsert(crow, { onConflict: "name" });
       if (r.error && /column|owner_staff|contact_name/i.test(r.error.message)) {
-        await admin.from("companies").upsert({ name: company }, { onConflict: "name" });
+        await admin.from("companies").upsert({ name: nm }, { onConflict: "name" });
       }
-      revalidatePath("/companies");
     } catch { /* companies 未整備でも提案更新は成功させる */ }
+  };
+  if ((typeof fields.company === "string" && fields.company.trim()) || (typeof fields.cand_company === "string" && fields.cand_company.trim())) {
+    await syncCompanyContact(fields.company, fields.company_contact, fields.closer);
+    await syncCompanyContact(fields.cand_company, fields.cand_company_contact, undefined);
+    revalidatePath("/companies");
   }
 
   revalidatePath("/proposals");
@@ -2309,6 +2327,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     location: rec.location?.trim() || null,
     exp: rec.exp?.trim() || null,
     status: rec.status?.trim() || "提案可",
+    remote_pref: rec.remote_pref?.trim() || null,
     skill_sheet_url: rec.skill_sheet_url?.trim() || null,
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
@@ -2322,7 +2341,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -2368,7 +2387,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
   if (exRow?.id) return updateExisting(exRow.id, exRow.candidate_no);
 
   let r: any = await admin.from("candidates").insert(row).select("candidate_no").maybeSingle();
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|source_mail_at|owner_company|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_mail_subject|source_mail_at|owner_company|remote_pref|column/i.test(r.error.message)) {
     r = await admin.from("candidates").insert(stripCols(row)).select("candidate_no").maybeSingle();
   }
   // 一意制約に当たった場合は既存人材の更新へフォールバック（重複エラーにしない）
@@ -2494,6 +2513,7 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.rate !== undefined) { const r = trim(fields.rate); row.rate = r; if (r) { const n = Number((r.match(/\d+/g) ?? []).map(Number).filter((x) => x > 0)[0]); if (Number.isFinite(n)) row.rate_num = n; } }
   if (fields.avail !== undefined) row.avail = trim(fields.avail);
   if (fields.location !== undefined) row.location = trim(fields.location);
+  if (fields.remote_pref !== undefined) row.remote_pref = trim(fields.remote_pref);
   if (fields.exp !== undefined) row.exp = trim(fields.exp);
   if (fields.status !== undefined) row.status = trim(fields.status);
   if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
@@ -2508,14 +2528,14 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
   // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がないテーブル定義 → タイムスタンプは省いて再試行
     r = await admin.from("candidates").update(withoutUpdatedAt(row)).eq("candidate_no", candidateNo);
   }
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|column/i.test(r.error.message)) {
     r = await admin.from("candidates").update(stripped(withoutUpdatedAt(row))).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };

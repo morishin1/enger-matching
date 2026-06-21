@@ -499,26 +499,28 @@ export function PeopleTable({
 
             <div className="card" style={{ padding: 12 }}>
               <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>プロフィール</div>
+              {/* 全項目を常に表示。データが無い項目は空欄、「不明」と記録のあるものは不明で表示。
+                  ステータスは人材一覧と同じ鮮度（新着/3日以内/…）に統一（登録日が無ければ空欄）。 */}
               {([
-                ["ステータス", detail.status],
-                ["ランク", detail.rank],
-                ["年代", (detail as any).age_band],
-                ["国籍", <CandNatBadge key="nat" value={(detail as any).nationality} />],
-                ["経験", detail.exp],
-                ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : null)],
-                ["稼働開始", detail.avail],
-                ["リモート希望", remotePrefLabel(detail.remote_pref)],
-                ["最寄駅", detail.location ?? "不明"],
+                ["ステータス", detail.created_at ? freshnessLabel(detail.created_at) : ""],
+                ["ランク", detail.rank ?? ""],
+                ["年代", (detail as any).age_band ?? ""],
+                ["国籍", (detail as any).nationality ? <CandNatBadge key="nat" value={(detail as any).nationality} /> : ""],
+                ["経験", detail.exp ?? ""],
+                ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : "")],
+                ["稼働開始", detail.avail ?? ""],
+                ["リモート希望", remotePrefLabel(detail.remote_pref) ?? ""],
+                ["最寄駅", detail.location ?? ""],
                 ["所属", (detail.source_company || detail.company)
                   ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={detail.source_company || detail.company} approved={!!detail.company_approved} badge badgeSize="xs" />{detail.affiliation ? <span className="muted" style={{ fontSize: 11.5 }}>（{detail.affiliation}）</span> : null}</span>
-                  : (detail.affiliation ?? null)],
-                ["連絡先", detail.email ?? detail.contact_email],
-              ] as [string, React.ReactNode][]).map(([label, value]) => value ? (
+                  : (detail.affiliation ?? "")],
+                ["連絡先", detail.email ?? detail.contact_email ?? ""],
+              ] as [string, React.ReactNode][]).map(([label, value]) => (
                 <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
                   <div className="muted" style={{ fontSize: 12 }}>{label}</div>
                   <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value}</div>
                 </div>
-              ) : null)}
+              ))}
             </div>
 
             {detail.note && (

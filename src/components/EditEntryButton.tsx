@@ -67,6 +67,25 @@ function Textarea({ label, value, onChange }: { label: string; value?: string; o
 
 type FormState = Record<string, string>;
 
+// 人材のリモート希望（3 区分）。人材一覧の表示・フィルタ（PeopleTable.remotePrefLabel /
+// people/page.tsx REMOTE_OPTIONS）と連動するよう、保存値はそのまま分類できる正規化テキストにする。
+//   フルリモート希望 → フル / 一部リモート可 → リモート / 出社可 → 出社
+const CAND_REMOTE_OPTS = [
+  { value: "", label: "未設定" },
+  { value: "フルリモート希望", label: "フルリモート希望" },
+  { value: "一部リモート可", label: "一部リモート可希望" },
+  { value: "出社可", label: "出社可" },
+];
+// 既存の自由文 remote_pref を 3 区分の初期値へ寄せる（一覧の分類優先順位と一致させる）。
+function remoteBucket(raw?: string | null): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  if (/フル/.test(s)) return "フルリモート希望";
+  if (/リモート|在宅/.test(s)) return "一部リモート可";
+  if (/出社|常駐/.test(s)) return "出社可";
+  return ""; // 未分類は未設定（3 択に正規化）
+}
+
 export function EditCandidateButton({ candidate }: { candidate: any }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -83,6 +102,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     exp: c.exp ?? "",
     avail: c.avail ?? "",
     location: c.location ?? "",
+    remote_pref: remoteBucket(c.remote_pref),
     status: c.status ?? "",
     skill_sheet_url: c.skill_sheet_url ?? "",
     email: c.email ?? "",
@@ -109,6 +129,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
         exp: f.exp,
         avail: f.avail,
         location: f.location,
+        remote_pref: f.remote_pref,
         status: f.status,
         skill_sheet_url: f.skill_sheet_url,
         email: f.email,
@@ -147,7 +168,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <Field label="希望単価" value={f.rate} onChange={set("rate")} />
               <Field label="経験年数" value={f.exp} onChange={set("exp")} />
               <Field label="稼働開始" value={f.avail} onChange={set("avail")} />
-              <Field label="希望勤務地" value={f.location} onChange={set("location")} />
+              <Field label="最寄駅" value={f.location} onChange={set("location")} />
+              <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
               <Field label="ステータス" value={f.status} onChange={set("status")} />
               <Field label="スキルシートURL" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
               <Field label="本人メール" value={f.email} onChange={set("email")} />
