@@ -830,9 +830,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         />
       )}
 
-      {selectedJobWarning(job)}
-
-      {job && (
+      {/* 案件を指定せず TOP10 を見ているときは、下の「マッチング対象 案件」「人材ランキング」は表示しない。
+          関係のない案件（先頭のjobList[0]）が出てしまう混乱を避けるための要望対応。 */}
+      {(() => {
+        const showAutoTop = tab === "auto" && !sp.job && !sp.person && autoTop.rows.length > 0;
+        if (showAutoTop) return null;
+        return (
+          <>
+            {selectedJobWarning(job)}
+            {job && (
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
           <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds}
@@ -972,6 +978,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
       )}
+          </>
+        );
+      })()}
     </div>
   );
 }
