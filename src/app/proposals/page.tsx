@@ -41,9 +41,15 @@ export default async function ProposalsPage() {
       const base = "id, job_id, candidate_id, job_title, company, candidate_name, c_init, rate, score, stage, created_at, next_action";
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await sb.from("proposals")
-        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`)
+        .select(`${base}, company_contact, cand_company, cand_company_contact, cand_contact, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`)
         .order("created_at", { ascending: false }).limit(400);
-      if (res.error && /approver|approval_status|column/i.test(res.error?.message ?? "")) {
+      // 連絡先の追加列（proposals-contacts.sql 未適用）だけが無い場合は、承認列は残したまま連絡先列のみ外して再試行。
+      if (res.error && /company_contact|cand_company|cand_contact/i.test(res.error?.message ?? "")) {
+        res = await sb.from("proposals")
+          .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`)
+          .order("created_at", { ascending: false }).limit(400);
+      }
+      if (res.error && /approver|approval_status|company_contact|cand_company|cand_contact|column/i.test(res.error?.message ?? "")) {
         // 承認チェック列が未マイグレ → 旧SELECTで再試行
         res = await sb.from("proposals")
           .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type`)
@@ -96,22 +102,33 @@ export default async function ProposalsPage() {
         // ② 人材: 元メール本文(note)も取得。列が無ければ exp、それも無ければ source_mail_url だけ。
         const fetchCands = async () => {
           if (!candIds.length) return [];
-          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, source_mail_at, contact_email, note, exp, is_closed").in("id", candIds).limit(2000);
-          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp, is_closed").in("id", candIds).limit(2000);
+          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, source_mail_at, contact_email, note, exp, is_closed, source_company, company").in("id", candIds).limit(2000);
+          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp, is_closed, source_company, company").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
-        const [jn, cn, jr, cr] = await Promise.all([
+        const [jn, cn, jr] = await Promise.all([
           fetchJobs(),
           fetchCands(),
           titles.length  ? sb.from("jobs").select("title, outside_owner").in("title", titles).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
-          compNms.length ? sb.from("companies").select("name, owner").in("name", compNms).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
         ]);
 
         // 元メールリンク（ProposalDetailModal の「案件の元メール／人材の元メール」）を直近受信メールへ更新。
         await attachLatestSourceMail(sb, "job", jn as any[]);
         await attachLatestSourceMail(sb, "candidate", cn as any[]);
+
+        // 企業マスタ（営業担当 owner / 窓口担当 contact_name）を、案件側クライアント＋人材側所属会社の
+        // 両方ぶんまとめて取得。詳細モーダルの「企業担当（窓口担当者）」を自動表示するのに使う。
+        const candCompanyById: Record<string, string | null> = {};
+        for (const c of cn as any[]) if (c?.id != null) candCompanyById[c.id] = c.source_company ?? c.company ?? null;
+        const allCompNames = Array.from(new Set([
+          ...compNms,
+          ...Object.values(candCompanyById).filter(Boolean) as string[],
+        ]));
+        const companyRows = allCompNames.length
+          ? await sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r: any) => r.error ? [] : nq(r.data))
+          : [];
 
         try {
           const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean }> = {};
@@ -121,11 +138,21 @@ export default async function ProposalsPage() {
           const ownerByTitle: Record<string, string> = {};
           for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
-          for (const c of cr as any[]) if (c?.owner) ownerByCompany[c.name] = c.owner;
+          const contactByCompany: Record<string, string> = {};
+          for (const c of companyRows as any[]) {
+            if (c?.owner) ownerByCompany[c.name] = c.owner;
+            if (c?.contact_name) contactByCompany[c.name] = c.contact_name;
+          }
           for (const p of all) {
             if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed; }
             if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed; }
             p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
+            // 人材側 会社名（保存値 → 人材所属会社の順で自動表示）。
+            const candCompany = p.cand_company ?? (p.candidate_id ? candCompanyById[p.candidate_id] : null) ?? null;
+            p.cand_company = candCompany;
+            // 企業担当（窓口担当者）は保存値が無ければ企業マスタの contact_name を自動表示。
+            p.company_contact = p.company_contact ?? (p.company ? contactByCompany[p.company] : null) ?? null;
+            p.cand_company_contact = p.cand_company_contact ?? (candCompany ? contactByCompany[candCompany] : null) ?? null;
             // LP（enger.jp）からのエンジニア直接応募は next_action に「エンジニア直接応募（LP）」が入る。
             //   営業起点の提案と区別できるよう lp_direct フラグを派生させ、ボード/リストでバッジ表示する。
             p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));

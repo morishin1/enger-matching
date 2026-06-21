@@ -24,11 +24,13 @@ const STAGE_TONE: Record<string, string> = {
 };
 const fmtDateTime = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
 
-function Info({ label, value }: { label: string; value: React.ReactNode }) {
+// 案件情報 / 人材情報の編集可能な行（ラベル＋テキスト入力）。
+function EditInfo({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <div style={{ display: "flex", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 12.5 }}>
+    <div style={{ display: "flex", gap: 12, padding: "6px 0", borderBottom: "1px solid var(--color-border)", fontSize: 12.5, alignItems: "center" }}>
       <span style={{ width: 84, flexShrink: 0, color: "var(--color-ink-4)" }}>{label}</span>
-      <span style={{ fontWeight: 600, color: "var(--color-ink)" }}>{value ?? "—"}</span>
+      <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}
+        style={{ flex: 1, minWidth: 0, fontFamily: "inherit", fontSize: 12.5, padding: "5px 8px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
     </div>
   );
 }
@@ -91,6 +93,16 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [lostCompany, setLostCompany] = useState(p.company ?? "");
   const [lostClientContact, setLostClientContact] = useState(p.client_contact ?? "");
 
+  // 案件情報 / 人材情報（会社名・企業担当=窓口担当者・先方担当）。
+  //   自動表示される値（クライアント名・所属会社・企業マスタの窓口担当者）も初期値に入れつつ、
+  //   いずれも手動で編集・保存できるようにする（保存は「会社名・担当を保存」＝saveFields）。
+  const [jobCompany, setJobCompany] = useState(p.company ?? "");
+  const [jobCompanyContact, setJobCompanyContact] = useState(p.company_contact ?? "");
+  const [jobClientContact, setJobClientContact] = useState(p.client_contact ?? "");
+  const [candCompany, setCandCompany] = useState(p.cand_company ?? "");
+  const [candCompanyContact, setCandCompanyContact] = useState(p.cand_company_contact ?? "");
+  const [candContact, setCandContact] = useState(p.cand_contact ?? "");
+
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(p.stage)));
   // 失注理由メモは全失注で必須化（原因の明確化・分析精度向上）。
@@ -138,7 +150,16 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
 
   const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
   const moveTo = (stage: string) => { if (stage !== p.stage) run(() => updateProposalStage(p.id, stage)); };
-  const saveFields = () => run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null }));
+  // 案件情報 / 人材情報（会社名・企業担当・先方担当）も含めて保存する共通ペイロード。
+  const contactFields = () => ({
+    company: jobCompany.trim() || null,
+    company_contact: jobCompanyContact.trim() || null,
+    client_contact: jobClientContact.trim() || null,
+    cand_company: candCompany.trim() || null,
+    cand_company_contact: candCompanyContact.trim() || null,
+    cand_contact: candContact.trim() || null,
+  });
+  const saveFields = () => run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() }));
   // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
   const pickStage = (stage: string) => {
     setStageMenuOpen(false);
@@ -151,6 +172,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   };
   const engage = () => run(() => convertToEngagement(p.id));
   const lose = () => run(() => updateProposalFields(p.id, {
+    // 案件情報/人材情報の編集内容も保存しつつ、失注時の会社名・先方担当（選択/手入力）で上書き。
+    ...contactFields(),
     stage: "見送り", lost_phase: lostPhase, lost_reason: lostReason, lost_reason_note: lostNote.trim() || null,
     // どの会社の誰が担当か（会社名・先方担当者・提案者・クロージング担当）も失注記録に残す。
     company: lostCompany.trim() || null, client_contact: lostClientContact.trim() || null,
@@ -251,9 +274,10 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 {p.job_no != null ? <Link href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
                 {p.job_closed && <ClosedBadge size="xs" />}
               </div>
-              <Info label="クライアント" value={p.company ?? "—"} />
-              <Info label="先方担当" value={p.client_contact ?? "—"} />
-              <Info label="企業担当" value={p.company_owner ?? "—"} />
+              {/* クライアント名（自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
+              <EditInfo label="クライアント名" value={jobCompany} onChange={setJobCompany} placeholder="クライアント会社名" />
+              <EditInfo label="企業担当" value={jobCompanyContact} onChange={setJobCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
+              <EditInfo label="先方担当" value={jobClientContact} onChange={setJobClientContact} placeholder="（任意）" />
             </div>
             <div className="card" style={{ padding: 16 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -274,10 +298,20 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   <div className="muted" style={{ fontSize: 11.5 }}>{p.source ? `登録元: ${p.source}` : ""}</div>
                 </div>
               </div>
-              <Info label="想定単価" value={p.rate ?? "—"} />
-              <Info label="マッチ度" value={matchPct != null ? `${matchPct}%` : "—"} />
-              <Info label="架電進捗" value={p.caller_status ?? "—"} />
+              {/* 会社名（人材の所属会社・自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
+              <EditInfo label="会社名" value={candCompany} onChange={setCandCompany} placeholder="人材の所属会社（自動表示）" />
+              <EditInfo label="企業担当" value={candCompanyContact} onChange={setCandCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
+              <EditInfo label="先方担当" value={candContact} onChange={setCandContact} placeholder="（任意）" />
             </div>
+          </div>
+
+          {/* 会社名・担当の保存（自動表示された値もそのまま保存できる） */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -8 }}>
+            <button type="button" className="btn ghost btn-sm" disabled={pending} onClick={saveFields} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+              <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: "-3px" }}>save</span>
+              会社名・担当を保存
+            </button>
           </div>
 
           {/* 対応履歴 */}
@@ -408,13 +442,26 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="具体的な事情を簡潔に（例: 他社が単価5万安く先に提示 / 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
                 {!lostNote.trim() && <span style={{ color: "var(--color-danger)", fontSize: 10.5 }}>※ 失注理由メモは必須です。</span>}
               </label>
-              {/* どの会社の誰が担当か（勝率分析に直結）。失注記録に確実に残す。 */}
+              {/* どの会社の誰が担当か（勝率分析に直結）。失注記録に確実に残す。
+                  会社名・先方担当者は案件情報／人材情報（①）から選んで自動入力でき、手入力もできる。 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>会社名
-                  <input type="text" value={lostCompany} onChange={(e) => setLostCompany(e.target.value)} placeholder="クライアント会社名" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                  <select value="" onChange={(e) => { const v = e.target.value; if (v === "job") setLostCompany(jobCompany); else if (v === "cand") setLostCompany(candCompany); }}
+                    style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+                    <option value="">案件側／人材側から選択…</option>
+                    <option value="job">案件側：{jobCompany || "（空欄）"}</option>
+                    <option value="cand">人材側：{candCompany || "（空欄）"}</option>
+                  </select>
+                  <input type="text" value={lostCompany} onChange={(e) => setLostCompany(e.target.value)} placeholder="会社名（手入力も可）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
                 </label>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>先方担当者
-                  <input type="text" value={lostClientContact} onChange={(e) => setLostClientContact(e.target.value)} placeholder="窓口の担当者名" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                  <select value="" onChange={(e) => { const v = e.target.value; if (v === "job") setLostClientContact(jobClientContact); else if (v === "cand") setLostClientContact(candContact); }}
+                    style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+                    <option value="">案件側／人材側から選択…</option>
+                    <option value="job">案件側：{jobClientContact || "（空欄）"}</option>
+                    <option value="cand">人材側：{candContact || "（空欄）"}</option>
+                  </select>
+                  <input type="text" value={lostClientContact} onChange={(e) => setLostClientContact(e.target.value)} placeholder="担当者名（手入力も可）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
                 </label>
               </div>
               {lostContactMissing && (
