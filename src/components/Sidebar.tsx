@@ -208,10 +208,18 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                     </button>
                   )}
                 </div>
-                {isOpen && n.children?.map((c) => {
+                {isOpen && (() => {
+                  // 兄弟の中で「最も長く一致する href」を1つだけ active にする。
+                  // 例：/settings と /settings/approvals が兄弟だと、startsWith では
+                  // /settings/approvals を開いたときに両方 active になってしまう。
+                  const matched = n.children!.filter((c) => pathname === c.href || pathname.startsWith(c.href + "/"));
+                  const activeChildHref = matched.length > 0
+                    ? matched.reduce((best, c) => (c.href.length > best.length ? c.href : best), "")
+                    : null;
+                  return n.children!.map((c) => {
                   const total = c.count ? fmt(counts?.[c.count]) : null;
                   const newN = c.newCount ? counts?.[c.newCount] : undefined;
-                  const subActive = pathname.startsWith(c.href);
+                  const subActive = c.href === activeChildHref;
                   return (
                     <Link key={c.id} href={c.href} className={"nav-item nav-sub " + (subActive ? "active" : "")}
                       style={{ paddingLeft: 38, fontSize: 12.5 }}>
@@ -222,7 +230,8 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                       )}
                     </Link>
                   );
-                })}
+                  });
+                })()}
               </Fragment>
             );
           })}
