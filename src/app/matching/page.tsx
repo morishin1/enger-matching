@@ -22,7 +22,7 @@ import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
-import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_TONE } from "@/lib/nationality";
+import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
@@ -885,9 +885,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 {job.work_location && <span className="tag">{job.work_location}</span>}
                 {job.flow_note && job.flow_note !== "不明" && <span className="tag">{job.flow_note}</span>}
                 {job.start_date && <span className="tag">稼働 {job.start_date}</span>}
-                {/* 国籍要件・年齢制限は本文(detail+title)から判定して明示（外国籍NG/年齢制限は赤で警告） */}
-                {(() => { const n = classifyJobNationality(job.detail, job.title); const t = JOB_NAT_TONE[n]; return <span className="tag" style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>国籍 {JOB_NAT_LABEL[n]}</span>; })()}
-                {(() => { const a = classifyJobAge(job.detail, job.title); const t = JOB_AGE_TONE[a.cat]; return <span className="tag" style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>年齢 {a.label}</span>; })()}
+                {/* 国籍要件・年齢制限は本文(detail+title)から判定。項目名は省き、他項目と同じ黒文字タグで表示。 */}
+                {(() => { const n = classifyJobNationality(job.detail, job.title); return <span className="tag">{JOB_NAT_LABEL[n]}</span>; })()}
+                {(() => { const a = classifyJobAge(job.detail, job.title); return <span className="tag">{a.label}</span>; })()}
                 <b style={{ color: "var(--color-ink)" }}>{salaryLabel(job.salary_min, job.salary_max)}</b>
               </div>
               {job.skills?.length > 0 && (
