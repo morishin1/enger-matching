@@ -12,7 +12,7 @@ type Job = any;
 type Cand = any;
 
 export function ProposalComposer({
-  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, members = [],
+  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, approvalStatus = null, members = [],
 }: {
   job: Job; cand: Cand; matchedSkills: string[]; missingSkills?: string[]; score: number;
   alreadyProposed?: boolean;
@@ -20,6 +20,9 @@ export function ProposalComposer({
   /** 「誰がいつ提案したか」表示用（提案済の場合のみ使用）。 */
   proposedBy?: string | null;
   proposedAt?: string | null;
+  /** 提案の承認状態（pending / approved / rejected）。承認依頼ボタンの表記切替に使う。
+   *   null は「提案未作成 or 旧データ（承認列なし）」。承認列が無い旧スキーマでは表記切替しない。 */
+  approvalStatus?: string | null;
   /** 提案者・承認者の選択肢（社内メンバー名）。空のときはローカルストレージの担当名のみ入力可能。 */
   members?: string[];
 }) {
@@ -281,17 +284,32 @@ export function ProposalComposer({
         ))}
         {/* 承認依頼：メンバーが承認依頼を出すためのボタン。
             メール編集画面（/mail-compose）を開く＝メンバーはここから「📨 承認申請」を出せる。
+            承認状態に応じて表記を切替（要望対応）：
+              - 未申請/差戻し/旧データ … 「✅ 承認依頼」
+              - 承認待ち（pending）    … 「⏳ 承認待ち（下書きへ）」
+              - 承認済み（approved）   … 「✅ 承認済み（下書きへ）」緑色で強調
             （以前ここにあった「📄 本文コピー」は未使用のため廃止） */}
-        {job?.job_no != null && cand?.candidate_no != null && (
-          <Link
-            href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
-            target="_blank" rel="noopener noreferrer"
-            className="btn"
-            style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, background: "#9a7b12", color: "#fff", border: 0 }}
-            title="メール編集画面を開いて承認依頼（承認申請）を出します。承認者がメール内容を確認して送信します。">
-            ✅ 承認依頼
-          </Link>
-        )}
+        {job?.job_no != null && cand?.candidate_no != null && (() => {
+          const isApproved = approvalStatus === "approved";
+          const isPending = approvalStatus === "pending";
+          const label = isApproved ? "✅ 承認済み（下書きへ）"
+            : isPending ? "⏳ 承認待ち（下書きへ）"
+            : "✅ 承認依頼";
+          const bg = isApproved ? "#067647" : isPending ? "#6b7280" : "#9a7b12";
+          const title = isApproved ? "承認済みです。下書き画面を開いて送信できます。"
+            : isPending ? "承認待ちです。下書き画面を開いて内容を確認できます（承認は承認者が行います）。"
+            : "メール編集画面を開いて承認依頼（承認申請）を出します。承認者がメール内容を確認して送信します。";
+          return (
+            <Link
+              href={`/mail-compose?job_no=${job.job_no}&cand_no=${cand.candidate_no}&score=${score}`}
+              target="_blank" rel="noopener noreferrer"
+              className="btn"
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, background: bg, color: "#fff", border: 0 }}
+              title={title}>
+              {label}
+            </Link>
+          );
+        })()}
         {saved && (proposedBy || proposedAt) && (
           <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-3)", marginLeft: 4 }}>
             {proposedBy ? <>提案者：<b style={{ color: "var(--color-ink-2)" }}>{proposedBy}</b></> : null}
