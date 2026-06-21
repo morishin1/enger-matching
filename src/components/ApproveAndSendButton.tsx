@@ -23,15 +23,26 @@ export function ApproveAndSendButton({ proposalId, jobNo, candNo }: { proposalId
   const handle = () => {
     if (jobNo == null || candNo == null) { setErr("案件No/人材Noが不足しているため別画面を開けません"); return; }
     setErr(null);
-    // ポップアップブロッカー対策：window.open はクリック直後に空タブで開き、
-    // 承認サーバ処理が成功してから URL を流し込む。失敗時はその場で閉じる。
-    const popup = window.open("about:blank", "_blank", "noopener");
+    // ポップアップブロッカー対策：クリック直後に空タブを開いておき、承認サーバ処理が成功してから
+    // URL を流し込む。
+    //   ★ window.open() の features に "noopener" を含めると、Chromium 系などで戻り値は仕様上 null
+    //     になる（参照 MDN）。これに気付かず popup.location.href が動かず、別タブが about:blank の
+    //     まま「白い画面」になっていた（PR #344 のリグレッション）。
+    //     代わりに opener を明示クリアして安全性は確保する。
+    const popup = window.open("about:blank", "_blank");
+    if (popup) { try { popup.opener = null; } catch { /* 一部ブラウザは setter 不可 */ } }
+    const sendUrl = `/mail-compose?job_no=${jobNo}&cand_no=${candNo}&send=1`;
     start(async () => {
       const r = await approveProposalForSend(proposalId);
-      if (!r.ok) { setErr(r.error); if (popup) popup.close(); return; }
-      // 承認＋ステージ進行が確定した後で、別タブ側のSSRが approved を読めるようにURLを差し替える。
-      const sendUrl = `/mail-compose?job_no=${jobNo}&cand_no=${candNo}&send=1`;
-      if (popup) popup.location.href = sendUrl;
+      if (!r.ok) { setErr(r.error); if (popup && !popup.closed) popup.close(); return; }
+      // 承認＋ステージ進行が確定した後で、別タブ側の SSR が approved を読めるよう URL を差し替える。
+      if (popup && !popup.closed) {
+        popup.location.href = sendUrl;
+      } else {
+        // ポップアップブロッカーで空タブが開けなかった場合は、現在タブで遷移にフォールバック。
+        //   「白い画面」のまま放置されるよりは導線を繋げる方を優先。
+        window.location.href = sendUrl;
+      }
       router.refresh();
     });
   };
