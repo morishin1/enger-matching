@@ -440,6 +440,17 @@ function FormField({ label, value, onChange, full, placeholder }: { label: strin
     </label>
   );
 }
+// 人材リモート希望：自由文（AI読み取り等）を 3 区分の選択値へ寄せる。
+//   人材一覧の分類（PeopleTable.remotePrefLabel / people REMOTE_OPTIONS）と連動。
+function remoteBucketValue(raw?: string | null): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  if (["フルリモート希望", "一部リモート可", "出社可"].includes(s)) return s;
+  if (/フル/.test(s)) return "フルリモート希望";
+  if (/リモート|在宅/.test(s)) return "一部リモート可";
+  if (/出社|常駐/.test(s)) return "出社可";
+  return "";
+}
 function FormSelect({ label, value, onChange, options }: { label: string; value?: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -538,6 +549,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         location: f.location?.trim() || null,
         exp: f.exp?.trim() || null,
         status: f.status?.trim() || null,
+        remote_pref: f.remote_pref?.trim() || null,
         skill_sheet_url: f.skill_sheet_url?.trim() ? driveUrl(f.skill_sheet_url.trim()) : null,
         email: f.email?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
@@ -640,7 +652,13 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
                   <FormField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：80万 / ¥70〜90万" />
                   <FormField label="経験年数" value={f.exp} onChange={set("exp")} placeholder="例：8 / 8年" />
                   <FormField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜" />
-                  <FormField label="希望勤務地" value={f.location} onChange={set("location")} />
+                  <FormField label="最寄駅" value={f.location} onChange={set("location")} />
+                  <FormSelect label="リモート希望" value={remoteBucketValue(f.remote_pref)} onChange={set("remote_pref")} options={[
+                    { value: "", label: "未設定" },
+                    { value: "フルリモート希望", label: "フルリモート希望" },
+                    { value: "一部リモート可", label: "一部リモート可希望" },
+                    { value: "出社可", label: "出社可" },
+                  ]} />
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：提案可 / 即アサイン可能" />
                   <FormField label="スキルシートURL（またはDrive ID）" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
                   <FormField label="本人メール" value={f.email} onChange={set("email")} />
