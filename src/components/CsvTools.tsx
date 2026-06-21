@@ -656,7 +656,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
                   <FormSelect label="リモート希望" value={remoteBucketValue(f.remote_pref)} onChange={set("remote_pref")} options={[
                     { value: "", label: "未設定" },
                     { value: "フルリモート希望", label: "フルリモート希望" },
-                    { value: "一部リモート可", label: "一部リモート可希望" },
+                    { value: "一部リモート可", label: "一部リモート希望" },
                     { value: "出社可", label: "出社可" },
                   ]} />
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：提案可 / 即アサイン可能" />

@@ -73,7 +73,7 @@ type FormState = Record<string, string>;
 const CAND_REMOTE_OPTS = [
   { value: "", label: "未設定" },
   { value: "フルリモート希望", label: "フルリモート希望" },
-  { value: "一部リモート可", label: "一部リモート可希望" },
+  { value: "一部リモート可", label: "一部リモート希望" },
   { value: "出社可", label: "出社可" },
 ];
 // 既存の自由文 remote_pref を 3 区分の初期値へ寄せる（一覧の分類優先順位と一致させる）。
