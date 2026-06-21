@@ -92,6 +92,12 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   // 失注時に「どの会社の誰が担当か」を確実に記録するため、会社名・先方担当者も編集可能にする。
   const [lostCompany, setLostCompany] = useState(p.company ?? "");
   const [lostClientContact, setLostClientContact] = useState(p.client_contact ?? "");
+  // 先方担当者の選択モード：3択（案件側 / 人材側 / その他=手入力）。
+  //   既定は既存の client_contact があれば「その他」（手入力既存値を保持）、無ければ「案件側」。
+  //   「その他」を選んだときだけ入力欄を表示し、案件側/人材側は読み取りで分かりやすく見せる。
+  const [lostContactMode, setLostContactMode] = useState<"job" | "cand" | "other">(
+    (p.client_contact ?? "").trim() ? "other" : "job",
+  );
 
   // 案件情報 / 人材情報（会社名・企業担当=窓口担当者・先方担当）。
   //   自動表示される値（クライアント名・所属会社・企業マスタの窓口担当者）も初期値に入れつつ、
@@ -455,13 +461,27 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   <input type="text" value={lostCompany} onChange={(e) => setLostCompany(e.target.value)} placeholder="会社名（手入力も可）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
                 </label>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>先方担当者
-                  <select value="" onChange={(e) => { const v = e.target.value; if (v === "job") setLostClientContact(jobClientContact); else if (v === "cand") setLostClientContact(candContact); }}
+                  {/* 3択：案件側 / 人材側 / その他（手入力）。
+                      「その他」のときだけ入力欄を表示し、画面をすっきりさせる（常時手入力欄を出していた旧UI改善）。 */}
+                  <select value={lostContactMode} onChange={(e) => {
+                      const m = e.target.value as "job" | "cand" | "other";
+                      setLostContactMode(m);
+                      if (m === "job") setLostClientContact(jobClientContact);
+                      else if (m === "cand") setLostClientContact(candContact);
+                      else setLostClientContact("");
+                    }}
                     style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
-                    <option value="">案件側／人材側から選択…</option>
                     <option value="job">案件側：{jobClientContact || "（空欄）"}</option>
                     <option value="cand">人材側：{candContact || "（空欄）"}</option>
+                    <option value="other">その他（手入力）</option>
                   </select>
-                  <input type="text" value={lostClientContact} onChange={(e) => setLostClientContact(e.target.value)} placeholder="担当者名（手入力も可）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                  {lostContactMode === "other" ? (
+                    <input type="text" value={lostClientContact} onChange={(e) => setLostClientContact(e.target.value)} placeholder="担当者名を入力" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                  ) : (
+                    <div style={{ fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px dashed var(--color-border-strong)", background: "var(--color-surface-soft)", color: "var(--color-ink-2)", minHeight: 32, display: "flex", alignItems: "center" }}>
+                      {lostClientContact || <span className="muted">（{lostContactMode === "job" ? "案件側" : "人材側"}の値が空欄です）</span>}
+                    </div>
+                  )}
                 </label>
               </div>
               {lostContactMissing && (
