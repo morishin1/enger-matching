@@ -114,6 +114,7 @@ export type CandidateInput = {
   source_mail_subject?: string | null; // 元メール件名（メール送信時の Re: 件名生成・返信スレッド統合に利用）
   source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
   operator?: string | null;        // 登録担当（KPI集計用・新規登録時のみ記録）
+  signup_source?: string | null;   // 登録経路（"line" 等）。LINE登録チェックON時に "line"。
 };
 
 function initialsOf(name: string): string {
@@ -1991,6 +1992,7 @@ export type JobInput = {
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
   source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
   operator?: string | null;        // 登録担当（KPI集計用）
+  signup_source?: string | null;   // 登録経路（"line" 等）。LINE登録チェックON時に "line"。
 };
 
 /** 案件CSVの取り込み (service role)。title+client_name の重複は無視。 */
@@ -2266,12 +2268,13 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     rank: "-",
     is_published: true,
     source_csv: "manual",
+    signup_source: rec.signup_source?.trim() || null,
     operator: rec.operator?.trim() || null,
     owner_company: ownerCompany,
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; delete c.signup_source; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
@@ -2377,10 +2380,11 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     owner_company: ownerCompany,
     score: 0,
     source_csv: "manual",
+    signup_source: rec.signup_source?.trim() || null,
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
