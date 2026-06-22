@@ -63,6 +63,7 @@ export function NewProposalButton() {
         client_contact: f.client_contact,
         meeting_date: f.meeting_date,
         note: f.note,
+        source: f.is_line ? "line" : undefined,
       });
       if (res.ok) {
         const j = `No.${String(res.job_no ?? 0).padStart(5, "0")}`;
@@ -183,6 +184,14 @@ export function NewProposalButton() {
               <Field label="企業担当者" value={f.client_contact} onChange={set("client_contact")} />
               <Textarea label="メモ（次アクション）" value={f.note} onChange={set("note")} />
             </div>
+
+            {/* LINE登録チェック：ON で登録元を LINE（source=line）として保存。
+                提案ボード/一覧/企業一覧の LINE マーク・LINE登録タブと連動する。 */}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: f.is_line ? "#067647" : "var(--color-ink-2)", cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${f.is_line ? "#06C755" : "var(--color-border-strong)"}`, background: f.is_line ? "#f0fbf5" : "var(--color-surface)", alignSelf: "flex-start" }}>
+              <input type="checkbox" checked={!!f.is_line} onChange={(e) => set("is_line")(e.target.checked ? "1" : "")} style={{ accentColor: "#06C755", width: 16, height: 16 }} />
+              <Icons.line size={16} />
+              LINE登録（LINE経由で来た案件・人材）
+            </label>
 
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
