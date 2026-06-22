@@ -38,7 +38,10 @@ const statusColor = (s: string) => s === "主要" ? "var(--color-brand-600)" : s
 
 type SortKey = "target" | "job_count" | "active_jobs" | "candidate_count" | "avg_rate" | "last_job_at";
 
-export function CompaniesView({ companies, registered = [], candidateCounts = {} }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number> }) {
+export function CompaniesView({ companies, registered = [], candidateCounts = {}, lineCompanies = [] }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number>; lineCompanies?: string[] }) {
+  // LINE でやり取りしている企業（正規化名の Set）。一覧で「💬 LINE」バッジを出すために使う。
+  const lineSet = useMemo(() => new Set(lineCompanies.map((n) => (n ?? "").replace(/^[\s　]+|[\s　]+$/g, ""))), [lineCompanies]);
+  const isLineCompany = (name: string) => lineSet.has((name ?? "").replace(/^[\s　]+|[\s　]+$/g, ""));
   const [tier, setTier] = useState("ALL");
   const [act, setAct] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -55,6 +58,8 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
   const [regF, setRegF] = useState<"ALL" | "reg" | "unreg">("ALL");
   // 種別フィルタ：案件提供 / 人材提供 / 両方 / 全て
   const [kind, setKind] = useState<"ALL" | "job" | "cand" | "both">("ALL");
+  // LINE 絞り込み：ON で LINE 経由のやり取りがある企業のみ表示
+  const [lineOnly, setLineOnly] = useState(false);
   // 一括選択（チェックボックス）。下部のフローティングメニューから「打合せ完了/解除」を一括適用。
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -172,13 +177,15 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
         if (kind === "both") return hasJ && hasC;
         return true;
       })())
+      // LINE 絞り込み：ON のとき LINE でやり取りしている企業のみ表示
+      && (!lineOnly || isLineCompany(c.name))
       // 企業名・業種・窓口担当者でも検索できるように（企業検索を簡単に）
       && (!needle || c.name.toLowerCase().includes(needle)
         || (c.reg?.industry ?? "").toLowerCase().includes(needle)
         || (c.reg?.contact_name ?? "").toLowerCase().includes(needle)
         || (c.reg?.owner_staff ?? "").toLowerCase().includes(needle)));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
-  }, [merged, tier, act, search, sort, mtg, regF, kind]);
+  }, [merged, tier, act, search, sort, mtg, regF, kind, lineOnly]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
   const PAGE = 20;
@@ -289,6 +296,23 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
             ));
           })()}
         </div>
+        {/* LINE 絞り込みトグル：ON で LINE でやり取りしている企業のみ表示 */}
+        {(() => {
+          const lineN = merged.filter((c) => isLineCompany(c.name)).length;
+          return (
+            <button onClick={() => { setLineOnly((v) => !v); setShowAll(false); }}
+              title="LINE でやり取りしている企業（LINE 経由の提案あり）だけに絞り込む"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 99,
+                border: `1px solid ${lineOnly ? "#06C755" : "var(--color-border-strong)"}`,
+                background: lineOnly ? "#06C755" : "var(--color-surface)",
+                color: lineOnly ? "#fff" : "#067647", fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+              }}>
+              <Icons.line size={14} />
+              LINE企業 <span className="tnum" style={{ fontFamily: "var(--font-mono)", fontWeight: 500, opacity: 0.9 }}>{lineN}</span>
+            </button>
+          );
+        })()}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 12px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
             <option value="target">狙い目スコア</option><option value="active_jobs">進行中案件</option><option value="job_count">案件数</option><option value="candidate_count">人材数</option><option value="avg_rate">平均単価</option><option value="last_job_at">最終更新</option>
@@ -378,7 +402,15 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
                         <input type="checkbox" checked={isSel} onChange={() => toggleSel(c.name)} aria-label={`${c.name} を選択`} />
                       </td>
                       <td>
-                        <div style={{ fontWeight: 700, color: "var(--color-ink)" }}>{c.name}</div>
+                        <div style={{ fontWeight: 700, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>{c.name}</span>
+                          {/* LINE でやり取りしている企業は公式 LINE マークで識別 */}
+                          {isLineCompany(c.name) && (
+                            <span title="LINE でやり取りしている企業（LINE 経由の提案あり）" style={{ lineHeight: 0, flexShrink: 0 }}>
+                              <Icons.line size={15} />
+                            </span>
+                          )}
+                        </div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
                           <span style={{ fontSize: 10.5, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
                           {c.reg?.industry && <span className="muted" style={{ fontSize: 10.5 }}>{c.reg.industry}</span>}
@@ -428,7 +460,14 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
                 <div style={{ display: "flex", gap: 12, alignItems: "center", minWidth: 0 }}>
                   <div style={{ width: 46, height: 46, borderRadius: 12, flex: "0 0 46px", background: `linear-gradient(135deg, ${color}, ${color}aa)`, color: "#fff", display: "grid", placeItems: "center", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15 }}>{initialsOf(c.name)}</div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14.5, color: "var(--color-ink)", lineHeight: 1.3 }}>{c.name}</div>
+                    <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14.5, color: "var(--color-ink)", lineHeight: 1.3, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>{c.name}</span>
+                      {isLineCompany(c.name) && (
+                        <span title="LINE でやり取りしている企業（LINE 経由の提案あり）" style={{ lineHeight: 0, flexShrink: 0 }}>
+                          <Icons.line size={15} />
+                        </span>
+                      )}
+                    </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
                       {isMeetingDone(c)

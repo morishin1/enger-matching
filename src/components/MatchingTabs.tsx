@@ -8,14 +8,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
+import { Icons } from "@/components/icons";
 
 const TABS = [
   { key: "matching", href: "/matching", label: "マッチング" },
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
-  // LINE 経由で来た案件・人材を集約する専用タブ（要望②に基づく LINE 注力導線）。
-  // ラベル先頭の絵文字は LINE ブランドを想起させる吹き出し。色はメニューで brand に従う。
-  { key: "line", href: "/line", label: "💬 LINE登録" },
+  // LINE 経由で来た案件・人材を集約する専用タブ（LINE 注力導線）。
+  // ラベル先頭に公式 LINE マーク（Icons.line）を描画する（emoji ではなくブランドマーク）。
+  { key: "line", href: "/line", label: "LINE登録" },
   { key: "engineers", href: "/engineers", label: "LP登録" },
 ] as const;
 
@@ -93,7 +94,10 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
               whiteSpace: "nowrap",
             }}
           >
-            <span>{t.label}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              {t.key === "line" && <Icons.line size={16} />}
+              {t.label}
+            </span>
             {total != null && (
               <span className="badge" style={{ fontSize: 11, padding: "1px 7px", background: isFiltered ? "var(--color-brand-600)" : undefined, color: isFiltered ? "#fff" : undefined }}
                 title={isFiltered ? `絞り込み ${total} 件 / 全 ${fmt(globalTotal)} 件` : undefined}>

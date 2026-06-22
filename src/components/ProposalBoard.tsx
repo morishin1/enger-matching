@@ -7,6 +7,7 @@ import { updateProposalStage, convertToEngagement, updateProposalFields, deleteP
 import { NotifyDot } from "./NotifyDot";
 import { ActionChips } from "./ProposalActionChip";
 import { ProposalDetailModal } from "./ProposalDetailModal";
+import { Icons } from "./icons";
 
 const dvDate = (d: any) => { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : `${t.getMonth() + 1}/${t.getDate()}`; };
 const dvDateTime = (d: any) => {
@@ -141,20 +142,15 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         cursor: busy ? "default" : "pointer",
         userSelect: "none",
         transition: "opacity .12s ease",
-        // LINE 提案は背景にうっすら緑のティント＋右上に LINE マークで一目でわかるように
-        background: p.source === "line" ? "linear-gradient(180deg, #f0fbf5 0%, var(--color-surface) 80%)" : undefined,
         position: "relative",
       }}
     >
+      {/* LINE 提案は右上に公式 LINE マーク（メールと同一フロー・同一カードで、出所だけ一目でわかる） */}
       {p.source === "line" && (
-        <span aria-label="LINE 提案"
-          title="LINE で来た案件・人材の提案"
-          style={{
-            position: "absolute", top: 6, right: 6, zIndex: 1,
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: 20, height: 20, borderRadius: 6, background: "#06C755", color: "#fff",
-            fontSize: 12, fontWeight: 800, boxShadow: "0 1px 2px rgba(0,0,0,.15)",
-          }}>💬</span>
+        <span aria-label="LINE 提案" title="LINE で来た案件・人材の提案"
+          style={{ position: "absolute", top: 6, right: 6, zIndex: 1, lineHeight: 0, filter: "drop-shadow(0 1px 1px rgba(0,0,0,.15))" }}>
+          <Icons.line size={18} />
+        </span>
       )}
       {compact ? (
         // ── コンパクト表示：1行サマリ（クリックで展開）。1画面に多く収まる。 ──
@@ -191,7 +187,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
             {src ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: `${src.color}1a`, color: src.color, border: `1px solid ${src.color}55` }}>
-                <span>{src.icon}</span>{src.label}
+                {p.source === "line" ? <Icons.line size={12} /> : <span>{src.icon}</span>}{src.label}
               </span>
             ) : (
               <span style={{ fontSize: 10, color: "var(--color-ink-4)" }}>登録元 未設定</span>
@@ -437,10 +433,10 @@ export function ProposalBoard({ proposals: proposalsAll, members, proposers, clo
         {/* 登録元フィルタ：LINE / エンジャー / メール の絞り込みチップ群。LINE 注力導線として最前面に。 */}
         <div role="tablist" aria-label="登録元フィルタ" style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: 4, background: "var(--color-surface-inset)", borderRadius: 99 }}>
           {([
-            { k: "", label: "すべて", color: "var(--color-ink-2)", bg: "var(--color-surface)", n: proposalsAll.length },
-            { k: "line", label: "💬 LINE", color: "#067647", bg: "#e7f7ee", n: sourceCounts.line },
-            { k: "enger", label: "✦ エンジャー", color: "#0b5cab", bg: "#e6f1fb", n: sourceCounts.enger },
-            { k: "mail", label: "✉ メール", color: "#9a3457", bg: "#fdebf2", n: sourceCounts.mail },
+            { k: "", label: "すべて", icon: null, color: "var(--color-ink-2)", bg: "var(--color-surface)", n: proposalsAll.length },
+            { k: "line", label: "LINE", icon: "line", color: "#067647", bg: "#e7f7ee", n: sourceCounts.line },
+            { k: "enger", label: "✦ エンジャー", icon: null, color: "#0b5cab", bg: "#e6f1fb", n: sourceCounts.enger },
+            { k: "mail", label: "✉ メール", icon: null, color: "#9a3457", bg: "#fdebf2", n: sourceCounts.mail },
           ] as const).map((it) => {
             const active = sourceFilter === it.k;
             return (
@@ -453,6 +449,7 @@ export function ProposalBoard({ proposals: proposalsAll, members, proposers, clo
                   background: active ? it.color : it.bg,
                   display: "inline-flex", alignItems: "center", gap: 4,
                 }}>
+                {it.icon === "line" && <Icons.line size={13} />}
                 <span>{it.label}</span>
                 <span style={{ fontSize: 10, opacity: 0.85 }}>{it.n}</span>
               </button>

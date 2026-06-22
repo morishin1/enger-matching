@@ -13,6 +13,7 @@ import { NotifyChip } from "./NotifyDot";
 import { ActionChip } from "./ProposalActionChip";
 import { deleteProposal } from "@/lib/actions";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
+import { Icons } from "./icons";
 
 const UNASSIGNED = "__unassigned__"; // 担当者フィルタの「未割当」用の特別値
 const STAGES = [...PROPOSAL_STAGES];
@@ -364,7 +365,11 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                     <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>↳ 同案件</span>
                   ) : (
                     <>
-                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</div>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
+                        {/* LINE 経由の提案は公式 LINE マークを付けて一目でわかるように（フローはメールと同一） */}
+                        {p.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</span>
+                      </div>
                       <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}</div>
                     </>
                   )}

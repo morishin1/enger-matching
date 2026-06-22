@@ -86,6 +86,25 @@ export default async function CompaniesPage() {
     } catch { /* 集計失敗時は空のまま（一覧の他機能に影響なし） */ }
   }
 
+  // LINE でやり取りしている企業の集合（企業名の正規化キー）。
+  //   proposals.source='line' に紐づく会社名を集めて、一覧で「💬 LINE」バッジを出す。
+  //   ・source 列が無い環境では空集合（バッジ無し）にフォールバック。
+  //   ・突合は企業名の正規化（前後空白除去）で行う（CompaniesView と同じ normName 方針）。
+  const lineCompanyKeys = new Set<string>();
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      const lr: any = await sb.from("proposals").select("company").eq("source", "line").not("company", "is", null).limit(5000);
+      if (!lr.error && Array.isArray(lr.data)) {
+        for (const r of lr.data) {
+          const n = (r.company ?? "").toString().replace(/^[\s　]+|[\s　]+$/g, "");
+          if (n) lineCompanyKeys.add(n);
+        }
+      }
+    } catch { /* source 列が無い等は無視（バッジ無しで続行） */ }
+  }
+  const lineCompanies = Array.from(lineCompanyKeys);
+
   // 「打合せ完了（承認）」が保存できない設定かどうかを検出して、原因を画面に出す。
   //   ・SUPABASE_SERVICE_ROLE_KEY 未設定（保存処理に必須）
   //   ・companies.meeting_done 列が未整備（companies-meeting-done.sql 未実行）
@@ -160,7 +179,7 @@ export default async function CompaniesPage() {
       {/* タブで分割してスクロールを削減（既定＝企業一覧） */}
       <CompaniesTabs
         followCount={followups.length}
-        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} />}
+        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} lineCompanies={lineCompanies} />}
         target={
           <>
             {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}
