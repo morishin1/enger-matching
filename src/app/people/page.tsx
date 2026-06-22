@@ -241,7 +241,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
 
       const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
-      let res: any = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, true, hideClosed));
+      let res: any = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source`, true, true, hideClosed));
       if (res.error && /deleted_at|is_closed|column/i.test(res.error.message)) {
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false));
       }

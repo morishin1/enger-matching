@@ -7,6 +7,18 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateCandidateById, updateJobById } from "@/lib/actions";
+import { Icons } from "./icons";
+
+// LINE登録チェック。ON で signup_source='line' を保存（OFF で解除）。新規登録フォームと同UI。
+function LineCheck({ checked, onChange, noun }: { checked: boolean; onChange: (v: boolean) => void; noun: string }) {
+  return (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: checked ? "#067647" : "var(--color-ink-2)", cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${checked ? "#06C755" : "var(--color-border-strong)"}`, background: checked ? "#f0fbf5" : "var(--color-surface)", alignSelf: "flex-start" }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: "#06C755", width: 16, height: 16 }} />
+      <Icons.line size={16} />
+      LINE登録（LINE経由で受け取った{noun}）
+    </label>
+  );
+}
 
 const fieldStyle: React.CSSProperties = { fontSize: 12.5, padding: "6px 8px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", fontFamily: "var(--font-sans)" };
 const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)" };
@@ -111,6 +123,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     contact_email: c.contact_email ?? "",
     source_mail_url: c.source_mail_url ?? "",
     flow_depth: c.flow_depth == null ? "" : String(c.flow_depth),
+    is_line: c.signup_source === "line" ? "1" : "",
   };
   const [f, setF] = useState<FormState>(initial);
   const set = (k: string) => (v: string) => setF((s) => ({ ...s, [k]: v }));
@@ -121,6 +134,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     if (!f.name.trim()) { setMsg({ ok: false, text: "氏名は必須です" }); return; }
     start(async () => {
       const res = await updateCandidateById(Number(c.candidate_no), {
+        signup_source: f.is_line ? "line" : "",
         name: f.name,
         title: f.title,
         company: f.source_company,
@@ -183,6 +197,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <Field label="所属窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
               <Field label="元メールURL／Gmail メッセージ ID" value={f.source_mail_url} onChange={set("source_mail_url")} full />
             </div>
+            <LineCheck checked={!!f.is_line} onChange={(v) => set("is_line")(v ? "1" : "")} noun="人材" />
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn ghost" onClick={close} disabled={pending}>キャンセル</button>
@@ -225,6 +240,7 @@ export function EditJobButton({ job }: { job: any }) {
     contact_name: j.contact_name ?? "",
     contact_email: j.contact_email ?? "",
     source_mail_url: j.source_mail_url ?? "",
+    is_line: j.signup_source === "line" ? "1" : "",
   };
   const [f, setF] = useState<FormState>(initial);
   const set = (k: string) => (v: string) => setF((s) => ({ ...s, [k]: v }));
@@ -236,6 +252,7 @@ export function EditJobButton({ job }: { job: any }) {
     if (!f.title.trim()) { setMsg({ ok: false, text: "案件名は必須です" }); return; }
     start(async () => {
       const res = await updateJobById(Number(j.job_no), {
+        signup_source: f.is_line ? "line" : "",
         title: f.title,
         client_name: f.client_name,
         role_label: f.role_label,
@@ -294,6 +311,7 @@ export function EditJobButton({ job }: { job: any }) {
               <Field label="元メールURL／Gmail メッセージ ID" value={f.source_mail_url} onChange={set("source_mail_url")} full />
               <Textarea label="案件詳細" value={f.detail} onChange={set("detail")} />
             </div>
+            <LineCheck checked={!!f.is_line} onChange={(v) => set("is_line")(v ? "1" : "")} noun="案件" />
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button className="btn ghost" onClick={close} disabled={pending}>キャンセル</button>
