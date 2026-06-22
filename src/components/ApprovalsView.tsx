@@ -156,6 +156,38 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     let n = 0; for (const v of suspicionMap.values()) if (v) n++; return n;
   }, [suspicionMap]);
 
+  // 同一メールが複数区分（企業／人材／パートナー／副業／営業／管理者…）に登録されていないかの検知。
+  //   eight.shiyou3@gmail.com のように LP人材(profiles) と 企業(app_users) で二重登録が
+  //   発生していたケースを救うため、同じメールアドレスで属する区分が複数あれば警告バッジを出す。
+  //   ブロックはしない（誤検知でも安全に運用するため）。
+  const crossRoleMap = useMemo(() => {
+    const norm = (s?: string | null) => (s ?? "").trim().toLowerCase();
+    const byEmail = new Map<string, { tab: TabKey; label: string; status: string; name: string | null }[]>();
+    for (const a of accounts) {
+      const em = norm(a.email);
+      if (!em) continue;
+      const arr = byEmail.get(em) ?? [];
+      arr.push({ tab: tabOf(a), label: TAB_META[tabOf(a)].label, status: a.status, name: a.name ?? null });
+      byEmail.set(em, arr);
+    }
+    // 同一メールで「異なる区分」が2つ以上ある場合のみ警告対象
+    const m = new Map<string, { tab: TabKey; label: string; status: string; name: string | null }[]>();
+    for (const [em, list] of byEmail) {
+      const distinct = new Set(list.map((x) => x.tab));
+      if (distinct.size >= 2) m.set(em, list);
+    }
+    return m;
+  }, [accounts]);
+  const crossRoleFor = (a: Account) => {
+    const em = (a.email ?? "").trim().toLowerCase();
+    if (!em) return null;
+    const list = crossRoleMap.get(em);
+    if (!list) return null;
+    // 自分以外の区分だけ抜き出す
+    const others = list.filter((x) => x.tab !== tabOf(a));
+    return others.length > 0 ? others : null;
+  };
+
   const toggleOne = (id: string) => {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
@@ -396,6 +428,20 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
             ? "社内メンバー全員を1つのリスト表示。各行のピル（営業／バックオフィス／管理者）をクリックでトグル。営業＋バックオフィスなどの兼務もOKです。"
             : cur.hint}
         </div>
+        {/* 同一メールの別区分二重登録の件数バッジ（全体・参考情報）。クリックで該当行のみ選択。 */}
+        {(() => {
+          const dupRows = rows.filter((r) => crossRoleFor(r));
+          if (dupRows.length === 0) return null;
+          return (
+            <button type="button" onClick={() => setSelected(new Set(dupRows.map((r) => r.id)))}
+              title={`同じメールが別区分にも登録されているレコードを選択します`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 99,
+                background: "#fff5e6", color: "#9a3412", border: "1px solid #fed7aa", cursor: "pointer", fontFamily: "inherit" }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>group_remove</span>
+              別区分にも登録あり {dupRows.length} 件
+            </button>
+          );
+        })()}
         {suspectCount > 0 && (
           <button type="button" onClick={selectSuspectsOnly} title="怪しさを検知した行のみ選択します"
             style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 99,
@@ -472,6 +518,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                   const sb = STATUS_BADGE[a.status] ?? STATUS_BADGE.pending;
                   const busy = busyId === a.id && pending;
                   const sus = suspicionMap.get(a.id) ?? null;
+                  const cross = crossRoleFor(a);
                   const checked = selected.has(a.id);
                   const mainRow = (
                     <tr key={a.id} style={sus ? { background: sus.level === "danger" ? "rgba(180,35,24,.05)" : "rgba(217,119,6,.04)" } : undefined}>
@@ -482,7 +529,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                       </td>
                       <td><span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: sb.c, background: sb.bg }}>{sb.l}</span></td>
                       <td>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                           <span style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name || "（名前未設定）"}</span>
                           {sus && (
                             <span title={sus.reasons.join(" / ")} style={{
@@ -496,11 +543,28 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                               {sus.level === "danger" ? "スパム疑い" : "要確認"}
                             </span>
                           )}
+                          {/* 同じメールが別区分にも登録されている場合の警告（ブロックはしない）。 */}
+                          {cross && (
+                            <span title={`同じメールが別区分にも登録されています：\n${cross.map((x) => `・${x.label}（${STATUS_BADGE[x.status]?.l ?? x.status}）${x.name ? ` ${x.name}` : ""}`).join("\n")}`}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 3,
+                                fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99,
+                                color: "#9a3412", background: "#fff5e6", border: "1px solid #fed7aa",
+                              }}>
+                              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>group_remove</span>
+                              別区分にも登録あり（{cross.map((x) => x.label).join("／")}）
+                            </span>
+                          )}
                         </div>
                         {a.company_name && <div className="muted" style={{ fontSize: 11 }}>{a.company_name}</div>}
                         {sus && (
                           <div style={{ fontSize: 10, color: sus.level === "danger" ? "#b42318" : "#92400e", marginTop: 2, lineHeight: 1.4 }}>
                             {sus.reasons.join(" / ")}
+                          </div>
+                        )}
+                        {cross && (
+                          <div style={{ fontSize: 10, color: "#9a3412", marginTop: 2, lineHeight: 1.4 }}>
+                            同一メールの別登録：{cross.map((x) => `${x.label}（${STATUS_BADGE[x.status]?.l ?? x.status}${x.name ? ` ${x.name}` : ""}）`).join(" / ")}
                           </div>
                         )}
                       </td>
