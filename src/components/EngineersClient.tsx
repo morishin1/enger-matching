@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate, bulkDeleteEngineers } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 import { StageBar } from "./StageBar";
 import { Icons } from "./icons";
@@ -131,7 +131,8 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
 export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [filters, setFilters] = useState<{ status: string; lang: string; source: string; sheet: string }>({ status: "", lang: "", source: "", sheet: "" });
+  // withdrawal: "" (退会済みを除く＝既定) / "wish" (退会希望のみ) / "done" (退会処理済みのみ) / "all" (すべて表示)
+  const [filters, setFilters] = useState<{ status: string; lang: string; source: string; sheet: string; withdrawal: string }>({ status: "", lang: "", source: "", sheet: "", withdrawal: "" });
   const [detail, setDetail] = useState<Engineer | null>(null);
   const [matchingBusy, setMatchingBusy] = useState<string | null>(null);
   const [matchingMsg, setMatchingMsg] = useState<string | null>(null);
@@ -173,6 +174,17 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       if (filters.source && (e.source.key + "|" + (e.source.method || "")) !== filters.source) return false;
       if (filters.sheet === "あり" && !e.skill_sheet_url) return false;
       if (filters.sheet === "なし" && e.skill_sheet_url) return false;
+      // 退会フィルタ：
+      //   既定（""）  → 退会処理済みは除外、それ以外（通常 + 退会希望中）を表示
+      //   "wish"      → 退会希望中（申請あり・処理未済）のみ
+      //   "done"      → 退会処理済みのみ
+      //   "all"       → すべて表示
+      const wd = filters.withdrawal;
+      const isReq = !!e.withdrawal_requested_at;
+      const isDone = !!e.withdrawal_completed_at;
+      if (wd === "" && isDone) return false;
+      if (wd === "wish" && !(isReq && !isDone)) return false;
+      if (wd === "done" && !isDone) return false;
       return true;
     });
   }, [q, filters, engineers]);
@@ -251,6 +263,15 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
               <option value="なし">なし</option>
             </select>
           </label>
+          {/* 退会フィルタ：既定は「退会処理済みを除く」（通常+退会希望のみ表示）。 */}
+          <label className="tbl-filter"><span>退会</span>
+            <select value={filters.withdrawal} onChange={(e) => setFilters((f) => ({ ...f, withdrawal: e.target.value }))}>
+              <option value="">通常（退会済みを除く）</option>
+              <option value="wish">退会希望のみ</option>
+              <option value="done">退会処理済みのみ</option>
+              <option value="all">すべて</option>
+            </select>
+          </label>
           {matchingMsg && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-danger)" }}>{matchingMsg}</span>}
         </div>
 
@@ -304,7 +325,15 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: 99, flex: "0 0 32px" }} /> : <div className="ava" style={{ flex: "0 0 32px" }}>{name.slice(0, 2)}</div>}
                         <div style={{ minWidth: 0 }}>
-                          <div className="pri" style={{ color: "var(--color-brand-700)" }}>{name}</div>
+                          <div className="pri" style={{ color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span>{name}</span>
+                            {/* 退会希望／退会済みバッジ：LP側で withdrawal_requested_at が立った時に表示。 */}
+                            {e.withdrawal_completed_at
+                              ? <span title={`退会処理済み（${fmtDateTime(e.withdrawal_completed_at)}）`} style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-4)", border: "1px solid var(--color-border)" }}>退会済み</span>
+                              : e.withdrawal_requested_at
+                                ? <span title={`退会希望（${fmtDateTime(e.withdrawal_requested_at)}）`} style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf" }}>退会希望</span>
+                                : null}
+                          </div>
                           {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
                         </div>
                       </div>
@@ -499,6 +528,12 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
           </div>
         </div>
 
+        {/* 退会セクション：退会申請がある／処理済みのときだけ表示。
+            ・申請のみ（処理未済） → 「退会処理する（無効化）」ボタンを赤系で出す
+            ・処理済み           → 「退会処理を取り消す」を出す（誤操作救済） */}
+        <WithdrawalSection engineer={detail} />
+
+
         {(detail.portfolio_url || detail.skill_sheet_url) && (
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
             {detail.portfolio_url && (
@@ -634,6 +669,79 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
         </div>
 
         <div className="muted" style={{ fontSize: 10.5 }}>※ enger.jp（GitHub連携）で本人が登録したプロフィールです。対応履歴は重複アプローチ防止・引き継ぎのために共有されます。</div>
+      </div>
+    </div>
+  );
+}
+
+// 退会セクション（詳細モーダル内）。
+//   ・LP で本人が退会申請 → withdrawal_requested_at が立つ → 赤バッジ＋「退会処理する」ボタン
+//   ・営業が退会処理       → withdrawal_completed_at が立つ → グレー「退会済み」表示＋取消ボタン（救済）
+function WithdrawalSection({ engineer: e }: { engineer: Engineer }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const isReq = !!e.withdrawal_requested_at;
+  const isDone = !!e.withdrawal_completed_at;
+  if (!isReq && !isDone) return null; // 退会と無関係なら何も出さない
+  const onConfirm = () => {
+    setErr(null);
+    start(async () => {
+      const res = await markEngineerWithdrawn(e.id);
+      if (!res.ok) { setErr(res.error || "退会処理に失敗しました"); return; }
+      setConfirm(false);
+      router.refresh();
+    });
+  };
+  const onUndo = () => {
+    setErr(null);
+    start(async () => {
+      const res = await unmarkEngineerWithdrawn(e.id);
+      if (!res.ok) { setErr(res.error || "取消に失敗しました"); return; }
+      router.refresh();
+    });
+  };
+  return (
+    <div style={{ border: `1px solid ${isDone ? "var(--color-border)" : "#f7c5cf"}`, borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, background: isDone ? "var(--color-surface-inset)" : "#fdecef" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 11, color: isDone ? "var(--color-ink-4)" : "#b42318", fontWeight: 700 }}>
+          {isDone ? "退会処理済み" : "退会希望（要対応）"}
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: "4px 10px", fontSize: 12.5 }}>
+        <span className="muted">申請日時</span>
+        <span className="mono">{fmtDateTime(e.withdrawal_requested_at)}</span>
+        <span className="muted">退会理由</span>
+        <span style={{ whiteSpace: "pre-wrap" }}>{e.withdrawal_reason ? e.withdrawal_reason : <span className="muted">—</span>}</span>
+        {isDone && (<>
+          <span className="muted">処理日時</span>
+          <span className="mono">{fmtDateTime(e.withdrawal_completed_at)}</span>
+        </>)}
+      </div>
+      {err && <div style={{ fontSize: 11.5, color: "var(--color-danger)" }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        {!isDone && (
+          confirm ? (
+            <>
+              <button type="button" disabled={pending} onClick={onConfirm}
+                style={{ padding: "6px 12px", borderRadius: 8, border: 0, background: "#b42318", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: pending ? 0.6 : 1 }}>
+                {pending ? "処理中…" : "本当に退会処理する"}
+              </button>
+              <button type="button" className="btn ghost btn-xs" disabled={pending} onClick={() => setConfirm(false)}>キャンセル</button>
+            </>
+          ) : (
+            <button type="button" disabled={pending} onClick={() => setConfirm(true)}
+              style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #f7c5cf", background: "#fff", color: "#b42318", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              退会処理する（無効化）
+            </button>
+          )
+        )}
+        {isDone && (
+          <button type="button" className="btn ghost btn-xs" disabled={pending} onClick={onUndo}>
+            退会処理を取り消す
+          </button>
+        )}
       </div>
     </div>
   );

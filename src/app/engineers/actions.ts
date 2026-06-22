@@ -202,6 +202,52 @@ export async function bulkDeleteEngineers(ids: string[]): Promise<{ ok: boolean;
   }
 }
 
+/** LP登録者（public.profiles）を「退会処理（無効化）」する（admin / agent）。
+ *  実削除は行わず、withdrawal_completed_at に現在時刻をセットして「退会済み」状態に切り替える。
+ *  これで以後は一覧の通常表示から除外され、必要なときだけフィルタで参照できる。
+ *  LP側の auth.users はそのまま残す（再ログインしても profiles.withdrawal_completed_at が
+ *  残っている限り無効扱い／一覧では「退会済み」バッジ）。 */
+export async function markEngineerWithdrawn(id: string): Promise<{ ok: boolean; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const clean = String(id ?? "").trim();
+  if (!clean) return { ok: false, error: "対象IDが未指定です" };
+  try {
+    const pub = publicAdmin();
+    const now = new Date().toISOString();
+    const r: any = await pub.from("profiles").update({ withdrawal_completed_at: now }).eq("id", clean).select("id");
+    if (r.error) {
+      // 列が無い環境（未マイグレ）はメッセージを明示
+      if (/withdrawal_completed_at|column/i.test(r.error.message ?? "")) {
+        return { ok: false, error: "supabase/profiles-withdrawal.sql の適用が必要です（withdrawal_completed_at 列が未追加）" };
+      }
+      return { ok: false, error: r.error.message };
+    }
+    if (!Array.isArray(r.data) || r.data.length === 0) return { ok: false, error: "対象が見つかりませんでした" };
+    revalidatePath("/engineers");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** 「退会処理」を取り消す（誤操作の救済用）。withdrawal_completed_at を NULL に戻す。 */
+export async function unmarkEngineerWithdrawn(id: string): Promise<{ ok: boolean; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const clean = String(id ?? "").trim();
+  if (!clean) return { ok: false, error: "対象IDが未指定です" };
+  try {
+    const pub = publicAdmin();
+    const r: any = await pub.from("profiles").update({ withdrawal_completed_at: null }).eq("id", clean).select("id");
+    if (r.error) return { ok: false, error: r.error.message };
+    revalidatePath("/engineers");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /**
  * サイト経由登録のエンジニア(public.profiles)を、enger.candidates に「候補者」として
  * 取り込み、マッチング画面でそのまま使えるようにする。

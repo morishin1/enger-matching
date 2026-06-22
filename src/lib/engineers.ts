@@ -85,6 +85,12 @@ export type Engineer = {
   role: string | null;
   phone: string | null;       // 連絡先：電話
   contact_line: string | null; // 連絡先：LINE/メッセージID
+  // 退会関連（LP側で本人が「退会する」を押すと withdrawal_requested_at が立つ。
+  //   営業が /engineers の詳細から「退会処理する」を押すと withdrawal_completed_at が立つ。
+  //   フラグなので実削除ではなく「無効化」運用）。
+  withdrawal_requested_at: string | null;
+  withdrawal_reason: string | null;
+  withdrawal_completed_at: string | null;
   source: EngineerSource;     // 派生フィールド（UIバッジ用）
 };
 
@@ -100,7 +106,15 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // 取れた行から後段でマッピング解決する。列が無い環境でも落ちないようフォールバック。
     //   電話     : phone / phone_number / tel / mobile
     //   メッセージ: contact_line / line / line_id / messenger / message_app
+    // 退会関連列（withdrawal_requested_at / withdrawal_reason / withdrawal_completed_at）は
+    //   supabase/profiles-withdrawal.sql で追加。未マイグレ環境では列無しフォールバックに落ちる。
+    const wd = "withdrawal_requested_at, withdrawal_reason, withdrawal_completed_at";
     const richVariants = [
+      `${base}, signup_source, signup_method, phone, contact_line, ${wd}`,
+      `${base}, signup_source, signup_method, phone_number, line_id, ${wd}`,
+      `${base}, signup_source, signup_method, tel, messenger, ${wd}`,
+      `${base}, signup_source, signup_method, ${wd}`,
+      `${base}, ${wd}`,
       `${base}, signup_source, signup_method, phone, contact_line`,
       `${base}, signup_source, signup_method, phone_number, line_id`,
       `${base}, signup_source, signup_method, tel, messenger`,
@@ -124,6 +138,10 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       total_repos: r.total_repos ?? 0,
       phone: phoneOf(r),
       contact_line: lineOf(r),
+      // 列が無い環境では undefined になるため null に正規化（UI 判定を簡潔に）。
+      withdrawal_requested_at: r.withdrawal_requested_at ?? null,
+      withdrawal_reason: r.withdrawal_reason ?? null,
+      withdrawal_completed_at: r.withdrawal_completed_at ?? null,
       source: classifySource(r),
     })) as Engineer[];
     return { rows, available: true };
