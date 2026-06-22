@@ -22,13 +22,15 @@ ITS事業部
 
 // 人材取込元メール(SES窓口/エージェント)に「Re: <元件名>」で返信し、Gmail に
 // スレッド統合させて相手の受信箱の元スレッドに返信として届くようにする。
-// 元件名が無い古い人材は固定件名へフォールバック（その場合は新規メール扱い）。
-const CAND_SUBJECT_FALLBACK = "【案件のご紹介】希望条件に合致する案件のお知らせ";
-
-export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null): string {
+// 元件名が無い古い人材は、案件側メールと同じ「Re: <案件タイトル>」にフォールバック
+// （旧固定文言「【案件のご紹介】希望条件に合致する案件のお知らせ」は意味のない件名で
+//  どの案件か分からず営業の混乱の原因になっていたため、案件名ベースで件名を出す）。
+export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null, job?: { title?: string | null } | null): string {
   const orig = String(cand?.source_mail_subject ?? "").trim();
   if (orig) return reSubject(orig);
-  return CAND_SUBJECT_FALLBACK;
+  const jobTitle = String(job?.title ?? "").trim();
+  if (jobTitle) return reSubject(jobTitle);
+  return "【案件のご紹介】希望条件に合致する案件のお知らせ";
 }
 
 export function buildCandMailContent(job: any, cand: any): string {
