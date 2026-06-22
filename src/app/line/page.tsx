@@ -10,6 +10,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { NewProposalButton } from "@/components/NewProposalButton";
 import { CopyButton } from "@/components/CopyButton";
+import { LineTabs } from "@/components/LineTabs";
 import { getSidebarCounts } from "@/lib/counts";
 
 export const dynamic = "force-dynamic";
@@ -110,7 +111,11 @@ export default async function LinePage() {
         </div>
       )}
 
-      {/* LINE 経由の人材（人材一覧と同じ行レイアウト） */}
+      {/* 人材 / 案件 をタブで分割（要望）。サーバ側で両方描画し display で出し分け。 */}
+      <LineTabs
+        peopleCount={candidates.length}
+        jobsCount={jobs.length}
+        people={
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <SectionHeader title="LINE 経由の人材" n={candidates.length} />
         {candidates.length === 0 ? (
@@ -170,8 +175,8 @@ export default async function LinePage() {
           </div>
         )}
       </section>
-
-      {/* LINE 経由の案件 */}
+        }
+        jobs={
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <SectionHeader title="LINE 経由の案件" n={jobs.length} />
         {jobs.length === 0 ? (
@@ -214,6 +219,8 @@ export default async function LinePage() {
           </div>
         )}
       </section>
+        }
+      />
 
       {/* LINE 文面テンプレ */}
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
