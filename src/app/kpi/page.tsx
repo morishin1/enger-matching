@@ -76,9 +76,14 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   });
   // 推移テーブル（全指標 × 期間の実績/目標）。日/週は12期間、月は12ヶ月、四半期は8期間。
   const tablePeriods = historyType === "day" ? 14 : historyType === "month" ? 12 : historyType === "quarter" ? 8 : 12;
+  // 累計（積み上げ）リセット境界：実績・目標ともに以下のルールで積み上げる。
+  //   日/週 → 月初リセット（その月分のみ）／四半期 → 四半期内で積み上げ／
+  //   任意カレンダー → 範囲全体を積み上げ／月 → 各月単体（従来）。
+  const cumulate: "month" | "quarter" | "all" | "off" =
+    period === "custom" ? "all" : period === "quarter" ? "quarter" : period === "month" ? "off" : "month";
   const historyTable = await getKpiHistoryTable({
     ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,
-    type: historyType, periods: tablePeriods,
+    type: historyType, periods: tablePeriods, cumulate,
   });
 
   // メンバー別アクティビティ（誰が何をやったか）。admin/経営=全員、マネージャー/リーダー=自部署。

@@ -232,8 +232,8 @@ function HistoryTable({ rows, periodLabel, teamName }: { rows: HistoryRow[]; per
   return (
     <div className="card flush" style={{ overflowX: "auto" }}>
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "baseline", gap: 8, borderBottom: "1px solid var(--color-border)" }}>
-        <span style={{ fontSize: 13, fontWeight: 700 }}>📋 実績の推移表</span>
-        <span className="muted" style={{ fontSize: 11 }}>{teamName} ／ {periodLabel}ごと（実績 / 目標）。月次・年次の集計に。</span>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>📋 実績の推移表（累計）</span>
+        <span className="muted" style={{ fontSize: 11 }}>{teamName} ／ {periodLabel}ごと（実績 / 目標）。実績・目標とも累計（積み上げ）表示。</span>
       </div>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
         <thead>

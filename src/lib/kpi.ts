@@ -256,10 +256,16 @@ export type KpiHistoryRow = {
 };
 
 /** 直近 N 期間 × 全指標の実績/目標をまとめて返す（推移テーブル用）。
- *  proposals / kpi_targets を1往復ずつで取得し、JS側で期間バケットに振り分ける。 */
+ *  proposals / kpi_targets を1往復ずつで取得し、JS側で期間バケットに振り分ける。
+ *  cumulate: 実績・目標を累計（積み上げ）表示するときのリセット境界。
+ *    - "month"   … 月初で累計リセット（日・週タブ）。各行は「その月の月初〜該当期間」の累計。
+ *    - "quarter" … 四半期境界で累計リセット（四半期タブ）。各行＝その四半期の累計。
+ *    - "all"     … リセットなし。表示範囲の開始から最後まで積み上げ（任意カレンダー）。
+ *    - "off"     … 累計しない（各期間単体。月タブ等の従来表示）。 */
 export async function getKpiHistoryTable(opts: {
   ownerName: string | null; ownerEmail: string | null;
   type: Exclude<PeriodType, "custom">; periods: number;
+  cumulate?: "month" | "quarter" | "all" | "off";
 }): Promise<KpiHistoryRow[]> {
   const ranges: { start: Date; end: Date; base: Date; weekStart: Date; label: string }[] = [];
   for (let i = opts.periods - 1; i >= 0; i--) {
@@ -313,39 +319,15 @@ export async function getKpiHistoryTable(opts: {
   }
   const def: Partial<Record<Metric, number>> = { proposal: 20 };
 
-  // 週次表示のときの「月の目標数」：各週は “月初〜該当週” の累計を表示する。
-  //   ・通常の週           … 週目標をそのまま加算（1週目=週1, 2週目=週1+週2, …）
-  //   ・月をまたぐ週         … 週目標÷5（＝1日の目標）を基準に、各月に属する平日数ぶんを
-  //                          それぞれの月の累計へ配分（例 6/29〜7/3 → 6月へ2日分・7月へ3日分）。
-  //   各週の行は「その週の月曜が属する月」の累計を表示する（新しい月の初週から、その前の
-  //   月またぎ週で持ち越した日数分も含めて累計される）。
+  // 各期間（行）の「単体」実績・目標をまず算出し、その後に累計（積み上げ）をかける。
+  //   ・実績     … 期間内のイベント実数（提案/コンタクト/調整中/日程確定/成約）。
+  //   ・目標     … 週次目標を表示単位に換算（scaleWeeklyTarget）。
   const ymKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-${j.getUTCMonth()}`; };
-  const monthCum = new Map<string, Record<Metric, number>>();
-  const cumTargetByRange: Array<Partial<Record<Metric, number>>> = [];
-  if (opts.type === "week") {
-    for (const rng of ranges) {
-      const ws = rng.weekStart.toISOString().slice(0, 10);
-      const w = targetMap.get(ws) ?? {};
-      // この週の平日(月〜金)を、属する月ごとに数える。
-      const daysByYm = new Map<string, number>();
-      for (let k = 0; k < 5; k++) { const key = ymKey(addDays(rng.weekStart, k)); daysByYm.set(key, (daysByYm.get(key) ?? 0) + 1); }
-      for (const [ym, days] of daysByYm) {
-        const cur = monthCum.get(ym) ?? { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
-        for (const m of METRIC_ORDER) { const weekly = w[m] ?? def[m] ?? 0; cur[m] += (weekly / 5) * days; }
-        monthCum.set(ym, cur);
-      }
-      const rowYm = ymKey(rng.weekStart);
-      const cum = monthCum.get(rowYm) ?? { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
-      const obj: Partial<Record<Metric, number>> = {};
-      for (const m of METRIC_ORDER) obj[m] = Math.round(cum[m]);
-      cumTargetByRange.push(obj);
-    }
-  }
+  const yqKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-Q${Math.floor(j.getUTCMonth() / 3)}`; };
 
-  const out: KpiHistoryRow[] = [];
-  let rangeIdx = -1;
+  type RawRow = { label: string; start: string; rangeStart: Date; act: Record<Metric, number>; tgt: Record<Metric, number> };
+  const raw: RawRow[] = [];
   for (const rng of ranges) {
-    rangeIdx++;
     const sIso = rng.start.toISOString(), eIso = rng.end.toISOString();
     const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
     const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
@@ -362,16 +344,44 @@ export async function getKpiHistoryTable(opts: {
     }
     const ws = rng.weekStart.toISOString().slice(0, 10);
     const w = targetMap.get(ws) ?? {};
+    const tgt: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+    for (const m of METRIC_ORDER) tgt[m] = scaleWeeklyTarget(w[m] ?? def[m] ?? 0, opts.type, rng);
+    raw.push({ label: rng.label, start: sIso, rangeStart: rng.start, act, tgt });
+  }
+
+  // 累計（積み上げ）。リセット境界が変わったら running をリセットして再スタート。
+  //   ・"month"   → 月初リセット（日・週タブ：その月分のみ積み上げ）
+  //   ・"quarter" → 四半期リセット（四半期タブ：その四半期内で積み上げ）
+  //   ・"all"     → リセットなし（任意カレンダー：範囲全体を積み上げ）
+  //   ・"off"     → 累計しない（各期間単体）
+  const cumulate = opts.cumulate ?? (opts.type === "week" ? "month" : "off");
+  const out: KpiHistoryRow[] = [];
+  if (cumulate === "off") {
+    for (const r of raw) {
+      const cells = {} as Record<Metric, { actual: number; target: number }>;
+      for (const m of METRIC_ORDER) cells[m] = { actual: r.act[m], target: r.tgt[m] };
+      out.push({ label: r.label, start: r.start, cells });
+    }
+    return out;
+  }
+  const keyOf = (d: Date) => cumulate === "month" ? ymKey(d) : cumulate === "quarter" ? yqKey(d) : "ALL";
+  let prevKey: string | null = null;
+  let runAct: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+  let runTgt: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+  for (const r of raw) {
+    const key = keyOf(r.rangeStart);
+    if (prevKey !== null && key !== prevKey) {
+      runAct = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+      runTgt = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
+    }
+    prevKey = key;
     const cells = {} as Record<Metric, { actual: number; target: number }>;
     for (const m of METRIC_ORDER) {
-      const weekly = w[m] ?? def[m] ?? 0;
-      // 週次は「月初〜該当週の累計（月またぎは日割り配分）」、それ以外は従来どおり期間按分。
-      const target = opts.type === "week"
-        ? (cumTargetByRange[rangeIdx]?.[m] ?? 0)
-        : scaleWeeklyTarget(weekly, opts.type, rng);
-      cells[m] = { actual: act[m], target };
+      runAct[m] += r.act[m];
+      runTgt[m] += r.tgt[m];
+      cells[m] = { actual: runAct[m], target: Math.round(runTgt[m]) };
     }
-    out.push({ label: rng.label, start: sIso, cells });
+    out.push({ label: r.label, start: r.start, cells });
   }
   return out;
 }
