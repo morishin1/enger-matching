@@ -31,7 +31,10 @@ export const CALLER_STATUSES = ["未架電", "電話(不在)", "電話済み", "
 export const MEETING_STATUSES = ["調整中", "日程確定", "実施済", "リスケ", "キャンセル"];
 export const PROPOSERS = ["工藤", "結城", "藤本"];
 export const CLOSERS = ["未割当", "寺本", "野澤", "工藤"];
-export const LOST_PHASES = ["1. 接触前失注", "2. 接触後失注", "3. 提案後失注", "4. 面談後失注", "5. 最終提示後失注"];
+export const LOST_PHASES = ["1. 接触前失注", "2. 接触後失注", "3. 提案後失注", "4. 面談後失注"];
+// 連絡手段（コンタクト履歴）。「その他」を選んだ場合は自由入力欄に手段を書く運用。
+export const CONTACT_CHANNELS = ["電話", "メール", "LINE", "対面", "その他"] as const;
+export type ContactChannel = typeof CONTACT_CHANNELS[number];
 export const LOST_REASONS = [
   "A1: スキル不足/アンマッチ", "A2: 単価が高すぎ", "A3: 稼働開始時期が合わない", "A4: 人材側辞退",
   "A5: 経歴/人柄が刺さらず", "A6: ブランク/キャリアアンマッチ", "A7: 人材側 勤務地NG", "A8: 人材側 他社単価が高い",
