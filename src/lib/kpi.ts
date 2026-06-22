@@ -86,6 +86,14 @@ export const metricFlags = {
 // ── 期間ヘルパ ────────────────────────────────────────────────────────
 const JST_OFFSET_MIN = 9 * 60;
 
+// 累計（積み上げ）リセット境界の判定キー（JST基準）。月キー / 四半期キー。
+//   cumulate="month" は同一年月で、 "quarter" は同一年・四半期で running を継続し、
+//   キーが変わったら running をリセットする。 "all" は常に同一キー（"ALL"）でリセットなし。
+const ymKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-${j.getUTCMonth()}`; };
+const yqKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-Q${Math.floor(j.getUTCMonth() / 3)}`; };
+const cumulateKeyOf = (d: Date, mode: "month" | "quarter" | "all" | "off") =>
+  mode === "month" ? ymKey(d) : mode === "quarter" ? yqKey(d) : "ALL";
+
 /** JST の「今日」の 00:00 を表す Date を返す（実体は UTC で +9h 補正）。 */
 export function jstStartOfDay(d: Date = new Date()): Date {
   const utc = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000);
@@ -133,13 +141,14 @@ export function resolveRange(type: PeriodType, base: Date = new Date(), custom?:
   return { start: f, end: addDays(t, 1) };
 }
 
-/** メンバー別アクティビティ表用の「累計レンジ」を返す。タブごとに以下のルールで集計範囲を拡張する：
+/** タブごとの「累計レンジ」を返す。実績・目標を積み上げ（累計）表示する際の集計範囲。
  *   - day  → 「月初〜今日（exclusive: 翌日0時）」… 月初からの累計
  *   - week → 「月初〜今週末（exclusive: 来週月曜0時）」… 月初からの累計（その週の月曜が属する月で判定）
- *   - month → 月単体（従来どおり）
- *   - quarter → その四半期の開始〜終了（従来どおり＝四半期内で累計）
+ *   - month → 月単体（その月＝累計の単位）
+ *   - quarter → その四半期の開始〜終了（四半期内で累計）
  *   - custom → 指定範囲そのまま（範囲全体で累計）
- *   ※ 達成率カード（getKpiSnapshot）には影響させない。表の数値だけ累計に拡張する。 */
+ *   達成率カード（getKpiSnapshot）・推移グラフ（getKpiHistory）・推移テーブル（getKpiHistoryTable）
+ *   の全てがこのルールで累計表示するよう統一している。 */
 export function cumulativeRange(type: PeriodType, base: Date = new Date(), custom?: { from: string; to: string }): { start: Date; end: Date } {
   if (type === "day" || type === "week") {
     const single = resolveRange(type, base);
@@ -148,6 +157,17 @@ export function cumulativeRange(type: PeriodType, base: Date = new Date(), custo
   }
   // それ以外は resolveRange と同じ（month=単体、quarter=四半期内、custom=範囲全体）
   return resolveRange(type, base, custom);
+}
+
+/** タブ種別 → 累計（積み上げ）リセット境界。画面全体（カード/グラフ/テーブル）で共通利用する。
+ *   - 日・週   → "month"   … 月初リセット（その月分のみ積み上げ）
+ *   - 四半期   → "quarter" … 四半期境界でリセット（四半期内で積み上げ）
+ *   - 任意     → "all"     … リセットなし（表示範囲の開始から積み上げ）
+ *   - 月       → "month"   … 月単位がそのまま累計単位（各月単体＝その月の累計） */
+export function cumulateMode(type: PeriodType): "month" | "quarter" | "all" {
+  if (type === "quarter") return "quarter";
+  if (type === "custom")  return "all";
+  return "month"; // day / week / month
 }
 
 /** 期間内の営業日数（月〜金）。スケーリング用。 */
@@ -185,8 +205,14 @@ export async function getKpiSnapshot(opts: {
   base?: Date;
   custom?: { from: string; to: string };
   weeklyTargets?: Partial<Record<Metric, number>>; // 取得済みの週次目標
+  cumulate?: boolean;             // true=累計レンジで実績・目標を積み上げ（cumulativeRange のルール）
 }): Promise<{ range: { start: Date; end: Date }; snapshot: KpiSnapshot }> {
-  const range = resolveRange(opts.type, opts.base, opts.custom);
+  // 累計表示時は集計レンジを月初〜（日/週）等に拡張し、実績・目標とも積み上げる。
+  //   目標は週次目標を「レンジ内の営業日数」で按分（scaleWeeklyTarget の custom 経路）し、
+  //   実績は拡張レンジ内のイベント実数を数えるため、両者が同じ期間で揃う。
+  const range = opts.cumulate
+    ? cumulativeRange(opts.type, opts.base, opts.custom)
+    : resolveRange(opts.type, opts.base, opts.custom);
   const sb = engerAdmin();
   const start = iso(range.start), end = iso(range.end);
 
@@ -240,7 +266,8 @@ export async function getKpiSnapshot(opts: {
   const w = opts.weeklyTargets ?? {};
   const snapshot = {} as KpiSnapshot;
   for (const m of METRIC_ORDER) {
-    const target = scaleWeeklyTarget(w[m] ?? 0, opts.type, range);
+    // 累計時はレンジ内営業日数で按分（custom 経路）。非累計は従来どおりタブ単位で換算。
+    const target = scaleWeeklyTarget(w[m] ?? 0, opts.cumulate ? "custom" : opts.type, range);
     const actual = actuals[m];
     const pct = target > 0 ? Math.round((actual / target) * 100) : (actual > 0 ? 100 : 0);
     snapshot[m] = { target, actual, pct };
@@ -339,9 +366,6 @@ export async function getKpiHistoryTable(opts: {
   // 各期間（行）の「単体」実績・目標をまず算出し、その後に累計（積み上げ）をかける。
   //   ・実績     … 期間内のイベント実数（提案/コンタクト/調整中/日程確定/成約）。
   //   ・目標     … 週次目標を表示単位に換算（scaleWeeklyTarget）。
-  const ymKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-${j.getUTCMonth()}`; };
-  const yqKey = (d: Date) => { const j = new Date(d.getTime() + JST_OFFSET_MIN * 60 * 1000); return `${j.getUTCFullYear()}-Q${Math.floor(j.getUTCMonth() / 3)}`; };
-
   type RawRow = { label: string; start: string; rangeStart: Date; act: Record<Metric, number>; tgt: Record<Metric, number> };
   const raw: RawRow[] = [];
   for (const rng of ranges) {
@@ -381,7 +405,7 @@ export async function getKpiHistoryTable(opts: {
     }
     return out;
   }
-  const keyOf = (d: Date) => cumulate === "month" ? ymKey(d) : cumulate === "quarter" ? yqKey(d) : "ALL";
+  const keyOf = (d: Date) => cumulateKeyOf(d, cumulate);
   let prevKey: string | null = null;
   let runAct: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
   let runTgt: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
@@ -412,6 +436,7 @@ export async function getKpiHistory(opts: {
   ownerName: string | null; ownerEmail: string | null;
   type: Exclude<PeriodType, "custom">; periods: number;
   metric?: Metric;
+  cumulate?: "month" | "quarter" | "all" | "off"; // 達成率を累計（積み上げ）で出すリセット境界
 }): Promise<{ label: string; pct: number; actual: number; target: number }[]> {
   const metric: Metric = opts.metric ?? "proposal";
 
@@ -473,7 +498,9 @@ export async function getKpiHistory(opts: {
   }
   const def: Partial<Record<Metric, number>> = { proposal: 20 };
 
-  const out: { label: string; pct: number; actual: number; target: number }[] = [];
+  // まず各期間の「単体」実績・目標を出し、その後に累計（積み上げ）をかける。
+  type RawPt = { label: string; rangeStart: Date; act: number; tgt: number };
+  const raw: RawPt[] = [];
   for (const rng of ranges) {
     const sIso = rng.start.toISOString(), eIso = rng.end.toISOString();
     const inRange = (d: string | null) => !!d && d >= sIso && d < eIso;
@@ -494,8 +521,27 @@ export async function getKpiHistory(opts: {
     const w = targetMap.get(ws) ?? {};
     const weekly = w[metric] ?? def[metric] ?? 0;
     const target = scaleWeeklyTarget(weekly, opts.type, rng);
-    const pct = target > 0 ? Math.round((actual / target) * 100) : (actual > 0 ? 100 : 0);
-    out.push({ label: rng.label, pct, actual, target });
+    raw.push({ label: rng.label, rangeStart: rng.start, act: actual, tgt: target });
+  }
+
+  // 累計（積み上げ）。テーブルと同じリセット境界で実績・目標を積み上げ、pct を再計算する。
+  //   "off"（既定）なら従来どおり各期間単体の達成率。
+  const cumulate = opts.cumulate ?? "off";
+  const mk = (act: number, tgt: number, label: string): { label: string; pct: number; actual: number; target: number } => {
+    const t = Math.round(tgt);
+    const pct = t > 0 ? Math.round((act / t) * 100) : (act > 0 ? 100 : 0);
+    return { label, pct, actual: act, target: t };
+  };
+  if (cumulate === "off") return raw.map((r) => mk(r.act, r.tgt, r.label));
+  const out: { label: string; pct: number; actual: number; target: number }[] = [];
+  let prevKey: string | null = null;
+  let runAct = 0, runTgt = 0;
+  for (const r of raw) {
+    const key = cumulateKeyOf(r.rangeStart, cumulate);
+    if (prevKey !== null && key !== prevKey) { runAct = 0; runTgt = 0; }
+    prevKey = key;
+    runAct += r.act; runTgt += r.tgt;
+    out.push(mk(runAct, runTgt, r.label));
   }
   return out;
 }

@@ -7,7 +7,7 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, cumulativeRange, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, cumulativeRange, cumulateMode, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -63,24 +63,25 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const weekStart = jstStartOfWeek(new Date());
   const weekly = await getWeeklyTargets({ ownerEmail: targetEmail, weekStart });
   const custom = (period === "custom" && sp.from && sp.to) ? { from: sp.from, to: sp.to } : undefined;
+  // 達成率カードも累計表示（cumulate: true）。日/週は月初〜の積み上げ、四半期/任意/月は
+  //   それぞれのレンジで実績・目標を積み上げる（cumulativeRange のルール。画面全体で統一）。
   const { range, snapshot } = await getKpiSnapshot({
     ownerName: isTeam ? null : (targetName || null),
-    type: period, custom, weeklyTargets: weekly,
+    type: period, custom, weeklyTargets: weekly, cumulate: true,
   });
 
-  // 推移グラフ（custom は推移を取らない）
+  // 累計（積み上げ）リセット境界：カード・グラフ・テーブルで共通（cumulateMode）。
+  //   日/週/月 → 月境界でリセット（日・週はその月分のみ積み上げ、月は各月単体）／
+  //   四半期 → 四半期内で積み上げ／任意カレンダー → 範囲全体を積み上げ。
+  const cumulate = cumulateMode(period);
+  // 推移グラフ（custom は週次で推移を取る）。達成率を累計で積み上げ（テーブルと同境界）。
   const historyType: Exclude<PeriodType, "custom"> = period === "custom" ? "week" : period;
   const history = await getKpiHistory({
     ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,
-    type: historyType, periods: 12, metric: "proposal",
+    type: historyType, periods: 12, metric: "proposal", cumulate,
   });
   // 推移テーブル（全指標 × 期間の実績/目標）。日/週は12期間、月は12ヶ月、四半期は8期間。
   const tablePeriods = historyType === "day" ? 14 : historyType === "month" ? 12 : historyType === "quarter" ? 8 : 12;
-  // 累計（積み上げ）リセット境界：実績・目標ともに以下のルールで積み上げる。
-  //   日/週 → 月初リセット（その月分のみ）／四半期 → 四半期内で積み上げ／
-  //   任意カレンダー → 範囲全体を積み上げ／月 → 各月単体（従来）。
-  const cumulate: "month" | "quarter" | "all" | "off" =
-    period === "custom" ? "all" : period === "quarter" ? "quarter" : period === "month" ? "off" : "month";
   const historyTable = await getKpiHistoryTable({
     ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,
     type: historyType, periods: tablePeriods, cumulate,
