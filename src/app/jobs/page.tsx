@@ -278,7 +278,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         return qb;
       };
       const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
-      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url`, hideClosed)));
+      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url, signup_source`, hideClosed)));
       if (listRes.error && /deleted_at|is_closed|column/i.test(listRes.error.message)) {
         listRes = await order(withOwner(buildBaseNoTrash(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
       }
