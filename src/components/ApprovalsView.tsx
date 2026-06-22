@@ -393,7 +393,7 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
         <div className="muted" style={{ fontSize: 11.5 }}>
           {isProperFlat
-            ? "社内メンバー全員を1つのリストで表示しています。区分（営業／管理者／バックオフィス）は各行の「区分」ドロップダウンで変更できます。"
+            ? "社内メンバー全員を1つのリスト表示。各行のピル（営業／バックオフィス／管理者）をクリックでトグル。営業＋バックオフィスなどの兼務もOKです。"
             : cur.hint}
         </div>
         {suspectCount > 0 && (
@@ -569,53 +569,52 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                               : <button type="button" className="btn btn-xs" disabled={busy} style={{ background: "#067647", borderColor: "#067647", color: "#fff" }} onClick={() => run(a.id, () => setAccountMeetingDone(a.id, true), "面談済みにしました（詳細解放）")}>面談済みにする</button>
                           )}
                           {/* 区分の付け替え（誤って別区分で登録された場合の救済）。
-                              プロパー（社内）は「営業／バックオフィス／管理者」の3区分で切替。バックオフィスは
-                              role=agent ＋ 部署=バックオフィスで表現するため、選択時に両方を順に更新する。 */}
-                          {(() => {
-                            const currentKey: "agent" | "backoffice" | "admin" | "client" | "partner" | "freelance" | "candidate" =
-                              a.role === "agent" ? (isBackOffice(a) ? "backoffice" : "agent") : (a.role as any);
+                              プロパー（社内）はクリックで「営業／バックオフィス／管理者」を独立にトグル可能にする
+                              （営業＋バックオフィスの兼務など複数併用OK）。
+                              　・営業/バックオフィス … 職能(functions) に該当を追加/除外
+                              　・管理者              … role を admin と agent でトグル
+                              　※ 営業/バックオフィスは role に依らない（管理者でも兼務可）。
+                              ビジネスパートナー（外部）は従来どおりセレクト1択。 */}
+                          {isProperFlat ? (() => {
+                            const fns = a.functions ?? [];
+                            const isAdmin = a.role === "admin";
+                            const isSales = fns.includes("営業");
+                            const isBo = fns.includes("バックオフィス");
+                            const toggleFunction = (fn: "営業" | "バックオフィス") => {
+                              const next = fns.includes(fn) ? fns.filter((x) => x !== fn) : [...fns, fn];
+                              run(a.id, async () => {
+                                // ロールが agent 以外（admin等）でも職能は記録可。営業/バックオフィスを使う場合は実体として agent 寄りだが、
+                                // 管理者として残したい場合もあるためロール変更はしない（管理者トグルで明示）。
+                                return setAccountFunctions(a.id, next);
+                              }, `${fn}を${fns.includes(fn) ? "解除" : "付与"}しました`);
+                            };
+                            const toggleAdmin = () => {
+                              run(a.id, async () => setAccountRole(a.id, isAdmin ? "agent" as any : "admin" as any), `${isAdmin ? "管理者を解除" : "管理者にしました"}`);
+                            };
+                            const pillBase: React.CSSProperties = { padding: "3px 9px", borderRadius: 99, fontSize: 11, fontFamily: "inherit", cursor: "pointer", fontWeight: 700, border: "1px solid" };
+                            const pillOn: React.CSSProperties = { background: "var(--color-brand-600)", color: "#fff", borderColor: "var(--color-brand-600)" };
+                            const pillOff: React.CSSProperties = { background: "var(--color-surface-inset)", color: "var(--color-ink-3)", borderColor: "var(--color-border)" };
+                            const lpVirtual = a.id.startsWith("profile:") || a.id.startsWith("auth:");
+                            const dis = busy || a.status === "pending" || lpVirtual;
                             return (
-                              <select defaultValue={currentKey} disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  if (v === "backoffice") {
-                                    // agent ロールへ寄せた上で部署をバックオフィスに切替（既存役割が admin 等なら役割も agent へ）
-                                    run(a.id, async () => {
-                                      if (a.role !== "agent") { const r = await setAccountRole(a.id, "agent" as any); if (!r.ok) return r; }
-                                      return setAccountDepartment(a.id, "バックオフィス");
-                                    }, "区分を「バックオフィス」に変更しました");
-                                  } else if (v === "agent") {
-                                    // 営業：役割を agent に、部署が「バックオフィス」なら部署解除
-                                    run(a.id, async () => {
-                                      if (a.role !== "agent") { const r = await setAccountRole(a.id, "agent" as any); if (!r.ok) return r; }
-                                      if ((a.department ?? "") === "バックオフィス") { const r2 = await setAccountDepartment(a.id, null); if (!r2.ok) return r2; }
-                                      return { ok: true };
-                                    }, "区分を「営業」に変更しました");
-                                  } else {
-                                    const r = v as Role;
-                                    run(a.id, () => setAccountRole(a.id, r as any), "区分を変更しました");
-                                  }
-                                }}
-                                style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
-                                {isProperFlat ? (
-                                  <>
-                                    <option value="agent">営業</option>
-                                    <option value="backoffice">バックオフィス</option>
-                                    <option value="admin">管理者</option>
-                                  </>
-                                ) : (
-                                  <>
-                                    <option value="client">企業</option>
-                                    <option value="partner">パートナー企業</option>
-                                    <option value="freelance">副業エージェント</option>
-                                    <option value="candidate">人材</option>
-                                    <option value="agent">営業</option>
-                                    <option value="admin">管理者</option>
-                                  </>
-                                )}
-                              </select>
+                              <span title="クリックで権限を個別にトグル（営業＋バックオフィスの兼務OK）" style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                                <button type="button" disabled={dis} onClick={() => toggleFunction("営業")} style={{ ...pillBase, ...(isSales ? pillOn : pillOff) }}>営業</button>
+                                <button type="button" disabled={dis} onClick={() => toggleFunction("バックオフィス")} style={{ ...pillBase, ...(isBo ? pillOn : pillOff) }}>バックオフィス</button>
+                                <button type="button" disabled={dis} onClick={toggleAdmin} style={{ ...pillBase, ...(isAdmin ? { background: "#b45309", color: "#fff", borderColor: "#b45309" } : pillOff) }}>管理者</button>
+                              </span>
                             );
-                          })()}
+                          })() : (
+                            <select defaultValue={a.role} disabled={busy || a.status === "pending" || (a.id.startsWith("profile:") || a.id.startsWith("auth:"))}
+                              onChange={(e) => { const r = e.target.value as Role; run(a.id, () => setAccountRole(a.id, r as any), "区分を変更しました"); }}
+                              style={{ fontFamily: "inherit", fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+                              <option value="client">企業</option>
+                              <option value="partner">パートナー企業</option>
+                              <option value="freelance">副業エージェント</option>
+                              <option value="candidate">人材</option>
+                              <option value="agent">営業</option>
+                              <option value="admin">管理者</option>
+                            </select>
+                          )}
                           {/* 詳細（権限編集／メール送信／面談予定）。LP仮想行は履歴・メール部分は使えないが、開けるようにして承認待ちガイドを見せる */}
                           {!(a.id.startsWith("profile:") || a.id.startsWith("auth:")) && (
                             <button type="button" className="btn ghost btn-xs" onClick={() => toggleExpand(a.id)} title="権限編集／メール送信／面談予定を開く">
