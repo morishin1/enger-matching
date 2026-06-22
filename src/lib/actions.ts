@@ -103,6 +103,7 @@ export type CandidateInput = {
   remote_pref?: string | null;     // リモート希望（マッチングのリモート評価に使用）
   age_band?: string | null;        // 年齢層
   nationality?: string | null;     // 国籍
+  rank?: string | null;            // ランク（A/B/C 等）— 人材一覧の絞り込み・モーダルに表示
   skill_level?: string | null;     // スキルレベル
   japanese_level?: string | null;  // 日本語レベル
   comm?: string | null;            // コミュニケーション力
@@ -2370,6 +2371,11 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     exp: rec.exp?.trim() || null,
     status: rec.status?.trim() || "提案可",
     remote_pref: rec.remote_pref?.trim() || null,
+    // 新規登録フォーム＋AI抽出で扱う追加属性（要望⑦）。
+    age_band: rec.age_band?.trim() || null,
+    nationality: rec.nationality?.trim() || null,
+    rank: (rec as any).rank?.trim() || null,
+    note: rec.note?.trim() || null,
     skill_sheet_url: rec.skill_sheet_url?.trim() || null,
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
@@ -2384,7 +2390,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -2871,10 +2877,14 @@ const PASTE_JOB_PROMPT = (text: string) => `次の文章は「案件（求人）
   "flow_note": "商流の制限(例: 二社下まで)" | null,
   "work_location": "勤務地" | null,
   "start_date": "YYYY-MM-DD または 自由文(例: 即日/6月)" | null,
-  "detail": "求められる経験・スキル要件など本文の要点",
-  "contact_name": "窓口担当者名" | null
+  "status": "ステータス(例: 募集中)" | null,
+  "contact_name": "窓口担当者名" | null,
+  "contact_email": "窓口メール（返信先）" | null,
+  "source_mail_url": "元メールのURLまたは Gmail メッセージID" | null,
+  "detail": "案件詳細：求められる経験/スキル要件・国籍要件・年代制限・業務内容など本文の要点（LINE/メール原文の重要部分を抜粋）"
 }
 単価は「万」単位の数値に正規化（例: 70万→70, 700,000円→70）。範囲があれば min/max 両方。
+国籍要件（例: 日本国籍のみ）・年代制限（例: 30代まで）は detail に明示的に書く（抽出元に明記がある場合のみ）。
 --- 文章 ---
 ${text}`;
 
@@ -2889,9 +2899,15 @@ const PASTE_CAND_PROMPT = (text: string) => `次の文章は「人材（エン�
   "rate": "希望単価(例: 80万 / ¥70〜90万)" | null,
   "exp": "経験年数や経歴サマリ" | null,
   "avail": "稼働開始(例: 即日/6月〜)" | null,
-  "location": "希望勤務地" | null,
+  "location": "希望勤務地（最寄駅含む）" | null,
   "remote_pref": "希望リモート区分(自由文)" | null,
-  "status": "ステータス(例: 提案可)" | null
+  "status": "ステータス(例: 提案可)" | null,
+  "age_band": "年代(例: 20代/30代前半/40代後半)" | null,
+  "nationality": "国籍(例: 日本/中国/ベトナム)" | null,
+  "rank": "ランク(例: A/B/C / 上級/中級/初級)" | null,
+  "contact_email": "窓口メール（返信先）" | null,
+  "source_mail_url": "元メールのURLまたは Gmail メッセージID" | null,
+  "note": "備考（LINE/メールの原文要約や、本人連絡先・特記事項などの自由テキスト）"
 }
 --- 文章 ---
 ${text}`;
@@ -2934,8 +2950,13 @@ export async function parseEntityText(kind: "candidates" | "jobs", text: string)
     fields.flow_note = s(d.flow_note);
     fields.work_location = s(d.work_location);
     fields.start_date = s(d.start_date);
-    fields.detail = s(d.detail);
+    fields.status = s(d.status);
     fields.contact_name = s(d.contact_name);
+    fields.contact_email = s(d.contact_email);
+    // source_mail フィールドは Gmail メッセージID/URL をそのまま受け取り、submit 時に
+    // gmailMessageUrl で URL 化される（フォーム側の f.source_mail と一致）。
+    fields.source_mail = s(d.source_mail_url);
+    fields.detail = s(d.detail);
   } else {
     fields.name = s(d.name);
     fields.company = s(d.company);
@@ -2946,7 +2967,14 @@ export async function parseEntityText(kind: "candidates" | "jobs", text: string)
     fields.exp = s(d.exp);
     fields.avail = s(d.avail);
     fields.location = s(d.location);
+    fields.remote_pref = s(d.remote_pref);
     fields.status = s(d.status);
+    fields.age_band = s(d.age_band);
+    fields.nationality = s(d.nationality);
+    fields.rank = s(d.rank);
+    fields.contact_email = s(d.contact_email);
+    fields.source_mail = s(d.source_mail_url);
+    fields.note = s(d.note);
   }
   // 空キーは落とす（既存入力を上書きしないため）
   for (const k of Object.keys(fields)) if (!fields[k]) delete fields[k];

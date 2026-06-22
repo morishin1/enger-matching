@@ -295,6 +295,14 @@ export function PeopleTable({
     const fresh = rows.find((r) => r.candidate_no === detail.candidate_no);
     if (fresh && fresh !== detail) setDetail(fresh);
   }, [rows, detail?.candidate_no]);
+  // ?focus=<id|candidate_no> で対応行のドロワーを自動オープン（LINE登録ページからの遷移用）。
+  //   既存の人材一覧/案件一覧と同じ「クリック→モーダル」の体験を、別ページからの遷移後にも提供する。
+  const focusParam = searchParams?.get("focus") ?? null;
+  useEffect(() => {
+    if (!focusParam || detail) return;
+    const hit = rows.find((r) => String(r.id ?? "") === focusParam || String(r.candidate_no ?? "") === focusParam);
+    if (hit) setDetail(hit);
+  }, [focusParam, rows, detail]);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
     if (!detail) { setDrawerIn(false); return; }
@@ -413,7 +421,8 @@ export function PeopleTable({
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {!r.is_closed && <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
-                        <MailButton url={m.url} search={m.search} to={m.to} />
+                        {/* 元メールURLがあるときだけメールボタンを出す（要望：URL無→非表示。検索/composeフォールバックは廃止）。 */}
+                        {r.source_mail_url && <MailButton url={r.source_mail_url} />}
                         {r.skill_sheet_url && <a href={r.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート" style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>description</span></a>}
                       </div>
                     </td>
@@ -485,7 +494,7 @@ export function PeopleTable({
               {detail.skill_sheet_url && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label="メールで紹介" block />
+              {detail.source_mail_url && <MailButton url={detail.source_mail_url} label="元メールを開く" block />}
               <EditCandidateButton candidate={detail} />
               <DeleteEntityButton kind="candidates" idValue={detail.candidate_no} label={titleOf(detail)} />
             </div>

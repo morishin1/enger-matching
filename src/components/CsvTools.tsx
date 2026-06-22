@@ -552,6 +552,11 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
         exp: f.exp?.trim() || null,
         status: f.status?.trim() || null,
         remote_pref: f.remote_pref?.trim() || null,
+        // AI抽出で得られる人材属性（要望⑦）。空欄なら null。
+        age_band: f.age_band?.trim() || null,
+        nationality: f.nationality?.trim() || null,
+        rank: f.rank?.trim() || null,
+        note: f.note?.trim() || null,
         skill_sheet_url: f.skill_sheet_url?.trim() ? driveUrl(f.skill_sheet_url.trim()) : null,
         email: f.email?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
@@ -664,10 +669,14 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                     { value: "出社可", label: "出社可" },
                   ]} />
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：提案可 / 即アサイン可能" />
+                  <FormField label="ランク" value={f.rank} onChange={set("rank")} placeholder="例：A / B / C" />
+                  <FormField label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半" />
+                  <FormField label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="例：日本 / 中国 / ベトナム" />
                   <FormField label="スキルシートURL（またはDrive ID）" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
                   <FormField label="本人メール" value={f.email} onChange={set("email")} />
                   <FormField label="所属窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
                   <FormField label="元メールURL／Gmail メッセージ ID" value={f.source_mail} onChange={set("source_mail")} full />
+                  <FormTextarea label="備考（LINE/メール本文のメモ・特記事項）" value={f.note} onChange={set("note")} />
                 </>
               ) : (
                 <>

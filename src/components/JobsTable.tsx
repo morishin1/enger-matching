@@ -264,6 +264,14 @@ export function JobsTable({
     const fresh = rows.find((r) => r.job_no === detail.job_no);
     if (fresh && fresh !== detail) setDetail(fresh);
   }, [rows, detail?.job_no]);
+  // ?focus=<id|job_no> で対応行のドロワーを自動オープン（LINE登録ページからの遷移用）。
+  //   既存の案件一覧と同じ「クリック→モーダル」の体験を、別ページからの遷移後にも提供する。
+  const focusParam = searchParams?.get("focus") ?? null;
+  useEffect(() => {
+    if (!focusParam || detail) return;
+    const hit = rows.find((r) => String(r.id ?? "") === focusParam || String(r.job_no ?? "") === focusParam);
+    if (hit) setDetail(hit);
+  }, [focusParam, rows, detail]);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
     if (!detail) { setDrawerIn(false); return; }
@@ -406,7 +414,8 @@ export function JobsTable({
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {!r.is_closed && <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
-                        <MailButton url={m.url} search={m.search} to={m.to} />
+                        {/* 元メールURLがあるときだけメールボタンを出す（要望：URL無→非表示。検索/composeフォールバックは廃止）。 */}
+                        {r.source_mail_url && <MailButton url={r.source_mail_url} />}
                       </div>
                     </td>
                     <td>
@@ -476,7 +485,7 @@ export function JobsTable({
                 </Link>
               )}
               {!partner && <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label="窓口にメール" block />
+              {detail.source_mail_url && <MailButton url={detail.source_mail_url} label="元メールを開く" block />}
               <EditJobButton job={detail} />
               <DeleteEntityButton kind="jobs" idValue={detail.job_no} label={titleOf(detail)} />
             </div>

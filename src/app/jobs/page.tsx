@@ -138,7 +138,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     if (dbConfigured && scope.ownerKey) {
       try {
         const sb = engerClient();
-        const cols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published, owner_company, shared";
+        // id / contact_email / source_mail_url はドロワーでの focus 自動オープン・メール/元メールボタンに使う。
+        const cols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, contact_name, contact_email, source_mail_url, start_date, created_at, is_published, owner_company, shared";
         const ownedRes: any = await sb.from("jobs").select(cols).eq("owner_company", scope.ownerKey).order("job_no", { ascending: false }).limit(1000);
         const sharedRes: any = await sb.from("jobs").select(cols).eq("shared", true).eq("is_published", true).order("job_no", { ascending: false }).limit(1000);
         if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
@@ -157,7 +158,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published";
+      // ドロワー（モーダル）表示の元メール・窓口メールに使う列を含める。
+      const baseCols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, contact_name, contact_email, source_mail_url, start_date, created_at, is_published";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;
