@@ -680,13 +680,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   {person.title && <span className="tag">{person.title}</span>}
                   {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
                   {person.affiliation && <span className="tag">{person.affiliation}</span>}
-                  {/* リモート希望・国籍・最寄駅を明示（国籍はトーン付きで日本/外国籍を区別） */}
+                  {/* リモート希望・国籍・最寄駅・年代を明示。デザインは他項目と統一（プレーンな tag）。 */}
                   <span className="tag">リモート {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
-                  {(() => { const n = classifyCandNationality(person.nationality); const t = CAND_NAT_TONE[n]; return <span className="tag" style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>国籍 {CAND_NAT_LABEL[n]}</span>; })()}
+                  <span className="tag">国籍 {CAND_NAT_LABEL[classifyCandNationality(person.nationality)]}</span>
                   <span className="tag">最寄駅 {person.location ?? "不明"}</span>
+                  {person.age_band && <span className="tag">年代 {person.age_band}</span>}
                   {person.exp != null && String(person.exp).trim() !== "" && <span className="tag">経験 {/^\d+$/.test(String(person.exp).trim()) ? `${String(person.exp).trim()}年` : person.exp}</span>}
                   {person.avail && <span className="tag">稼働 {person.avail}</span>}
-                  <b style={{ color: "var(--color-ink)" }}>{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</b>
+                  <span className="tag">{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</span>
                 </div>
                 {person.skills?.length > 0 && (
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 8 }}>
@@ -710,7 +711,18 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     </div>
                     <div style={{ padding: 20 }}>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[j.client_name, j.role_label, remoteLabel(j.remote_type), j.work_location, salaryLabel(j.salary_min, j.salary_max)].filter(Boolean).join(" / ")}</div>
+                      {/* クライアント名・職種・リモート・勤務地・単価に加え、商流・年代制限・国籍要件も表示（要望③）。
+                          年代制限/国籍要件は案件本文(detail+title)から判定（一覧の表示ロジックと同じ）。 */}
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[
+                        j.client_name,
+                        j.role_label,
+                        remoteLabel(j.remote_type),
+                        j.work_location,
+                        salaryLabel(j.salary_min, j.salary_max),
+                        (j.flow_note && String(j.flow_note).trim()) ? `商流 ${j.flow_note}` : null,
+                        `年代 ${classifyJobAge(j.detail, j.title).label}`,
+                        `国籍 ${JOB_NAT_LABEL[classifyJobNationality(j.detail, j.title)]}`,
+                      ].filter(Boolean).join(" / ")}</div>
 
                       {/* 提案フォームを最上部に（すぐ送れるように） */}
                       <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score}
