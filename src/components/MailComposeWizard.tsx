@@ -10,7 +10,6 @@ import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
-import type { PrecheckOverall } from "./MatchPrecheckPanel";
 
 function generateToken(): string {
   const bytes = new Uint8Array(24);
@@ -199,10 +198,6 @@ export function MailComposeWizard({
   //   ①📋提案する→②📤送信する の流れで使うと2回目以降の操作時に編集を飛ばして
   //   いきなり確認画面が出てしまい混乱の原因になっていた。
   const [step, setStep] = useState<1 | 2>(1);
-  // 提案前 多重チェック（L2: AI監査）の総合判定。block=必須スキル根拠ゼロ＝送信前に再確認。
-  const [precheck, setPrecheck] = useState<PrecheckOverall | null>(null);
-  // 監査結果が block でも、営業判断で送信する場合のオーバーライドフラグ。
-  const [precheckOverride, setPrecheckOverride] = useState(false);
   const [proposer, setProposer] = useState(initialProposer ?? "");
   // 承認者（必須）：保存時に approver として createProposal に渡す
   const [approver, setApprover] = useState("");
@@ -641,10 +636,6 @@ export function MailComposeWizard({
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
-          {/* 旧「提案前 多重チェック（AI監査）」パネルはマッチ度・スキル等の改善後に不要となり廃止（要望）。
-              precheck/precheckOverride のステートは下位の送信ボタンの disabled/title 条件として残しているが、
-              UI を出さないので恒常的に null=チェック未実施扱いとなる（送信を阻害しない）。 */}
-
           {/* メインの操作行：
               ・通常エージェント（権限なし）：承認者を選んで「📨 承認申請」（メール送信は承認者が行う）
               ・admin/マネージャー/リーダー   ：承認スキップで「📨 メールを送信」を直接押せる */}
@@ -663,15 +654,15 @@ export function MailComposeWizard({
             {!saved ? (
               privileged ? (
                 <button type="button" className="btn brand" onClick={handleSelfApproveAndSend}
-                  disabled={saving || privileged === null || (precheck === "block" && !precheckOverride)}
-                  title={precheck === "block" && !precheckOverride ? "提案前 多重チェックで必須スキルに根拠なし。確認後にチェックを入れて続行できます。" : "承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"}
+                  disabled={saving || privileged === null}
+                  title="承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"
                   style={{ fontWeight: 800 }}>
                   {saving ? "処理中…" : "📨 メールを送信"}
                 </button>
               ) : (
                 <button type="button" className="btn brand" onClick={handleRequestApproval}
-                  disabled={saving || !approver || (precheck === "block" && !precheckOverride)}
-                  title={precheck === "block" && !precheckOverride ? "提案前 多重チェックで必須スキルに根拠なし。確認後にチェックを入れて続行できます。" : (!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`)}
+                  disabled={saving || !approver}
+                  title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
                   style={{ fontWeight: 800 }}>
                   {saving ? "処理中…" : "📨 承認申請"}
                 </button>
