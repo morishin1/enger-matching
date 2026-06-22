@@ -9,14 +9,14 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, deleteProposal } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, deleteProposal, addProposalMemo } from "@/lib/actions";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, CONTACT_CHANNELS, type ContactChannel } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -72,6 +72,53 @@ function MailColumn({ title, side, body, url, accent }: { title: string; side: "
     </div>
   );
 }
+
+// ── コンタクト履歴（連絡手段＋連絡日時＋本文）の保存/表示 ──
+//   既存の proposal_memos テーブル（category="連絡記録"）を再利用し、本文の先頭に
+//   構造化プレフィクスを入れて 手段／連絡日時 を保持する。新規テーブル不要。
+//   形式: "[電話 / 2026-06-22 13:48] メモ本文"
+//   ※ 既存の「連絡記録」メモ（プレフィクス無し）も自然に表示できる（手段=その他、日時=created_at に fallback）。
+const CONTACT_PREFIX_RE = /^\[(電話|メール|LINE|対面|その他(?:：[^\]]+)?)\s*\/\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*/;
+function parseContactBody(body: string): { channel: string; channelOther: string | null; at: Date | null; text: string } {
+  const m = body.match(CONTACT_PREFIX_RE);
+  if (!m) return { channel: "その他", channelOther: null, at: null, text: body };
+  const raw = m[1];
+  let channel = raw;
+  let channelOther: string | null = null;
+  if (raw.startsWith("その他")) {
+    channel = "その他";
+    const idx = raw.indexOf("：");
+    channelOther = idx >= 0 ? raw.slice(idx + 1).trim() : null;
+  }
+  const at = new Date(m[2].replace(" ", "T"));
+  return { channel, channelOther, at: isNaN(at.getTime()) ? null : at, text: body.slice(m[0].length) };
+}
+function formatContactPrefix(channel: ContactChannel, channelOther: string | null, at: Date): string {
+  const ch = channel === "その他" && (channelOther ?? "").trim() ? `その他：${(channelOther ?? "").trim()}` : channel;
+  const yyyy = at.getFullYear();
+  const MM = String(at.getMonth() + 1).padStart(2, "0");
+  const dd = String(at.getDate()).padStart(2, "0");
+  const HH = String(at.getHours()).padStart(2, "0");
+  const mm = String(at.getMinutes()).padStart(2, "0");
+  return `[${ch} / ${yyyy}-${MM}-${dd} ${HH}:${mm}]`;
+}
+// datetime-local 入力（"YYYY-MM-DDTHH:mm"）⇄ Date の相互変換。タイムゾーン誤差を出さないようローカル時刻でフォーマット。
+function dtLocalNow(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const HH = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${MM}-${dd}T${HH}:${mm}`;
+}
+const CONTACT_CHANNEL_TONE: Record<string, { fg: string; bg: string; icon: string }> = {
+  "電話":  { fg: "#0095D9", bg: "#e0f2fe", icon: "call" },
+  "メール": { fg: "#9a3457", bg: "#fdebf2", icon: "mail" },
+  "LINE":  { fg: "#067647", bg: "#e7f7ee", icon: "chat" },
+  "対面":  { fg: "#b45309", bg: "#fff1e6", icon: "groups" },
+  "その他": { fg: "#6b7280", bg: "#f3f4f6", icon: "more_horiz" },
+};
 
 export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any; onClose: () => void; proposers?: string[]; closers?: string[] }) {
   // 選択肢の優先順位：props → 既定の定数。"パートナー"は廃止。
@@ -153,6 +200,31 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     if (!confirm("このメモを削除しますか？")) return;
     start(async () => { const r = await deleteProposalMemo(mid); if (r.ok) loadMemos(); else alert(r.error || "削除に失敗しました"); });
   };
+
+  // コンタクト履歴（連絡手段＋連絡日時＋メモ）。proposal_memos(category="連絡記録") を再利用。
+  const [contactChannel, setContactChannel] = useState<ContactChannel>("電話");
+  const [contactChannelOther, setContactChannelOther] = useState("");
+  const [contactAt, setContactAt] = useState<string>(""); // datetime-local の文字列。空のとき入力欄プレースホルダ。
+  const [contactBody, setContactBody] = useState("");
+  const [contactErr, setContactErr] = useState<string | null>(null);
+  // 連絡日時欄をフォーカス/クリックしたタイミングで未入力なら現在時刻を埋める（要望：クリックで現在時刻が出る）。
+  const setContactAtNow = () => setContactAt(dtLocalNow());
+  const submitContact = () => {
+    setContactErr(null);
+    const dtStr = contactAt || dtLocalNow();
+    const at = new Date(dtStr);
+    if (isNaN(at.getTime())) { setContactErr("連絡日時の形式が不正です"); return; }
+    if (contactChannel === "その他" && !contactChannelOther.trim()) { setContactErr("「その他」の手段を入力してください"); return; }
+    const prefix = formatContactPrefix(contactChannel, contactChannelOther || null, at);
+    const body = `${prefix}${contactBody.trim() ? " " + contactBody.trim() : ""}`;
+    start(async () => {
+      const r = await addProposalMemo(p.id, "連絡記録", body);
+      if (!r.ok) { setContactErr(r.error || "保存に失敗しました"); return; }
+      setContactChannel("電話"); setContactChannelOther(""); setContactAt(""); setContactBody("");
+      loadMemos();
+    });
+  };
+  const contactMemos = memos.filter((m) => m.category === "連絡記録");
 
   const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
   const moveTo = (stage: string) => { if (stage !== p.stage) run(() => updateProposalStage(p.id, stage)); };
@@ -367,10 +439,90 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             )}
           </div>
 
-          {/* メモ履歴（カテゴリ別の対応ログ） */}
+          {/* コンタクト履歴：連絡手段＋連絡日時を構造化して残す。proposal_memos(category="連絡記録")を再利用。
+              既存の「メモ追加」モーダルとは別の専用入口（要望：いつどんな手段で連絡したかの履歴）。 */}
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>contact_phone</span>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>コンタクト履歴</div>
+              {contactMemos.length > 0 && <span className="muted" style={{ fontSize: 11.5 }}>({contactMemos.length})</span>}
+            </div>
+
+            {/* 追加フォーム：手段 / 連絡日時（クリックで現在時刻が入る・手動編集可）/ 任意メモ */}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(120px, 160px) minmax(180px, 240px) 1fr auto", gap: 8, alignItems: "end" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>連絡手段
+                <select value={contactChannel} onChange={(e) => setContactChannel(e.target.value as ContactChannel)}
+                  style={{ fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+                  {CONTACT_CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>連絡日時
+                <input type="datetime-local" value={contactAt}
+                  onFocus={() => { if (!contactAt) setContactAtNow(); }}
+                  onClick={() => { if (!contactAt) setContactAtNow(); }}
+                  onChange={(e) => setContactAt(e.target.value)}
+                  title="クリックすると現在の日時が入ります。手動で編集も可能です。"
+                  style={{ fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>{contactChannel === "その他" ? "手段（手入力）＋メモ" : "メモ（任意）"}
+                {contactChannel === "その他" ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input type="text" placeholder="例: FAX / Slack / Teams …" value={contactChannelOther} onChange={(e) => setContactChannelOther(e.target.value)}
+                      style={{ flex: "0 0 160px", fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                    <input type="text" placeholder="メモ（任意）" value={contactBody} onChange={(e) => setContactBody(e.target.value)}
+                      style={{ flex: 1, fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                  </div>
+                ) : (
+                  <input type="text" placeholder="例: 不通 / 折り返し希望 / 面談OK" value={contactBody} onChange={(e) => setContactBody(e.target.value)}
+                    style={{ fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                )}
+              </label>
+              <button type="button" className="btn brand btn-sm" disabled={pending} onClick={submitContact} style={{ whiteSpace: "nowrap" }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>add</span>
+                追加
+              </button>
+            </div>
+            {contactErr && <div style={{ fontSize: 12, color: "var(--color-danger)", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "8px 11px", marginTop: 8 }}>{contactErr}</div>}
+
+            {/* 履歴リスト */}
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {memosLoading ? (
+                <div className="muted" style={{ fontSize: 12 }}>読み込み中…</div>
+              ) : contactMemos.length === 0 ? (
+                <div className="muted" style={{ fontSize: 12 }}>コンタクト履歴はまだありません。上のフォームから記録できます。</div>
+              ) : (
+                contactMemos.map((m) => {
+                  const parsed = parseContactBody(m.body);
+                  const tone = CONTACT_CHANNEL_TONE[parsed.channel] ?? CONTACT_CHANNEL_TONE["その他"];
+                  // 表示する連絡日時：プレフィクス由来があればそれ、無ければ created_at にフォールバック。
+                  const at = parsed.at ?? new Date(m.created_at);
+                  const atStr = isNaN(at.getTime()) ? "—" : `${at.getFullYear()}/${String(at.getMonth() + 1).padStart(2, "0")}/${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+                  const author = m.created_by_name || (m.created_by_email ? m.created_by_email.split("@")[0] : "");
+                  const channelLabel = parsed.channel === "その他" && parsed.channelOther ? `その他（${parsed.channelOther}）` : parsed.channel;
+                  return (
+                    <div key={m.id} style={{ borderLeft: `3px solid ${tone.fg}`, paddingLeft: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg }}>
+                          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>{tone.icon}</span>
+                          {channelLabel}
+                        </span>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-ink-2)" }}>{atStr}</span>
+                        {author && <span className="muted" style={{ fontSize: 11 }}>{author}</span>}
+                        <button type="button" onClick={() => onDeleteMemo(m.id)} className="btn ghost btn-xs" title="このコンタクト履歴を削除" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>削除</button>
+                      </div>
+                      {parsed.text && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink)" }}>{parsed.text}</div>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* メモ履歴（カテゴリ別の対応ログ）。連絡記録は上の「コンタクト履歴」で扱うのでここでは除外。 */}
+          {(() => { const otherMemos = memos.filter((m) => m.category !== "連絡記録"); return (
           <div className="card" style={{ padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div className="muted" style={{ fontSize: 11.5 }}>メモ履歴 {memos.length > 0 && <span style={{ marginLeft: 4 }}>({memos.length})</span>}</div>
+              <div className="muted" style={{ fontSize: 11.5 }}>メモ履歴 {otherMemos.length > 0 && <span style={{ marginLeft: 4 }}>({otherMemos.length})</span>}</div>
               <button type="button" className="btn ghost btn-sm" onClick={() => setMemoModalOpen(true)} title="新しいメモを追加">
                 <span className="material-symbols-outlined" style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>edit_note</span>
                 メモ追加
@@ -378,11 +530,11 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             </div>
             {memosLoading ? (
               <div className="muted" style={{ fontSize: 12 }}>読み込み中…</div>
-            ) : memos.length === 0 ? (
+            ) : otherMemos.length === 0 ? (
               <div className="muted" style={{ fontSize: 12 }}>メモはまだありません。</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {memos.map((m) => {
+                {otherMemos.map((m) => {
                   const tone = memoCategoryTone(m.category);
                   const dt = new Date(m.created_at);
                   const dtStr = isNaN(dt.getTime()) ? "—" : `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
@@ -402,6 +554,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               </div>
             )}
           </div>
+          ); })()}
 
           {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
           <div className="card" style={{ padding: 16 }}>

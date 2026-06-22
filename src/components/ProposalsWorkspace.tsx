@@ -83,7 +83,8 @@ export function ProposalsWorkspace({
     { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（承認依頼が無くても常に表示・期間フィルタ対象外）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
     { key: "history", label: "提案履歴",   icon: "history",     show: true, title: "提案履歴。期間フィルタで絞り込み。" },
-    { key: "lost",    label: "失注分析",   icon: "monitoring",  show: lostRows.length > 0, title: "見送り/失注の分析。期間フィルタで絞り込み。" },
+    // 失注分析タブは件数 0 でも常に表示する（運用上、確認できる場所を固定したいため）。
+    { key: "lost",    label: "失注分析",   icon: "monitoring",  show: true, title: "見送り/失注の分析。期間フィルタで絞り込み。0件のときも表示。" },
   ];
 
   const PeriodChip = ({ p }: { p: Period }) => {
@@ -172,11 +173,16 @@ export function ProposalsWorkspace({
           <ProposalHistory items={historyRows} proposers={proposers} closers={closers} />
         )}
       </div>
-      {lostRows.length > 0 && (
-        <div style={{ display: tab === "lost" ? "block" : "none" }}>
+      {/* 失注分析タブは常時表示。期間内に対象が無いときは空状態を出す（タブ自体は隠さない）。 */}
+      <div style={{ display: tab === "lost" ? "block" : "none" }}>
+        {lostRows.length === 0 ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+            この期間に見送り/失注はありません。
+          </div>
+        ) : (
           <LostAnalytics history={lostRows} />
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

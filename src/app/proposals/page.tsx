@@ -1,6 +1,5 @@
 import { ProposalsWorkspace } from "@/components/ProposalsWorkspace";
 import { NewProposalButton } from "@/components/NewProposalButton";
-import { FlowSteps } from "@/components/FlowSteps";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
@@ -215,8 +214,6 @@ export default async function ProposalsPage() {
           <NewProposalButton />
         </div>
       </div>
-
-      <FlowSteps current="proposals" sub="ステージ進行・クロージング" />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
