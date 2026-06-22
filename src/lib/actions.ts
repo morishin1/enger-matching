@@ -2454,6 +2454,7 @@ export async function createProposalManual(input: {
   client_contact?: string;
   meeting_date?: string;
   note?: string;
+  source?: string; // 登録元（"line" 等）。LINE登録チェックON時に "line" を渡す。
 }) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
@@ -2515,6 +2516,7 @@ export async function createProposalManual(input: {
   if (input.client_contact?.trim()) insertRow.client_contact = input.client_contact.trim();
   if (input.meeting_date?.trim()) insertRow.meeting_date = input.meeting_date.trim();
   if (input.note?.trim()) insertRow.next_action = input.note.trim();
+  if (input.source?.trim()) insertRow.source = input.source.trim();
   insertRow.stage_updated_at = new Date().toISOString();
 
   let r: any = await admin.from("proposals").insert(insertRow).select("id").single();
@@ -2522,10 +2524,16 @@ export async function createProposalManual(input: {
     const { stage_updated_at: _drop, ...rest } = insertRow;
     r = await admin.from("proposals").insert(rest).select("id").single();
   }
+  // source 列が未整備（proposals-source.sql 未適用）の環境では source を外して再試行。
+  if (r.error && /source|column/i.test(r.error.message) && "source" in insertRow) {
+    const { source: _s, ...rest } = insertRow;
+    r = await admin.from("proposals").insert(rest).select("id").single();
+  }
   if (r.error && /proposer|partner|closer|client_contact|meeting_date|next_action|column/i.test(r.error.message)) {
     const stripped: Record<string, any> = { ...insertRow };
     delete stripped.proposer; delete stripped.partner; delete stripped.closer;
     delete stripped.client_contact; delete stripped.meeting_date; delete stripped.next_action;
+    delete stripped.source;
     r = await admin.from("proposals").insert(stripped).select("id").single();
   }
   if (r.error) return { ok: false as const, error: r.error.message };
