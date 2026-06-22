@@ -133,6 +133,23 @@ export function resolveRange(type: PeriodType, base: Date = new Date(), custom?:
   return { start: f, end: addDays(t, 1) };
 }
 
+/** メンバー別アクティビティ表用の「累計レンジ」を返す。タブごとに以下のルールで集計範囲を拡張する：
+ *   - day  → 「月初〜今日（exclusive: 翌日0時）」… 月初からの累計
+ *   - week → 「月初〜今週末（exclusive: 来週月曜0時）」… 月初からの累計（その週の月曜が属する月で判定）
+ *   - month → 月単体（従来どおり）
+ *   - quarter → その四半期の開始〜終了（従来どおり＝四半期内で累計）
+ *   - custom → 指定範囲そのまま（範囲全体で累計）
+ *   ※ 達成率カード（getKpiSnapshot）には影響させない。表の数値だけ累計に拡張する。 */
+export function cumulativeRange(type: PeriodType, base: Date = new Date(), custom?: { from: string; to: string }): { start: Date; end: Date } {
+  if (type === "day" || type === "week") {
+    const single = resolveRange(type, base);
+    const monthStart = jstStartOfMonth(type === "week" ? jstStartOfWeek(base) : base);
+    return { start: monthStart, end: single.end };
+  }
+  // それ以外は resolveRange と同じ（month=単体、quarter=四半期内、custom=範囲全体）
+  return resolveRange(type, base, custom);
+}
+
 /** 期間内の営業日数（月〜金）。スケーリング用。 */
 export function businessDaysInRange(start: Date, end: Date): number {
   let n = 0;

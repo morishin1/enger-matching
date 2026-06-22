@@ -7,7 +7,7 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, cumulativeRange, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -93,14 +93,19 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const activityMembers = await resolveActivityMembers({
     role: access.role, teamRole: access.teamRole, department: access.department,
   }, { allowMember: true });
+  // メンバー別アクティビティ表は「累計レンジ」で集計する：
+  //   日/週 → 月初〜（その月分のみ累計、新しい月でリセット）／四半期 → 四半期内累計
+  //   任意カレンダー → 範囲そのまま（範囲全体で累計）／月 → 月単体（従来どおり）
+  //   ※ 達成率カード（snapshot）には影響させない（要望スコープ＝表のみ累計）。
+  const cumRange = cumulativeRange(period, new Date(), custom);
   const activity = activityMembers.length > 0
-    ? await getTeamActivity({ start: range.start, end: range.end, members: activityMembers })
+    ? await getTeamActivity({ start: cumRange.start, end: cumRange.end, members: activityMembers })
     : [];
 
-  // メンバー別アクティビティ用のチーム目標（按分済み）と提案者・CLリスト
+  // メンバー別アクティビティ用のチーム目標（累計レンジに按分）と提案者・CLリスト
   const teamWeeklyForBoard = await getWeeklyTargets({ ownerEmail: null, weekStart });
   const teamTarget: Partial<Record<Metric, number>> = {};
-  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeeklyForBoard[m] ?? 0, period === "custom" ? "week" : period, range);
+  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeeklyForBoard[m] ?? 0, "custom", cumRange);
   const proposalOwnersForBoard = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
   const viewerIsManager = canManageDept(access.teamRole);
 
@@ -111,7 +116,14 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
       </div>
       {activity.length > 0 && (
         <div style={{ padding: "0 18px" }}>
-          <TeamActivityBoard rows={activity} periodLabel={PERIOD_LABEL[period]}
+          {/* メンバー別アクティビティ表は累計レンジで集計。表ラベルにも「累計」を明示する。
+              day/week → 月初からの累計、quarter → 四半期内、custom → 期間内、month → 月単体。 */}
+          <TeamActivityBoard rows={activity} periodLabel={
+            period === "day" || period === "week" ? `${PERIOD_LABEL[period]}（月初からの累計）`
+            : period === "quarter" ? `${PERIOD_LABEL[period]}（四半期累計）`
+            : period === "custom" ? `${PERIOD_LABEL[period]}（範囲累計）`
+            : PERIOD_LABEL[period]
+          }
             teamTarget={teamTarget}
             teamWeeklyTarget={teamWeeklyForBoard as Partial<Record<Metric, number>>}
             weekStart={weekStart.toISOString().slice(0, 10)}
