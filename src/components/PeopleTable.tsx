@@ -140,7 +140,9 @@ const PEOPLE_COLS: Col[] = [
   },
   { key: "approved", label: "承認", width: 96, filterKey: "approved", filterLabel: "承認状況", render: (p) => <CompanyApprovalBadge approved={!!p.company_approved} size="xs" /> },
   { key: "skills", label: "スキル", render: (p) => <SkillTags skills={p.skills} /> },
-  { key: "exp", label: "経験", width: 76, render: (p) => <span style={{ fontSize: 12 }}>{p.exp ? (/^\d+$/.test(String(p.exp).trim()) ? `${String(p.exp).trim()}年` : p.exp) : "—"}</span> },
+  // 経験はLINE/AI取込で長文の経歴が入ることがあり一覧の行が崩れるため、既定非表示。
+  //   詳細はドロワー下部の「経験・経歴」ブロックに表示する（表示列メニューで再表示も可）。
+  { key: "exp", label: "経験", width: 76, defaultHidden: true, render: (p) => <span style={{ fontSize: 12 }}>{p.exp ? (/^\d+$/.test(String(p.exp).trim()) ? `${String(p.exp).trim()}年` : p.exp) : "—"}</span> },
   { key: "avail", label: "稼働開始", width: 112, render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.avail ?? "—"}</span> },
   { key: "title", label: "職種", filterKey: "title", filterLabel: "職種", render: (p) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.title ?? "—"}</span> },
   { key: "remote", label: "リモート", width: 130, filterKey: "remote", filterLabel: "リモート", render: (p) => <span className="pill open">{remotePrefLabel(p.remote_pref) ?? "—"}</span> },
@@ -506,7 +508,6 @@ export function PeopleTable({
                 ["ランク", detail.rank ?? ""],
                 ["年代", (detail as any).age_band ?? ""],
                 ["国籍", (detail as any).nationality ? <CandNatBadge key="nat" value={(detail as any).nationality} /> : ""],
-                ["経験", detail.exp ?? ""],
                 ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : "")],
                 ["稼働開始", detail.avail ?? ""],
                 ["リモート希望", remotePrefLabel(detail.remote_pref) ?? ""],
@@ -522,6 +523,16 @@ export function PeopleTable({
                 </div>
               ))}
             </div>
+
+            {/* 経験・経歴：案件詳細と同様に、長文をドロワー下部の独立ブロックで全文表示する。 */}
+            {detail.exp && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>経験・経歴</div>
+                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+                  {/^\d+$/.test(String(detail.exp).trim()) ? `${String(detail.exp).trim()}年` : detail.exp}
+                </div>
+              </div>
+            )}
 
             {detail.note && (
               <div className="card" style={{ padding: 12 }}>
