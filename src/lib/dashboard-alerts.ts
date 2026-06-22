@@ -29,6 +29,8 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
   if (!me) return ACCESS_DENIED;
   const isAdmin = me.role === "admin";
   const isManager = canManageDept(me.teamRole);
+  // 社内メンバー（管理者・営業エージェント）。エンジニアのLP登録は社内全員に周知して面談につなげたい。
+  const isInternal = me.role === "admin" || me.role === "agent";
   const myName = (me.name ?? "").trim();
   const myEmail = (me.email ?? "").trim();
 
@@ -144,8 +146,10 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
     } catch { /* stage_updated_at 列未整備は無視 */ }
   }
 
-  // ⑥ LP登録の未対応（admin のみ・新規エンジニア登録の確認）
-  if (isAdmin) {
+  // ⑥ LPからのエンジニア新規登録（社内メンバー全員に周知＝面談につなげる）。
+  //   要望：エンジニアが登録したらメンバー含め全員がわかるようにアラートを出し、面談できる動きに。
+  //   admin だけでなく営業エージェントにも表示し、面談（/engineers の面談設定・実施）へ誘導する。
+  if (isInternal) {
     try {
       const pub = publicAdmin();
       const since = new Date(Date.now() - 14 * 86400000).toISOString();
@@ -155,12 +159,12 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
       if (n > 0) alerts.push({
         id: "lp_candidates",
         kind: "lp_candidate",
-        severity: "low",
-        title: `LPからのエンジニア新規登録 ${n} 件（直近14日）`,
-        body: "プロフィールを確認し、必要なら承認やフォローを行ってください。",
+        severity: "med",
+        title: `新しいエンジニアのLP登録 ${n} 件（直近14日）`,
+        body: "内容を確認し、面談（面談設定・実施）を進めてください。担当が未対応なら声かけを。",
         count: n,
         href: "/engineers",
-        cta: "LP登録を開く",
+        cta: "エンジニアを確認・面談する",
       });
     } catch { /* public.profiles 未参照環境は無視 */ }
   }
