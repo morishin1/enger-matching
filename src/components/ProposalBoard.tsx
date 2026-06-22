@@ -141,8 +141,21 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         cursor: busy ? "default" : "pointer",
         userSelect: "none",
         transition: "opacity .12s ease",
+        // LINE 提案は背景にうっすら緑のティント＋右上に LINE マークで一目でわかるように
+        background: p.source === "line" ? "linear-gradient(180deg, #f0fbf5 0%, var(--color-surface) 80%)" : undefined,
+        position: "relative",
       }}
     >
+      {p.source === "line" && (
+        <span aria-label="LINE 提案"
+          title="LINE で来た案件・人材の提案"
+          style={{
+            position: "absolute", top: 6, right: 6, zIndex: 1,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 20, height: 20, borderRadius: 6, background: "#06C755", color: "#fff",
+            fontSize: 12, fontWeight: 800, boxShadow: "0 1px 2px rgba(0,0,0,.15)",
+          }}>💬</span>
+      )}
       {compact ? (
         // ── コンパクト表示：1行サマリ（クリックで展開）。1画面に多く収まる。 ──
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -323,7 +336,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   );
 }
 
-export function ProposalBoard({ proposals, members, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
+export function ProposalBoard({ proposals: proposalsAll, members, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -331,6 +344,18 @@ export function ProposalBoard({ proposals, members, proposers, closers }: { prop
   const [overStage, setOverStage] = useState<string | null>(null);
   // 行/カードクリックで開く共通ドロワーの対象（リストと同じ ProposalDetailModal を使う）
   const [active, setActive] = useState<any | null>(null);
+  // 登録元フィルタ。空文字は「すべて」。LINE 注力導線として、ヘッダー直下に
+  //   登録元の絞り込みボタンを置き、LINE のみ／エンジャーのみ／メールのみを切り替えられるようにする。
+  const [sourceFilter, setSourceFilter] = useState<"" | "line" | "enger" | "mail">("");
+  const proposals = sourceFilter ? proposalsAll.filter((p) => (p.source ?? "") === sourceFilter) : proposalsAll;
+  const sourceCounts = (() => {
+    const m = { line: 0, enger: 0, mail: 0, none: 0 } as Record<string, number>;
+    for (const p of proposalsAll) {
+      const s = (p.source ?? "") as string;
+      if (s === "line" || s === "enger" || s === "mail") m[s] += 1; else m.none += 1;
+    }
+    return m;
+  })();
   // 表示密度（コンパクト=1行サマリ、ノーマル=詳細）。localStorage に永続化。
   const [density, setDensity] = useState<"normal" | "compact">("normal");
   useEffect(() => {
@@ -409,6 +434,31 @@ export function ProposalBoard({ proposals, members, proposers, closers }: { prop
             <span><b style={{ fontSize: 14 }}>{avgClosingDays}</b> 日</span>
           </div>
         )}
+        {/* 登録元フィルタ：LINE / エンジャー / メール の絞り込みチップ群。LINE 注力導線として最前面に。 */}
+        <div role="tablist" aria-label="登録元フィルタ" style={{ display: "inline-flex", gap: 6, alignItems: "center", padding: 4, background: "var(--color-surface-inset)", borderRadius: 99 }}>
+          {([
+            { k: "", label: "すべて", color: "var(--color-ink-2)", bg: "var(--color-surface)", n: proposalsAll.length },
+            { k: "line", label: "💬 LINE", color: "#067647", bg: "#e7f7ee", n: sourceCounts.line },
+            { k: "enger", label: "✦ エンジャー", color: "#0b5cab", bg: "#e6f1fb", n: sourceCounts.enger },
+            { k: "mail", label: "✉ メール", color: "#9a3457", bg: "#fdebf2", n: sourceCounts.mail },
+          ] as const).map((it) => {
+            const active = sourceFilter === it.k;
+            return (
+              <button key={it.k} type="button" role="tab" aria-selected={active}
+                onClick={() => setSourceFilter(it.k as any)}
+                style={{
+                  fontFamily: "inherit", fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 99,
+                  cursor: "pointer", border: "1px solid transparent",
+                  color: active ? "#fff" : it.color,
+                  background: active ? it.color : it.bg,
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                }}>
+                <span>{it.label}</span>
+                <span style={{ fontSize: 10, opacity: 0.85 }}>{it.n}</span>
+              </button>
+            );
+          })}
+        </div>
         <div style={{ marginLeft: "auto", display: "inline-flex", gap: 10, alignItems: "center", fontSize: 10.5, color: "var(--color-ink-4)" }}>
           <button type="button" onClick={toggleDensity} className="btn ghost btn-xs" title={density === "compact" ? "詳細表示に切替（カードを大きく）" : "コンパクト表示に切替（1画面に多く収まる）"} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{density === "compact" ? "expand" : "compress"}</span>
