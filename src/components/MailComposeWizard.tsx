@@ -10,7 +10,7 @@ import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
 import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
-import { MatchPrecheckPanel, type PrecheckOverall } from "./MatchPrecheckPanel";
+import type { PrecheckOverall } from "./MatchPrecheckPanel";
 
 function generateToken(): string {
   const bytes = new Uint8Array(24);
@@ -641,18 +641,9 @@ export function MailComposeWizard({
               proposer={proposer} buttonHtml={candButtonHtml}
             />
           </div>
-          {/* 提案前 多重チェック（AI監査）：①必須スキル ②尚可スキル ③経験業務カテゴリを
-              候補テキスト（経歴/PR/スキルシート要約）と照合し、根拠引用付きで判定。
-              必須スキルに根拠ゼロがあれば overall="block" を返し、送信前に営業へ警告。 */}
-          <MatchPrecheckPanel job={job} cand={cand} onResult={(o) => { setPrecheck(o); if (o !== "block") setPrecheckOverride(false); }} />
-          {precheck === "block" && !precheckOverride && (
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#b42318", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 8, padding: "6px 12px", cursor: "pointer" }}>
-                <input type="checkbox" checked={precheckOverride} onChange={(e) => setPrecheckOverride(e.target.checked)} />
-                必須スキルに根拠が無いことを確認のうえ送信する（営業判断で続行）
-              </label>
-            </div>
-          )}
+          {/* 旧「提案前 多重チェック（AI監査）」パネルはマッチ度・スキル等の改善後に不要となり廃止（要望）。
+              precheck/precheckOverride のステートは下位の送信ボタンの disabled/title 条件として残しているが、
+              UI を出さないので恒常的に null=チェック未実施扱いとなる（送信を阻害しない）。 */}
 
           {/* メインの操作行：
               ・通常エージェント（権限なし）：承認者を選んで「📨 承認申請」（メール送信は承認者が行う）
