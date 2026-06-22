@@ -1,62 +1,91 @@
-// LINE 登録（要望②）：LINE 経由で接点ができた人材・案件・提案を1ページに集約。
-//   ・データ源は proposals テーブルの source='line'。
-//   ・LINE で来たやり取りを優先的に確認/フォローする画面として、提案管理とは別の入口にする。
+// LINE 登録：LINE 経由で接点ができた人材・案件を「人材一覧と同じ行レイアウト」で並べる集約ビュー。
+//   ・データ源は proposals テーブルの source='line'。実体は通常の提案と同じで、
+//     提案管理(/proposals)にもそのまま入る（フロー・動きはメール提案と同一）。
+//   ・本ページは LINE 経由の人材／案件を素早く確認するための入口。提案カンバンは出さず、
+//     人材ページと同じ「P-番号 / 新着バッジ / 名前 / 会社 / 未承認 / スキル / 登録日」行で揃える。
 //   ・新規入力（LINE貼り付け）は既存の NewProposalButton をそのまま使う（フォーマット解釈は AI が吸収）。
 import Link from "next/link";
+import { Icons } from "@/components/icons";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { NewProposalButton } from "@/components/NewProposalButton";
-import { ProposalBoard } from "@/components/ProposalBoard";
 import { CopyButton } from "@/components/CopyButton";
 import { getSidebarCounts } from "@/lib/counts";
-import { loadProposalOwners } from "@/lib/proposal-owners";
-import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
-const daysAgo = (iso?: string | null) => {
-  if (!iso) return null;
-  const d = (Date.now() - new Date(iso).getTime()) / 86400000;
-  return Math.floor(d);
+// 人材一覧と同じ鮮度バッジの分類。色は globals.css の .fresh[data-tone] と一致させる。
+function freshnessLabel(d: string | null): "新着" | "3日以内" | "4〜14日前" | "それ以前" {
+  if (!d) return "それ以前";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "それ以前";
+  const days = Math.floor((Date.now() - dt.getTime()) / 86400000);
+  if (days <= 0) return "新着";
+  if (days <= 3) return "3日以内";
+  if (days <= 14) return "4〜14日前";
+  return "それ以前";
+}
+function importDateTime(d: string | null) {
+  if (!d) return null;
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return null;
+  return `${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+}
+function Fresh({ d }: { d: string | null }) {
+  const label = freshnessLabel(d);
+  const tone = label === "新着" ? "new" : label === "3日以内" ? "soon" : label === "4〜14日前" ? "mid" : "old";
+  const dt = importDateTime(d);
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
+      <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>
+      {dt && <span className="muted" style={{ fontSize: 10.5, lineHeight: 1.2 }} title="取込（インポート）日時">{dt}</span>}
+    </span>
+  );
+}
+const fmtDate = (d?: string | null) => {
+  if (!d) return "—";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "—";
+  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
 };
 
 export default async function LinePage() {
-  const [counts, staff, owners] = await Promise.all([getSidebarCounts(), getStaff(), loadProposalOwners()]);
-  let proposals: any[] = [];
-  let lineJobs = new Map<string, { id: string; title: string | null; company: string | null; latest: string | null; n: number }>();
-  let lineCands = new Map<string, { id: string; init: string | null; name: string | null; latest: string | null; n: number }>();
+  const counts = await getSidebarCounts();
   let needSetup = false;
+
+  // LINE 提案を起点に、関連する候補者(candidates)と案件(jobs)を引き、人材一覧と同じ列で表示する。
+  //   ・小規模データ前提（LINE 経由は通常少数）：1往復で proposals を取り、candidate_id / job_id を
+  //     in() で引いて結合する。
+  //   ・proposals.source 列が未整備のときは空集合で案内バナーを出す（バッジ無しで続行）。
+  let candidates: any[] = [];
+  let jobs: any[] = [];
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "id, job_id, candidate_id, job_title, company, candidate_name, c_init, rate, score, stage, created_at, next_action, source, updated_at, stage_updated_at, caller_status, proposer, closer, client_contact, meeting_date, meeting_status";
-      let res: any = await sb.from("proposals").select(base).eq("source", "line").order("created_at", { ascending: false }).limit(400);
-      if (res.error && /source|column/i.test(res.error.message ?? "")) {
-        // source 列未追加環境では空表示にして案内
+      const r: any = await sb.from("proposals").select("id, job_id, candidate_id, source, created_at").eq("source", "line").order("created_at", { ascending: false }).limit(500);
+      if (r.error && /source|column/i.test(r.error.message ?? "")) {
         needSetup = true;
-      } else if (!res.error) {
-        proposals = res.data ?? [];
-        for (const p of proposals) {
-          if (p.job_id) {
-            const cur = lineJobs.get(p.job_id) ?? { id: p.job_id, title: p.job_title, company: p.company, latest: p.created_at, n: 0 };
-            cur.n += 1;
-            if (!cur.latest || (p.created_at && p.created_at > cur.latest)) cur.latest = p.created_at;
-            lineJobs.set(p.job_id, cur);
-          }
-          if (p.candidate_id) {
-            const cur = lineCands.get(p.candidate_id) ?? { id: p.candidate_id, init: p.c_init, name: p.candidate_name, latest: p.created_at, n: 0 };
-            cur.n += 1;
-            if (!cur.latest || (p.created_at && p.created_at > cur.latest)) cur.latest = p.created_at;
-            lineCands.set(p.candidate_id, cur);
-          }
+      } else if (!r.error) {
+        const rows: any[] = r.data ?? [];
+        const candIds = Array.from(new Set(rows.map((p) => p.candidate_id).filter(Boolean))) as string[];
+        const jobIds = Array.from(new Set(rows.map((p) => p.job_id).filter(Boolean))) as string[];
+        if (candIds.length) {
+          // 人材一覧と同じ表示項目（人材ID／登録日／氏名／所属／会社／承認状況／スキル）。
+          //   ・最低限の列で SELECT し、欠落カラムがある環境では段階的フォールバック。
+          let cr: any = await sb.from("candidates").select("id, candidate_no, name, initials, c_init, affiliation, source_company, company, company_approved, created_at, skills").in("id", candIds);
+          if (cr.error) cr = await sb.from("candidates").select("id, candidate_no, name, affiliation, source_company, company, created_at, skills").in("id", candIds);
+          candidates = (cr.error ? [] : (cr.data ?? [])).sort((a: any, b: any) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+        }
+        if (jobIds.length) {
+          let jr: any = await sb.from("jobs").select("id, job_no, title, client_name, created_at, skills").in("id", jobIds);
+          if (jr.error) jr = await sb.from("jobs").select("id, job_no, title, client_name, created_at").in("id", jobIds);
+          jobs = (jr.error ? [] : (jr.data ?? [])).sort((a: any, b: any) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
         }
       }
     } catch { /* ignore: 表示は空で続行 */ }
   }
 
-  const jobs = Array.from(lineJobs.values()).sort((a, b) => (b.latest ?? "").localeCompare(a.latest ?? ""));
-  const cands = Array.from(lineCands.values()).sort((a, b) => (b.latest ?? "").localeCompare(a.latest ?? ""));
-  const activeCount = jobs.length + cands.length;
+  const activeCount = jobs.length + candidates.length;
 
   return (
     <div className="page" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -64,14 +93,11 @@ export default async function LinePage() {
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 8 }}>
-          <span style={{
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            width: 28, height: 28, borderRadius: 8, background: "#06C755", color: "#fff", fontSize: 16,
-          }}>💬</span>
+          <span style={{ lineHeight: 0 }}><Icons.line size={26} /></span>
           LINE登録
         </h1>
         <span className="muted" style={{ fontSize: 12.5 }}>
-          LINE 経由で接点ができた案件・人材・提案をまとめて確認できます。新規は「LINE/メール貼り付け」で素早く取り込み。
+          LINE 経由で接点ができた人材・案件を一覧表示します（フローはメール提案と同じ。提案は提案管理にも入ります）。新規は「LINE/メール貼り付け」で素早く取り込み。
         </span>
         <div style={{ marginLeft: "auto" }}>
           <NewProposalButton />
@@ -84,56 +110,112 @@ export default async function LinePage() {
         </div>
       )}
 
-      {/* サマリ */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-        <Summary label="LINE 提案（合計）" value={proposals.length} />
-        <Summary label="LINE 経由の案件" value={jobs.length} />
-        <Summary label="LINE 経由の人材" value={cands.length} />
-        <Summary label="進行中（見送り/失注以外）" value={proposals.filter((p) => !["見送り", "失注"].includes(p.stage)).length} />
-      </div>
+      {/* LINE 経由の人材（人材一覧と同じ行レイアウト） */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <SectionHeader title="LINE 経由の人材" n={candidates.length} />
+        {candidates.length === 0 ? (
+          <EmptyBox text="まだ LINE 経由の人材はありません。" />
+        ) : (
+          <div className="card flush" style={{ overflowX: "auto" }}>
+            <table className="tbl tbl-compact" style={{ minWidth: 880 }}>
+              <thead>
+                <tr style={{ fontSize: 11, color: "var(--color-ink-4)" }}>
+                  <th style={{ width: 84, textAlign: "left" }}>人材ID</th>
+                  <th style={{ width: 104, textAlign: "left" }}>ステータス</th>
+                  <th style={{ textAlign: "left" }}>氏名</th>
+                  <th style={{ textAlign: "left", width: 220 }}>会社</th>
+                  <th style={{ textAlign: "left", width: 110 }}>承認</th>
+                  <th style={{ textAlign: "left" }}>スキル</th>
+                  <th style={{ textAlign: "left", width: 110 }}>登録日</th>
+                </tr>
+              </thead>
+              <tbody>
+                {candidates.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>P-{String(p.candidate_no ?? 0).padStart(5, "0")}</span>
+                    </td>
+                    <td><Fresh d={p.created_at} /></td>
+                    <td>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <div className="ava">{p.initials || p.c_init || (p.name ?? "?").charAt(0)}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="pri" style={{ color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6 }}>
+                            <Link href={`/people?focus=${encodeURIComponent(p.id)}`} style={{ color: "inherit", textDecoration: "none", fontWeight: 700 }}>{p.name ?? "—"}</Link>
+                            <span title="LINE 経由" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>
+                          </div>
+                          {p.affiliation && <div className="muted" style={{ fontSize: 10.5, marginTop: 1 }}>{p.affiliation}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      {(p.source_company || p.company)
+                        ? <span style={{ fontSize: 12, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }} title={p.source_company || p.company}>{p.source_company || p.company}</span>
+                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                    </td>
+                    <td>
+                      <span className="pill" style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                        background: p.company_approved ? "#e7f7ee" : "#fdecef",
+                        color: p.company_approved ? "#067647" : "#b42318",
+                        border: `1px solid ${p.company_approved ? "#bfe3cc" : "#f7c5cf"}` }}>
+                        {p.company_approved ? "承認済" : "未承認"}
+                      </span>
+                    </td>
+                    <td><SkillTags skills={p.skills} /></td>
+                    <td><span className="muted" style={{ fontSize: 11 }}>{fmtDate(p.created_at)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      {/* LINE 提案ボード */}
-      {proposals.length > 0 && (
-        <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "var(--color-ink-2)" }}>LINE 提案ボード</h2>
-          <ProposalBoard
-            proposals={proposals}
-            members={staff.members}
-            proposers={owners?.proposers ?? staff.members}
-            closers={owners?.closers ?? staff.members}
-          />
-        </section>
-      )}
+      {/* LINE 経由の案件 */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <SectionHeader title="LINE 経由の案件" n={jobs.length} />
+        {jobs.length === 0 ? (
+          <EmptyBox text="まだ LINE 経由の案件はありません。" />
+        ) : (
+          <div className="card flush" style={{ overflowX: "auto" }}>
+            <table className="tbl tbl-compact" style={{ minWidth: 760 }}>
+              <thead>
+                <tr style={{ fontSize: 11, color: "var(--color-ink-4)" }}>
+                  <th style={{ width: 84, textAlign: "left" }}>案件ID</th>
+                  <th style={{ width: 104, textAlign: "left" }}>ステータス</th>
+                  <th style={{ textAlign: "left" }}>案件名</th>
+                  <th style={{ textAlign: "left", width: 220 }}>クライアント</th>
+                  <th style={{ textAlign: "left" }}>スキル</th>
+                  <th style={{ textAlign: "left", width: 110 }}>登録日</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.id}>
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>J-{String(j.job_no ?? 0).padStart(5, "0")}</span></td>
+                    <td><Fresh d={j.created_at} /></td>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Link href={`/jobs?focus=${encodeURIComponent(j.id)}`} style={{ color: "var(--color-brand-700)", textDecoration: "none", fontWeight: 700 }}>{j.title ?? "—"}</Link>
+                        <span title="LINE 経由" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>
+                      </div>
+                    </td>
+                    <td>
+                      {j.client_name
+                        ? <span style={{ fontSize: 12, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }} title={j.client_name}>{j.client_name}</span>
+                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                    </td>
+                    <td><SkillTags skills={j.skills} /></td>
+                    <td><span className="muted" style={{ fontSize: 11 }}>{fmtDate(j.created_at)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      {/* 案件・人材リスト（クリックで個別画面へ） */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14 }}>
-        <ListCard
-          title="LINE 経由の案件"
-          empty="まだ LINE 経由の案件はありません。"
-          rows={jobs.map((j) => ({
-            id: j.id,
-            label: j.title || "（タイトル未設定）",
-            sub: j.company || "—",
-            tail: j.n > 1 ? `${j.n} 件` : null,
-            since: daysAgo(j.latest),
-            href: `/jobs?focus=${encodeURIComponent(j.id)}`,
-          }))}
-        />
-        <ListCard
-          title="LINE 経由の人材"
-          empty="まだ LINE 経由の人材はありません。"
-          rows={cands.map((c) => ({
-            id: c.id,
-            label: c.init ? `${c.init}${c.name ? ` / ${c.name}` : ""}` : (c.name || "（イニシャル未設定）"),
-            sub: null,
-            tail: c.n > 1 ? `${c.n} 件` : null,
-            since: daysAgo(c.latest),
-            href: `/people?focus=${encodeURIComponent(c.id)}`,
-          }))}
-        />
-      </div>
-
-      {/* LINE 文面テンプレ（最低限の雛形を1つ表示し、コピー導線を提供） */}
+      {/* LINE 文面テンプレ */}
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "var(--color-ink-2)" }}>LINE 返信テンプレ（簡易）</h2>
         <p className="muted" style={{ margin: 0, fontSize: 11.5 }}>
@@ -158,45 +240,29 @@ export default async function LinePage() {
   );
 }
 
-function Summary({ label, value }: { label: string; value: number }) {
+function SectionHeader({ title, n }: { title: string; n: number }) {
   return (
-    <div className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-      <span className="muted" style={{ fontSize: 11 }}>{label}</span>
-      <span style={{ fontSize: 22, fontWeight: 800, color: "var(--color-ink)" }}>{value.toLocaleString("ja-JP")}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ lineHeight: 0 }}><Icons.line size={16} /></span>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "var(--color-ink-2)" }}>{title}</h2>
+      <span className="muted" style={{ fontSize: 11.5 }}>{n} 件</span>
     </div>
   );
 }
 
-function ListCard({ title, rows, empty }: {
-  title: string;
-  rows: { id: string; label: string; sub: string | null; tail: string | null; since: number | null; href: string }[];
-  empty: string;
-}) {
+function EmptyBox({ text }: { text: string }) {
+  return <div className="card" style={{ padding: 20, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>{text}</div>;
+}
+
+function SkillTags({ skills }: { skills?: unknown }) {
+  const ss = Array.isArray(skills) ? (skills as string[]).filter(Boolean) : [];
+  if (ss.length === 0) return <span className="muted" style={{ fontSize: 11.5 }}>—</span>;
+  const top = ss.slice(0, 3);
+  const rest = ss.length - top.length;
   return (
-    <div className="card" style={{ padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, background: "#f0fbf5" }}>
-        <span style={{ width: 8, height: 8, borderRadius: 99, background: "#06C755" }} />
-        <span style={{ fontSize: 13, fontWeight: 800 }}>{title}</span>
-        <span className="muted" style={{ marginLeft: "auto", fontSize: 11 }}>{rows.length} 件</span>
-      </div>
-      {rows.length === 0 ? (
-        <div className="muted" style={{ padding: 14, fontSize: 12 }}>{empty}</div>
-      ) : (
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {rows.slice(0, 30).map((r) => (
-            <li key={r.id} style={{ borderTop: "1px solid var(--color-border-soft)" }}>
-              <Link href={r.href} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", textDecoration: "none", color: "inherit" }}>
-                <span style={{ flex: 1, display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</span>
-                  {r.sub && <span className="muted" style={{ fontSize: 11 }}>{r.sub}</span>}
-                </span>
-                {r.tail && <span className="badge" style={{ fontSize: 10 }}>{r.tail}</span>}
-                {r.since != null && <span className="muted" style={{ fontSize: 10 }}>{r.since}日前</span>}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      {top.map((s) => <span key={s} className="tag" style={{ fontSize: 11 }}>{s}</span>)}
+      {rest > 0 && <span className="muted" style={{ fontSize: 11 }}>+{rest}</span>}
     </div>
   );
 }
@@ -205,11 +271,10 @@ function TemplateCard({ title, body }: { title: string; body: string }) {
   return (
     <div className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6, border: "1px solid #bfe3cc", background: "#f0fbf5" }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: "#067647", display: "inline-flex", alignItems: "center", gap: 6 }}>
-        <span>💬</span>{title}
+        <span style={{ lineHeight: 0 }}><Icons.line size={14} /></span>{title}
       </div>
       <pre style={{ margin: 0, fontFamily: "inherit", whiteSpace: "pre-wrap", fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.6 }}>{body}</pre>
       <CopyButton text={body} />
     </div>
   );
 }
-
