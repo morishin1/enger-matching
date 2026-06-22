@@ -8,7 +8,7 @@ import Link from "next/link";
 import { Icons } from "@/components/icons";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
-import { NewProposalButton } from "@/components/NewProposalButton";
+import { CandidateNewLineButton, JobNewLineButton } from "@/components/CsvTools";
 import { CopyButton } from "@/components/CopyButton";
 import { LineTabs } from "@/components/LineTabs";
 import { MailButton } from "@/components/MailButton";
@@ -71,6 +71,21 @@ export default async function LinePage() {
         const rows: any[] = r.data ?? [];
         const candIds = Array.from(new Set(rows.map((p) => p.candidate_id).filter(Boolean))) as string[];
         const jobIds = Array.from(new Set(rows.map((p) => p.job_id).filter(Boolean))) as string[];
+        // 人材/案件の新規登録で「LINE登録」した行（signup_source='line'）も対象に含める。
+        //   ・proposals 由来（candIds/jobIds）と統合し、id 重複は除外。
+        //   ・signup_source 列が無い環境（migration 未適用）は黙ってスキップ（fail-soft）。
+        const directCandIds: string[] = [];
+        const directJobIds: string[] = [];
+        try {
+          const dc: any = await sb.from("candidates").select("id").eq("signup_source", "line").limit(1000);
+          if (!dc.error) for (const x of (dc.data ?? [])) directCandIds.push(x.id);
+        } catch { /* 列なし */ }
+        try {
+          const dj: any = await sb.from("jobs").select("id").eq("signup_source", "line").limit(1000);
+          if (!dj.error) for (const x of (dj.data ?? [])) directJobIds.push(x.id);
+        } catch { /* 列なし */ }
+        for (const id of directCandIds) if (!candIds.includes(id)) candIds.push(id);
+        for (const id of directJobIds) if (!jobIds.includes(id)) jobIds.push(id);
         if (candIds.length) {
           // 人材一覧と同じ表示項目＋アクション用（マッチング/メール/スキルシート）の列。
           //   ・最低限の列で SELECT し、欠落カラムがある環境では段階的フォールバック。
@@ -103,8 +118,10 @@ export default async function LinePage() {
         <span className="muted" style={{ fontSize: 12.5 }}>
           LINE 経由で接点ができた人材・案件を一覧表示します（フローはメール提案と同じ。提案は提案管理にも入ります）。新規は「LINE/メール貼り付け」で素早く取り込み。
         </span>
-        <div style={{ marginLeft: "auto" }}>
-          <NewProposalButton />
+        <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
+          {/* 人材・案件の新規登録（人材/案件ページと同じフォーム）。LINE登録チェックは初期ON。 */}
+          <CandidateNewLineButton />
+          <JobNewLineButton />
         </div>
       </div>
 

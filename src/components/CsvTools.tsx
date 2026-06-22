@@ -470,11 +470,13 @@ function FormTextarea({ label, value, onChange }: { label: string; value?: strin
   );
 }
 
-function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
+function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "candidates" | "jobs"; defaultLine?: boolean; buttonLabel?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // LINE登録チェック。defaultLine=true（/line タブから開いたとき）は初期ON。
+  const [isLine, setIsLine] = useState(defaultLine);
   const [f, setF] = useState<Record<string, string>>({});
   const set = (k: string) => (v: string) => setF((s) => ({ ...s, [k]: v }));
   // 類似候補プレビュー（二重登録/取り違え防止）
@@ -484,7 +486,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
   // LINE/メール 貼り付け取り込み（常時表示。以前は折りたたみだったが、案件側で開かない事象があったため廃止）
   const [pasteText, setPasteText] = useState("");
   const [parsing, setParsing] = useState(false);
-  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); setSimilarJobs([]); setSimilarCands([]); setPasteText(""); } };
+  const close = () => { if (!pending) { setOpen(false); setMsg(null); setF({}); setSimilarJobs([]); setSimilarCands([]); setPasteText(""); setIsLine(defaultLine); } };
 
   // 貼り付けテキストを AI 解析してフォームへ反映（既存入力は上書きしない＝空欄のみ補完）
   const runParse = async () => {
@@ -555,6 +557,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         contact_email: f.contact_email?.trim() || null,
         source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
         operator: getOperator() || null,
+        signup_source: isLine ? "line" : null,
       };
       if (rec.rate) rec.rate_num = numOf(rec.rate);
       start(async () => {
@@ -587,6 +590,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
         contact_email: f.contact_email?.trim() || null,
         source_mail_url: f.source_mail?.trim() ? (gmailMessageUrl(f.source_mail.trim()) ?? null) : null,
         operator: getOperator() || null,
+        signup_source: isLine ? "line" : null,
       };
       start(async () => {
         const res = await upsertJobManual(rec as JobInput);
@@ -606,7 +610,7 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
 
   return (
     <>
-      <button className="btn" onClick={() => setOpen(true)}><Icons.plus /><span>新規登録</span></button>
+      <button className="btn" onClick={() => setOpen(true)}><Icons.plus /><span>{buttonLabel ?? "新規登録"}</span></button>
       {open && (
         <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -727,6 +731,14 @@ function NewEntryButton({ kind }: { kind: "candidates" | "jobs" }) {
                 </div>
               </div>
             )}
+
+            {/* LINE登録チェック：ON で登録経路を LINE（signup_source=line）として保存。
+                LINE登録タブ(/line) に表示され、各所の LINE マークと連動する。 */}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: isLine ? "#067647" : "var(--color-ink-2)", cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${isLine ? "#06C755" : "var(--color-border-strong)"}`, background: isLine ? "#f0fbf5" : "var(--color-surface)", alignSelf: "flex-start" }}>
+              <input type="checkbox" checked={isLine} onChange={(e) => setIsLine(e.target.checked)} style={{ accentColor: "#06C755", width: 16, height: 16 }} />
+              <Icons.line size={16} />
+              LINE登録（LINE経由で受け取った{kind === "candidates" ? "人材" : "案件"}）
+            </label>
 
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -901,6 +913,9 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
 
 export function CandidateNewButton() { return <NewEntryButton kind="candidates" />; }
 export function JobNewButton() { return <NewEntryButton kind="jobs" />; }
+// LINE登録タブ用：人材/案件の新規登録（同じフォーム）を LINE登録チェックON 初期で開く。
+export function CandidateNewLineButton() { return <NewEntryButton kind="candidates" defaultLine buttonLabel="人材を新規登録" />; }
+export function JobNewLineButton() { return <NewEntryButton kind="jobs" defaultLine buttonLabel="案件を新規登録" />; }
 export function CandidateBulkExtractButton() { return <BulkExtractButton kind="candidates" />; }
 export function JobBulkExtractButton() { return <BulkExtractButton kind="jobs" />; }
 
