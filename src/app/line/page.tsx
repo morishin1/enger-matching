@@ -11,6 +11,7 @@ import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { NewProposalButton } from "@/components/NewProposalButton";
 import { CopyButton } from "@/components/CopyButton";
 import { LineTabs } from "@/components/LineTabs";
+import { MailButton } from "@/components/MailButton";
 import { getSidebarCounts } from "@/lib/counts";
 
 export const dynamic = "force-dynamic";
@@ -71,14 +72,16 @@ export default async function LinePage() {
         const candIds = Array.from(new Set(rows.map((p) => p.candidate_id).filter(Boolean))) as string[];
         const jobIds = Array.from(new Set(rows.map((p) => p.job_id).filter(Boolean))) as string[];
         if (candIds.length) {
-          // 人材一覧と同じ表示項目（人材ID／登録日／氏名／所属／会社／承認状況／スキル）。
+          // 人材一覧と同じ表示項目＋アクション用（マッチング/メール/スキルシート）の列。
           //   ・最低限の列で SELECT し、欠落カラムがある環境では段階的フォールバック。
-          let cr: any = await sb.from("candidates").select("id, candidate_no, name, initials, c_init, affiliation, source_company, company, company_approved, created_at, skills").in("id", candIds);
+          let cr: any = await sb.from("candidates").select("id, candidate_no, name, initials, c_init, affiliation, source_company, company, company_approved, created_at, skills, email, contact_email, source_mail_url, skill_sheet_url, is_closed").in("id", candIds);
+          if (cr.error) cr = await sb.from("candidates").select("id, candidate_no, name, initials, c_init, affiliation, source_company, company, company_approved, created_at, skills").in("id", candIds);
           if (cr.error) cr = await sb.from("candidates").select("id, candidate_no, name, affiliation, source_company, company, created_at, skills").in("id", candIds);
           candidates = (cr.error ? [] : (cr.data ?? [])).sort((a: any, b: any) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
         }
         if (jobIds.length) {
-          let jr: any = await sb.from("jobs").select("id, job_no, title, client_name, created_at, skills").in("id", jobIds);
+          let jr: any = await sb.from("jobs").select("id, job_no, title, client_name, created_at, skills, contact_email, source_mail_url, is_closed").in("id", jobIds);
+          if (jr.error) jr = await sb.from("jobs").select("id, job_no, title, client_name, created_at, skills").in("id", jobIds);
           if (jr.error) jr = await sb.from("jobs").select("id, job_no, title, client_name, created_at").in("id", jobIds);
           jobs = (jr.error ? [] : (jr.data ?? [])).sort((a: any, b: any) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
         }
@@ -122,7 +125,7 @@ export default async function LinePage() {
           <EmptyBox text="まだ LINE 経由の人材はありません。" />
         ) : (
           <div className="card flush" style={{ overflowX: "auto" }}>
-            <table className="tbl tbl-compact" style={{ minWidth: 880 }}>
+            <table className="tbl tbl-compact" style={{ minWidth: 1020 }}>
               <thead>
                 <tr style={{ fontSize: 11, color: "var(--color-ink-4)" }}>
                   <th style={{ width: 84, textAlign: "left" }}>人材ID</th>
@@ -132,6 +135,7 @@ export default async function LinePage() {
                   <th style={{ textAlign: "left", width: 110 }}>承認</th>
                   <th style={{ textAlign: "left" }}>スキル</th>
                   <th style={{ textAlign: "left", width: 110 }}>登録日</th>
+                  <th style={{ textAlign: "left", width: 132 }}>アクション</th>
                 </tr>
               </thead>
               <tbody>
@@ -168,6 +172,24 @@ export default async function LinePage() {
                     </td>
                     <td><SkillTags skills={p.skills} /></td>
                     <td><span className="muted" style={{ fontSize: 11 }}>{fmtDate(p.created_at)}</span></td>
+                    <td>
+                      {/* マッチング / メール / スキルシート（人材一覧と同じアクション） */}
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {!p.is_closed && p.candidate_no != null && (
+                          <Link href={`/matching?person=${p.candidate_no}`} className="btn btn-xs" title="マッチング" aria-label="マッチング"
+                            style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
+                          </Link>
+                        )}
+                        <MailButton url={p.source_mail_url} search={[p.name, p.source_company].filter(Boolean).join(" ") || p.name} to={p.email ?? p.contact_email} />
+                        {p.skill_sheet_url && (
+                          <a href={p.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート"
+                            style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>description</span>
+                          </a>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -183,7 +205,7 @@ export default async function LinePage() {
           <EmptyBox text="まだ LINE 経由の案件はありません。" />
         ) : (
           <div className="card flush" style={{ overflowX: "auto" }}>
-            <table className="tbl tbl-compact" style={{ minWidth: 760 }}>
+            <table className="tbl tbl-compact" style={{ minWidth: 900 }}>
               <thead>
                 <tr style={{ fontSize: 11, color: "var(--color-ink-4)" }}>
                   <th style={{ width: 84, textAlign: "left" }}>案件ID</th>
@@ -192,6 +214,7 @@ export default async function LinePage() {
                   <th style={{ textAlign: "left", width: 220 }}>クライアント</th>
                   <th style={{ textAlign: "left" }}>スキル</th>
                   <th style={{ textAlign: "left", width: 110 }}>登録日</th>
+                  <th style={{ textAlign: "left", width: 100 }}>アクション</th>
                 </tr>
               </thead>
               <tbody>
@@ -212,6 +235,18 @@ export default async function LinePage() {
                     </td>
                     <td><SkillTags skills={j.skills} /></td>
                     <td><span className="muted" style={{ fontSize: 11 }}>{fmtDate(j.created_at)}</span></td>
+                    <td>
+                      {/* マッチング / メール（案件一覧と同じアクション。案件にスキルシートは無い） */}
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {!j.is_closed && j.job_no != null && (
+                          <Link href={`/matching?job=${j.job_no}`} className="btn btn-xs" title="マッチング" aria-label="マッチング"
+                            style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
+                          </Link>
+                        )}
+                        <MailButton url={j.source_mail_url} search={[j.client_name, j.title].filter(Boolean).join(" ") || j.title} to={j.contact_email} />
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
