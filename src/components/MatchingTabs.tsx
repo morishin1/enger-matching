@@ -13,6 +13,9 @@ const TABS = [
   { key: "matching", href: "/matching", label: "マッチング" },
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
+  // LINE 経由で来た案件・人材を集約する専用タブ（要望②に基づく LINE 注力導線）。
+  // ラベル先頭の絵文字は LINE ブランドを想起させる吹き出し。色はメニューで brand に従う。
+  { key: "line", href: "/line", label: "💬 LINE登録" },
   { key: "engineers", href: "/engineers", label: "LP登録" },
 ] as const;
 
@@ -22,6 +25,7 @@ function activeFromPath(path: string): TabKey | null {
   if (path.startsWith("/matching")) return "matching";
   if (path.startsWith("/jobs")) return "jobs";
   if (path.startsWith("/people")) return "people";
+  if (path.startsWith("/line")) return "line";
   if (path.startsWith("/engineers")) return "engineers";
   return null;
 }
@@ -48,12 +52,14 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
     matching: undefined,
     jobs: counts?.jobs,
     people: counts?.people,
+    line: (counts as any)?.line,
     engineers: counts?.engineers,
   };
   const newOf: Record<TabKey, number | undefined> = {
     matching: undefined,
     jobs: counts?.newJobs,
     people: counts?.newPeople,
+    line: (counts as any)?.newLine,
     engineers: counts?.newEngineers,
   };
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
