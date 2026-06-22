@@ -6,7 +6,7 @@
 import Link from "next/link";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { getTeamActivity } from "@/lib/team-activity";
-import { resolveRange, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, METRIC_ORDER, type Metric } from "@/lib/kpi";
+import { cumulativeRange, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, METRIC_ORDER, type Metric } from "@/lib/kpi";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { canManageDept } from "@/lib/roles";
 import { TeamActivityBoard } from "./TeamActivityBoard";
@@ -17,14 +17,15 @@ export async function MemberActivitySection({ access }: {
   const members = await resolveActivityMembers(access);
   if (members.length === 0) return null;
 
-  const { start, end } = resolveRange("day");
+  // 「今日」タブ相当を月初からの累計レンジで集計（KPI推移と同じ仕様）。
+  const { start, end } = cumulativeRange("day");
   const rows = await getTeamActivity({ start, end, members });
 
-  // チーム目標（按分済み）と提案者・CL リストを取得
+  // チーム目標（累計レンジに按分）と提案者・CL リストを取得
   const weekStart = jstStartOfWeek(new Date());
   const teamWeekly = await getWeeklyTargets({ ownerEmail: null, weekStart });
   const teamTarget: Partial<Record<Metric, number>> = {};
-  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeekly[m] ?? 0, "day", { start, end });
+  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeekly[m] ?? 0, "custom", { start, end });
   const owners = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
 
   return (
@@ -32,7 +33,7 @@ export async function MemberActivitySection({ access }: {
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
         <Link href="/kpi" className="btn ghost btn-xs" style={{ textDecoration: "none" }}>📊 KPI推移・目標を編集 →</Link>
       </div>
-      <TeamActivityBoard rows={rows} periodLabel="今日"
+      <TeamActivityBoard rows={rows} periodLabel="今日（月初からの累計）"
         teamTarget={teamTarget}
         teamWeeklyTarget={teamWeekly as Partial<Record<Metric, number>>}
         weekStart={weekStart.toISOString().slice(0, 10)}
