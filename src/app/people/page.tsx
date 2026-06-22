@@ -119,7 +119,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         const sb = engerClient();
         // note / email / contact_email / source_mail_url / skill_sheet_url / rank はドロワー（モーダル）で
         //   ・備考の表示（要望⑥）・元メールボタン（要望①）・スキルシートボタンなどに使う。
-        const cols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, source_mail_url, skill_sheet_url, is_focus, created_at, owner_company, shared";
+        const cols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, created_at, owner_company, shared";
         const ownedRes: any = await sb.from("candidates").select(cols).eq("owner_company", scope.ownerKey).order("candidate_no", { ascending: false }).limit(1000);
         const sharedRes: any = await sb.from("candidates").select(cols).eq("shared", true).order("candidate_no", { ascending: false }).limit(1000);
         if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
@@ -138,7 +138,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       // ドロワー（モーダル）表示の備考・元メール・スキルシートに必要な列を含める。
-      const baseCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, source_mail_url, skill_sheet_url, is_focus, created_at";
+      const baseCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, created_at";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;

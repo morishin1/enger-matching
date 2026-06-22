@@ -111,6 +111,7 @@ export type CandidateInput = {
   skill_sheet_url?: string | null;
   email?: string | null;          // 人材本人の連絡先（あれば）
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
+  contact_name?: string | null;   // 窓口担当者名（SES窓口・エージェント担当者）。jobs.contact_name と対称。
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
   source_mail_subject?: string | null; // 元メール件名（メール送信時の Re: 件名生成・返信スレッド統合に利用）
   source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
@@ -2379,6 +2380,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     skill_sheet_url: rec.skill_sheet_url?.trim() || null,
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
+    contact_name: rec.contact_name?.trim() || null,
     source_mail_url: rec.source_mail_url?.trim() || null,
     source_mail_subject: rec.source_mail_subject?.trim() || null,
     source_mail_at: rec.source_mail_at ?? null,
@@ -2390,7 +2392,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.contact_name; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -2905,6 +2907,7 @@ const PASTE_CAND_PROMPT = (text: string) => `次の文章は「人材（エン�
   "age_band": "年代(例: 20代/30代前半/40代後半)" | null,
   "nationality": "国籍(例: 日本/中国/ベトナム)" | null,
   "rank": "ランク(例: A/B/C / 上級/中級/初級)" | null,
+  "contact_name": "窓口担当者名（SES窓口・エージェント担当者の氏名）" | null,
   "contact_email": "窓口メール（返信先）" | null,
   "source_mail_url": "元メールのURLまたは Gmail メッセージID" | null,
   "note": "備考（LINE/メールの原文要約や、本人連絡先・特記事項などの自由テキスト）"
@@ -2972,6 +2975,7 @@ export async function parseEntityText(kind: "candidates" | "jobs", text: string)
     fields.age_band = s(d.age_band);
     fields.nationality = s(d.nationality);
     fields.rank = s(d.rank);
+    fields.contact_name = s(d.contact_name);
     fields.contact_email = s(d.contact_email);
     fields.source_mail = s(d.source_mail_url);
     fields.note = s(d.note);

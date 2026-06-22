@@ -525,6 +525,7 @@ export function PeopleTable({
                   ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={detail.source_company || detail.company} approved={!!detail.company_approved} badge badgeSize="xs" />{detail.affiliation ? <span className="muted" style={{ fontSize: 11.5 }}>（{detail.affiliation}）</span> : null}</span>
                   : (detail.affiliation ?? "")],
                 ["連絡先", detail.email ?? detail.contact_email ?? ""],
+                ["窓口担当者", (detail as any).contact_name ?? ""],
               ] as [string, React.ReactNode][]).map(([label, value]) => (
                 <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
                   <div className="muted" style={{ fontSize: 12 }}>{label}</div>
