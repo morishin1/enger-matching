@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ProposalsPage() {
   let proposals: any[] = [];
+  let lost = 0;
   let dbError: string | null = null;
   let needSetup = false;
   // 提案開始件数（created_at 基準）。ステージ移動の影響を受けず一貫してカウントする。
@@ -28,6 +29,7 @@ export default async function ProposalsPage() {
   const canApprove = !access || access.role === "admin" || canManageDept(access.teamRole ?? null);
   const currentUserName = access?.name ?? null;
   const ownersInitial = proposalOwners ?? { proposers: staff.members, closers: staff.members };
+  let lostRows: any[] = [];
   let history: any[] = [];
   let analyticsRows: any[] = [];
   let feedbackList: { verdict: Verdict; reason: string | null; c_init: string; job_title: string; company: string; updated_at: string }[] = [];
@@ -35,47 +37,42 @@ export default async function ProposalsPage() {
     try {
       const sb = engerClient();
       const base = "id, job_id, candidate_id, job_title, company, candidate_name, c_init, rate, score, stage, created_at, next_action";
-      // ボード/承認に出す「進行中」ステージのみを取得（終了系=見送り/失注/稼働は失注分析タブで別途
-      //   /api/proposals/list?mode=analytics から取る）。これで件数が 400→約100件に激減し、後続の
-      //   案件/人材/企業マスタ IN も同じだけ軽くなる。TTFB 1.9s→800ms（索引追加）の残りの主因。
-      const ACTIVE_STAGES = ["承認待ち", "所属確認", "提案中", "面談", "合格"];
-      const activeStage = (q: any) => q.in("stage", ACTIVE_STAGES);
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
-      let res: any = await activeStage(sb.from("proposals")
-        .select(`${base}, company_contact, cand_company, cand_company_contact, cand_contact, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`))
+      let res: any = await sb.from("proposals")
+        .select(`${base}, company_contact, cand_company, cand_company_contact, cand_contact, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`)
         .order("created_at", { ascending: false }).limit(400);
       // 連絡先の追加列（proposals-contacts.sql 未適用）だけが無い場合は、承認列は残したまま連絡先列のみ外して再試行。
       if (res.error && /company_contact|cand_company|cand_contact/i.test(res.error?.message ?? "")) {
-        res = await activeStage(sb.from("proposals")
-          .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`))
+        res = await sb.from("proposals")
+          .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`)
           .order("created_at", { ascending: false }).limit(400);
       }
       if (res.error && /approver|approval_status|company_contact|cand_company|cand_contact|column/i.test(res.error?.message ?? "")) {
         // 承認チェック列が未マイグレ → 旧SELECTで再試行
-        res = await activeStage(sb.from("proposals")
-          .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type`))
+        res = await sb.from("proposals")
+          .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type`)
           .order("created_at", { ascending: false }).limit(400);
       }
-      if (res.error) res = await activeStage(sb.from("proposals")
-        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type`))
+      if (res.error) res = await sb.from("proposals")
+        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type`)
         .order("created_at", { ascending: false }).limit(400);
-      if (res.error) res = await activeStage(sb.from("proposals")
-        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, source`))
+      if (res.error) res = await sb.from("proposals")
+        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, source`)
         .order("created_at", { ascending: false }).limit(400);
-      if (res.error) res = await activeStage(sb.from("proposals")
-        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status, source`))
+      if (res.error) res = await sb.from("proposals")
+        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status, source`)
         .order("created_at", { ascending: false }).limit(400);
-      if (res.error) res = await activeStage(sb.from("proposals")
-        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`))
+      if (res.error) res = await sb.from("proposals")
+        .select(`${base}, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
-      if (res.error) res = await activeStage(sb.from("proposals")
-        .select(`${base}, updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`))
+      if (res.error) res = await sb.from("proposals")
+        .select(`${base}, updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
       // partner / updated_at 列が無い環境でも落ちないようフォールバック
-      if (res.error) res = await activeStage(sb.from("proposals")
-        .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`))
+      if (res.error) res = await sb.from("proposals")
+        .select(`${base}, caller_status, proposer, closer, client_contact, lost_reason, lost_phase, meeting_date, meeting_status`)
         .order("created_at", { ascending: false }).limit(400);
-      if (res.error) res = await activeStage(sb.from("proposals").select(base)).order("created_at", { ascending: false }).limit(400);
+      if (res.error) res = await sb.from("proposals").select(base).order("created_at", { ascending: false }).limit(400);
       if (res.error) {
         needSetup = true;
       } else {
@@ -175,10 +172,10 @@ export default async function ProposalsPage() {
             p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));
           }
         } catch { /* 列未整備でも続行 */ }
-        // 終了系は all に入らない（活性ステージで絞っているため）。
-        // 旧: lostRows / lost の集計はここで作っていたが現在使われておらず、削除。
-        // ボードは all をそのまま使う（all=進行中のみ）。
-        proposals = all;
+        // 稼働化済(稼働/旧稼働決定)・見送り・失注 はボードから除外
+        proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
+        lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
+        lost = lostRows.length;
         // 提案履歴 / 失注分析 はタブを開いた時に /api/proposals/list で個別取得する遅延ロードに変更。
         //   従来は all（最大400件）から派生した history / analyticsRows を props でブラウザへ送っており、
         //   ボード(68)に加え履歴326+失注258ぶんの JSON が初期転送され、egress 急増（5GB/月のうち
