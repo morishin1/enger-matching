@@ -3,13 +3,16 @@ import { engerAdmin, engerClient, dbConfigured, publicAdmin, authAdmin } from ".
 import { authServerClient, authConfigured } from "./supabase-auth";
 import { type Role, type AccountStatus, canAccess, roleHome, isExecDepartment } from "./roles";
 
-/** 1リクエスト内でログインユーザーのメールを1回だけ解決（layout と各ページの二重 getUser を防ぐ）。 */
+/** 1リクエスト内でログインユーザーのメールを1回だけ解決（layout と各ページの二重 getUser を防ぐ）。
+ *  getClaims: JWT をローカル検証（非対称署名キー時は Auth API への HTTP 往復ゼロ）。getUser だと
+ *  ページ描画のたびに Auth API へ往復し、混雑時に数百ms〜1.5秒の待ちが積み上がっていた。
+ *  ※署名は JWKS で検証＝偽造は弾く。アカウント有効/無効・ロールは resolveAccess(app_users) で別途確認。*/
 export const getSessionEmail = cache(async (): Promise<string> => {
   if (!authConfigured) return "";
   try {
     const sb = await authServerClient();
-    const { data: { user } } = await sb.auth.getUser();
-    return user?.email?.toLowerCase() ?? "";
+    const { data } = await sb.auth.getClaims();
+    return (data?.claims?.email as string | undefined)?.toLowerCase() ?? "";
   } catch { return ""; }
 });
 
