@@ -3,7 +3,7 @@
 //   期間は「今日」。メンバーは staff(active) ∪ proposal_owners で解決し、各自の週次目標を按分。
 //   詳細・期間切替は /kpi へ。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { getTeamActivity } from "@/lib/team-activity";
 import { cumulativeRange, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, METRIC_ORDER, type Metric } from "@/lib/kpi";

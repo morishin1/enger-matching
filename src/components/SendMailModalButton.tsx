@@ -5,7 +5,7 @@
 //   別タブで /mail-compose（全画面ウィザード）を開く方式に統一。
 //   ※ コンポーネント名は呼び出し元との互換のためそのまま（実体はリンクボタン）。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { CSSProperties } from "react";
 
 export function SendMailModalButton({ job, cand, score, label = "📤 送信する（クライアント＋人材へ）", style }:

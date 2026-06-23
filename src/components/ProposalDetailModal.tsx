@@ -7,7 +7,7 @@
 //   - 編集フィールド（提案者/パートナー/クロージング/架電/面談）と保存・稼働化・見送り
 //   既存のサーバアクションを再利用（カンバンの編集パネルと同等の操作を提供）。
 import { useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, deleteProposal, addProposalMemo } from "@/lib/actions";
 import { gmailMessageUrl } from "@/lib/gmail";

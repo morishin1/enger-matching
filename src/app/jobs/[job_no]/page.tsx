@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { FlowSteps } from "@/components/FlowSteps";

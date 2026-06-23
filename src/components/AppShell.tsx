@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { Sidebar } from "./Sidebar";
 import { OperatorBadge } from "./OperatorBadge";
 import { HelpButton } from "./HelpButton";

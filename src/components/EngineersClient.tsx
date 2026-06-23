@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";

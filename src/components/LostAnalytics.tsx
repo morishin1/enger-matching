@@ -10,7 +10,7 @@
 // 「そもそも連絡する意味あるのか？」を score = 勝率×0.7 + 接触の新しさ×0.3 で判定。
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 
 type HItem = {
   id: string;

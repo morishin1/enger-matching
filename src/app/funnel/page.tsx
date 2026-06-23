@@ -1,7 +1,7 @@
 // ファネル（転換率）分析ページ。管理者・マネージャー/リーダー向け。
 //   Phase 0：自社の歩留まりを知る → ボトルネック特定 → KGIからKPI逆算の早見表。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { redirect } from "next/navigation";
 import { currentAccess } from "@/lib/accounts";
 import { FlowSteps } from "@/components/FlowSteps";

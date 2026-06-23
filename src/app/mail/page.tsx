@@ -10,7 +10,7 @@ import { MailboxClient } from "@/components/MailboxClient";
 import { MailLogClient } from "@/components/MailLogClient";
 import { NextStepLink } from "@/components/NextStepLink";
 import { FlowSteps } from "@/components/FlowSteps";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 
 export const dynamic = "force-dynamic";
 

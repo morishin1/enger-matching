@@ -7,7 +7,7 @@
 // 完了ステップ：緑のチェック。
 // 次ステップ：薄いブランド枠で「ここへ進む」を示唆。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 
 export type FlowStepKey = "mail" | "data" | "matching" | "proposals" | "progress";
 type Step = { key: FlowStepKey; label: string; icon: string; href: string; hint: string };

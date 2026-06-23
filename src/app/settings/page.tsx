@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
 import { MatchWindowEditor } from "@/components/MatchWindowEditor";

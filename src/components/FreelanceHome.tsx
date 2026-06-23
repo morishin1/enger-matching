@@ -1,7 +1,7 @@
 // 副業エージェント(freelance)向けホーム（ag.enger.jp）。
 //   - 報酬ダッシュボード（自分が登録した人材/案件で稼働中の月額 × ％）
 //   - 主要メニューへの導線
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { getFreelanceCommission } from "@/lib/commission";
 
 const yen = (man: number) => (man >= 10000 ? `${(man / 10000).toFixed(2)}億円` : `${man.toLocaleString("ja-JP", { maximumFractionDigits: 1 })}万円`);

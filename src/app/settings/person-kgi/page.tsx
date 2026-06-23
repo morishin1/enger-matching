@@ -4,7 +4,7 @@
 //   その他: アクセス不可
 
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { currentAccess, listAccounts } from "@/lib/accounts";
 import { canManageDept, DEPARTMENTS } from "@/lib/roles";
 import { listPersonKgi, monthKey, businessDaysInMonth } from "@/lib/person-kgi";

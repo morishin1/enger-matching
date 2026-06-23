@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";

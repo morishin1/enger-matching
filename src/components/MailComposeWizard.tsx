@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, Fragment, type CSSProperties } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useSearchParams } from "next/navigation";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft } from "@/lib/actions";

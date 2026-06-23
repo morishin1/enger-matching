@@ -3,7 +3,7 @@
 //   逆算した「今日の提案目標」と「今月の稼働化進捗」を併記する。
 //   これを毎日チェックすることで、活動量(KPI)と成果(KGI)が日次でつながる。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { MeScorecard } from "@/lib/me-scorecard";
 
 type Tone = "brand" | "neutral" | "accent";

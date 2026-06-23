@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useActionState } from "react";
 import { updatePassword, type ResetState } from "../login/actions";
 

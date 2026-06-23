@@ -5,7 +5,7 @@
 //   上位10件の案件を AI が人材視点で文脈評価して並べ替える（/api/match-rerank-jobs）。
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 
 function Stars({ score }: { score: number }) {

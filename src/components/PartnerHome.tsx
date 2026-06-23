@@ -4,7 +4,7 @@
 //   - 直近の動き（登録履歴・最近のマッチング提案）
 //   - 大型CTA: 案件登録 / 人材登録 / マッチング開始
 //   他社情報は出さない（匿名化済みのカウント値のみ）。
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
 type Stats = {

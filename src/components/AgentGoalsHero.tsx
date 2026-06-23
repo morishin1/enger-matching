@@ -5,7 +5,7 @@
 //   ・KGI未設定なら『マネージャーに目標設定を依頼』を明示
 //   getMyScorecard() の集計を再利用するためサーバー側で MeScorecard を作って渡す。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { MeScorecard } from "@/lib/me-scorecard";
 import { businessDaysInMonth, monthKey } from "@/lib/person-kgi";
 

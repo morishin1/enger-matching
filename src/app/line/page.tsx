@@ -4,7 +4,7 @@
 //   ・本ページは LINE 経由の人材／案件を素早く確認するための入口。提案カンバンは出さず、
 //     人材ページと同じ「P-番号 / 新着バッジ / 名前 / 会社 / 未承認 / スキル / 登録日」行で揃える。
 //   ・新規入力（LINE貼り付け）は既存の NewProposalButton をそのまま使う（フォーマット解釈は AI が吸収）。
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";

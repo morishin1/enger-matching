@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { listNotifications } from "@/lib/notifications";
 

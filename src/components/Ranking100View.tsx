@@ -5,7 +5,7 @@
 //   ・左：案件詳細／右：人材詳細／上部：一致スキル・案件のみ・人材のみのスキル比較。
 //   ・ドロワーから「→ 提案画面」「案件ページへ」「人材ページへ」も開ける。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useEffect, useState } from "react";
 import type { RankedPair, DimStatus } from "@/lib/ranking100";
 

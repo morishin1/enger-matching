@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 
 // 企業名を企業詳細（/companies/[name]）へのリンクにする。任意で承認バッジを併記。
