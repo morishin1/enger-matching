@@ -105,6 +105,8 @@ const JOB_COLS: Col[] = [
     render: (j) => (
       <div className="pri" style={{ lineHeight: 1.4, color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
         <span>{j.title}</span>
+        {/* LINE登録（signup_source='line'）はLINEマークで一目で識別できるようにする。 */}
+        {j.signup_source === "line" && <span title="LINE経由で登録" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>}
         {j.is_published === false && <span className="tag" style={{ fontSize: 9.5, padding: "1px 6px", background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", flexShrink: 0 }}>非公開</span>}
         {j.has_proposal && <span className="tag" title="この案件で提案実績があります。削除に注意してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", flexShrink: 0 }}>提案あり</span>}
       </div>
@@ -142,7 +144,7 @@ type Opt = { value: string; label: string };
 
 export function JobsTable({
   rows, page, pageCount, total, pageSize, query, filters, filterOptions,
-  outsideOptions = [], partner = false, meetingDone = true,
+  outsideOptions = [], partner = false, meetingDone = true, initialDetail,
 }: {
   rows: any[];
   page: number;          // 1-based
@@ -155,6 +157,8 @@ export function JobsTable({
   outsideOptions?: string[];
   partner?: boolean;
   meetingDone?: boolean;
+  // ?focus=<id> でサーバ側 fetch した案件。指定があれば初期表示でドロワーを開く（現ページ外でも開ける）。
+  initialDetail?: any | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -255,8 +259,9 @@ export function JobsTable({
     setTimeout(() => setDeleteMsg(null), 4000);
   };
 
-  // 詳細ドロワー
-  const [detail, setDetail] = useState<any | null>(null);
+  // 詳細ドロワー：?focus=<id> 経由ならサーバ側で fetch した initialDetail を初期表示する
+  //   （現ページの rows に居ない案件でもドロワーが開く）。
+  const [detail, setDetail] = useState<any | null>(initialDetail ?? null);
   // 行データ(rows)が更新されたら、開いている詳細ドロワーも最新の行で同期する。
   //   ※ 編集→保存→router.refresh() で rows は最新化されるが、detail は古い参照のままになる事故対策。
   useEffect(() => {
@@ -264,14 +269,6 @@ export function JobsTable({
     const fresh = rows.find((r) => r.job_no === detail.job_no);
     if (fresh && fresh !== detail) setDetail(fresh);
   }, [rows, detail?.job_no]);
-  // ?focus=<id|job_no> で対応行のドロワーを自動オープン（LINE登録ページからの遷移用）。
-  //   既存の案件一覧と同じ「クリック→モーダル」の体験を、別ページからの遷移後にも提供する。
-  const focusParam = searchParams?.get("focus") ?? null;
-  useEffect(() => {
-    if (!focusParam || detail) return;
-    const hit = rows.find((r) => String(r.id ?? "") === focusParam || String(r.job_no ?? "") === focusParam);
-    if (hit) setDetail(hit);
-  }, [focusParam, rows, detail]);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
     if (!detail) { setDrawerIn(false); return; }
@@ -466,6 +463,7 @@ export function JobsTable({
                 <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(detail.job_no ?? 0).padStart(5, "0")}</span>
+                  {detail.signup_source === "line" && <span title="LINE経由で登録" style={{ display: "inline-flex", alignItems: "center", lineHeight: 0 }}><Icons.line size={14} /></span>}
                   {detail.is_closed && <ClosedBadge size="xs" />}
                   {!partner && detail.client_name && <CompanyApprovalBadge approved={!!detail.client_approved} size="xs" />}
                 </h3>

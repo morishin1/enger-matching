@@ -121,6 +121,8 @@ const PEOPLE_COLS: Col[] = [
           <div style={{ minWidth: 0 }}>
             <div className="pri" style={{ color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               <span>{p.name}</span>
+              {/* LINE登録（signup_source='line'）はLINEマークで一目で識別できるようにする。 */}
+              {p.signup_source === "line" && <span title="LINE経由で登録" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>}
               {p.has_proposal && <span className="tag" title="この人材で提案実績があります。削除に注意してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", flexShrink: 0 }}>提案あり</span>}
             </div>
             {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
@@ -176,7 +178,7 @@ const PEOPLE_COLS: Col[] = [
 type Opt = { value: string; label: string };
 
 export function PeopleTable({
-  rows, page, pageCount, total, pageSize, query, filters, filterOptions,
+  rows, page, pageCount, total, pageSize, query, filters, filterOptions, initialDetail,
 }: {
   rows: any[];
   page: number;          // 1-based
@@ -186,6 +188,8 @@ export function PeopleTable({
   query: string;
   filters: Record<string, string>;          // { <filterKey>: value }
   filterOptions: Record<string, Opt[]>;      // { <filterKey>: options }
+  // ?focus=<id> でサーバ側 fetch した人材。指定があれば初期表示でドロワーを開く（現ページ外でも開ける）。
+  initialDetail?: any | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -285,8 +289,9 @@ export function PeopleTable({
     setTimeout(() => setDeleteMsg(null), 4000);
   };
 
-  // 詳細ドロワー
-  const [detail, setDetail] = useState<any | null>(null);
+  // 詳細ドロワー：?focus=<id> 経由ならサーバ側で fetch した initialDetail を初期表示する
+  //   （現ページの rows に居ない人材でもドロワーが開く）。
+  const [detail, setDetail] = useState<any | null>(initialDetail ?? null);
   // 行データ(rows)が更新されたら、開いている詳細ドロワーも最新の行で同期する。
   //   ※ 編集→保存→router.refresh() で rows は最新化されるが、detail は古いオブジェクト
   //     参照のままになり「詳細だけ反映されない」事故になっていた（一覧は反映される）。
@@ -295,14 +300,6 @@ export function PeopleTable({
     const fresh = rows.find((r) => r.candidate_no === detail.candidate_no);
     if (fresh && fresh !== detail) setDetail(fresh);
   }, [rows, detail?.candidate_no]);
-  // ?focus=<id|candidate_no> で対応行のドロワーを自動オープン（LINE登録ページからの遷移用）。
-  //   既存の人材一覧/案件一覧と同じ「クリック→モーダル」の体験を、別ページからの遷移後にも提供する。
-  const focusParam = searchParams?.get("focus") ?? null;
-  useEffect(() => {
-    if (!focusParam || detail) return;
-    const hit = rows.find((r) => String(r.id ?? "") === focusParam || String(r.candidate_no ?? "") === focusParam);
-    if (hit) setDetail(hit);
-  }, [focusParam, rows, detail]);
   const [drawerIn, setDrawerIn] = useState(false);
   useEffect(() => {
     if (!detail) { setDrawerIn(false); return; }
@@ -474,6 +471,7 @@ export function PeopleTable({
                 <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(detail.candidate_no ?? 0).padStart(5, "0")}</span>
+                  {detail.signup_source === "line" && <span title="LINE経由で登録" style={{ display: "inline-flex", alignItems: "center", lineHeight: 0 }}><Icons.line size={14} /></span>}
                   {detail.is_closed && <ClosedBadge size="xs" />}
                   {(detail.source_company || detail.company) && <CompanyApprovalBadge approved={!!detail.company_approved} size="xs" />}
                 </h3>
