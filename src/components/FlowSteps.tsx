@@ -39,7 +39,7 @@ export function FlowSteps({ current, sub }: { current: FlowStepKey; sub?: string
           const isNext = i === currentIdx + 1;
           return (
             <span key={s.key} style={{ display: "inline-flex", alignItems: "center", flex: "1 1 auto", minWidth: 0 }}>
-              <Link href={s.href} aria-current={isCurrent ? "page" : undefined} title={s.hint}
+              <Link href={s.href} prefetch={false} aria-current={isCurrent ? "page" : undefined} title={s.hint}
                 style={{
                   display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 4,
                   padding: "6px 10px", borderRadius: 12, textDecoration: "none",
