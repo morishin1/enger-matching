@@ -99,8 +99,9 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
     // 「人材が持っている案件外スキル」（参考表示用）：人材スキルから一致分を除いたもの。
     const jset = new Set<string>((h.job.skills as string[]).map(canon));
     const extras = (h.cand.skills as string[]).filter((s) => !jset.has(canon(s)));
-    return { ...h, score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims, matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras, matchedCount: m.matchedSkills.length, jobSkillCount };
-  });
+    return { ...h, excluded: !!m.excluded, score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims, matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras, matchedCount: m.matchedSkills.length, jobSkillCount };
+  // ハード除外（国籍NG/出社必須NG/充足・終了）のペアはランキングに出さない。
+  }).filter((h) => !h.excluded);
   scored.sort((a, b) =>
     (b.score - a.score)
     || (b.matchedCount - a.matchedCount)
@@ -212,11 +213,12 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
     // 新しい案件・新しい人材ほど加点（最大 +10）。高マッチ率が主軸、同程度なら新しい組合せを上位に。
     const fresh = (freshnessBonus(h.job.created_at) + freshnessBonus(h.cand.created_at)) * 5;
     return {
-      ...h, score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims, combined: m.score + fresh,
+      ...h, excluded: !!m.excluded, score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims, combined: m.score + fresh,
       matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras,
       matchedCount: m.matchedSkills.length, jobSkillCount: (h.job.skills as string[]).length,
     };
-  });
+  // ハード除外（国籍NG/出社必須NG/充足・終了）のペアはランキングに出さない。
+  }).filter((h) => !h.excluded);
   scored.sort((a, b) =>
     (b.combined - a.combined)
     || (b.matchedCount - a.matchedCount)
