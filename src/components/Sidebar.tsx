@@ -76,7 +76,9 @@ const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
 export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms, showTimecard = false }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean }) {
   const pathname = usePathname();
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  // パス「セグメント境界」で判定する。単純な startsWith だと href が別メニューの
+  // 接頭辞になっているとき誤点灯する（例: /proposals や /progress が /pr＝PR・X集客に前方一致）。
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/"));
   const [logoOk, setLogoOk] = useState(true);
   // 子メニュー展開（アクティブ階層は自動で開き、それ以外は折りたたみ。ユーザー操作で個別に開閉可）
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -183,7 +185,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
             const Ico = Icons[n.icon];
             const badge = n.count ? fmt(counts?.[n.count]) : null;
             const hasChildren = (n.children?.length ?? 0) > 0;
-            const childOnPath = n.children?.some((c) => pathname.startsWith(c.href)) ?? false;
+            const childOnPath = n.children?.some((c) => pathname === c.href || pathname.startsWith(c.href + "/")) ?? false;
             const parentActive = isActive(n.href) || childOnPath;
             const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
             return (
