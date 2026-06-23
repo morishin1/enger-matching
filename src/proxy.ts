@@ -73,5 +73,11 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // 静的アセット（画像/フォント/CSS/JS 等）は認証ゲート不要なので Middleware の対象外にする。
+  //   従来は /enger-logo.png 等の画像リクエストまで Middleware が走り、その都度 Supabase Auth API
+  //   (getUser) を叩いていた。これが認証リクエスト過多→レート制限→Middleware 1.6秒 の一因。
+  //   拡張子付きの静的ファイルを除外し、ページ遷移時だけ認証チェックを行う。
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|woff|woff2|ttf|otf|map|txt|xml|json)$).*)",
+  ],
 };
