@@ -151,38 +151,41 @@ export function ProposalsWorkspace({
         })}
       </div>
 
-      {/* 子コンポーネント。state を保つため display で出し分け。 */}
-      <div style={{ display: tab === "approval" ? "block" : "none" }}>
+      {/* 子コンポーネントは「開いているタブだけ」描画する（条件付きレンダリング）。
+          以前は全タブを display:none で隠しつつ全部レンダリングしていたため、初回に
+          履歴(数百件)・失注(数百件)のカードまでサーバーSSR＋ブラウザでハイドレートしており、
+          「初回だけ極端に重い／開けば普通」の主因になっていた。見えていないタブは描画しない。 */}
+      {tab === "approval" && (
         <ApprovalQueue rows={approvalRows} currentUserName={currentUserName} privileged={privileged} />
-      </div>
-      <div style={{ display: tab === "board" ? "block" : "none" }}>
-        {boardRows.length === 0 ? (
+      )}
+      {tab === "board" && (
+        boardRows.length === 0 ? (
           fallbackBanner ?? <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
             この期間に進行中の提案はありません。
           </div>
         ) : (
           <ProposalBoardSwitcher proposals={boardRows} members={members} proposers={proposers} closers={closers} periodLabel={PERIOD_LABEL[period]} />
-        )}
-      </div>
-      <div style={{ display: tab === "history" ? "block" : "none" }}>
-        {historyRows.length === 0 ? (
+        )
+      )}
+      {tab === "history" && (
+        historyRows.length === 0 ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
             この期間に提案はありません。
           </div>
         ) : (
           <ProposalHistory items={historyRows} proposers={proposers} closers={closers} />
-        )}
-      </div>
-      {/* 失注分析タブは常時表示。期間内に対象が無いときは空状態を出す（タブ自体は隠さない）。 */}
-      <div style={{ display: tab === "lost" ? "block" : "none" }}>
-        {lostRows.length === 0 ? (
+        )
+      )}
+      {/* 失注分析タブは件数0でも空状態を表示（タブ自体は隠さない）。 */}
+      {tab === "lost" && (
+        lostRows.length === 0 ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
             この期間に見送り/失注はありません。
           </div>
         ) : (
           <LostAnalytics history={lostRows} />
-        )}
-      </div>
+        )
+      )}
     </div>
   );
 }
