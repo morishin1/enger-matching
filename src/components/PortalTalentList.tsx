@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { expressTalentInterest } from "@/app/portal/actions";
 
 export type PortalTalent = {
@@ -32,7 +33,7 @@ export function PortalTalentList({ talent, meetingDone = true }: { talent: Porta
       const res = await expressTalentInterest({ kind: t.kind, ref: t.ref, label: `${t.initials}・${t.title ?? ""}` });
       setBusy(null);
       if (res.ok) { setDone((d) => ({ ...d, [t.ref]: true })); router.refresh(); }
-      else alert(res.error || "送信に失敗しました");
+      else toast(res.error || "送信に失敗しました", "error");
     });
   };
 

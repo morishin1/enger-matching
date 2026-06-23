@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { updateContactStatus, deleteContactMessage, deleteContactMessages } from "@/app/inbox/actions";
 import { isJunkContact, type ContactMsg } from "@/lib/contact";
 
@@ -93,7 +94,7 @@ export function InboxClient({ rows }: { rows: ContactMsg[] }) {
     if (!confirm(`ジャンク（テスト/自動生成と思われる）${junkIds.length} 件を削除しますか？\n（元に戻せません）`)) return;
     start(async () => {
       const r = await deleteContactMessages(junkIds);
-      if (!r.ok) alert(r.error || "削除に失敗しました");
+      if (!r.ok) toast(r.error || "削除に失敗しました", "error");
       router.refresh();
     });
   };

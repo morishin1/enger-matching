@@ -76,7 +76,10 @@ function CandNatBadge({ value }: { value?: string | null }) {
 
 function SkillTags({ skills }: { skills?: unknown }) {
   const ss = Array.isArray(skills) ? (skills as string[]) : [];
-  const top = ss.slice(0, 3);
+  // マッチング判定に重要なスキルが隠れないよう、基本は折り返しで全表示。
+  //   極端に多い場合（8件超）だけ truncate して「+N」を出す（行が高くなりすぎないように）。
+  const CAP = 8;
+  const top = ss.slice(0, CAP);
   const more = ss.length - top.length;
   if (ss.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
   return (

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { Sidebar } from "./Sidebar";
+import { Toaster } from "./toast";
 import { OperatorBadge } from "./OperatorBadge";
 import { HelpButton } from "./HelpButton";
 import { Icons } from "./icons";
@@ -120,6 +121,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
         </div>
         {children}
       </main>
+      <Toaster />
     </div>
   );
 }
