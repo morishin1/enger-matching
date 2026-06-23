@@ -18,6 +18,25 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 20;
 
+/** ?focus=<UUID|candidate_no> で渡された人材を別途 fetch（ページング・フィルタを跨いでも開けるように）。
+ *  LINE登録ページや別所からの「人材詳細を開く」リンクで、現ページに該当行が居なくてもドロワーを表示できる。 */
+async function fetchFocusCandidate(focus?: string | null): Promise<any | null> {
+  const v = String(focus ?? "").trim();
+  if (!v || !dbConfigured) return null;
+  try {
+    const sb = engerClient();
+    const cols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, is_closed, signup_source, created_at";
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    const isNum  = /^\d+$/.test(v);
+    let r: any;
+    if (isUuid)      r = await sb.from("candidates").select(cols).eq("id", v).maybeSingle();
+    else if (isNum)  r = await sb.from("candidates").select(cols).eq("candidate_no", Number(v)).maybeSingle();
+    else             return null;
+    if (r.error || !r.data) return null;
+    return r.data;
+  } catch { return null; }
+}
+
 const FRESH_OPTIONS = [
   { value: "新着", label: "新着" },
   { value: "3日以内", label: "3日以内" },
@@ -87,9 +106,9 @@ const EXPORT_HEADERS = [
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string }> }) {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; focus?: string }> }) {
   const sp = await searchParams;
-  const { q: initialQuery } = sp;
+  const { q: initialQuery, focus: focusId } = sp;
   const scope = await getViewerScope();
   // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
   const access = await currentAccess();
@@ -117,7 +136,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     if (dbConfigured && scope.ownerKey) {
       try {
         const sb = engerClient();
-        const cols = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, is_focus, created_at, owner_company, shared";
+        // note / email / contact_email / source_mail_url / skill_sheet_url / rank はドロワー（モーダル）で
+        //   ・備考の表示（要望⑥）・元メールボタン（要望①）・スキルシートボタンなどに使う。
+        const cols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, created_at, owner_company, shared";
         const ownedRes: any = await sb.from("candidates").select(cols).eq("owner_company", scope.ownerKey).order("candidate_no", { ascending: false }).limit(1000);
         const sharedRes: any = await sb.from("candidates").select(cols).eq("shared", true).order("candidate_no", { ascending: false }).limit(1000);
         if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
@@ -135,7 +156,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, is_focus, created_at";
+      // ドロワー（モーダル）表示の備考・元メール・スキルシートに必要な列を含める。
+      const baseCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, created_at";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;
@@ -346,8 +368,10 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
       ) : (
         // 社内：フィルタ・ページングをサーバ側で処理（1ページ20件・URL同期）
+        //   focus=<UUID|candidate_no> が指定されたときは、現ページに居なくてもドロワーを開けるよう
+        //   サーバ側で別途 fetch して initialDetail として渡す（LINE登録ページからの遷移用）。
         <PeopleTable rows={people} page={page} pageCount={pageCount} total={total} pageSize={PAGE_SIZE}
-          query={needle} filters={peopleFilters} filterOptions={peopleFilterOptions} />
+          query={needle} filters={peopleFilters} filterOptions={peopleFilterOptions} initialDetail={await fetchFocusCandidate(focusId)} />
       )}
     </div>
   );

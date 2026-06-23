@@ -198,7 +198,7 @@ export default async function LinePage() {
                             <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
                           </Link>
                         )}
-                        <MailButton url={p.source_mail_url} search={[p.name, p.source_company].filter(Boolean).join(" ") || p.name} to={p.email ?? p.contact_email} />
+                        {p.source_mail_url && <MailButton url={p.source_mail_url} />}
                         {p.skill_sheet_url && (
                           <a href={p.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート"
                             style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}>
@@ -261,7 +261,7 @@ export default async function LinePage() {
                             <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
                           </Link>
                         )}
-                        <MailButton url={j.source_mail_url} search={[j.client_name, j.title].filter(Boolean).join(" ") || j.title} to={j.contact_email} />
+                        {j.source_mail_url && <MailButton url={j.source_mail_url} />}
                       </div>
                     </td>
                   </tr>

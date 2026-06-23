@@ -292,10 +292,12 @@ export function ProposalComposer({
         {job?.job_no != null && cand?.candidate_no != null && (() => {
           const isApproved = approvalStatus === "approved";
           const isPending = approvalStatus === "pending";
-          const label = isApproved ? "✅ 承認済み（下書きへ）"
+          // 要望④：「✅」は外して文字のみ。背景は薄めの桃色（白文字がはっきり見える濃さ）。
+          //   承認待ち（pending）は対象外のため従来どおり（⏳・グレー）。
+          const label = isApproved ? "承認済み（下書きへ）"
             : isPending ? "⏳ 承認待ち（下書きへ）"
-            : "✅ 承認依頼";
-          const bg = isApproved ? "#067647" : isPending ? "#6b7280" : "#9a7b12";
+            : "承認依頼";
+          const bg = isApproved ? "#e0709a" : isPending ? "#6b7280" : "#e0709a";
           const title = isApproved ? "承認済みです。下書き画面を開いて送信できます。"
             : isPending ? "承認待ちです。下書き画面を開いて内容を確認できます（承認は承認者が行います）。"
             : "メール編集画面を開いて承認依頼（承認申請）を出します。承認者がメール内容を確認して送信します。";

@@ -29,6 +29,25 @@ const remoteLabel = (r: string | null) =>
 
 const PAGE_SIZE = 20;
 
+/** ?focus=<UUID|job_no> で渡された案件を別途 fetch（ページング・フィルタを跨いでも開けるように）。
+ *  LINE登録ページや別所からの「案件詳細を開く」リンクで、現ページに該当行が居なくてもドロワーを表示できる。 */
+async function fetchFocusJob(focus?: string | null): Promise<any | null> {
+  const v = String(focus ?? "").trim();
+  if (!v || !dbConfigured) return null;
+  try {
+    const sb = engerClient();
+    const cols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, contact_name, contact_email, source_mail_url, start_date, is_closed, signup_source, created_at, is_published";
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    const isNum  = /^\d+$/.test(v);
+    let r: any;
+    if (isUuid)      r = await sb.from("jobs").select(cols).eq("id", v).maybeSingle();
+    else if (isNum)  r = await sb.from("jobs").select(cols).eq("job_no", Number(v)).maybeSingle();
+    else             return null;
+    if (r.error || !r.data) return null;
+    return r.data;
+  } catch { return null; }
+}
+
 // リモート（固定の選択肢）。表示は日本語、値は DB の remote_type 生値。
 const REMOTE_OPTIONS = [
   { value: "full_remote", label: "フルリモート" },
@@ -104,7 +123,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; focus?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -138,7 +157,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     if (dbConfigured && scope.ownerKey) {
       try {
         const sb = engerClient();
-        const cols = "job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published, owner_company, shared";
+        // id / contact_email / source_mail_url はドロワーでの focus 自動オープン・メール/元メールボタンに使う。
+        const cols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, contact_name, contact_email, source_mail_url, start_date, created_at, is_published, owner_company, shared";
         const ownedRes: any = await sb.from("jobs").select(cols).eq("owner_company", scope.ownerKey).order("job_no", { ascending: false }).limit(1000);
         const sharedRes: any = await sb.from("jobs").select(cols).eq("shared", true).eq("is_published", true).order("job_no", { ascending: false }).limit(1000);
         if (ownedRes.error || sharedRes.error) { dbError = "テナント分離用の列が未整備です（supabase/partner-tenant.sql を実行してください）"; }
@@ -157,7 +177,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   } else if (dbConfigured) {
     try {
       const sb = engerClient();
-      const baseCols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, created_at, is_published";
+      // ドロワー（モーダル）表示の元メール・窓口メールに使う列を含める。
+      const baseCols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, contact_name, contact_email, source_mail_url, start_date, created_at, is_published";
       const from = (page - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
       const fresh = fStatus ? freshRange(fStatus) : null;
@@ -421,8 +442,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           agentContact={{ line: process.env.NEXT_PUBLIC_AGENT_LINE_URL, email: process.env.NEXT_PUBLIC_AGENT_EMAIL, phone: process.env.NEXT_PUBLIC_AGENT_PHONE }} />
       ) : (
         // 社内：フィルタ・ページングをサーバ側で処理（1ページ20件・URL同期）
+        //   focus=<UUID|job_no> が指定されたときは、現ページに居なくてもドロワーを開けるよう
+        //   サーバ側で別途 fetch して initialDetail として渡す（LINE登録ページからの遷移用）。
         <JobsTable rows={jobs} page={page} pageCount={pageCount} total={total} pageSize={PAGE_SIZE}
-          query={needle} filters={jobFilters} filterOptions={jobFilterOptions} outsideOptions={ownerOptions} meetingDone={scope.meetingDone} />
+          query={needle} filters={jobFilters} filterOptions={jobFilterOptions} outsideOptions={ownerOptions} meetingDone={scope.meetingDone}
+          initialDetail={await fetchFocusJob(sp.focus)} />
       )}
     </div>
   );

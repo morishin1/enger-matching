@@ -121,6 +121,8 @@ const PEOPLE_COLS: Col[] = [
           <div style={{ minWidth: 0 }}>
             <div className="pri" style={{ color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
               <span>{p.name}</span>
+              {/* LINE登録（signup_source='line'）はLINEマークで一目で識別できるようにする。 */}
+              {p.signup_source === "line" && <span title="LINE経由で登録" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>}
               {p.has_proposal && <span className="tag" title="この人材で提案実績があります。削除に注意してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", flexShrink: 0 }}>提案あり</span>}
             </div>
             {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
@@ -176,7 +178,7 @@ const PEOPLE_COLS: Col[] = [
 type Opt = { value: string; label: string };
 
 export function PeopleTable({
-  rows, page, pageCount, total, pageSize, query, filters, filterOptions,
+  rows, page, pageCount, total, pageSize, query, filters, filterOptions, initialDetail,
 }: {
   rows: any[];
   page: number;          // 1-based
@@ -186,6 +188,8 @@ export function PeopleTable({
   query: string;
   filters: Record<string, string>;          // { <filterKey>: value }
   filterOptions: Record<string, Opt[]>;      // { <filterKey>: options }
+  // ?focus=<id> でサーバ側 fetch した人材。指定があれば初期表示でドロワーを開く（現ページ外でも開ける）。
+  initialDetail?: any | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -285,8 +289,9 @@ export function PeopleTable({
     setTimeout(() => setDeleteMsg(null), 4000);
   };
 
-  // 詳細ドロワー
-  const [detail, setDetail] = useState<any | null>(null);
+  // 詳細ドロワー：?focus=<id> 経由ならサーバ側で fetch した initialDetail を初期表示する
+  //   （現ページの rows に居ない人材でもドロワーが開く）。
+  const [detail, setDetail] = useState<any | null>(initialDetail ?? null);
   // 行データ(rows)が更新されたら、開いている詳細ドロワーも最新の行で同期する。
   //   ※ 編集→保存→router.refresh() で rows は最新化されるが、detail は古いオブジェクト
   //     参照のままになり「詳細だけ反映されない」事故になっていた（一覧は反映される）。
@@ -413,7 +418,8 @@ export function PeopleTable({
                     <td>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {!r.is_closed && <Link href={matchHref(r)} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
-                        <MailButton url={m.url} search={m.search} to={m.to} />
+                        {/* 元メールURLがあるときだけメールボタンを出す（要望：URL無→非表示。検索/composeフォールバックは廃止）。 */}
+                        {r.source_mail_url && <MailButton url={r.source_mail_url} />}
                         {r.skill_sheet_url && <a href={r.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート" style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>description</span></a>}
                       </div>
                     </td>
@@ -465,6 +471,7 @@ export function PeopleTable({
                 <h3 style={{ margin: "2px 0 4px", fontSize: 18, fontWeight: 700, display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
                   <span>{titleOf(detail)}</span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(detail.candidate_no ?? 0).padStart(5, "0")}</span>
+                  {detail.signup_source === "line" && <span title="LINE経由で登録" style={{ display: "inline-flex", alignItems: "center", lineHeight: 0 }}><Icons.line size={14} /></span>}
                   {detail.is_closed && <ClosedBadge size="xs" />}
                   {(detail.source_company || detail.company) && <CompanyApprovalBadge approved={!!detail.company_approved} size="xs" />}
                 </h3>
@@ -485,7 +492,7 @@ export function PeopleTable({
               {detail.skill_sheet_url && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
-              <MailButton url={mailFor(detail).url} search={mailFor(detail).search} to={mailFor(detail).to} label="メールで紹介" block />
+              {detail.source_mail_url && <MailButton url={detail.source_mail_url} label="元メールを開く" block />}
               <EditCandidateButton candidate={detail} />
               <DeleteEntityButton kind="candidates" idValue={detail.candidate_no} label={titleOf(detail)} />
             </div>
@@ -516,6 +523,7 @@ export function PeopleTable({
                   ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={detail.source_company || detail.company} approved={!!detail.company_approved} badge badgeSize="xs" />{detail.affiliation ? <span className="muted" style={{ fontSize: 11.5 }}>（{detail.affiliation}）</span> : null}</span>
                   : (detail.affiliation ?? "")],
                 ["連絡先", detail.email ?? detail.contact_email ?? ""],
+                ["窓口担当者", (detail as any).contact_name ?? ""],
               ] as [string, React.ReactNode][]).map(([label, value]) => (
                 <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
                   <div className="muted" style={{ fontSize: 12 }}>{label}</div>
