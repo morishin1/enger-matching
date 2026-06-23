@@ -3,6 +3,7 @@
 //   OpenAI互換 と Anthropic(Claude) の両対応（callLLM が自動判別）。
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
+import { getAiCache, setAiCache } from "@/lib/ai-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,11 @@ export async function POST(req: Request) {
   }
   if (!text.trim()) return Response.json({ ok: false, error: "text がありません" }, { status: 400 });
 
+  // 同じメール本文の再抽出は課金しない（純関数なので共有キャッシュ。kind 別にキー化。30日TTL）。
+  const ckey = kind + "|" + text;
+  const cached = await getAiCache<any[]>("extract-bulk", ckey, 30 * 86400);
+  if (cached) return Response.json({ ok: true, kind, records: cached, cached: true });
+
   const schema = kind === "jobs" ? JOB_SCHEMA : CAND_SCHEMA;
   const system = `あなたはSES営業の${kind === "jobs" ? "案件" : "人材"}情報を構造化するアシスタントです。
 1通のメール/書面に **複数の${kind === "jobs" ? "案件" : "要員"}** がまとめて書かれていることがあります。
@@ -74,5 +80,6 @@ ${schema}`;
   // 必須キー（人材=name / 案件=title）が無い要素は除外
   const keyField = kind === "jobs" ? "title" : "name";
   const records = parsed.filter((x) => x && typeof x === "object" && typeof x[keyField] === "string" && x[keyField].trim());
+  await setAiCache("extract-bulk", ckey, records);
   return Response.json({ ok: true, kind, records });
 }

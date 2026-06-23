@@ -4,6 +4,7 @@
 
 import { callLLM } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
+import { getAiCache, setAiCache } from "@/lib/ai-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,16 +18,16 @@ const SYSTEM = [
   "各項目は『何を・なぜ(数字根拠)』の形。最後に一言だけ短い励まし。Markdownの見出しは使わず、各行を「・」で始める。",
 ].join("");
 
-const cache = new Map<string, string>();
-
 export async function POST(req: Request) {
   let metrics: any = null;
   try { metrics = (await req.json())?.metrics ?? null; } catch { return Response.json({ ok: false, error: "リクエストが不正です" }, { status: 400 }); }
   if (!metrics) return Response.json({ ok: false, error: "metrics がありません" }, { status: 400 });
 
   const day = new Date().toISOString().slice(0, 10);
+  // 日付＋指標が同じなら結果も同じ。共有キャッシュ（2日TTL。キーに日付を含むので翌日は自動で別キー）。
   const key = day + "|" + JSON.stringify(metrics);
-  if (cache.has(key)) return Response.json({ ok: true, text: cache.get(key), cached: true });
+  const cached = await getAiCache<string>("brief", key, 2 * 86400);
+  if (cached) return Response.json({ ok: true, text: cached, cached: true });
 
   const prompt = [
     `本日(${day})の状況です。これを踏まえ、今日やるべきことを優先度順にまとめてください。`,
@@ -53,6 +54,6 @@ export async function POST(req: Request) {
   if (!r.ok) return Response.json({ ok: false, error: r.error }, { status: r.status });
 
   await logUsage("brief", r.model, r.usage);
-  cache.set(key, r.text);
+  await setAiCache("brief", key, r.text);
   return Response.json({ ok: true, text: r.text });
 }

@@ -2,6 +2,7 @@
 //   OpenAI互換 と Anthropic(Claude) の両対応（callLLM が自動判別）。
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
+import { getAiCache, setAiCache } from "@/lib/ai-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,11 +37,16 @@ export async function POST(req: Request) {
   }
   if (!text.trim()) return Response.json({ ok: false, error: "text がありません" }, { status: 400 });
 
+  // 同じテキストの再抽出は課金しない（純関数なので共有キャッシュ。30日TTL）。
+  const cached = await getAiCache<Record<string, string | null>>("extract-proposal", text, 30 * 86400);
+  if (cached) return Response.json({ ok: true, data: cached, cached: true });
+
   const r = await callLLM({ system: SYSTEM, prompt: `以下のテキストから JSON を抽出してください。\n\n---\n${text}\n---`, maxTokens: 800, temperature: 0.2 });
   if (!r.ok) return Response.json({ ok: false, error: r.error }, { status: r.status });
   await logUsage("extract-proposal", r.model, r.usage);
 
   const data = parseJsonLoose<Record<string, string | null>>(r.text);
   if (!data || typeof data !== "object") return Response.json({ ok: false, error: "AIの応答を解析できませんでした", raw: r.text }, { status: 502 });
+  await setAiCache("extract-proposal", text, data);
   return Response.json({ ok: true, data });
 }
