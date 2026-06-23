@@ -34,6 +34,19 @@ export function roleHome(_role: Role): string {
   return "/";
 }
 
+// 法人向け ENGER business（dx.enger.jp）にログイン・入室できないロール。
+//   フリーランス（人材）は enger.jp の LP / マイページを利用する区分であり、
+//   法人ログインからは「ログイン」も「自動リダイレクト（共有セッション経由の入室）」も不可とする。
+//   ※ Supabase Auth を LP と共有しているため、ロールでの締め出しを唯一の境界線にする。
+const DX_BLOCKED_ROLES: Role[] = ["candidate"];
+/** dx（法人ログイン）への入室を許可しないロールか。true なら締め出す。 */
+export function isDxBlockedRole(role: Role | null | undefined): boolean {
+  return !!role && DX_BLOCKED_ROLES.includes(role);
+}
+/** dx 入室不可ロールに表示する共通メッセージ。 */
+export const DX_BLOCKED_MESSAGE =
+  "このアカウントは法人向け ENGER business にはログインできません。人材（フリーランス）の方は enger.jp のマイページをご利用ください。";
+
 /** admin 専用ルート（営業も不可）。 */
 const ADMIN_PREFIXES = ["/settings"];
 /** client(ユーザー企業) が開けるルート。ここ以外は自社ポータル"/"へ戻す。 */
