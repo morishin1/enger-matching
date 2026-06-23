@@ -6,7 +6,10 @@
 //   - ステージ・担当者での絞り込み
 //   - テーブル（行クリックで詳細モーダル）
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
+import { bulkDeleteProposals } from "@/lib/actions";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 import { Icons } from "./icons";
@@ -129,7 +132,31 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   const [groupByJob, setGroupByJob] = useState(true);
   const [active, setActive] = useState<any | null>(null);
   // 行クリックで開くドロワー(ProposalDetailModal)に詳細・編集・削除を集約（人材/案件一覧と同じ操作感）。
+  const router = useRouter();
+  const [busy, start] = useTransition();
+  // チェックボックス選択（一括削除用）と、同案件アコーディオンの折りたたみ状態。
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const setManySel = (ids: string[], on: boolean) => setSelected((prev) => { const n = new Set(prev); for (const id of ids) on ? n.add(id) : n.delete(id); return n; });
+  const toggleCollapse = (k: string) => setCollapsed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const isPending = (v: any) => v == null || v === "pending";
+  // 管理ID表記：案件=No.xxxxx / 人材=P-xxxxx（マッチングした番号）。
+  const idJob = (p: any) => (p.job_no != null ? `No.${String(p.job_no).padStart(5, "0")}` : null);
+  const idCand = (p: any) => (p.candidate_no != null ? `P-${String(p.candidate_no).padStart(5, "0")}` : null);
+
+  const handleBulkDelete = () => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (!confirm(`選択した ${ids.length} 件の提案を削除しますか？\n（記録ミスの一括取り消し。元に戻せません）`)) return;
+    start(async () => {
+      const r = await bulkDeleteProposals(ids);
+      if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
+      toast(`${ids.length}件の提案を削除しました`, "success");
+      setSelected(new Set());
+      router.refresh();
+    });
+  };
 
   const pendingCount = useMemo(() => proposals.filter((p) => isPending(p.job_notify_status) || isPending(p.cand_notify_status)).length, [proposals]);
 
@@ -194,17 +221,104 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     return order.map((k) => ({ key: k, items: m.get(k)! }));
   }, [rows]);
 
-  // 表示用の行リスト：グループON時は「同一案件が2件以上」のときだけ案件ヘッダ行を差し込む。
-  const displayItems = useMemo(() => {
-    if (!groupByJob) return rows.map((p: any) => ({ type: "row" as const, p, member: false }));
-    const out: Array<{ type: "header"; g: { key: string; items: any[] } } | { type: "row"; p: any; member: boolean }> = [];
-    for (const g of groups) {
-      const multi = g.items.length >= 2;
-      if (multi) out.push({ type: "header", g });
-      for (const p of g.items) out.push({ type: "row", p, member: multi });
-    }
-    return out;
-  }, [rows, groups, groupByJob]);
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const someSelected = rows.some((r) => selected.has(r.id));
+  const cbStyle = { width: 16, height: 16, flexShrink: 0, cursor: "pointer", accentColor: "var(--color-brand-600)" } as const;
+
+  const proposerTag = (name?: string | null) => {
+    const v = String(name ?? "").trim();
+    return (
+      <span title="提案担当者" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: v ? "var(--color-brand-25, #eef5ff)" : "var(--color-surface-inset)", color: v ? "var(--color-brand-700)" : "var(--color-ink-4)", border: "1px solid var(--color-border)", whiteSpace: "nowrap", flexShrink: 0 }}>
+        <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 13 }}>person</span>{v || "未割当"}
+      </span>
+    );
+  };
+
+  const notifyDots = (p: any) => (
+    <span style={{ flex: "0 0 auto", display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
+      <span title={`案件側: ${isPending(p.job_notify_status) ? "未処理" : p.job_notify_status === "in_progress" ? "処理中" : "完了"}`}
+        style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.job_notify_status) ? "#dc2626" : p.job_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
+      <span title={`人材側: ${isPending(p.cand_notify_status) ? "未処理" : p.cand_notify_status === "in_progress" ? "処理中" : "完了"}`}
+        style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.cand_notify_status) ? "#dc2626" : p.cand_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
+    </span>
+  );
+
+  // 1提案の行。member=true は同案件グループの配下（人材を主役に表示）。
+  const renderRow = (p: any, member: boolean) => {
+    const na = nextActionFor(p);
+    const naTone = URGENCY_TONE[na.urgency];
+    const sel = selected.has(p.id);
+    return (
+      <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)", background: sel ? "var(--color-brand-25, #eff6ff)" : undefined }}>
+        <div onClick={() => setActive(p)} title="クリックで詳細・編集ドロワーを開く"
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", paddingLeft: member ? 40 : 14, cursor: "pointer" }}
+          onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "var(--color-surface-soft)"; }}
+          onMouseLeave={(e) => { if (!sel) e.currentTarget.style.background = "transparent"; }}>
+          <input type="checkbox" checked={sel} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(p.id)} style={cbStyle} aria-label="選択" />
+          {member ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 auto", minWidth: 0 }}>
+              <div className="ava" style={{ width: 28, height: 28, fontSize: 10.5, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
+                <div className="muted" style={{ fontSize: 10.5 }}>{idCand(p) ?? ""}{p.lp_direct ? " · 📥LP" : ""}</div>
+              </div>
+              {proposerTag(p.proposer)}
+            </div>
+          ) : (
+            <>
+              <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
+                  {p.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</span>
+                </div>
+                <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{idJob(p) ? ` · ${idJob(p)}` : ""}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto", minWidth: 0, maxWidth: 240 }}>
+                <div className="ava" style={{ width: 28, height: 28, fontSize: 10.5, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
+                  <div className="muted" style={{ fontSize: 10 }}>{idCand(p) ?? ""}{p.lp_direct ? " · 📥LP" : ""}</div>
+                </div>
+                {proposerTag(p.proposer)}
+              </div>
+            </>
+          )}
+          <div style={{ flex: "0 0 auto" }}><StageBadge stage={normStage(p.stage)} /></div>
+          <span title={`緊急度: ${na.urgency}`} style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
+            {na.text}
+          </span>
+          {notifyDots(p)}
+          <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  // 同案件グループの見出し（アコーディオン）。チェックでグループ一括選択、シェブロンで開閉。
+  const renderHeader = (g: any) => {
+    const top = g.items[0];
+    const open = !collapsed.has(g.key);
+    const ids = g.items.map((x: any) => x.id);
+    const allSel = ids.every((id: string) => selected.has(id));
+    const someSel = !allSel && ids.some((id: string) => selected.has(id));
+    return (
+      <div key={`h-${g.key}`} style={{ background: "var(--color-surface-soft)", borderTop: "2px solid var(--color-border)", borderBottom: "1px solid var(--color-border)", padding: "8px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+        <input type="checkbox" checked={allSel} ref={(el) => { if (el) el.indeterminate = someSel; }} onChange={() => setManySel(ids, !allSel)} style={cbStyle} aria-label="この案件の提案をすべて選択" />
+        <button type="button" onClick={() => toggleCollapse(g.key)} title={open ? "折りたたむ" : "展開する"} style={{ background: "none", border: 0, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-ink-3)", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>chevron_right</span>
+        </button>
+        <div onClick={() => toggleCollapse(g.key)} style={{ flex: "1 1 auto", minWidth: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {top.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
+          <span style={{ fontWeight: 800, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "min(60vw, 520px)" }}>{top.job_title ?? "—"}</span>
+          {top.company && <span className="muted" style={{ fontSize: 11.5 }}>{top.company}</span>}
+          {idJob(top) && <span className="mono muted" style={{ fontSize: 10.5 }}>{idJob(top)}</span>}
+          <span className="tag brand" style={{ fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
+          {!open && <span className="muted" style={{ fontSize: 10.5 }}>（折りたたみ中・クリックで展開）</span>}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -285,79 +399,40 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
         </button>
       </div>
 
-      {/* アコーディオン式リスト：行は uniform。クリックで詳細をインライン展開。 */}
+      {/* 一括操作バー（チェックを入れると表示）。記録ミスの一括取り消し用。 */}
+      {selected.size > 0 && (
+        <div className="card" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", border: "1px solid #bcd4ff", background: "var(--color-brand-25, #eff6ff)" }}>
+          <span style={{ fontWeight: 800, fontSize: 13 }}>{selected.size}件 選択中</span>
+          <button type="button" className="btn ghost btn-xs" onClick={() => setSelected(new Set())}>選択をクリア</button>
+          <button type="button" className="btn btn-xs" disabled={busy} onClick={handleBulkDelete}
+            style={{ marginLeft: "auto", color: "#fff", background: "var(--color-danger, #dc2626)", border: 0, opacity: busy ? 0.6 : 1 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: "-3px", marginRight: 2 }}>delete</span>
+            一括削除（{selected.size}）
+          </button>
+        </div>
+      )}
+
+      {/* リスト：同案件はアコーディオンでまとめ、各行にチェックボックス。行クリックでドロワー。 */}
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        {rows.length === 0 && (
+        {rows.length === 0 ? (
           <div style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 36, fontSize: 13 }}>該当する提案がありません。</div>
-        )}
-        {displayItems.map((it: any) => {
-          if (it.type === "header") {
-            const g = it.g; const top = g.items[0];
-            return (
-              <div key={`h-${g.key}`} style={{ background: "var(--color-surface-soft)", borderTop: "2px solid var(--color-border)", padding: "8px 14px" }}>
-                <span style={{ fontWeight: 800, color: "var(--color-ink)" }}>{top.job_title ?? "—"}</span>
-                {top.company && <span className="muted" style={{ marginLeft: 8, fontSize: 11.5 }}>{top.company}</span>}
-                <span className="tag brand" style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
-              </div>
-            );
-          }
-          const p = it.p; const member = it.member;
-          const na = nextActionFor(p);
-          const naTone = URGENCY_TONE[na.urgency];
-          return (
-            <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)" }}>
-              {/* サマリ行（uniform・クリックで詳細・編集ドロワーを開く＝人材/案件一覧と同じ操作感） */}
-              <div
-                onClick={() => setActive(p)}
-                title="クリックで詳細・編集ドロワーを開く"
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", background: "transparent" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-surface-soft)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                {/* ドロワーを開くアフォーダンス（静的な右シェブロン） */}
-                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-ink-4)", flexShrink: 0 }}>chevron_right</span>
-                {/* 人材 */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 0 200px", minWidth: 0 }}>
-                  <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
-                    {p.lp_direct && <span title="LP（enger.jp）からの直接応募" style={{ display: "inline-block", marginTop: 1, fontSize: 9.5, fontWeight: 700, padding: "0 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>📥 LP直接応募</span>}
-                  </div>
-                </div>
-                {/* 案件 */}
-                <div style={{ flex: "1 1 auto", minWidth: 0 }}>
-                  {member ? (
-                    <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>↳ 同案件</span>
-                  ) : (
-                    <>
-                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
-                        {/* LINE 経由の提案は公式 LINE マークを付けて一目でわかるように（フローはメールと同一） */}
-                        {p.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</span>
-                      </div>
-                      <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}</div>
-                    </>
-                  )}
-                </div>
-                {/* ステータス */}
-                <div style={{ flex: "0 0 auto" }}><StageBadge stage={normStage(p.stage)} /></div>
-                {/* ネクストアクション */}
-                <span title={`緊急度: ${na.urgency}`} style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
-                  {na.text}
-                </span>
-                {/* 通知ステータス（読み取り専用ドット。クリック変更は展開後のNotifyChipで） */}
-                <span style={{ flex: "0 0 auto", display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
-                  <span title={`案件側: ${isPending(p.job_notify_status) ? "未処理" : p.job_notify_status === "in_progress" ? "処理中" : "完了"}`}
-                    style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.job_notify_status) ? "#dc2626" : p.job_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
-                  <span title={`人材側: ${isPending(p.cand_notify_status) ? "未処理" : p.cand_notify_status === "in_progress" ? "処理中" : "完了"}`}
-                    style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.cand_notify_status) ? "#dc2626" : p.cand_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
-                </span>
-                {/* 提案日（右端・補助情報） */}
-                <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
-              </div>
+        ) : (
+          <>
+            {/* 全選択 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderBottom: "1px solid var(--color-border)" }}>
+              <input type="checkbox" checked={allSelected} ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }} onChange={() => setManySel(rows.map((r) => r.id), !allSelected)} style={cbStyle} aria-label="すべて選択" />
+              <span className="muted" style={{ fontSize: 11.5 }}>全{rows.length}件を選択</span>
             </div>
-          );
-        })}
+            {groupByJob
+              ? groups.map((g: any) => {
+                  const multi = g.items.length >= 2;
+                  if (!multi) return renderRow(g.items[0], false);
+                  const open = !collapsed.has(g.key);
+                  return <Fragment key={g.key}>{renderHeader(g)}{open && g.items.map((p: any) => renderRow(p, true))}</Fragment>;
+                })
+              : rows.map((p: any) => renderRow(p, false))}
+          </>
+        )}
       </div>
 
       <div className="muted" style={{ fontSize: 11.5 }}>{rows.length} 件を表示中{stageFilter || ownerFilter || q ? "（絞り込み適用中）" : ""}</div>
