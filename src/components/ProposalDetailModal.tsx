@@ -279,6 +279,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             {/* タイトルをクリックでマッチング結果画面へ（カンバンのカードと同じ挙動）。 */}
             {p.job_no != null ? (
               <Link
+                prefetch={false}
                 href={`/matching?job=${p.job_no}${p.candidate_no != null ? `&cand=${p.candidate_no}` : ""}`}
                 title="この案件×人材のマッチング結果画面を開く"
                 style={{ fontSize: 18, fontWeight: 800, marginTop: 4, display: "inline-flex", alignItems: "center", gap: 6, color: "var(--color-brand-700)", textDecoration: "none" }}>
@@ -349,7 +350,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 ); })()}
               </div>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                {p.job_no != null ? <Link href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
+                {p.job_no != null ? <Link prefetch={false} href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
                 {p.job_closed && <ClosedBadge size="xs" />}
               </div>
               {/* クライアント名（自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
@@ -370,7 +371,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <div className="ava" style={{ width: 38, height: 38, fontSize: 13 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    {p.candidate_no != null ? <Link href={`/people/${p.candidate_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.candidate_name ?? "—"}</Link> : (p.candidate_name ?? "—")}
+                    {p.candidate_no != null ? <Link prefetch={false} href={`/people/${p.candidate_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.candidate_name ?? "—"}</Link> : (p.candidate_name ?? "—")}
                     {p.cand_closed && <ClosedBadge size="xs" />}
                   </div>
                   <div className="muted" style={{ fontSize: 11.5 }}>{p.source ? `登録元: ${p.source}` : ""}</div>

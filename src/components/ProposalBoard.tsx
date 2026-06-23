@@ -159,7 +159,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {p.job_no != null
-                ? <Link href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link>
+                ? <Link prefetch={false} href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link>
                 : (p.job_title ?? "—")}
             </div>
             <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -203,6 +203,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
             {p.job_no != null
               ? <Link
+                  prefetch={false}
                   href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`}
                   title="この案件×人材のマッチング結果画面へ"
                   style={{ color: "var(--color-brand-700)", textDecoration: "none" }}
