@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
+import { toast } from "./toast";
 import { NotifyDot } from "./NotifyDot";
 import { ActionChips } from "./ProposalActionChip";
 import { ProposalDetailModal } from "./ProposalDetailModal";
@@ -70,12 +71,13 @@ const SOURCE_OPTIONS: { value: SourceKey; label: string }[] = [
 ];
 const sourceMeta = (s?: string | null) => (s && (s in SOURCE_META) ? SOURCE_META[s as SourceKey] : null);
 
-function Field({ label, value, options, onChange, placeholder }: { label: string; value: string; options: string[]; onChange: (v: string) => void; placeholder?: string }) {
+function Field({ label, value, options, onChange, placeholder, required }: { label: string; value: string; options: string[]; onChange: (v: string) => void; placeholder?: string; required?: boolean }) {
+  const invalid = required && !value;
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10.5, color: "var(--color-ink-4)" }}>
-      {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
-        <option value="">{placeholder ?? "—"}</option>
+      {label}{required && <span style={{ color: "var(--color-danger)" }}> *</span>}
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 7px", borderRadius: 7, border: `1px solid ${invalid ? "var(--color-danger)" : "var(--color-border-strong)"}`, background: "var(--color-surface)", color: "var(--color-ink)" }}>
+        <option value="">{required ? "— 選択 —" : (placeholder ?? "—")}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     </label>
@@ -278,7 +280,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             </label>
           </div>
           <Field label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
-          <Field label="提案者" value={proposer} options={(proposers && proposers.length > 0) ? proposers : (members ?? PROPOSERS)} onChange={setProposer} />
+          <Field label="提案者" value={proposer} options={(proposers && proposers.length > 0) ? proposers : (members ?? PROPOSERS)} onChange={setProposer} required />
           {/* クロージング担当：企業担当者を冒頭に、設定された候補リストを使う */}
           <Field
             label="クロージング担当"
@@ -291,7 +293,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             {p.company_owner ? <>※ 既定は企業担当の <b>{p.company_owner}</b> さん。ペアで相談して変更できます。</> : <>※ 企業担当が未設定です。案件管理で企業担当を設定すると既定になります。</>}
             <br />※ 会社名・先方担当者は<b>企業管理</b>にも紐づけ保存されます。
           </div>
-          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onSave(p.id, { caller_status: caller, proposer, partner: null, closer, company: company.trim() || null, client_contact: clientContact.trim() || null, source: source || null })}>保存</button>
+          <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => { if (!(proposer ?? "").trim()) { toast("担当者（提案者）を選択してください", "error"); return; } onSave(p.id, { caller_status: caller, proposer, partner: null, closer, company: company.trim() || null, client_contact: clientContact.trim() || null, source: source || null }); }}>保存</button>
 
           {/* 面談（これから捌く予定）— ファネルの面談到達率の素 */}
           <div style={{ paddingTop: 8, borderTop: "1px dashed var(--color-border)", display: "flex", flexDirection: "column", gap: 6 }}>

@@ -663,6 +663,9 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     }
   } catch { /* 未ログインでも続行 */ }
 
+  // 担当者（提案者）は必須（UIでも必須化済み。ここは最終防衛線）。
+  if (!proposerName) return { ok: false, error: "担当者（提案者）を選択してください" };
+
   // 承認者：通常エージェントは必須。管理者/マネージャー/リーダーは自分で承認＝直接送信のため省略可。
   const approverName = (approver ?? "").trim();
   if (!proposerIsPrivileged && !approverName) return { ok: false, error: "承認者を選択してください（提案者と承認者の両方が必要です）" };
@@ -755,6 +758,8 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
     const me = await currentAccess();
     if (me && !proposerName) proposerName = (me.name ?? "").trim() || null;
   } catch { /* 未ログインでも続行 */ }
+  // 担当者（提案者）は必須（最終防衛線）。操作者・本人名のいずれも無ければ保存しない。
+  if (!proposerName) return { ok: false, error: "担当者（提案者）を選択してください（画面右上の操作者を選択してください）" };
 
   // ※ 以前ここに「打合せ未済企業への提案ゲート」があり、非権限ユーザー（一般メンバー）が
   //   打合せ記録の無い企業には「提案する」で保存できなかった（権限者は素通り）。
