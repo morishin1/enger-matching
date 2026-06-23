@@ -98,7 +98,8 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
               {t.key === "line" && <Icons.line size={16} />}
               {t.label}
             </span>
-            {total != null && (
+            {/* LINE登録タブは件数バッジ（青背景＋数値）を出さない（要望：非表示）。 */}
+            {total != null && t.key !== "line" && (
               <span className="badge" style={{ fontSize: 11, padding: "1px 7px", background: isFiltered ? "var(--color-brand-600)" : undefined, color: isFiltered ? "#fff" : undefined }}
                 title={isFiltered ? `絞り込み ${total} 件 / 全 ${fmt(globalTotal)} 件` : undefined}>
                 {total}{isFiltered && <span style={{ opacity: 0.8, fontWeight: 500 }}> / {fmt(globalTotal)}</span>}

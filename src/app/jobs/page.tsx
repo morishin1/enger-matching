@@ -6,7 +6,6 @@ import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { NextStepLink } from "@/components/NextStepLink";
-import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
@@ -407,8 +406,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           {!scope.isTenant && <JobImportButton />}
         </div>
       </div>
-
-      <FlowSteps current="data" sub="案件マスタの整備" />
 
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。
           検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
