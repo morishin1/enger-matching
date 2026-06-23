@@ -194,7 +194,11 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                     ネスト構造だとブラウザのDOM補正でハイドレーションがズレ、稀に
                     サイドメニュークリックが効かなくなる事象が起きていた。 */}
                 <div style={{ position: "relative", display: "flex", alignItems: "stretch" }}>
-                  <Link href={n.href} className={"nav-item " + (parentActive ? "active" : "")}
+                  {/* prefetch 無効化: 既定だとサイドバーの全リンク(15〜20本)が画面表示のたびに
+                      RSC を先読みし、各 force-dynamic ページ(認証+DBクエリ)を一斉実行してしまう。
+                      これが「どのページを開いても約20本の重い関数が同時実行→混雑して /proposals が
+                      遅い」主因＆認証/DBリクエスト過多の原因。実クリック時のみ取得する。 */}
+                  <Link href={n.href} prefetch={false} className={"nav-item " + (parentActive ? "active" : "")}
                     style={{ flex: 1, minWidth: 0, paddingRight: hasChildren ? 6 : undefined }}>
                     <span className="ico">{Ico && <Ico />}</span>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label}</span>
@@ -221,7 +225,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                   const newN = c.newCount ? counts?.[c.newCount] : undefined;
                   const subActive = c.href === activeChildHref;
                   return (
-                    <Link key={c.id} href={c.href} className={"nav-item nav-sub " + (subActive ? "active" : "")}
+                    <Link key={c.id} href={c.href} prefetch={false} className={"nav-item nav-sub " + (subActive ? "active" : "")}
                       style={{ paddingLeft: 38, fontSize: 12.5 }}>
                       <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
                       {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
