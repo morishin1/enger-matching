@@ -9,7 +9,6 @@ import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { Collapsible } from "@/components/Collapsible";
-import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
@@ -113,10 +112,12 @@ export default async function ProposalsPage() {
           titles.length  ? sb.from("jobs").select("title, outside_owner").in("title", titles).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
         ]);
 
-        // 元メールリンク（ProposalDetailModal の「案件の元メール／人材の元メール」）を直近受信メールへ更新。
-        await attachLatestSourceMail(sb, "job", jn as any[]);
-        await attachLatestSourceMail(sb, "candidate", cn as any[]);
-
+        // 元メールリンクは fetchJobs/fetchCands が取得した保存値(source_mail_url)をそのまま使う。
+        //   かつては attachLatestSourceMail で inbox_emails を走査して「直近メール」へ更新していたが、
+        //   この走査がボード表示のたびに重く（回収でメールが増えると顕著）、提案管理が
+        //   「読み込み中…」のまま開かない主因になっていた。ボード表示の経路からは外す。
+        //   ※ リンク自体は保存値で機能する。常に最新メールへ寄せたい場合は、将来モーダルを開いた
+        //     時だけ /api 経由で個別解決する（重い全件走査を毎回走らせない）。
         // 企業マスタ（営業担当 owner / 窓口担当 contact_name）を、案件側クライアント＋人材側所属会社の
         // 両方ぶんまとめて取得。詳細モーダルの「企業担当（窓口担当者）」を自動表示するのに使う。
         const candCompanyById: Record<string, string | null> = {};
