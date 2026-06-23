@@ -1095,6 +1095,19 @@ export async function deleteProposal(id: string) {
   return { ok: true };
 }
 
+/** 提案の一括削除（リストのチェックボックス選択分）。記録ミスの一括取り消し用。 */
+export async function bulkDeleteProposals(ids: string[]) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const clean = Array.from(new Set((ids ?? []).filter((x) => typeof x === "string" && x)));
+  if (clean.length === 0) return { ok: false, error: "削除対象がありません" };
+  try { await admin.from("engagements").delete().in("proposal_id", clean); } catch { /* engagements未整備でも続行 */ }
+  const { error } = await admin.from("proposals").delete().in("id", clean);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
+  return { ok: true, count: clean.length };
+}
+
 /**
  * 提案の取り消し（記録直後のみ）。
  * 以下の条件を全て満たす場合のみ削除を許可：
