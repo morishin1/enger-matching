@@ -2668,7 +2668,9 @@ export async function addProposalMemo(proposalId: string, category: string, body
   try { const a = await currentAccess(); by_email = a?.email ?? null; by_name = a?.name ?? null; } catch { /* noop */ }
   const r: any = await admin.from("proposal_memos").insert({ proposal_id: proposalId, category: cat, body: text, created_by_email: by_email, created_by_name: by_name }).select("*").single();
   if (r.error) return { ok: false as const, error: r.error.message };
-  revalidatePath("/proposals");
+  // 注意：revalidatePath("/proposals") は呼ばない。提案ボードはメモをサーバ側で読まず
+  //   （モーダルが /api/proposals/[id]/memos で個別取得する）、重いボード再レンダリングを
+  //   保存のたびに待たされて「保存中…」が固まる原因になっていた。メモはクライアントで再取得する。
   return { ok: true as const, memo: r.data };
 }
 
@@ -2678,7 +2680,7 @@ export async function deleteProposalMemo(memoId: string) {
   if (!memoId) return { ok: false as const, error: "メモIDが必要です" };
   const r: any = await admin.from("proposal_memos").delete().eq("id", memoId);
   if (r.error) return { ok: false as const, error: r.error.message };
-  revalidatePath("/proposals");
+  // revalidatePath は呼ばない（addProposalMemo と同じ理由・クライアントで再取得）。
   return { ok: true as const };
 }
 

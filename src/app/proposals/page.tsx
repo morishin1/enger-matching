@@ -12,6 +12,9 @@ import { Collapsible } from "@/components/Collapsible";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
+// 応答しないクエリでサーバー描画が無限に続かないよう実行時間を制限（Vercel Hobby 上限=60s）。
+// Supabase 側の AbortController（20s）と二重の安全網。超過時は無限ローディングではなくエラーになる。
+export const maxDuration = 30;
 
 export default async function ProposalsPage() {
   let proposals: any[] = [];
@@ -78,6 +81,23 @@ export default async function ProposalsPage() {
         needSetup = true;
       } else {
         const all = res.data ?? [];
+        // 件数COUNT・企業フィードバックは「以降のどの補助クエリにも依存しない」（COUNTは日付集計だけ、
+        // フィードバックは提案IDだけ）。後段の案件/人材→元メール→企業マスタの2波と直列に待つのは無駄なので、
+        // ここで先に投げておき（kick off）、最後に await する＝重い2波と丸ごと並行させて1波ぶん短縮する。
+        const nowMs = Date.now();
+        const dayMs = 24 * 3600 * 1000;
+        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+        // month と thirty は同じ「直近30日(=29日前から)」。重複クエリを1本に統合して使い回す。
+        const isoToday = startOfToday.toISOString();
+        const isoWeek  = new Date(nowMs - 6 * dayMs).toISOString();
+        const iso30    = new Date(nowMs - 29 * dayMs).toISOString();
+        const countSince = (iso: string) => sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", iso);
+        const auxP = Promise.all([
+          getFeedbackMap(all.map((p: any) => p.id)),
+          countSince(isoToday),
+          countSince(isoWeek),
+          countSince(iso30),
+        ]);
         // 補助情報を 4 クエリ並列で取得（旧: 逐次 4 往復 → 新: 1 往復ぶんに短縮）。
         //   ① job_id → job_no/source_mail_url
         //   ② candidate_id → candidate_no/source_mail_url
@@ -113,21 +133,24 @@ export default async function ProposalsPage() {
           titles.length  ? sb.from("jobs").select("title, outside_owner").in("title", titles).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
         ]);
 
-        // 元メールリンク（ProposalDetailModal の「案件の元メール／人材の元メール」）を直近受信メールへ更新。
-        await attachLatestSourceMail(sb, "job", jn as any[]);
-        await attachLatestSourceMail(sb, "candidate", cn as any[]);
-
         // 企業マスタ（営業担当 owner / 窓口担当 contact_name）を、案件側クライアント＋人材側所属会社の
         // 両方ぶんまとめて取得。詳細モーダルの「企業担当（窓口担当者）」を自動表示するのに使う。
+        //   ※ company 名は cn（人材）から先に確定できる（attach は source_mail_url のみ書き換える）。
         const candCompanyById: Record<string, string | null> = {};
         for (const c of cn as any[]) if (c?.id != null) candCompanyById[c.id] = c.source_company ?? c.company ?? null;
         const allCompNames = Array.from(new Set([
           ...compNms,
           ...Object.values(candCompanyById).filter(Boolean) as string[],
         ]));
-        const companyRows = allCompNames.length
-          ? await sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r: any) => r.error ? [] : nq(r.data))
-          : [];
+        // 元メールリンク更新（案件・人材）と企業マスタ取得は互いに独立なので並列化する。
+        //   旧: 逐次3往復で待たされ、ページが「開かない/遅い」原因の一つだった。
+        const [, , companyRows] = await Promise.all([
+          attachLatestSourceMail(sb, "job", jn as any[]),
+          attachLatestSourceMail(sb, "candidate", cn as any[]),
+          allCompNames.length
+            ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r: any) => r.error ? [] : nq(r.data))
+            : Promise.resolve([] as any[]),
+        ]);
 
         try {
           const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean }> = {};
@@ -169,30 +192,15 @@ export default async function ProposalsPage() {
           .slice(0, 400);
         // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
         analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
-        // 企業フィードバックを紐付け（ミスマッチ低減の材料）
-        const fbMap = await getFeedbackMap(all.map((p: any) => p.id));
+        // 先に投げておいた COUNT・フィードバックをここで回収（重い2波と並行済み＝追加待ちはほぼ無し）。
+        //   ※「提案開始件数」は DB の正確な COUNT（created_at 基準・400件上限の影響を受けない）。
+        const [fbMap, tc, wc, c30] = await auxP;
         feedbackList = all
           .filter((p: any) => fbMap[p.id])
           .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
           .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
-
-        // 「提案開始件数」の固定期間集計（DB の正確な COUNT・400件上限の影響を受けない）
-        const now = Date.now();
-        const dayMs = 24 * 3600 * 1000;
-        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-        const isos = {
-          today:  startOfToday.toISOString(),
-          week:   new Date(now - 6 * dayMs).toISOString(),
-          month:  new Date(now - 29 * dayMs).toISOString(),
-          thirty: new Date(now - 29 * dayMs).toISOString(),
-        };
-        const [tc, wc, mc, ttc] = await Promise.all([
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.today),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.week),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.month),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.thirty),
-        ]);
-        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: mc.count ?? 0, thirty: ttc.count ?? 0 };
+        // month/thirty は同じ直近30日集計（c30）を共有。
+        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: c30.count ?? 0, thirty: c30.count ?? 0 };
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
