@@ -12,6 +12,9 @@ import { Collapsible } from "@/components/Collapsible";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
+// 応答しないクエリでサーバー描画が無限に続かないよう実行時間を制限（Vercel Hobby 上限=60s）。
+// Supabase 側の AbortController（20s）と二重の安全網。超過時は無限ローディングではなくエラーになる。
+export const maxDuration = 30;
 
 export default async function ProposalsPage() {
   let proposals: any[] = [];
