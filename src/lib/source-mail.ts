@@ -19,6 +19,7 @@ type InboxRow = {
   gmail_message_id: string | null;
   received_at: string | null;
   from_email: string | null;
+  subject: string | null;
   registered_candidate_no: number | null;
   registered_job_no: number | null;
 };
@@ -53,7 +54,7 @@ export async function attachLatestSourceMail(
     const emails = Array.from(new Set(rows.map((r) => String(r?.contact_email ?? "").trim()).filter(Boolean)));
     if (nos.length === 0 && emails.length === 0) return;
 
-    const cols = "gmail_message_id, received_at, from_email, registered_candidate_no, registered_job_no";
+    const cols = "gmail_message_id, received_at, from_email, subject, registered_candidate_no, registered_job_no";
     const byId = new Map<string, InboxRow>();
     const gather = async (filterCol: string, vals: any[]) => {
       for (const part of chunk(vals, 300)) {
@@ -105,6 +106,10 @@ export async function attachLatestSourceMail(
         if (url) {
           row.source_mail_url = url;
           if (best.received_at) row.source_mail_at = best.received_at;
+          // 件名も差し替え先メールに合わせて更新する。source_mail_url（＝送信時の返信スレッド連結先）
+          //   と source_mail_subject（＝送信確認画面の件名「Re: 元件名」）の不整合を防ぐ。
+          //   特に人材側は、これが欠落すると案件名へフォールバックして案件側と同じ件名が出る事故になる。
+          if (best.subject) row.source_mail_subject = best.subject;
         }
       }
     }

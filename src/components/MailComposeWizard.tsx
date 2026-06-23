@@ -237,7 +237,7 @@ export function MailComposeWizard({
     subject: (() => {
       const saved = (dCand?.subject ?? "").trim();
       if (saved && saved !== LEGACY_CAND_SUBJECT) return saved;
-      return buildCandMailSubject(cand, job);
+      return buildCandMailSubject(cand);
     })(),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
