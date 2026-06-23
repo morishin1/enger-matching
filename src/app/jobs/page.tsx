@@ -100,6 +100,11 @@ const ilikeOr = (keys: readonly string[], fields: string[]) =>
   fields.flatMap((f) => keys.map((k) => `${f}.ilike.%${escapeLike(k)}%`)).join(",");
 
 // 鮮度ラベル → created_at の範囲（クライアント側の freshnessLabel と同じ境界）
+// 登録元フィルタ（LINE登録タブ廃止に伴い、案件一覧で LINE/通常 を絞り込めるように）。
+const SIGNUP_SOURCE_OPTIONS = [
+  { value: "line", label: "LINE登録" },
+  { value: "normal", label: "通常（CSV/手動/メール）" },
+];
 const freshRange = (label: string): { gte?: string; lt?: string } | null => {
   const now = Date.now(), day = 86400000;
   const iso = (ms: number) => new Date(ms).toISOString();
@@ -122,7 +127,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; focus?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; focus?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -140,6 +145,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const fNat = sp.f_nationality ?? "";
   // 承認状況フィルタ：approved=打合せ済企業のみ / unapproved=未承認のみ。空=すべて。
   const fApproved = sp.f_approved ?? "";
+  const fSignupSource = sp.f_signup_source ?? "";
   const scope = await getViewerScope();
   // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
   const access = await currentAccess();
@@ -239,6 +245,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           qb = qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
         }
         if (fRole) qb = qb.eq("role_label", fRole);
+        if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
+        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,signup_source.neq.line");
         if (fRemote) qb = qb.eq("remote_type", fRemote);
         if (fFlow) {
           if (fFlow === "unknown") qb = qb.or("flow_note.is.null,flow_note.eq.");
@@ -280,6 +288,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           qb = qb.or(`title.ilike.${like},client_name.ilike.${like}${numOr}`);
         }
         if (fRole) qb = qb.eq("role_label", fRole);
+        if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
+        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,signup_source.neq.line");
         if (fRemote) qb = qb.eq("remote_type", fRemote);
         if (fFlow) {
           if (fFlow === "unknown") qb = qb.or("flow_note.is.null,flow_note.eq.");
@@ -368,7 +378,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
 
   // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved };
+  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved, signup_source: fSignupSource };
   const jobFilterOptions = {
     status: FRESH_OPTIONS,
     role: roleOptionVals.map((v) => ({ value: v, label: v })),
@@ -378,6 +388,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     rank: RANK_OPTIONS,
     outside_owner: ["未設定", ...ownerOptions].map((v) => ({ value: v, label: v })),
     approved: [{ value: "approved", label: "承認済みのみ" }, { value: "unapproved", label: "未承認のみ" }],
+    signup_source: SIGNUP_SOURCE_OPTIONS,
   };
 
   return (
@@ -410,7 +421,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。
           検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || showAll);
+        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || showAll);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 

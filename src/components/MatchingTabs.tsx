@@ -10,14 +10,12 @@ import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";
 
-// タブ順は「案件 → 人材 → LINE → LP → マッチング」。日常運用の入口である案件・人材を先頭に置き、
+// タブ順は「案件 → 人材 → LP → マッチング」。日常運用の入口である案件・人材を先頭に置き、
 // マッチング（注力/自動）は最後にまとめる。サイドバーの「マッチング」クリックは案件に着地する。
+//   ※ LINE登録タブは廃止し、案件/人材一覧の「登録元」フィルタ（?f_signup_source=line）に統合した。
 const TABS = [
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
-  // LINE 経由で来た案件・人材を集約する専用タブ（LINE 注力導線）。
-  // ラベル先頭に公式 LINE マーク（Icons.line）を描画する（emoji ではなくブランドマーク）。
-  { key: "line", href: "/line", label: "LINE登録" },
   { key: "engineers", href: "/engineers", label: "LP登録" },
   { key: "matching", href: "/matching", label: "マッチング" },
 ] as const;
@@ -28,7 +26,6 @@ function activeFromPath(path: string): TabKey | null {
   if (path.startsWith("/matching")) return "matching";
   if (path.startsWith("/jobs")) return "jobs";
   if (path.startsWith("/people")) return "people";
-  if (path.startsWith("/line")) return "line";
   if (path.startsWith("/engineers")) return "engineers";
   return null;
 }
@@ -55,14 +52,12 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
     matching: undefined,
     jobs: counts?.jobs,
     people: counts?.people,
-    line: (counts as any)?.line,
     engineers: counts?.engineers,
   };
   const newOf: Record<TabKey, number | undefined> = {
     matching: undefined,
     jobs: counts?.newJobs,
     people: counts?.newPeople,
-    line: (counts as any)?.newLine,
     engineers: counts?.newEngineers,
   };
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
@@ -97,11 +92,9 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
             }}
           >
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              {t.key === "line" && <Icons.line size={16} />}
               {t.label}
             </span>
-            {/* LINE登録タブは件数バッジ（青背景＋数値）を出さない（要望：非表示）。 */}
-            {total != null && t.key !== "line" && (
+            {total != null && (
               <span className="badge" style={{ fontSize: 11, padding: "1px 7px", background: isFiltered ? "var(--color-brand-600)" : undefined, color: isFiltered ? "#fff" : undefined }}
                 title={isFiltered ? `絞り込み ${total} 件 / 全 ${fmt(globalTotal)} 件` : undefined}>
                 {total}{isFiltered && <span style={{ opacity: 0.8, fontWeight: 500 }}> / {fmt(globalTotal)}</span>}

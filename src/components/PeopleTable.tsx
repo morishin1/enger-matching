@@ -176,6 +176,8 @@ const PEOPLE_COLS: Col[] = [
     },
   },
   { key: "rank", label: "ランク", filterOnly: true, filterKey: "rank", filterLabel: "ランク" },
+  // 登録元（LINE登録 / 通常）。氏名列に LINE マークは出るが、絞り込み用にフィルタを追加。
+  { key: "signup_source", label: "登録元", filterOnly: true, filterKey: "signup_source", filterLabel: "登録元" },
 ];
 
 type Opt = { value: string; label: string };
