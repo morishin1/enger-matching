@@ -2,6 +2,7 @@
 
 import { useState, Fragment } from "react";
 import Link from "@/components/AppLink";
+import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
@@ -75,6 +76,15 @@ const CLIENT_NAV: NavItem[] = [
 ];
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
+
+// クリック直後の即時フィードバック。prefetch 無効＋force-dynamic で遷移がブロックされる間、
+//   押したメニューに小さなスピナーを出し「固まった/押せてない」体感を防ぐ（Next 公式 useLinkStatus）。
+//   ※ <Link> の子孫として描画する必要がある。
+function NavPending() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return <span className="spinner" aria-label="読み込み中" style={{ width: 13, height: 13, borderWidth: 2, flex: "0 0 auto", marginLeft: 4 }} />;
+}
 
 export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms, showTimecard = false }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean }) {
   const pathname = usePathname();
@@ -204,6 +214,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                     style={{ flex: 1, minWidth: 0, paddingRight: hasChildren ? 6 : undefined }}>
                     <span className="ico">{Ico && <Ico />}</span>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label}</span>
+                    <NavPending />
                     {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
                   </Link>
                   {hasChildren && (
@@ -230,6 +241,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                     <Link key={c.id} href={c.href} prefetch={false} className={"nav-item nav-sub " + (subActive ? "active" : "")}
                       style={{ paddingLeft: 38, fontSize: 12.5 }}>
                       <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
+                      <NavPending />
                       {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
                       {newN != null && newN > 0 && (
                         <span style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em", fontWeight: 800, borderRadius: 99, background: "var(--color-danger, #dc2626)", color: "#fff" }} title={`24時間以内の新着 ${newN} 件`}>NEW</span>
