@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 

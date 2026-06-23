@@ -8,7 +8,7 @@
 // マッチングページ本体の見た目をスリム化するための統合UI。
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Mode = "auto" | "focus" | "ranking" | "number";

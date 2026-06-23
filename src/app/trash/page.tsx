@@ -4,7 +4,7 @@
 //   ・上部に「6/1以前を一括ゴミ箱へ」入口（一覧ページの方ではなく、ここから操作する想定）
 //   サイドバーからは直接アクセスせず、案件/人材一覧ページから「ゴミ箱」リンクで来る運用。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { redirect } from "next/navigation";
 import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";

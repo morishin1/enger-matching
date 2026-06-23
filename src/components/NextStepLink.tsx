@@ -1,6 +1,6 @@
 // 業務フロー（Gmail取込 → 案件/人材 → マッチング → 提案 → 稼働）の
 // 「次の工程へ」誘導リンク。各ページのヘッダ右に置く。
-import Link from "next/link";
+import Link from "@/components/AppLink";
 
 export function NextStepLink({ href, label, hint }: { href: string; label: string; hint?: string }) {
   return (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
 
 // 単価表示（rate が無いとき salary_min/max から組み立て）。

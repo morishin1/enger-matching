@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { FlowSteps } from "@/components/FlowSteps";
 import { currentAccess } from "@/lib/accounts";

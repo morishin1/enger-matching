@@ -4,7 +4,7 @@
 //   - それ以外: アクセス不可（リダイレクト）
 
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept, DEPARTMENTS } from "@/lib/roles";
 import { getTeamKgi, currentMonthKey } from "@/lib/team-kgi";

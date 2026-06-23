@@ -6,7 +6,7 @@
 //   承認されると stage が「所属確認」へ移り、このフォルダから自動的に消える（＝別フォルダへ移動）。
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { approveProposal, rejectProposal, deleteProposal } from "@/lib/actions";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";

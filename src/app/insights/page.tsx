@@ -2,7 +2,7 @@
 //   ダッシュボードのファーストビューをシンプル化するため、従来の重いセクションをここに退避。
 //   成長ボード／取引構造／コスト／最近の活動／受信箱／自分のKPI を集約表示。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { redirect } from "next/navigation";
 import { currentAccess } from "@/lib/accounts";
 import { FlowSteps } from "@/components/FlowSteps";

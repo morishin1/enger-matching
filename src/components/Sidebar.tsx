@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Fragment } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";

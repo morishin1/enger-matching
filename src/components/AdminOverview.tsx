@@ -4,7 +4,7 @@
 //     - "課題と次のアクション" を最上段に持ち上げ、ボトルネック→誰に話すかが分かる。
 //     - 既存の重いセクション（成長ボード/取引構造/コスト/活動/受信箱/自分のKPI）は /insights に退避。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { engerAdmin, engerClient, dbConfigured } from "@/lib/supabase";
 import { listAccounts } from "@/lib/accounts";
 import { DEPARTMENTS } from "@/lib/roles";

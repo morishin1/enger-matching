@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition, useEffect } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";

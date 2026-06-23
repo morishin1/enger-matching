@@ -8,7 +8,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { restoreProposal } from "@/lib/actions";
 import { normalizeStage } from "@/lib/proposal-constants";
 import { ProposalDetailModal } from "./ProposalDetailModal";

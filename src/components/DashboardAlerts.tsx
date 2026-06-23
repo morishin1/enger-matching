@@ -7,7 +7,7 @@
 //   ・session 限定で「一旦非表示」できる × ボタンを付ける（再ロードで再表示）。
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import type { DashboardAlert } from "@/lib/dashboard-alerts";
 
 const SEVERITY_TONE: Record<DashboardAlert["severity"], { bg: string; border: string; ic: string; text: string }> = {

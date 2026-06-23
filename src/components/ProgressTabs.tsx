@@ -6,7 +6,7 @@
 // 両者は「稼働中の取引に伴う運用業務」という同じ文脈に属するため、サイドバーで
 // 別メニューに散らさず1つの稼働管理にまとめる。
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { usePathname } from "next/navigation";
 
 const TABS = [

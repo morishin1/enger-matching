@@ -1,5 +1,5 @@
 // ダッシュボード冒頭の「新着サマリー」。直近7日のエンジニア登録／問い合わせ／新規人材／新規案件を一目で把握。
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { getSidebarCounts } from "@/lib/counts";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 

@@ -1,6 +1,6 @@
 // 日報への新着返信を知らせるダッシュボード用バナー（サーバーコンポーネント）。
 //   未読の返信(kind=feedback)が1件以上あるときだけ表示。
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { unreadReplyCount } from "@/lib/notifications";
 
 export async function ReplyAlertBanner({ name }: { name: string | null }) {

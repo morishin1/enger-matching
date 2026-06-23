@@ -5,7 +5,7 @@
 //   - 通常はヘッダー(topbar)内に並べる（MatchingTabs）。
 //   - /matching ではヘッダー側を非表示にし、ページ本体内（フローバー直下）に
 //     MatchingPeerTabs として配置する（トップバーのスリム化）。
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";

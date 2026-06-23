@@ -7,7 +7,7 @@
 //   ・パイプライン  → /pipeline （売上フォーキャスト）
 //   ・詳細分析      → /analytics（育成戦略・スコアカード・失注理由・コーチング）
 
-import Link from "next/link";
+import Link from "@/components/AppLink";
 import { usePathname } from "next/navigation";
 
 const TABS = [
