@@ -8,7 +8,7 @@ import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDra
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
-import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject } from "./CandMailBodyCard";
+import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject, LEGACY_CAND_SUBJECT } from "./CandMailBodyCard";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
 function generateToken(): string {
@@ -232,7 +232,13 @@ export function MailComposeWizard({
     //   人材（パートナーSES）側に案件先のメアドが漏れると、企業情報の取り扱い意図に
     //   反するため、デフォルトは下書きの CC のみ（=通常は空）。
     cc: (dCand?.cc ?? ""),
-    subject: (dCand?.subject ?? "") || buildCandMailSubject(cand, job),
+    // 下書きに旧固定文言（LEGACY_CAND_SUBJECT）が保存されている場合は無視して再計算する
+    //   （PR #366 以降は「Re: <案件名>」がフォールバックの正解。旧下書きを救済）。
+    subject: (() => {
+      const saved = (dCand?.subject ?? "").trim();
+      if (saved && saved !== LEGACY_CAND_SUBJECT) return saved;
+      return buildCandMailSubject(cand, job);
+    })(),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
   const [clientErrors, setClientErrors] = useState<MailErrors>({});

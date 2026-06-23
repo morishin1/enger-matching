@@ -25,12 +25,16 @@ ITS事業部
 // 元件名が無い古い人材は、案件側メールと同じ「Re: <案件タイトル>」にフォールバック
 // （旧固定文言「【案件のご紹介】希望条件に合致する案件のお知らせ」は意味のない件名で
 //  どの案件か分からず営業の混乱の原因になっていたため、案件名ベースで件名を出す）。
+//   ※ 旧文言は下書き(proposals.pending_mail)に既に保存されていることがあるため、
+//     呼び出し側で「保存値が旧文言なら無視して再計算」できるよう export しておく。
+export const LEGACY_CAND_SUBJECT = "【案件のご紹介】希望条件に合致する案件のお知らせ";
+
 export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null, job?: { title?: string | null } | null): string {
   const orig = String(cand?.source_mail_subject ?? "").trim();
   if (orig) return reSubject(orig);
   const jobTitle = String(job?.title ?? "").trim();
   if (jobTitle) return reSubject(jobTitle);
-  return "【案件のご紹介】希望条件に合致する案件のお知らせ";
+  return LEGACY_CAND_SUBJECT;
 }
 
 export function buildCandMailContent(job: any, cand: any): string {

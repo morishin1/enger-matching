@@ -5,7 +5,6 @@ import { currentAccess } from "@/lib/accounts";
 import { PeopleTable } from "@/components/PeopleTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
 import { NextStepLink } from "@/components/NextStepLink";
-import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
@@ -345,8 +344,6 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           {!scope.isTenant && <CandidateImportButton />}
         </div>
       </div>
-
-      <FlowSteps current="data" sub="人材マスタの整備" />
 
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
