@@ -113,21 +113,24 @@ export default async function ProposalsPage() {
           titles.length  ? sb.from("jobs").select("title, outside_owner").in("title", titles).limit(1000).then((r: any) => r.error ? [] : nq(r.data)) : Promise.resolve([]),
         ]);
 
-        // 元メールリンク（ProposalDetailModal の「案件の元メール／人材の元メール」）を直近受信メールへ更新。
-        await attachLatestSourceMail(sb, "job", jn as any[]);
-        await attachLatestSourceMail(sb, "candidate", cn as any[]);
-
         // 企業マスタ（営業担当 owner / 窓口担当 contact_name）を、案件側クライアント＋人材側所属会社の
         // 両方ぶんまとめて取得。詳細モーダルの「企業担当（窓口担当者）」を自動表示するのに使う。
+        //   ※ company 名は cn（人材）から先に確定できる（attach は source_mail_url のみ書き換える）。
         const candCompanyById: Record<string, string | null> = {};
         for (const c of cn as any[]) if (c?.id != null) candCompanyById[c.id] = c.source_company ?? c.company ?? null;
         const allCompNames = Array.from(new Set([
           ...compNms,
           ...Object.values(candCompanyById).filter(Boolean) as string[],
         ]));
-        const companyRows = allCompNames.length
-          ? await sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r: any) => r.error ? [] : nq(r.data))
-          : [];
+        // 元メールリンク更新（案件・人材）と企業マスタ取得は互いに独立なので並列化する。
+        //   旧: 逐次3往復で待たされ、ページが「開かない/遅い」原因の一つだった。
+        const [, , companyRows] = await Promise.all([
+          attachLatestSourceMail(sb, "job", jn as any[]),
+          attachLatestSourceMail(sb, "candidate", cn as any[]),
+          allCompNames.length
+            ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r: any) => r.error ? [] : nq(r.data))
+            : Promise.resolve([] as any[]),
+        ]);
 
         try {
           const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean }> = {};
@@ -169,13 +172,6 @@ export default async function ProposalsPage() {
           .slice(0, 400);
         // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
         analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
-        // 企業フィードバックを紐付け（ミスマッチ低減の材料）
-        const fbMap = await getFeedbackMap(all.map((p: any) => p.id));
-        feedbackList = all
-          .filter((p: any) => fbMap[p.id])
-          .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
-          .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
-
         // 「提案開始件数」の固定期間集計（DB の正確な COUNT・400件上限の影響を受けない）
         const now = Date.now();
         const dayMs = 24 * 3600 * 1000;
@@ -186,12 +182,18 @@ export default async function ProposalsPage() {
           month:  new Date(now - 29 * dayMs).toISOString(),
           thirty: new Date(now - 29 * dayMs).toISOString(),
         };
-        const [tc, wc, mc, ttc] = await Promise.all([
+        // 企業フィードバック取得と件数 COUNT は互いに独立なので並列化（逐次5往復 → 1往復ぶん）。
+        const [fbMap, tc, wc, mc, ttc] = await Promise.all([
+          getFeedbackMap(all.map((p: any) => p.id)),
           sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.today),
           sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.week),
           sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.month),
           sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.thirty),
         ]);
+        feedbackList = all
+          .filter((p: any) => fbMap[p.id])
+          .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
+          .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
         startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: mc.count ?? 0, thirty: ttc.count ?? 0 };
       }
     } catch (e) {
