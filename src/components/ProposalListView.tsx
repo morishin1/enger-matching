@@ -6,13 +6,8 @@
 //   - ステージ・担当者での絞り込み
 //   - テーブル（行クリックで詳細モーダル）
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "@/components/toast";
+import { useMemo, useState } from "react";
 import { ProposalDetailModal } from "./ProposalDetailModal";
-import { NotifyChip } from "./NotifyDot";
-import { ActionChip } from "./ProposalActionChip";
-import { deleteProposal } from "@/lib/actions";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 import { Icons } from "./icons";
 
@@ -34,12 +29,6 @@ const normStage = (s: string | null | undefined) => {
   return "提案中";
 };
 const fmtDate = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")}`; };
-const fmtDateTime = (d: any) => {
-  if (!d) return "—";
-  const t = new Date(d);
-  if (isNaN(t.getTime())) return "—";
-  return `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
-};
 const daysAgo = (d: any) => {
   if (!d) return 0;
   const t = new Date(d).getTime();
@@ -118,17 +107,6 @@ const URGENCY_TONE: Record<NextAction["urgency"], { fg: string; bg: string; bd: 
   ok:     { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc" },
 };
 
-function PersonTag({ role, name }: { role: "P" | "CL"; name?: string | null }) {
-  const v = name?.trim();
-  if (!v) return <span className="muted" style={{ fontSize: 10.5 }}>{role === "P" ? "提案 未割当" : "CL 未割当"}</span>;
-  const col = hashColor(v);
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: `${col}1a`, color: col, border: `1px solid ${col}55`, whiteSpace: "nowrap" }}>
-      <span style={{ fontSize: 9, opacity: 0.75 }}>{role}</span>{v}
-    </span>
-  );
-}
-
 function StageBadge({ stage }: { stage: string }) {
   const tone = STAGE_TONE[stage] ?? "#6b7280";
   return (
@@ -142,9 +120,6 @@ function StageBadge({ stage }: { stage: string }) {
 //   カンバン表示と見た目を揃えるため ProposalActionChip から import する。
 
 export function ProposalListView({ proposals, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
-  const router = useRouter();
-  const [busy, start] = useTransition();
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("");
   const [ownerFilter, setOwnerFilter] = useState<string>("");
@@ -153,20 +128,9 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   //   1社の複数募集に対し同じ案件が重複して並び、コンタクト確認が漏れる問題への対応。
   const [groupByJob, setGroupByJob] = useState(true);
   const [active, setActive] = useState<any | null>(null);
-  // アコーディオン：行クリックでインラインの詳細を開閉（uniform な行＋必要な時だけ展開）。
-  const [openId, setOpenId] = useState<string | null>(null);
+  // 行クリックで開くドロワー(ProposalDetailModal)に詳細・編集・削除を集約（人材/案件一覧と同じ操作感）。
   const isPending = (v: any) => v == null || v === "pending";
 
-  const handleDelete = (p: any) => {
-    if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
-    setBusyId(p.id);
-    start(async () => {
-      const r = await deleteProposal(p.id);
-      setBusyId(null);
-      if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
-      router.refresh();
-    });
-  };
   const pendingCount = useMemo(() => proposals.filter((p) => isPending(p.job_notify_status) || isPending(p.cand_notify_status)).length, [proposals]);
 
   // ステージ別サマリ（件数 + 要対応(滞留/未処理) + 見込み金額）。
@@ -340,18 +304,17 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
           const p = it.p; const member = it.member;
           const na = nextActionFor(p);
           const naTone = URGENCY_TONE[na.urgency];
-          const closerName = p.closer ?? p.company_owner;
-          const open = openId === p.id;
           return (
-            <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)", opacity: busyId === p.id ? 0.5 : 1 }}>
-              {/* サマリ行（uniform・クリックで開閉） */}
+            <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)" }}>
+              {/* サマリ行（uniform・クリックで詳細・編集ドロワーを開く＝人材/案件一覧と同じ操作感） */}
               <div
-                onClick={() => setOpenId(open ? null : p.id)}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", background: open ? "var(--color-surface-soft)" : "transparent" }}
-                onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = "var(--color-surface-soft)"; }}
-                onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = "transparent"; }}>
-                {/* 開閉インジケータ */}
-                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-ink-4)", transition: "transform .15s", transform: open ? "rotate(90deg)" : "none", flexShrink: 0 }}>chevron_right</span>
+                onClick={() => setActive(p)}
+                title="クリックで詳細・編集ドロワーを開く"
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", background: "transparent" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-surface-soft)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                {/* ドロワーを開くアフォーダンス（静的な右シェブロン） */}
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-ink-4)", flexShrink: 0 }}>chevron_right</span>
                 {/* 人材 */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "0 0 200px", minWidth: 0 }}>
                   <div className="ava" style={{ width: 30, height: 30, fontSize: 11, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
@@ -392,56 +355,6 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                 {/* 提案日（右端・補助情報） */}
                 <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
               </div>
-
-              {/* 詳細パネル（展開時のみ） */}
-              {open && (
-                <div style={{ padding: "4px 14px 14px 46px", display: "flex", flexDirection: "column", gap: 10, background: "var(--color-surface-soft)" }}>
-                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 12 }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>提案者 / クロージング</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <PersonTag role="P" name={p.proposer} />
-                        <PersonTag role="CL" name={closerName === "未割当" ? null : closerName} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>受信側の応答</div>
-                      <div style={{ display: "inline-flex", gap: 4 }}>
-                        <ActionChip type={p.job_action_type}  side="job"  />
-                        <ActionChip type={p.cand_action_type} side="cand" />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>通知ステータス（クリックで変更）</div>
-                      <div style={{ display: "inline-flex", gap: 4 }}>
-                        <NotifyChip status={p.job_notify_status}  side="job"  proposalId={p.id} />
-                        <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="muted" style={{ fontSize: 10.5, marginBottom: 3 }}>提案日時 / 更新日</div>
-                      <div style={{ color: "var(--color-ink-2)" }}>{fmtDateTime(p.created_at)} ／ {fmtDate(p.updated_at ?? p.stage_updated_at ?? p.created_at)}</div>
-                    </div>
-                  </div>
-                  {/* 失注/見送りなら理由を表示 */}
-                  {(p.stage === "見送り" || p.stage === "失注") && p.lost_reason && (
-                    <div style={{ fontSize: 11.5, color: "#b42318" }} title={p.lost_reason_note ?? undefined}>
-                      💔 {p.lost_reason}{p.lost_phase ? `（${p.lost_phase}）` : ""}{p.lost_reason_note ? ` — ${p.lost_reason_note}` : ""}
-                    </div>
-                  )}
-                  {/* 操作 */}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button type="button" onClick={() => setActive(p)} className="btn brand btn-xs">
-                      <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px", marginRight: 2 }}>edit</span>
-                      詳細・編集を開く
-                    </button>
-                    <button type="button" onClick={() => handleDelete(p)} className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy && busyId === p.id}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px", marginRight: 2 }}>delete</span>
-                      削除
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
