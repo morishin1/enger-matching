@@ -29,7 +29,10 @@ export function FlowSteps({ current, sub }: { current: FlowStepKey; sub?: string
         <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>route</span>
         <span style={{ fontSize: 12, fontWeight: 800, color: "var(--color-brand-800)", whiteSpace: "nowrap" }}>進め方<span className="muted" style={{ fontWeight: 500, marginLeft: 4 }}>（この順番で操作）</span></span>
       </div>
-      <div style={{ display: "flex", alignItems: "stretch", flex: 1, minWidth: 0 }}>
+      {/* minWidth: max-content が肝。これが無いと内側が nav 幅に押し縮められ、各ステップ(minWidth:96)が
+          あふれて重なる（スマホで現在ステップの白カードが隣に被る事故）。max-content で「コンテンツ幅を
+          下回らない」ようにすると、狭い画面は外側 nav が横スクロール、広い画面は flex:1 で均等に広がる。 */}
+      <div style={{ display: "flex", alignItems: "stretch", flex: 1, minWidth: "max-content" }}>
         {STEPS.map((s, i) => {
           const isCurrent = i === currentIdx;
           const isDone = i < currentIdx;
