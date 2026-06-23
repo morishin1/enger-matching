@@ -138,6 +138,8 @@ const JOB_COLS: Col[] = [
   { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterKey: "flow", filterLabel: "商流制限", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterKey: "rank", filterLabel: "ランク" },
+  // 登録元（LINE登録 / 通常）。タイトル列に LINE マークは出るが、絞り込み用にフィルタを追加。
+  { key: "signup_source", label: "登録元", filterOnly: true, filterKey: "signup_source", filterLabel: "登録元" },
 ];
 
 type Opt = { value: string; label: string };

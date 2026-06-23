@@ -51,6 +51,11 @@ const SKILL_SHEET_OPTIONS = [
   { value: "あり", label: "あり" },
   { value: "なし", label: "なし" },
 ];
+// 登録元フィルタ（LINE登録タブ廃止に伴い、人材一覧で LINE/通常 を絞り込めるように）。
+const SIGNUP_SOURCE_OPTIONS = [
+  { value: "line", label: "LINE登録" },
+  { value: "normal", label: "通常（CSV/手動/メール）" },
+];
 // リモート希望（自由テキスト）を 3 区分に正規化したフィルタ。
 // value はカテゴリキー、label は表示テキスト。実データは ilike バケットで判定（下記 applyRemote）。
 // ※ 分類の優先順位は PeopleTable.remotePrefLabel と必ず一致させること。
@@ -105,7 +110,7 @@ const EXPORT_HEADERS = [
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; focus?: string }> }) {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; f_signup_source?: string; focus?: string }> }) {
   const sp = await searchParams;
   const { q: initialQuery, focus: focusId } = sp;
   const scope = await getViewerScope();
@@ -130,6 +135,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const fRank = sp.f_rank ?? "";
   // 承認状況フィルタ：approved=所属企業が打合せ済のみ / unapproved=未承認のみ。空=すべて。
   const fApproved = sp.f_approved ?? "";
+  const fSignupSource = sp.f_signup_source ?? "";
   // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
   if (scope.isTenant) {
     if (dbConfigured && scope.ownerKey) {
@@ -218,6 +224,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
         }
         if (fTitle) qb = qb.eq("title", fTitle);
+        // 登録元（LINE登録 / 通常）。LINE登録は signup_source='line'、通常は null か line 以外。
+        if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
+        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,signup_source.neq.line");
         // リモート希望は自由テキストのため ilike バケットで判定（PeopleTable.remotePrefLabel と同じ優先順位）
         if (fRemote === "remote") {
           qb = qb.ilike("remote_pref", "%フル%");
@@ -313,7 +322,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const growth = scope.isTenant ? { total: people.length, last7: 0 } as any : await getEntityDelta("candidates");
 
   // PeopleTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank, approved: fApproved };
+  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank, approved: fApproved, signup_source: fSignupSource };
   const peopleFilterOptions = {
     status: FRESH_OPTIONS,
     title: titleOptionVals.map((v) => ({ value: v, label: v })),
@@ -323,6 +332,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     nationality: NATIONALITY_OPTIONS,
     rank: RANK_OPTIONS,
     approved: [{ value: "approved", label: "承認済みのみ" }, { value: "unapproved", label: "未承認のみ" }],
+    signup_source: SIGNUP_SOURCE_OPTIONS,
   };
 
   return (
@@ -347,7 +357,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved);
+        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 
