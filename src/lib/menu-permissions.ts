@@ -1,19 +1,26 @@
-// 役職（team_role）別のサイドバーメニュー表示権限。
-//   管理者が /settings/permissions で各役職（マネージャー/リーダー/メンバー/役職なし）ごとに
+// 職能（営業 / バックオフィス）別のサイドバーメニュー表示権限。
+//   管理者が /settings の「メニュー権限」タブで、職能グループ（営業/バックオフィス）ごとに
 //   メニューの表示ON/OFFを設定し、app_settings(key='menu_permissions') に保存する。
-//   サイドバーは現在ユーザーの team_role に応じてメニューを絞り込む。
+//   サイドバーは現在ユーザーの職能(functions)に応じてメニューを絞り込む。
 //   ・管理者(role=admin)は常に全メニュー表示（ロックアウト防止）。
+//   ・兼務（営業かつバックオフィス）は両グループの和集合（どちらかで許可なら表示）。
 //   ・未設定(値なし)は「全部表示」をデフォルトにする（後方互換・事故防止）。
+//
+//   ※ 以前は役職(team_role: manager/leader/member/none)軸で持っていたが、
+//     「営業とバックオフィスで見えるメニューを分けたい」という要件に合わせ職能軸へ置き換えた。
+//     旧形式(role キー)の保存値は新キー(sales/backoffice)に一致しないため、移行後は
+//     デフォルト(全表示)から再設定する（loadMenuPermissions が安全にフォールバック）。
 
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
+import { hasSalesFunction } from "./roles";
 
 export const MENU_PERM_KEY = "menu_permissions";
 
-// 役職キー（team_role が無い内部メンバーは "none"）。
-export const MENU_ROLE_KEYS = ["manager", "leader", "member", "none"] as const;
-export type MenuRoleKey = (typeof MENU_ROLE_KEYS)[number];
-export const MENU_ROLE_LABEL: Record<MenuRoleKey, string> = {
-  manager: "マネージャー", leader: "リーダー", member: "メンバー", none: "役職なし",
+// 職能グループキー。
+export const MENU_GROUP_KEYS = ["sales", "backoffice"] as const;
+export type MenuGroupKey = (typeof MENU_GROUP_KEYS)[number];
+export const MENU_GROUP_LABEL: Record<MenuGroupKey, string> = {
+  sales: "営業", backoffice: "バックオフィス",
 };
 
 // 設定対象のメニュー（href が安定キー）。サイドバーの主要項目に対応。
@@ -34,20 +41,23 @@ export const MENU_ITEMS: { href: string; label: string }[] = [
   { href: "/ai",         label: "AIアシスタント" },
 ];
 
-// teamRole → MenuRoleKey
-export function toMenuRoleKey(teamRole: string | null | undefined): MenuRoleKey {
-  if (teamRole === "manager" || teamRole === "leader" || teamRole === "member") return teamRole;
-  return "none";
+/** ユーザーの職能から、所属するメニューグループを返す（兼務は複数）。 */
+export function menuGroupsOf(functions: string[] | null | undefined): MenuGroupKey[] {
+  const fns = functions ?? [];
+  const groups: MenuGroupKey[] = [];
+  if (hasSalesFunction(fns)) groups.push("sales");        // 空/未設定/「営業」は営業扱い
+  if (fns.includes("バックオフィス")) groups.push("backoffice");
+  return groups;
 }
 
-// 保存形式：{ manager: { "/mail": true, ... }, leader: {...}, member: {...}, none: {...} }
-export type MenuPermissions = Record<MenuRoleKey, Record<string, boolean>>;
+// 保存形式：{ sales: { "/mail": true, ... }, backoffice: {...} }
+export type MenuPermissions = Record<MenuGroupKey, Record<string, boolean>>;
 
 /** 全許可（デフォルト）。 */
 export function defaultMenuPermissions(): MenuPermissions {
   const allOn: Record<string, boolean> = {};
   for (const m of MENU_ITEMS) allOn[m.href] = true;
-  return { manager: { ...allOn }, leader: { ...allOn }, member: { ...allOn }, none: { ...allOn } };
+  return { sales: { ...allOn }, backoffice: { ...allOn } };
 }
 
 /** app_settings から読み込み（未設定は全許可）。サーバ専用。 */
@@ -60,24 +70,28 @@ export async function loadMenuPermissions(): Promise<MenuPermissions> {
     const { data, error } = await sb.from("app_settings").select("value").eq("key", MENU_PERM_KEY).maybeSingle();
     if (error || !data?.value) return def;
     const v = data.value as Partial<MenuPermissions>;
-    // 既定にマージ（新メニュー追加時に未定義キーは true 扱い）
+    // 既定にマージ（新メニュー追加時や旧形式の保存値では未定義キーは true 扱い）
     const merged = def;
-    for (const rk of MENU_ROLE_KEYS) {
-      const saved = v[rk] ?? {};
+    for (const gk of MENU_GROUP_KEYS) {
+      const saved = v[gk] ?? {};
       for (const m of MENU_ITEMS) {
-        if (typeof saved[m.href] === "boolean") merged[rk][m.href] = saved[m.href]!;
+        if (typeof saved[m.href] === "boolean") merged[gk][m.href] = saved[m.href]!;
       }
     }
     return merged;
   } catch { return def; }
 }
 
-/** 指定 teamRole で href が表示可能か（管理者判定は呼び出し側）。 */
-export function isMenuAllowed(perms: MenuPermissions, teamRole: string | null | undefined, href: string): boolean {
-  const key = toMenuRoleKey(teamRole);
-  const m = perms[key];
-  if (!m) return true;
-  // 設定対象外のメニュー（MENU_ITEMS に無い href）は常に許可
-  if (!(href in m)) return true;
-  return m[href] !== false;
+/** 指定 functions（職能）で href が表示可能か（管理者判定は呼び出し側）。
+ *   兼務（営業かつバックオフィス）は和集合＝どちらかのグループで許可されていれば表示する。 */
+export function isMenuAllowed(perms: MenuPermissions, functions: string[] | null | undefined, href: string): boolean {
+  if (!perms) return true;
+  const groups = menuGroupsOf(functions);
+  if (groups.length === 0) return true; // どの職能にも属さない場合は事故防止で許可
+  return groups.some((g) => {
+    const m = perms[g];
+    if (!m) return true;            // グループ設定なし＝許可
+    if (!(href in m)) return true;  // 設定対象外メニュー（MENU_ITEMS に無い href）は常に許可
+    return m[href] !== false;       // 明示的 false 以外は許可
+  });
 }

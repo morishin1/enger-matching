@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
-import { MENU_PERM_KEY, MENU_ITEMS, MENU_ROLE_KEYS, type MenuPermissions } from "@/lib/menu-permissions";
+import { MENU_PERM_KEY, MENU_ITEMS, MENU_GROUP_KEYS, type MenuPermissions } from "@/lib/menu-permissions";
 import { REPORT_SCOPE_KEY, REPORT_ROLE_KEYS, type ReportScope, type ReportScopes } from "@/lib/report-scope";
 import { PROPOSAL_OWNERS_KEY, type ProposalOwners } from "@/lib/proposal-owners";
 
@@ -38,10 +38,10 @@ async function requireAdminOrManager(): Promise<Result> {
 export async function saveMenuPermissions(perms: MenuPermissions): Promise<Result> {
   const g = await requireAdmin(); if (!g.ok) return g;
   // ホワイトリストで正規化（未知のキーや href を弾く）
-  const clean: MenuPermissions = { manager: {}, leader: {}, member: {}, none: {} };
-  for (const rk of MENU_ROLE_KEYS) {
+  const clean: MenuPermissions = { sales: {}, backoffice: {} };
+  for (const gk of MENU_GROUP_KEYS) {
     for (const m of MENU_ITEMS) {
-      clean[rk][m.href] = perms?.[rk]?.[m.href] !== false; // 既定 true
+      clean[gk][m.href] = perms?.[gk]?.[m.href] !== false; // 既定 true
     }
   }
   try {

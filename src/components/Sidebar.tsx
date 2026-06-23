@@ -118,15 +118,15 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   const TIMECARD_ITEM: NavItem = { href: "/timecard", id: "timecard", label: "タイムカード", icon: "cal" };
   const tools0 = showTimecard ? [TIMECARD_ITEM, ...tools0base] : tools0base;
 
-  // 役職(team_role)別メニュー表示権限の適用。
+  // 職能(営業/バックオフィス)別メニュー表示権限の適用。
   //   ・管理者(admin)・クライアント・テナントは対象外（adminは常に全表示でロックアウト防止）。
-  //   ・agent のみ menuPerms で絞り込む。子メニューも同様に判定。
+  //   ・agent のみ menuPerms で絞り込む（兼務は和集合）。子メニューも同様に判定。
   const applyMenuPerms = (items: NavItem[]): NavItem[] => {
     if (role !== "agent" || !menuPerms) return items;
     const out: NavItem[] = [];
     for (const n of items) {
-      const kids = (n.children ?? []).filter((c) => isMenuAllowed(menuPerms, teamRole, c.href));
-      if (isMenuAllowed(menuPerms, teamRole, n.href)) out.push({ ...n, children: kids });
+      const kids = (n.children ?? []).filter((c) => isMenuAllowed(menuPerms, functions, c.href));
+      if (isMenuAllowed(menuPerms, functions, n.href)) out.push({ ...n, children: kids });
       else if (kids.length > 0) out.push({ ...n, children: kids }); // 親が不可でも許可された子があれば親ごと表示
     }
     return out;
