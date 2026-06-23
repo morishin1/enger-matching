@@ -15,7 +15,7 @@ import {
   clockIn, clockOut, upsertTimeEntry, submitMonthForApproval,
   approveTimeEntries, rejectTimeEntries,
   submitShiftForApproval, approveShifts, rejectShifts,
-} from "@/lib/actions";
+} from "@/lib/actions/timecard";
 
 type Me = { email: string; name: string; isAdmin: boolean; isManager: boolean; isTimecardUser: boolean };
 
