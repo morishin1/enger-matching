@@ -255,9 +255,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx <= 0 || busy} onClick={() => onMove(p.id, STAGES[stageIdx - 1])} title="前へ">←</button>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
-        {normStageFn(p.stage) === "合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
-        <button type="button" className="btn ghost btn-xs" onClick={() => onOpen?.()} style={{ marginLeft: "auto" }} title="詳細・編集ドロワーを開く">編集</button>
-        <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }} disabled={busy} title="この提案を削除（記録ミスの取り消し）" onClick={() => { if (confirm(`「${p.candidate_name ?? "この人材"} × ${p.job_title ?? "案件"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) onDelete(p.id); }}>🗑</button>
+        {normStageFn(p.stage) === "合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} style={{ marginLeft: "auto" }} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
       </div>
       )}
 
