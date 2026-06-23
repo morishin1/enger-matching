@@ -104,12 +104,13 @@ export function ProposalsWorkspace({
   const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period]);
 
   const counts: Record<TabKey, number> = { approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length };
-  // 期間カウント（提案ボードのカウント数を主にしつつ、全タブの総数も）
-  //   ※ 承認タブは「承認漏れ」を防ぐため期間で絞らず全件表示する。
+  // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
+  //   行を二重に転送していたため。終了した提案は「失注分析」タブで見られる（mode=analytics）。
+  //   ※ コンポーネント(ProposalHistory)は残してあるので、必要なら show: true に戻せば復活可能。
   const tabsDef: { key: TabKey; label: string; icon: string; show: boolean; title?: string }[] = [
     { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（承認依頼が無くても常に表示・期間フィルタ対象外）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
-    { key: "history", label: "提案履歴",   icon: "history",     show: true, title: "提案履歴。期間フィルタで絞り込み。" },
+    { key: "history", label: "提案履歴",   icon: "history",     show: false, title: "提案履歴。期間フィルタで絞り込み。" },
     // 失注分析タブは件数 0 でも常に表示する（運用上、確認できる場所を固定したいため）。
     { key: "lost",    label: "失注分析",   icon: "monitoring",  show: true, title: "見送り/失注の分析。期間フィルタで絞り込み。0件のときも表示。" },
   ];
