@@ -176,14 +176,13 @@ export default async function ProposalsPage() {
         proposals = all.filter((p: any) => !["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
         lostRows = all.filter((p: any) => p.stage === "見送り" || p.stage === "失注");
         lost = lostRows.length;
-        // 提案履歴：進行中＋終了（見送り/失注/稼働）すべてを時系列で表示。
-        // マッチングから提案した直後のものをここで確認できる。
-        history = all
-          .slice() // 元配列を破壊しない
-          .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
-          .slice(0, 400);
-        // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
-        analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
+        // 提案履歴 / 失注分析 はタブを開いた時に /api/proposals/list で個別取得する遅延ロードに変更。
+        //   従来は all（最大400件）から派生した history / analyticsRows を props でブラウザへ送っており、
+        //   ボード(68)に加え履歴326+失注258ぶんの JSON が初期転送され、egress 急増（5GB/月のうち
+        //   今日だけで923MB）と体感遅延の主因になっていた。初期転送をボードだけにし、履歴・失注は
+        //   タブ open 時にフェッチする。
+        history = [];
+        analyticsRows = [];
         // 先行投入した 企業フィードバック＋件数COUNT を回収（重い案件/人材/企業マスタ取得と並行済み）。
         const [fbMap, tc, wc, c30] = await auxP as [Record<string, any>, { count: number | null }, { count: number | null }, { count: number | null }];
         feedbackList = all

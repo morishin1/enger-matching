@@ -8,7 +8,7 @@
 //
 //   メリット：マネージャー/担当が『今日の提案だけ』『今週の動きだけ』を即時に切り替えられる。
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ProposalBoardSwitcher } from "./ProposalBoardSwitcher";
 import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
@@ -64,6 +64,33 @@ export function ProposalsWorkspace({
   const [period, setPeriod] = useState<Period>("week");
   const [tab, setTab] = useState<TabKey>(approvalRows.length > 0 ? "approval" : "board");
 
+  // 履歴・失注は「タブを開いた時」に /api/proposals/list で取得する（遅延ロード）。
+  //   従来は親 props で初期描画時にブラウザへ大量転送（履歴326+失注258件＋全列）していたが、
+  //   それが egress 急増（5GB/月のうち今日923MB）と /proposals の初期描画遅延の主因だった。
+  //   初期表示はボード(進行中)だけにし、履歴/失注タブを開いたタイミングで初めてフェッチする。
+  const [historyClient, setHistoryClient] = useState<any[]>(history);
+  const [analyticsClient, setAnalyticsClient] = useState<any[]>(analyticsRows);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(history.length > 0);
+  const [analyticsLoaded, setAnalyticsLoaded] = useState(analyticsRows.length > 0);
+  useEffect(() => {
+    if (tab === "history" && !historyLoaded && !historyLoading) {
+      setHistoryLoading(true);
+      fetch("/api/proposals/list?mode=history").then((r) => r.json()).then((d) => {
+        if (d?.ok) setHistoryClient(d.rows ?? []);
+        setHistoryLoaded(true);
+      }).catch(() => { setHistoryLoaded(true); }).finally(() => setHistoryLoading(false));
+    }
+    if (tab === "lost" && !analyticsLoaded && !analyticsLoading) {
+      setAnalyticsLoading(true);
+      fetch("/api/proposals/list?mode=analytics").then((r) => r.json()).then((d) => {
+        if (d?.ok) setAnalyticsClient(d.rows ?? []);
+        setAnalyticsLoaded(true);
+      }).catch(() => { setAnalyticsLoaded(true); }).finally(() => setAnalyticsLoading(false));
+    }
+  }, [tab, historyLoaded, analyticsLoaded, historyLoading, analyticsLoading]);
+
   // 期間で created_at を絞り込み（all のときは全件）
   const inPeriod = (row: any): boolean => {
     if (period === "all") return true;
@@ -73,8 +100,8 @@ export function ProposalsWorkspace({
 
   // 承認待ち・差戻しは「承認」タブに集約し、ボードからは除外（重複表示を防ぐ）。
   const boardRows = useMemo(() => proposals.filter((p) => inPeriod(p) && !isAwaitingApproval(p)), [proposals, period]);
-  const historyRows = useMemo(() => history.filter(inPeriod), [history, period]);
-  const lostRows = useMemo(() => analyticsRows.filter(inPeriod), [analyticsRows, period]);
+  const historyRows = useMemo(() => historyClient.filter(inPeriod), [historyClient, period]);
+  const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period]);
 
   const counts: Record<TabKey, number> = { approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length };
   // 期間カウント（提案ボードのカウント数を主にしつつ、全タブの総数も）
@@ -89,9 +116,11 @@ export function ProposalsWorkspace({
 
   const PeriodChip = ({ p }: { p: Period }) => {
     const active = period === p;
-    const n = p === "all" ? proposals.length + analyticsRows.length : (proposals.filter((r) => {
+    // 期間カウントはボード（進行中）+ 取得済みの失注/稼働分のみ。失注分析タブを開く前は
+    // analyticsClient は空（=未取得）になるが、進行中件数だけ表示される（タブを開けば加算）。
+    const n = p === "all" ? proposals.length + analyticsClient.length : (proposals.filter((r) => {
       const t = new Date(r?.created_at ?? 0).getTime(); return !!t && t >= startMs(p);
-    }).length + analyticsRows.filter((r) => {
+    }).length + analyticsClient.filter((r) => {
       const t = new Date(r?.created_at ?? 0).getTime(); return !!t && t >= startMs(p);
     }).length);
     return (
@@ -168,7 +197,9 @@ export function ProposalsWorkspace({
         )
       )}
       {tab === "history" && (
-        historyRows.length === 0 ? (
+        historyLoading && !historyLoaded ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>読み込み中…</div>
+        ) : historyRows.length === 0 ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
             この期間に提案はありません。
           </div>
@@ -178,7 +209,9 @@ export function ProposalsWorkspace({
       )}
       {/* 失注分析タブは件数0でも空状態を表示（タブ自体は隠さない）。 */}
       {tab === "lost" && (
-        lostRows.length === 0 ? (
+        analyticsLoading && !analyticsLoaded ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>読み込み中…</div>
+        ) : lostRows.length === 0 ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
             この期間に見送り/失注はありません。
           </div>
