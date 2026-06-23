@@ -10,14 +10,16 @@ import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";
 
+// タブ順は「案件 → 人材 → LINE → LP → マッチング」。日常運用の入口である案件・人材を先頭に置き、
+// マッチング（注力/自動）は最後にまとめる。サイドバーの「マッチング」クリックは案件に着地する。
 const TABS = [
-  { key: "matching", href: "/matching", label: "マッチング" },
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
   // LINE 経由で来た案件・人材を集約する専用タブ（LINE 注力導線）。
   // ラベル先頭に公式 LINE マーク（Icons.line）を描画する（emoji ではなくブランドマーク）。
   { key: "line", href: "/line", label: "LINE登録" },
   { key: "engineers", href: "/engineers", label: "LP登録" },
+  { key: "matching", href: "/matching", label: "マッチング" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
