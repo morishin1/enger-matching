@@ -171,7 +171,7 @@ dx のアクセス権は `enger.app_users` の **role** で決まります。
 | `engineer-actions.sql` | 対応履歴 |
 | `meetings.sql`, `meetings-followup.sql`, `engagement-ops.sql`, `proposals-ops.sql` | 面談・稼働・提案運用 |
 | `stats-rpc.sql`, `companies-rpc.sql`, `quality.sql`, `notifications.sql` | 統計RPC・通知・品質 |
-| `ai-usage.sql`, `billing.sql`, `focus-flag.sql`, `email-columns.sql` ほか | 補助列・機能フラグ |
+| `ai-usage.sql`, `ai-cache.sql`, `billing.sql`, `focus-flag.sql`, `email-columns.sql` ほか | 補助列・機能フラグ・AI共有キャッシュ |
 
 ### LP（`enger-lp/supabase/`）
 | ファイル | 内容 |

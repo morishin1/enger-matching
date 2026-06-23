@@ -1,6 +1,7 @@
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { logUsage, countTodayUsage } from "@/lib/ai-usage";
 import { getSessionEmail } from "@/lib/accounts";
+import { getAiCache, setAiCache } from "@/lib/ai-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,9 +12,9 @@ const DAILY_LIMIT = Math.max(1, Number(process.env.AI_RERANK_DAILY_LIMIT || 10))
 
 const json = (d: unknown, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "Content-Type": "application/json" } });
 
-// 同じ案件×候補リストで何度も課金しないためのインメモリキャッシュ（提案メール生成と同方式）。
+// 同じ案件×候補リストで何度も課金しないための共有キャッシュ（enger.ai_cache）。
 // データ（スキル・単価）が変わればキーも変わるので、古い評価が残ることはない。
-const cache = new Map<string, { candidate_no: number; score: number; reason: string }[]>();
+type RerankResult = { candidate_no: number; score: number; reason: string };
 const cacheKeyOf = (job: any, cands: any[]) => {
   const j = [job?.title, (job?.skills ?? []).join(","), job?.salary_min, job?.salary_max, job?.remote_type, job?.role_label].join("|");
   const c = cands.map((c) => `${c.candidate_no}:${c.rate ?? ""}:${(c.skills ?? []).join("/")}`).join(";");
@@ -28,9 +29,9 @@ export async function POST(req: Request) {
   const candidates: any[] = Array.isArray(body?.candidates) ? body.candidates.slice(0, 10) : [];
   if (!candidates.length) return json({ ok: false, error: "候補がありません" }, 400);
 
-  // キャッシュヒットなら LLM を呼ばず即返す（コスト0・回数カウントなし）
+  // キャッシュヒットなら LLM を呼ばず即返す（コスト0・回数カウントなし）。7日TTL（キーがデータ依存なので陳腐化しない）。
   const ckey = cacheKeyOf(job, candidates);
-  const hit = cache.get(ckey);
+  const hit = await getAiCache<RerankResult[]>("rerank", ckey, 7 * 86400);
   if (hit) return json({ ok: true, results: hit, cached: true });
 
   // 1日1アカウント上限チェック（LLMを実際に呼ぶ＝課金が発生する手前で判定）
@@ -91,9 +92,7 @@ export async function POST(req: Request) {
   const results = parsed
     .map((p) => ({ candidate_no: Number(p.candidate_no), score: Math.max(0, Math.min(100, Math.round(Number(p.score) || 0))), reason: String(p.reason ?? "") }))
     .filter((p) => valid.has(p.candidate_no));
-  // 結果をキャッシュ（メモリ肥大を防ぐため簡易上限）
-  if (cache.size > 500) cache.clear();
-  cache.set(ckey, results);
+  await setAiCache("rerank", ckey, results);
   const remaining = Math.max(0, DAILY_LIMIT - (usedToday + 1));
   return json({ ok: true, results, cached: false, remaining, limit: DAILY_LIMIT });
 }

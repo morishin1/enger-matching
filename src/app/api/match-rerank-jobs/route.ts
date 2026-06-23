@@ -1,6 +1,7 @@
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { logUsage, countTodayUsage } from "@/lib/ai-usage";
 import { getSessionEmail } from "@/lib/accounts";
+import { getAiCache, setAiCache } from "@/lib/ai-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,8 +11,8 @@ const DAILY_LIMIT = Math.max(1, Number(process.env.AI_RERANK_DAILY_LIMIT || 10))
 
 const json = (d: unknown, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { "Content-Type": "application/json" } });
 
-// 同じ人材×案件リストで何度も課金しないためのインメモリキャッシュ（案件→人材側と同方式）。
-const cache = new Map<string, { job_no: number; score: number; reason: string }[]>();
+// 同じ人材×案件リストで何度も課金しないための共有キャッシュ（案件→人材側と同方式）。
+type RerankJobResult = { job_no: number; score: number; reason: string };
 const cacheKeyOf = (cand: any, jobs: any[]) => {
   const c = [cand?.name, (cand?.skills ?? []).join(","), cand?.rate, cand?.remote_pref, cand?.title].join("|");
   const j = jobs.map((j) => `${j.job_no}:${j.salary_min ?? ""}-${j.salary_max ?? ""}:${(j.skills ?? []).join("/")}`).join(";");
@@ -26,9 +27,9 @@ export async function POST(req: Request) {
   const jobs: any[] = Array.isArray(body?.jobs) ? body.jobs.slice(0, 10) : [];
   if (!jobs.length) return json({ ok: false, error: "案件がありません" }, 400);
 
-  // キャッシュヒットなら LLM を呼ばず即返す（コスト0・回数カウントなし）
+  // キャッシュヒットなら LLM を呼ばず即返す（コスト0・回数カウントなし）。7日TTL（キーがデータ依存なので陳腐化しない）。
   const ckey = cacheKeyOf(cand, jobs);
-  const hit = cache.get(ckey);
+  const hit = await getAiCache<RerankJobResult[]>("rerank", ckey, 7 * 86400);
   if (hit) return json({ ok: true, results: hit, cached: true });
 
   // 1日1アカウント上限チェック（LLMを実際に呼ぶ＝課金が発生する手前で判定）
@@ -89,8 +90,7 @@ export async function POST(req: Request) {
   const results = parsed
     .map((p) => ({ job_no: Number(p.job_no), score: Math.max(0, Math.min(100, Math.round(Number(p.score) || 0))), reason: String(p.reason ?? "") }))
     .filter((p) => valid.has(p.job_no));
-  if (cache.size > 500) cache.clear();
-  cache.set(ckey, results);
+  await setAiCache("rerank", ckey, results);
   const remaining = Math.max(0, DAILY_LIMIT - (usedToday + 1));
   return json({ ok: true, results, cached: false, remaining, limit: DAILY_LIMIT });
 }
