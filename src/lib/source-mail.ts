@@ -71,19 +71,32 @@ export async function attachLatestSourceMail(
     if (byId.size === 0) return;
     const mails = [...byId.values()];
 
+    // 高速化: rows と mails の総当たり O(n×m) ＝ 最悪 ~200万比較/呼び出しで CPU を食っていた。
+    //   ・「同案件/同人材一致」: regNo → 直近メール の Map を一度だけ作る
+    //   ・「送信元一致（別エンティティ登録済みを除外）」: from_email → 直近メール の Map を一度だけ作る
+    //   いずれも事前ソート＋初回採用で「最新1件」が確定。各 row は最大2回参照すれば済む O(n+m)。
+    const bestByRegNo = new Map<number, InboxRow>();
+    const bestByFrom = new Map<string, InboxRow>();
+    const sorted = mails.slice().sort((a, b) => ms(b.received_at) - ms(a.received_at));
+    for (const m of sorted) {
+      const regNo = m[regNoKey] as number | null;
+      if (regNo != null && !bestByRegNo.has(regNo)) bestByRegNo.set(regNo, m);
+      // from_email 索引は「別エンティティに登録済み」を除外して入れる（別人/別案件へ飛ばさない安全ガード）。
+      const from = norm(m.from_email);
+      if (from && regNo == null && !bestByFrom.has(from)) bestByFrom.set(from, m);
+    }
+
     for (const row of rows) {
       const no = row?.[entNoKey] as number | null | undefined;
       const email = norm(row?.contact_email);
       let best: InboxRow | null = null;
-      for (const m of mails) {
-        const regNo = m[regNoKey] as number | null;
-        const sameEntity = no != null && regNo === no;
-        const sameSender = !!email && norm(m.from_email) === email;
-        // 送信元一致でも、別エンティティに登録済みのメールは除外（別人/別案件へ飛ばさない）。
-        const regOther = regNo != null && no != null && regNo !== no;
-        if (sameEntity || (sameSender && !regOther)) {
-          if (!best || ms(m.received_at) > ms(best.received_at)) best = m;
-        }
+      if (no != null) {
+        const m = bestByRegNo.get(no);
+        if (m) best = m;
+      }
+      if (email) {
+        const m = bestByFrom.get(email);
+        if (m && (!best || ms(m.received_at) > ms(best.received_at))) best = m;
       }
       if (!best) continue;
       // 保存値より新しいときだけ差し替え（過去に戻さない）。
