@@ -8,6 +8,7 @@
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 import { NotifyChip } from "./NotifyDot";
 import { ActionChip } from "./ProposalActionChip";
@@ -162,7 +163,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     start(async () => {
       const r = await deleteProposal(p.id);
       setBusyId(null);
-      if (!r.ok) { alert(("error" in r ? r.error : null) || "削除に失敗しました"); return; }
+      if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
       router.refresh();
     });
   };

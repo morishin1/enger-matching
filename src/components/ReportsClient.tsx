@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { saveReport, coachReport, sendReportFeedback, draftReportMessage, sendReportMessage, markReportReviewed } from "@/app/reports/actions";
 import type { Actuals, DailyReport } from "@/lib/daily-report";
 
@@ -425,7 +426,7 @@ function ReportArchive({ reports, author, canManage, reviewKind = null }: { repo
         setReviewedExtra((s) => { const n = new Set(s); n.delete(r.id); return n; });
         setUnreviewedExtra((s) => { const n = new Set(s); n.add(r.id); return n; });
       }
-      alert(res.error ?? "更新に失敗しました");
+      toast(res.error ?? "更新に失敗しました", "error");
     }
   };
   // 担当者ごとの AI週次/月次講評ボタンの状態

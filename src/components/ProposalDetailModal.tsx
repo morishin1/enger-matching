@@ -8,6 +8,7 @@
 //   既存のサーバアクションを再利用（カンバンの編集パネルと同等の操作を提供）。
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "@/components/AppLink";
+import { toast } from "@/components/toast";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, deleteProposal, addProposalMemo } from "@/lib/actions";
 import { gmailMessageUrl } from "@/lib/gmail";
@@ -214,7 +215,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   }, [p.id]);
   const onDeleteMemo = (mid: string) => {
     if (!confirm("このメモを削除しますか？")) return;
-    start(async () => { const r = await deleteProposalMemo(mid); if (r.ok) loadMemos(); else alert(r.error || "削除に失敗しました"); });
+    start(async () => { const r = await deleteProposalMemo(mid); if (r.ok) loadMemos(); else toast(r.error || "削除に失敗しました", "error"); });
   };
 
   // コンタクト履歴（連絡手段＋連絡日時＋メモ）。proposal_memos(category="連絡記録") を再利用。
@@ -277,7 +278,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
     start(async () => {
       const r = await deleteProposal(p.id);
-      if (!r.ok) { alert(("error" in r ? r.error : null) || "削除に失敗しました"); return; }
+      if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
       router.refresh();
       onClose();
     });
@@ -691,7 +692,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   const { approveProposal } = await import("@/lib/actions");
                   start(async () => {
                     const r = await approveProposal(p.id);
-                    if (!r.ok) alert(r.error); else router.refresh();
+                    if (!r.ok) toast(r.error || "更新に失敗しました", "error"); else router.refresh();
                   });
                 }}>承認のみ</button>
               <button type="button" className="btn btn-sm" disabled={pending}
@@ -702,7 +703,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   const { rejectProposal } = await import("@/lib/actions");
                   start(async () => {
                     const r = await rejectProposal(p.id, reason);
-                    if (!r.ok) alert(r.error); else router.refresh();
+                    if (!r.ok) toast(r.error || "更新に失敗しました", "error"); else router.refresh();
                   });
                 }}>差戻し</button>
             </div>

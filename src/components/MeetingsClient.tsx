@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { Icons } from "./icons";
 import { createMeeting, updateMeeting, deleteMeeting, setMeetingFollowDone } from "@/lib/actions";
 import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_OWNERS, MEETING_COMPETITORS, MEETING_TAGS, MEETING_HITS, MEETING_MISSES, MEETING_NEEDS, MEETING_NEXT_ACTIONS } from "@/lib/proposal-constants";
@@ -406,7 +407,7 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
                 <div style={{ display: "flex", gap: 6, marginTop: "auto", borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
                   <button type="button" className="btn ghost btn-xs" onClick={() => openEdit(m)}>✎ 編集</button>
                   <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)" }}
-                    onClick={async () => { if (!confirm(`「${m.company_name ?? "この記録"}」を削除しますか？元に戻せません。`)) return; const r = await deleteMeeting(m.id); if (r.ok) router.refresh(); else alert(r.error ?? "削除に失敗しました"); }}>
+                    onClick={async () => { if (!confirm(`「${m.company_name ?? "この記録"}」を削除しますか？元に戻せません。`)) return; const r = await deleteMeeting(m.id); if (r.ok) router.refresh(); else toast(r.error ?? "削除に失敗しました", "error"); }}>
                     🗑 削除
                   </button>
                 </div>

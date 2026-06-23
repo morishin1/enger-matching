@@ -4,6 +4,7 @@
 // 削除前に confirm で確認。削除成功時は一覧へ戻る。
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
 export function DeleteEntityButton({ kind, idValue, label }: { kind: "candidates" | "jobs"; idValue: number; label?: string }) {
@@ -19,7 +20,7 @@ export function DeleteEntityButton({ kind, idValue, label }: { kind: "candidates
         router.push(isCand ? "/people" : "/jobs");
         router.refresh();
       } else {
-        window.alert(`削除に失敗しました: ${res.error ?? "不明なエラー"}`);
+        toast(`削除に失敗しました: ${res.error ?? "不明なエラー"}`, "error");
       }
     });
   };

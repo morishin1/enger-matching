@@ -5,6 +5,7 @@
 //   - 削除: 確認のうえ稼働と関連請求タスクを削除（管理者・バックオフィスのみ）
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/toast";
 import { updateEngagementFields, deleteEngagement } from "@/lib/actions";
 import { AFFILIATIONS } from "@/lib/affiliation";
 
@@ -31,7 +32,7 @@ function DeleteButton({ e }: { e: any }) {
     if (!confirm(`「${e.candidate_name ?? "—"}${e.company ? ` / ${e.company}` : ""}」の稼働を削除しますか？\n関連する勤怠・請求タスクも削除されます。元に戻せません。`)) return;
     start(async () => {
       const r = await deleteEngagement(e.id);
-      if (!r.ok) { alert(("error" in r ? r.error : null) || "削除に失敗しました"); return; }
+      if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
       router.refresh();
     });
   };

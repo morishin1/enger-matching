@@ -6,6 +6,7 @@
 //   承認されると stage が「所属確認」へ移り、このフォルダから自動的に消える（＝別フォルダへ移動）。
 
 import { useState, useTransition } from "react";
+import { toast } from "@/components/toast";
 import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { approveProposal, rejectProposal, deleteProposal } from "@/lib/actions";
@@ -47,7 +48,7 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
     start(async () => {
       const res = await approveProposal(id);
       setBusyId(null);
-      if (!res.ok) alert(res.error); else router.refresh();
+      if (!res.ok) toast(res.error || "承認に失敗しました", "error"); else { toast("承認しました", "success"); router.refresh(); }
     });
   };
 
@@ -58,7 +59,7 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
     start(async () => {
       const res = await rejectProposal(id, reason);
       setBusyId(null);
-      if (!res.ok) alert(res.error); else router.refresh();
+      if (!res.ok) toast(res.error || "差し戻しに失敗しました", "error"); else { toast("差し戻しました", "success"); router.refresh(); }
     });
   };
 
@@ -69,7 +70,7 @@ export function ApprovalQueue({ rows, currentUserName, privileged }: {
     start(async () => {
       const res = await deleteProposal(r.id);
       setBusyId(null);
-      if (!res.ok) alert(res.error); else router.refresh();
+      if (!res.ok) toast(res.error || "削除に失敗しました", "error"); else { toast("削除しました", "success"); router.refresh(); }
     });
   };
 
