@@ -196,6 +196,22 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     }).catch(() => {}).finally(() => setMemosLoading(false));
   };
   useEffect(() => { loadMemos(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [p.id]);
+  // 元メール本文(案件 detail / 人材 note)はボード一覧では送られてこない（全件×長文で重いため）。
+  //   モーダルを開いた時だけ個別取得する。p に既に乗っていればそれを初期表示に使う（後方互換）。
+  const [jobBody, setJobBody] = useState<string | null>(p.job_detail ?? null);
+  const [candBody, setCandBody] = useState<string | null>(p.cand_detail ?? null);
+  useEffect(() => {
+    setJobBody(p.job_detail ?? null);
+    setCandBody(p.cand_detail ?? null);
+    let aborted = false;
+    fetch(`/api/proposals/${p.id}/source`).then((r) => r.json()).then((d) => {
+      if (aborted || !d?.ok) return;
+      if (d.jobDetail != null) setJobBody(d.jobDetail as string);
+      if (d.candDetail != null) setCandBody(d.candDetail as string);
+    }).catch(() => {});
+    return () => { aborted = true; };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [p.id]);
   const onDeleteMemo = (mid: string) => {
     if (!confirm("このメモを削除しますか？")) return;
     start(async () => { const r = await deleteProposalMemo(mid); if (r.ok) loadMemos(); else alert(r.error || "削除に失敗しました"); });
@@ -333,8 +349,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>Gmailを開かずその場で突き合わせ</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <MailColumn title="案件の元メール" side="job" body={p.job_detail} url={p.job_source_mail_url} accent="#0095D9" />
-              <MailColumn title="人材の元メール" side="cand" body={p.cand_detail} url={p.cand_source_mail_url} accent="#067647" />
+              <MailColumn title="案件の元メール" side="job" body={jobBody} url={p.job_source_mail_url} accent="#0095D9" />
+              <MailColumn title="人材の元メール" side="cand" body={candBody} url={p.cand_source_mail_url} accent="#067647" />
             </div>
           </div>
 

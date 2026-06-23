@@ -88,21 +88,35 @@ export default async function ProposalsPage() {
         const compNms  = Array.from(new Set(all.map((p: any) => p.company).filter(Boolean))) as string[];
 
         const nq = (rows: any[] | null) => rows ?? [];
-        // ① 案件: 元メール本文(detail)も取得 → ドロワーの2カラム比較に使う。列が無ければ source_mail_url だけにフォールバック。
+        // 件数COUNT・企業フィードバックは後続のどの補助クエリにも依存しない（COUNTは日付集計、
+        //   フィードバックは提案IDのみ）。本体取得直後に先行投入し、案件/人材/企業マスタの取得と
+        //   並行させて1波ぶん短縮する。万一の reject でも未処理例外にならないよう .catch で握る
+        //   （早期 kick off の落とし穴＝関数クラッシュを防ぐ）。month/thirty は同じ30日集計を共有。
+        const nowMs = Date.now();
+        const dayMs = 24 * 3600 * 1000;
+        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+        const cnt = (iso: string) => sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", iso);
+        const auxP = Promise.all([
+          getFeedbackMap(all.map((p: any) => p.id)),
+          cnt(startOfToday.toISOString()),
+          cnt(new Date(nowMs - 6 * dayMs).toISOString()),
+          cnt(new Date(nowMs - 29 * dayMs).toISOString()),
+        ]).catch(() => [{}, { count: 0 }, { count: 0 }, { count: 0 }] as any[]);
+
+        // ① 案件: 元メール本文(detail)はボードでは取得しない（全件×長文で重い→モーダルを開いた時に
+        //    /api/proposals/[id]/source で個別取得）。ここでは一覧表示に必要な軽い列だけ取る。
         const fetchJobs = async () => {
           if (!jobIds.length) return [];
-          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, source_mail_at, contact_email, detail, is_closed").in("id", jobIds).limit(2000);
-          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, detail, is_closed").in("id", jobIds).limit(2000);
-          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, detail").in("id", jobIds).limit(2000);
+          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, source_mail_at, contact_email, is_closed").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, is_closed").in("id", jobIds).limit(2000);
           if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
-        // ② 人材: 元メール本文(note)も取得。列が無ければ exp、それも無ければ source_mail_url だけ。
+        // ② 人材: 同上。note/exp(経歴・本文)はモーダルで個別取得する。所属会社名(source_company/company)は軽いので取る。
         const fetchCands = async () => {
           if (!candIds.length) return [];
-          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, source_mail_at, contact_email, note, exp, is_closed, source_company, company").in("id", candIds).limit(2000);
-          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp, is_closed, source_company, company").in("id", candIds).limit(2000);
-          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, note, exp").in("id", candIds).limit(2000);
+          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, source_mail_at, contact_email, is_closed, source_company, company").in("id", candIds).limit(2000);
+          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, is_closed, source_company, company").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
@@ -170,30 +184,14 @@ export default async function ProposalsPage() {
           .slice(0, 400);
         // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
         analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
-        // 企業フィードバックを紐付け（ミスマッチ低減の材料）
-        const fbMap = await getFeedbackMap(all.map((p: any) => p.id));
+        // 先行投入した 企業フィードバック＋件数COUNT を回収（重い案件/人材/企業マスタ取得と並行済み）。
+        const [fbMap, tc, wc, c30] = await auxP as [Record<string, any>, { count: number | null }, { count: number | null }, { count: number | null }];
         feedbackList = all
           .filter((p: any) => fbMap[p.id])
           .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
           .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
-
-        // 「提案開始件数」の固定期間集計（DB の正確な COUNT・400件上限の影響を受けない）
-        const now = Date.now();
-        const dayMs = 24 * 3600 * 1000;
-        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-        const isos = {
-          today:  startOfToday.toISOString(),
-          week:   new Date(now - 6 * dayMs).toISOString(),
-          month:  new Date(now - 29 * dayMs).toISOString(),
-          thirty: new Date(now - 29 * dayMs).toISOString(),
-        };
-        const [tc, wc, mc, ttc] = await Promise.all([
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.today),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.week),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.month),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.thirty),
-        ]);
-        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: mc.count ?? 0, thirty: ttc.count ?? 0 };
+        // month/thirty は同じ「直近30日」集計(c30)を共有。
+        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: c30.count ?? 0, thirty: c30.count ?? 0 };
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
