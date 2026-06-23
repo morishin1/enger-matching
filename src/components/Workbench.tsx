@@ -148,6 +148,10 @@ function AffSelect({ e, isAdmin, onSave }: { e: Eng; isAdmin: boolean; onSave: (
 
 /** 当月の処理が完了か：請求書=送付完了 かつ 注文書=回収済。 */
 const isDone = (e: Eng) => (e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済") && (e.po_status === "回収済");
+/** 当月の勤怠が確認済か。 */
+const attDone = (e: Eng) => e.bill?.attendance_status === "確認済";
+/** 当月の請求書が送付済か。 */
+const invDone = (e: Eng) => e.bill?.invoice_status === "送付完了" || e.bill?.invoice_status === "発行済";
 
 export function Workbench({ rows, role = "admin", period, canManage, agentScoped, boardLastSynced, highlightEngagementId }: { rows: any[]; role?: Role; period: string; canManage: boolean; agentScoped?: boolean; boardLastSynced?: string | null; highlightEngagementId?: string | null }) {
   const router = useRouter();
@@ -159,6 +163,8 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
   const [view, setView] = useState<"list" | "card" | "graph">("list");
   const [q, setQ] = useState("");
   const [showDone, setShowDone] = useState(false);
+  // 月初業務サマリーの絞り込み：全件 / 勤怠未 / 請求未。
+  const [taskFilter, setTaskFilter] = useState<"all" | "att" | "inv">("all");
   // 行クリックで開く編集ドロワーの対象
   const [drawerEng, setDrawerEng] = useState<Eng | null>(null);
   const openDrawer = (e: Eng) => setDrawerEng(e);
@@ -190,7 +196,19 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
   // 月初業務は「稼働中・予定」のみ対象（終了は当月タスクなし）
   const taskRows = useMemo(() => searched.filter((e) => e.status === "稼働中" || e.status === "予定"), [searched]);
   const doneCount = useMemo(() => (tab === "tasks" ? taskRows : searched).filter(isDone).length, [taskRows, searched, tab]);
-  const visible = showDone ? (tab === "tasks" ? taskRows : searched) : (tab === "tasks" ? taskRows : searched).filter((e) => !isDone(e));
+  // 月初業務サマリー：当月の勤怠未確認・請求未送付の件数（対象＝稼働中・予定）。
+  const attPending = useMemo(() => taskRows.filter((e) => !attDone(e)).length, [taskRows]);
+  const invPending = useMemo(() => taskRows.filter((e) => !invDone(e)).length, [taskRows]);
+  // 表示行：完了の表示/非表示に加え、月初業務タブではサマリーの絞り込み(勤怠未/請求未)も反映。
+  const visible = useMemo(() => {
+    if (tab === "tasks") {
+      let v = showDone ? taskRows : taskRows.filter((e) => !isDone(e));
+      if (taskFilter === "att") v = v.filter((e) => !attDone(e));
+      else if (taskFilter === "inv") v = v.filter((e) => !invDone(e));
+      return v;
+    }
+    return showDone ? searched : searched.filter((e) => !isDone(e));
+  }, [tab, showDone, taskFilter, taskRows, searched]);
 
   const mainTab = (id: "tasks" | "contract", label: string, sub: string) => (
     <button onClick={() => setTab(id)} style={{ padding: "9px 18px", borderRadius: 10, border: `1px solid ${tab === id ? "var(--color-brand-600)" : "var(--color-border)"}`, fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", background: tab === id ? "var(--color-brand-25)" : "var(--color-surface)", color: tab === id ? "var(--color-brand-700)" : "var(--color-ink-3)", display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2, gap: 2 }}>
@@ -242,10 +260,48 @@ export function Workbench({ rows, role = "admin", period, canManage, agentScoped
         </div>
       </div>
 
+      {/* 月初業務サマリー：当月の勤怠未・請求未を一目で把握。チップをクリックで絞り込み。 */}
+      {tab === "tasks" && taskRows.length > 0 && (
+        <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "10px 14px", marginBottom: 12 }}>
+          <span style={{ fontWeight: 800, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>checklist</span>
+            月初業務サマリー
+          </span>
+          {(() => {
+            const chip = (key: "all" | "att" | "inv", label: string, n: number, tone: "neutral" | "warn" | "ok") => {
+              const active = taskFilter === key;
+              const c = tone === "warn" ? { fg: "#b42318", bg: "#fef3f2", bd: "#fcc8c2" }
+                : tone === "ok" ? { fg: "#067647", bg: "#e7f3ea", bd: "#bfe3cc" }
+                : { fg: "var(--color-ink-2)", bg: "var(--color-surface)", bd: "var(--color-border-strong)" };
+              return (
+                <button type="button" onClick={() => setTaskFilter(active && key !== "all" ? "all" : key)}
+                  title={key === "att" ? "勤怠が未確認の稼働だけ表示" : key === "inv" ? "請求書が未送付の稼働だけ表示" : "すべて表示"}
+                  style={{ fontFamily: "inherit", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 99,
+                    border: `1.5px solid ${active ? "var(--color-brand-600)" : c.bd}`,
+                    background: active ? "var(--color-brand-600)" : c.bg, color: active ? "#fff" : c.fg }}>
+                  {label} <b>{n}</b>
+                </button>
+              );
+            };
+            return (
+              <>
+                {chip("all", "対象", taskRows.length, "neutral")}
+                {chip("att", "勤怠 未", attPending, attPending > 0 ? "warn" : "ok")}
+                {chip("inv", "請求 未", invPending, invPending > 0 ? "warn" : "ok")}
+              </>
+            );
+          })()}
+          <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "#067647" }}>完了 {doneCount}</span>
+          {taskFilter !== "all" && <button type="button" className="btn ghost btn-xs" onClick={() => setTaskFilter("all")}>絞り込み解除</button>}
+        </div>
+      )}
+
       {tab === "tasks" ? (
         visible.length === 0 ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
-            {taskRows.length > 0 && doneCount > 0 ? <>未処理の月初業務はありません 🎉 「✓ 済 {doneCount}」で完了分を表示できます。</> : <>{period} の対象稼働がありません（稼働中・予定）。</>}
+            {taskFilter !== "all"
+              ? <>{taskFilter === "att" ? "勤怠が未確認の" : "請求が未送付の"}稼働はありません 🎉 <button type="button" className="btn ghost btn-xs" onClick={() => setTaskFilter("all")} style={{ marginLeft: 6 }}>すべて表示</button></>
+              : taskRows.length > 0 && doneCount > 0 ? <>未処理の月初業務はありません 🎉 「✓ 済 {doneCount}」で完了分を表示できます。</> : <>{period} の対象稼働がありません（稼働中・予定）。</>}
           </div>
         ) : (
           <div className="card flush" style={{ overflowX: "auto" }}>
