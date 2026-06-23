@@ -24,6 +24,33 @@ async function notify(recipient: string | null | undefined, title: string, body:
   } catch { /* 通知失敗は本処理を止めない */ }
 }
 
+/** お知らせを複数宛先へ一括登録（fail-soft）。N件の逐次 INSERT を1回のバッチ INSERT に圧縮する。
+ *   重複・空文字の宛先は除外。失敗しても本処理は止めない。 */
+async function notifyMany(recipients: Iterable<string | null | undefined>, title: string, body: string, kind = "info") {
+  const names = Array.from(new Set(Array.from(recipients, (r) => (r ?? "").trim()).filter(Boolean)));
+  if (names.length === 0) return;
+  try {
+    const admin = engerAdmin();
+    await admin.from("notifications").insert(names.map((recipient) => ({ recipient, title, body, kind })));
+    revalidatePath("/notifications");
+  } catch { /* 通知失敗は本処理を止めない */ }
+}
+
+/** 提案作成用に案件を取得する。outside_owner 列が無い旧環境でも落ちないようフォールバックする。 */
+async function fetchJobForProposal(admin: ReturnType<typeof engerAdmin>, jobNo: number): Promise<any> {
+  let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
+  if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
+  return jr.data;
+}
+
+/** 提案作成用に人材を取得する。打合せ済ゲート判定に使う source_company / company も取得し、
+ *   これらの列が無い旧環境ではフォールバックする。 */
+async function fetchCandidateForProposal(admin: ReturnType<typeof engerAdmin>, candNo: number): Promise<any> {
+  let cr = await admin.from("candidates").select("id, name, initials, rate, source_company, company").eq("candidate_no", candNo).maybeSingle();
+  if (cr.error) cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
+  return cr.data;
+}
+
 /** 承認権限を持つ社内メンバー（admin / 経営部署 / マネージャー / リーダー）の氏名一覧。
  *   承認依頼は「指定された承認者1名だけ」では取りこぼし（氏名不一致・指名漏れ）が起きるため、
  *   承認できる全員に通知するためのリストを返す。app_users の列が未整備でも fail-soft。 */
@@ -631,17 +658,11 @@ export async function isProposerPrivileged(): Promise<{ ok: boolean; privileged:
 export async function createProposal(jobNo: number, candNo: number, score?: number, proposer?: string, preTokens?: { jobToken?: string | null; candToken?: string | null }, approver?: string, pendingMail?: PendingMail | null) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  let job: any = null, cand: any = null;
-  {
-    // outside_owner（企業担当）列が無い環境でも落ちないようフォールバック
-    let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
-    if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
-    job = jr.data;
-    // 打合せ済ゲートで所属企業を判定するため、source_company / company も合わせて取得（フォールバックあり）。
-    let cr: any = await admin.from("candidates").select("id, name, initials, rate, source_company, company").eq("candidate_no", candNo).maybeSingle();
-    if (cr.error) cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
-    cand = cr.data;
-  }
+  // 案件・人材は独立クエリなので並列取得（旧環境向けの列フォールバックはヘルパ内に集約）。
+  const [job, cand]: [any, any] = await Promise.all([
+    fetchJobForProposal(admin, jobNo),
+    fetchCandidateForProposal(admin, candNo),
+  ]);
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
   // 応答リンクのトークン。メールに埋め込んだものを優先（HEX48）。無ければ新規生成。
@@ -709,7 +730,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
       for (const n of await listApproverNames()) recipients.add(n);
       if (proposerNameDup) recipients.delete(proposerNameDup);
       const body = `${proposerNameDup ?? "担当者"} さんが内容を修正して再申請しました${who ? `：${who}` : ""}。\n提案管理の「承認」タブで確認し、承認のうえメールを送信してください。`;
-      for (const r of recipients) await notify(r, "提案の承認依頼（再申請）", body, "approval");
+      await notifyMany(recipients, "提案の承認依頼（再申請）", body, "approval");
     }
 
     revalidatePath("/proposals");
@@ -796,7 +817,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
     for (const n of await listApproverNames()) recipients.add(n);
     if (proposerName) recipients.delete(proposerName); // 自分自身には通知しない
     const body = `${proposerName ?? "担当者"} さんから承認待ちの提案があります${who ? `：${who}` : ""}。\n提案管理の「承認」タブで内容を確認し、承認のうえメールを送信してください。`;
-    for (const r of recipients) await notify(r, "提案の承認依頼", body, "approval");
+    await notifyMany(recipients, "提案の承認依頼", body, "approval");
   }
   revalidatePath("/proposals");
   revalidatePath("/matching");
@@ -812,14 +833,11 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
 export async function recordProposal(jobNo: number, candNo: number, score?: number, proposer?: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  // job / candidate の解決
-  let jr = await admin.from("jobs").select("id, title, client_name, outside_owner").eq("job_no", jobNo).maybeSingle();
-  if (jr.error) jr = await admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle();
-  const job: any = jr.data;
-  // 打合せ済ゲートで所属企業を判定するため、source_company / company も合わせて取得。
-  let cr: any = await admin.from("candidates").select("id, name, initials, rate, source_company, company").eq("candidate_no", candNo).maybeSingle();
-  if (cr.error) cr = await admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candNo).maybeSingle();
-  const cand: any = cr.data;
+  // job / candidate の解決（独立クエリなので並列化）
+  const [job, cand]: [any, any] = await Promise.all([
+    fetchJobForProposal(admin, jobNo),
+    fetchCandidateForProposal(admin, candNo),
+  ]);
   if (!job?.id || !cand?.id) return { ok: false, error: "案件または人材が見つかりません" };
 
   // 重複チェック（冪等）。既存の場合は保存済みトークンも返す（後段のメール作成で再利用するため）。
