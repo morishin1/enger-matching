@@ -81,6 +81,23 @@ export default async function ProposalsPage() {
         needSetup = true;
       } else {
         const all = res.data ?? [];
+        // 件数COUNT・企業フィードバックは「以降のどの補助クエリにも依存しない」（COUNTは日付集計だけ、
+        // フィードバックは提案IDだけ）。後段の案件/人材→元メール→企業マスタの2波と直列に待つのは無駄なので、
+        // ここで先に投げておき（kick off）、最後に await する＝重い2波と丸ごと並行させて1波ぶん短縮する。
+        const nowMs = Date.now();
+        const dayMs = 24 * 3600 * 1000;
+        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+        // month と thirty は同じ「直近30日(=29日前から)」。重複クエリを1本に統合して使い回す。
+        const isoToday = startOfToday.toISOString();
+        const isoWeek  = new Date(nowMs - 6 * dayMs).toISOString();
+        const iso30    = new Date(nowMs - 29 * dayMs).toISOString();
+        const countSince = (iso: string) => sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", iso);
+        const auxP = Promise.all([
+          getFeedbackMap(all.map((p: any) => p.id)),
+          countSince(isoToday),
+          countSince(isoWeek),
+          countSince(iso30),
+        ]);
         // 補助情報を 4 クエリ並列で取得（旧: 逐次 4 往復 → 新: 1 往復ぶんに短縮）。
         //   ① job_id → job_no/source_mail_url
         //   ② candidate_id → candidate_no/source_mail_url
@@ -175,29 +192,15 @@ export default async function ProposalsPage() {
           .slice(0, 400);
         // 失注分析用は勝率計算のため稼働/稼働決定も含める。期間フィルタはクライアント側で行う
         analyticsRows = all.filter((p: any) => ["見送り", "失注", "稼働", "稼働決定"].includes(p.stage));
-        // 「提案開始件数」の固定期間集計（DB の正確な COUNT・400件上限の影響を受けない）
-        const now = Date.now();
-        const dayMs = 24 * 3600 * 1000;
-        const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-        const isos = {
-          today:  startOfToday.toISOString(),
-          week:   new Date(now - 6 * dayMs).toISOString(),
-          month:  new Date(now - 29 * dayMs).toISOString(),
-          thirty: new Date(now - 29 * dayMs).toISOString(),
-        };
-        // 企業フィードバック取得と件数 COUNT は互いに独立なので並列化（逐次5往復 → 1往復ぶん）。
-        const [fbMap, tc, wc, mc, ttc] = await Promise.all([
-          getFeedbackMap(all.map((p: any) => p.id)),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.today),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.week),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.month),
-          sb.from("proposals").select("id", { count: "exact", head: true }).gte("created_at", isos.thirty),
-        ]);
+        // 先に投げておいた COUNT・フィードバックをここで回収（重い2波と並行済み＝追加待ちはほぼ無し）。
+        //   ※「提案開始件数」は DB の正確な COUNT（created_at 基準・400件上限の影響を受けない）。
+        const [fbMap, tc, wc, c30] = await auxP;
         feedbackList = all
           .filter((p: any) => fbMap[p.id])
           .map((p: any) => ({ verdict: fbMap[p.id].verdict, reason: fbMap[p.id].reason, c_init: p.c_init || "人材", job_title: p.job_title || "—", company: p.company || "—", updated_at: fbMap[p.id].updated_at }))
           .sort((a: any, b: any) => (a.updated_at < b.updated_at ? 1 : -1));
-        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: mc.count ?? 0, thirty: ttc.count ?? 0 };
+        // month/thirty は同じ直近30日集計（c30）を共有。
+        startStats = { today: tc.count ?? 0, week: wc.count ?? 0, month: c30.count ?? 0, thirty: c30.count ?? 0 };
       }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
