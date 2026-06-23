@@ -44,9 +44,17 @@ export async function proxy(req: NextRequest) {
   const carry = (next: NextResponse) => { for (const c of res.cookies.getAll()) next.cookies.set(c.name, c.value, c); return next; };
   try {
     const supabase = authProxyClient(req, res);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user?.email) {
-      const access = await resolveAccess(user.email);
+    // getClaims: アクセストークン(JWT)を「ローカル検証」する。プロジェクトが非対称署名キー(JWT
+    //   Signing Keys)なら Supabase Auth API への HTTP 往復ゼロで検証でき、Middleware が常時 ~10ms に
+    //   なる（従来 getUser は毎回 Auth API へ往復し、混雑時 1.5秒まで悪化していた）。
+    //   ※ 署名検証は getClaims が JWKS で行う＝偽造トークンは弾ける。アカウントの有効/無効・ロールは
+    //     引き続き resolveAccess(app_users) を DB で確認するので「無効化アカウントの即時遮断」も保たれる。
+    //   ※ 旧来の対称鍵(HS256)プロジェクトの場合、getClaims は内部で getUser にフォールバックする
+    //     （＝この変更だけでは速くならない。Supabase で非対称キーへ移行すると効く）。
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const email = (claimsData?.claims?.email as string | undefined)?.toLowerCase();
+    if (email) {
+      const access = await resolveAccess(email);
       // 未許可 or 承認待ち/無効 → ログインへ（メッセージ付き）
       if (!access || access.status !== "active") {
         const login = req.nextUrl.clone();
