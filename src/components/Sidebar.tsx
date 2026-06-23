@@ -20,7 +20,9 @@ const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
   { href: "/mail", id: "mail", label: "メール取込", icon: "mail" },
   { href: "/companies", id: "companies", label: "企業", icon: "company", count: "companies" },
-  { href: "/matching", id: "matching", label: "マッチング", icon: "matching", children: [
+  // 「マッチング」クリックは案件(/jobs)に着地（既定タブ＝案件）。マッチング画面はピアタブ最後の
+  //   「マッチング」から入る。子は案件→人材→LP登録の順。
+  { href: "/jobs", id: "matching", label: "マッチング", icon: "matching", children: [
     { href: "/jobs",      id: "jobs",      label: "案件",   count: "jobs",      newCount: "newJobs" },
     { href: "/people",    id: "people",    label: "人材",   count: "people",    newCount: "newPeople" },
     { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },

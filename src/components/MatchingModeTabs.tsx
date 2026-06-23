@@ -1,28 +1,28 @@
 "use client";
 
-// マッチング種別を1ブロックに集約：自動マッチング / 注力マッチング / 番号マッチング。
-//   従来は3カ所に分散していた UI（自動/注力タブ、番号入力フォーム）をタブで切替。
+// マッチング種別を1ブロックに集約：注力マッチング / 自動マッチング / ランキング100。
+//   ・注力（既定）→ /matching?tab=focus。注力ビュー内で「番号で直接マッチング」も行える。
 //   ・自動 → /matching?tab=auto
-//   ・注力 → /matching?tab=focus
+//   ・ランキング → /matching?tab=ranking
 //   ・番号 → 案件NO/人材NO を入力して /matching?job=… / /matching?person=… へジャンプ
+//     （旧「番号マッチング」タブは廃止し、注力ビュー内の入力欄に統合）
 // マッチングページ本体の見た目をスリム化するための統合UI。
 
 import { useState } from "react";
 import Link from "@/components/AppLink";
 import { useRouter, useSearchParams } from "next/navigation";
 
-type Mode = "auto" | "focus" | "ranking" | "number";
+type Mode = "auto" | "focus" | "ranking";
 
 export function MatchingModeTabs() {
   const router = useRouter();
   const sp = useSearchParams();
-  // URL の tab / job / person からアクティブを判定
+  // URL の tab からアクティブを判定。既定は注力（focus）。番号ジャンプ(job/person)後も注力扱い。
   const initialMode: Mode = (() => {
     const tab = sp?.get("tab");
-    if (tab === "focus") return "focus";
+    if (tab === "auto") return "auto";
     if (tab === "ranking") return "ranking";
-    if (sp?.get("job") || sp?.get("person")) return "auto"; // ジャンプ後は自動扱い
-    return (tab === "auto" ? "auto" : "auto");
+    return "focus"; // tab 未指定・focus・番号ジャンプはすべて注力
   })();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [job, setJob] = useState("");
@@ -35,11 +35,11 @@ export function MatchingModeTabs() {
   const goJob = () => { const n = numOf(job); if (n) router.push(`/matching?job=${n}`); };
   const goPerson = () => { const n = numOf(person); if (n) router.push(`/matching?person=${n}`); };
 
+  // 注力を先頭（既定）に。番号マッチングはタブ廃止し注力ビュー内の入力欄へ統合。
   const TABS: { key: Mode; label: string; note: string; href?: string }[] = [
-    { key: "auto",    label: "自動マッチング", note: "全案件・全人材",     href: "/matching?tab=auto" },
     { key: "focus",   label: "注力マッチング", note: "★ ♡・プロパー・新着", href: "/matching?tab=focus" },
+    { key: "auto",    label: "自動マッチング", note: "全案件・全人材",     href: "/matching?tab=auto" },
     { key: "ranking", label: "ランキング100",  note: "必須スキル75%以上",   href: "/matching?tab=ranking" },
-    { key: "number",  label: "番号マッチング", note: "案件No / 人材No" },
   ];
 
   const inputStyle: React.CSSProperties = {
@@ -83,9 +83,10 @@ export function MatchingModeTabs() {
         })}
       </div>
 
-      {/* 番号マッチングの入力欄（タブ選択時のみ表示） */}
-      {mode === "number" && (
+      {/* 番号で直接マッチング（注力ビュー内に統合。旧「番号マッチング」タブの代替）。 */}
+      {mode === "focus" && (
         <div className="card" style={{ marginTop: 8, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", padding: "10px 14px" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-ink-2)" }}>番号で直接マッチング</span>
           <form onSubmit={(e) => { e.preventDefault(); goJob(); }} style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <label style={{ fontSize: 12, color: "var(--color-ink-3)" }}>案件NO</label>
             <input type="text" inputMode="numeric" placeholder="例：123" value={job} onChange={(e) => setJob(e.target.value)} style={inputStyle} />
