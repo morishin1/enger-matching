@@ -11,6 +11,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
 import { bulkDeleteProposals } from "@/lib/actions";
 import { ProposalDetailModal } from "./ProposalDetailModal";
+import { NotifyChip } from "./NotifyDot";
+import { ActionChips } from "./ProposalActionChip";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
 import { Icons } from "./icons";
 
@@ -234,12 +236,30 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     );
   };
 
+  // クロージング担当者タグ（提案者の隣に表示）。closer が空なら company_owner で代替。
+  const closerTag = (p: any) => {
+    const v = String(p.closer ?? p.company_owner ?? "").trim();
+    if (!v || v === "未割当") return null;
+    return (
+      <span title="クロージング担当者" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-3)", border: "1px solid var(--color-border)", whiteSpace: "nowrap", flexShrink: 0 }}>
+        <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 13 }}>handshake</span>{v}
+      </span>
+    );
+  };
+
+  // 通知ステータス：クリックで 未処理→処理中→完了 を循環する操作ボタン（案件側 / 人材側）。
+  //   旧実装は静的な色ドットでクリックしても反応しなかったため NotifyChip に置き換える。
   const notifyDots = (p: any) => (
-    <span style={{ flex: "0 0 auto", display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
-      <span title={`案件側: ${isPending(p.job_notify_status) ? "未処理" : p.job_notify_status === "in_progress" ? "処理中" : "完了"}`}
-        style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.job_notify_status) ? "#dc2626" : p.job_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
-      <span title={`人材側: ${isPending(p.cand_notify_status) ? "未処理" : p.cand_notify_status === "in_progress" ? "処理中" : "完了"}`}
-        style={{ width: 8, height: 8, borderRadius: 99, background: isPending(p.cand_notify_status) ? "#dc2626" : p.cand_notify_status === "in_progress" ? "#fbbf24" : "#10b981" }} />
+    <span style={{ flex: "0 0 auto", display: "inline-flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+      <NotifyChip status={p.job_notify_status} side="job" proposalId={p.id} />
+      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
+    </span>
+  );
+
+  // 受信側の応答ランプ（話を進める=緑 / 見送り=赤 / 未回答=破線）。
+  const actionLamps = (p: any) => (
+    <span style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center" }} title="受信側の応答（左:案件先 / 右:人材先）">
+      <ActionChips jobType={p.job_action_type} candType={p.cand_action_type} compact />
     </span>
   );
 
@@ -262,7 +282,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                 <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{idCand(p) ?? ""}{p.lp_direct ? " · 📥LP" : ""}</div>
               </div>
-              {proposerTag(p.proposer)}
+              {proposerTag(p.proposer)}{closerTag(p)}
             </div>
           ) : (
             <>
@@ -279,7 +299,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                   <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
                   <div className="muted" style={{ fontSize: 10 }}>{idCand(p) ?? ""}{p.lp_direct ? " · 📥LP" : ""}</div>
                 </div>
-                {proposerTag(p.proposer)}
+                {proposerTag(p.proposer)}{closerTag(p)}
               </div>
             </>
           )}
@@ -288,6 +308,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
             <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
             {na.text}
           </span>
+          {actionLamps(p)}
           {notifyDots(p)}
           <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
         </div>
