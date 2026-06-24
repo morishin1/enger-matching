@@ -22,7 +22,7 @@ const STAGES = [...PROPOSAL_STAGES];
 //   ボードのKPIカード・絞り込みからは除外する（常に0で紛らわしいのを解消）。
 const BOARD_STAGES = STAGES.filter((s) => s !== "承認待ち");
 const STAGE_TONE: Record<string, string> = {
-  所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260",
+  所属確認: "#6b7280", 提案中: "#0095D9", 確認中: "#06b6d4", 面談: "#d98a2b", 合格: "#1aa260",
 };
 const normStage = (s: string | null | undefined) => {
   const v = String(s ?? "").trim();
@@ -55,10 +55,11 @@ const parseManYen = (rate?: string | number | null): number => {
 const yen = (man: number) => (man >= 10000 ? `${(man / 10000).toFixed(1)}億` : `${man.toLocaleString("ja-JP")}万`);
 
 // ステージごとの目標滞留日数(SLA)と、滞留したとき何をすべきか（行動を促す一手）。
-const STAGE_SLA: Record<string, number> = { 所属確認: 2, 提案中: 5, 面談: 3, 合格: 7 };
+const STAGE_SLA: Record<string, number> = { 所属確認: 2, 提案中: 5, 確認中: 3, 面談: 3, 合格: 7 };
 const STAGE_HINT: Record<string, string> = {
   所属確認: "営業可否を確認",
   提案中: "フォロー架電",
+  確認中: "先方の意向・条件を確認",
   面談: "日程を確定・実施",
   合格: "稼働化する",
 };
