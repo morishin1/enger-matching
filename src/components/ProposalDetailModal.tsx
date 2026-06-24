@@ -158,8 +158,14 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [candCompanyContact, setCandCompanyContact] = useState(p.cand_company_contact ?? "");
   const [candContact, setCandContact] = useState(p.cand_contact ?? "");
 
+  // 表示用の実効ステージ。pickStage 直後に楽観的更新し、router.refresh で親が
+  // 新しい p を渡せばそれに追従する。モーダルが開いた時点の古い p を保持し続けて
+  // ドロップダウンのチェック(✓)が選択に追従しない不具合への対応。
+  const [effStage, setEffStage] = useState<string>(p.stage);
+  useEffect(() => { setEffStage(p.stage); }, [p.stage]);
+
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
-  const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(p.stage)));
+  const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(effStage)));
   // 「どの会社の誰が担当か」が空なら入力を促す（勝率分析に直結。見送りには必須）。
   const lostContactMissing = !lostCompany.trim() || !lostClientContact.trim();
   // 見送り確定の必須条件：失注理由＋理由メモ＋会社名＋先方担当者がすべて揃っていること。
@@ -245,7 +251,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const contactMemos = memos.filter((m) => m.category === "連絡記録");
 
   const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
-  const moveTo = (stage: string) => { if (stage !== p.stage) run(() => updateProposalStage(p.id, stage)); };
+  const moveTo = (stage: string) => { if (stage !== effStage) { setEffStage(stage); run(() => updateProposalStage(p.id, stage)); } };
   // 案件情報 / 人材情報（会社名・企業担当・先方担当）も含めて保存する共通ペイロード。
   const contactFields = () => ({
     company: jobCompany.trim() || null,
@@ -267,6 +273,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     setStageMenuOpen(false);
     if (stage === "見送り") { setLostOpen(true); return; }
     if (!requireProposer()) return;
+    setEffStage(stage); // チェック(✓)と進捗表示を即時に選択ステージへ追従させる
     run(() => updateProposalFields(p.id, {
       stage,
       caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null,
@@ -741,7 +748,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <div className="muted" style={{ fontSize: 11, padding: "10px 14px 6px" }}>新しいステータスを選択</div>
                 {STAGES.map((s) => {
                   const tone = STAGE_TONE[s] ?? "#6b7280";
-                  const current = s === p.stage;
+                  const current = s === effStage;
                   return (
                     <button key={s} type="button" role="option" aria-selected={current} onClick={() => pickStage(s)}
                       style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", fontFamily: "inherit", fontSize: 13, fontWeight: current ? 700 : 500, color: current ? tone : "var(--color-ink-2)", background: current ? `${tone}10` : "transparent", border: 0, cursor: "pointer", textAlign: "left" }}
@@ -768,7 +775,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
             {pending ? "保存中…" : "編集を保存"}
           </button>
-          {normalizeStage(p.stage) === "合格" && (
+          {normalizeStage(effStage) === "合格" && (
             <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}
           <button type="button" className="btn ghost" disabled={pending}
