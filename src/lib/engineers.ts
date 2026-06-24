@@ -20,8 +20,8 @@ export type EngineerSource = {
 
 // LP/方式の表示名マップ（新しいLP/方式を追加する際はここに 1 行足すだけ）
 const LP_LABEL: Record<string, { label: string; color: EngineerSource["color"] }> = {
-  enger:      { label: "エンジャーLP", color: "brand" },
-  enger_lp:   { label: "エンジャーLP", color: "brand" },
+  enger:      { label: "ENGERフリーランス", color: "brand" },
+  enger_lp:   { label: "ENGERフリーランス", color: "brand" },
   dojo:       { label: "無限道場LP", color: "warn" },
   mugen_dojo: { label: "無限道場LP", color: "warn" },
 };
@@ -55,7 +55,8 @@ export function classifySource(p: any): EngineerSource {
   return {
     key: lpKey || "other",
     label: lp?.label ?? "その他",
-    method: METHOD_LABEL[methodKey] || undefined,
+    // ENGERフリーランス(enger)は「ENGERフリーランス」単体で表示する要望のため方式(·Google等)は出さない。
+    method: lpKey === "enger" ? undefined : (METHOD_LABEL[methodKey] || undefined),
     color: lp?.color ?? "neutral",
   };
 }
