@@ -23,7 +23,9 @@ type HItem = {
   lost_phase?: string | null;
   proposer?: string | null;
   closer?: string | null;
-  client_contact?: string | null;   // 先方担当者（勝率分析の軸）
+  client_contact?: string | null;   // 案件側の先方担当者
+  cand_contact?: string | null;      // 人材側の先方担当者
+  cand_company?: string | null;      // 人材の所属会社（人材側の会社名表示用）
   created_at?: string | null;
   updated_at?: string | null;
   stage_updated_at?: string | null;
@@ -136,8 +138,8 @@ type Aggregated = {
   }>;
   byProposer: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
   byCloser: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
-  // 先方担当者（クライアント窓口）別の勝率・失注理由。誰に当たると決まりやすい/落ちやすいかを見る。
-  byClientContact: Array<{ name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
+  // 先方担当者（案件側=クライアント窓口／人材側=SES窓口）別の失注理由。会社名・側も保持。
+  byClientContact: Array<{ name: string; company?: string; side?: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] }>;
   // 提案→失注 までのタイムラグ（日）。スピード改善のための分布・上位の遅い案件を保持。
   lagBuckets: Array<{ label: string; range: [number, number]; n: number }>;
   lagStats: { avg: number | null; median: number | null; p90: number | null; total: number };
@@ -227,20 +229,32 @@ function analyze(items: HItem[]): Aggregated {
       byCloser[closer].won++;
     }
 
-    // 先方担当者（クライアント窓口）別の集計。誰に当たると決まりやすい/落ちやすいかを可視化。
-    const contact = (p.client_contact ?? "").trim() || "（未入力）";
-    if (!byClientContact[contact]) byClientContact[contact] = { name: contact, won: 0, lost: 0, reasons: {}, lagDays: [] };
-    if (isLost) {
-      byClientContact[contact].lost++;
-      const r = p.lost_reason || "（理由未入力）";
-      byClientContact[contact].reasons[r] = (byClientContact[contact].reasons[r] || 0) + 1;
+    // 先方担当者：案件側(client_contact)・人材側(cand_contact)の両窓口を、会社名・側とともに集計。
+    //   表記は「会社名 担当者名（案件側/人材側）」。どの会社の・どちら側の担当かを明確にする。
+    const contacts: Array<{ name: string; company: string; side: string }> = [];
+    const cc = (p.client_contact ?? "").trim();
+    if (cc) contacts.push({ name: cc, company: (p.company ?? "").trim(), side: "案件側" });
+    const pc = (p.cand_contact ?? "").trim();
+    if (pc) contacts.push({ name: pc, company: (p.cand_company ?? "").trim(), side: "人材側" });
+    if (contacts.length === 0) contacts.push({ name: "（未入力）", company: "", side: "案件側" });
+    const lagOf = () => {
       const createdT = new Date(p.created_at || 0).getTime();
       const lostT = new Date(p.stage_updated_at || p.updated_at || 0).getTime();
-      if (createdT && lostT && lostT >= createdT) {
-        byClientContact[contact].lagDays.push(Math.max(0, Math.round((lostT - createdT) / 86400000)));
+      return createdT && lostT && lostT >= createdT ? Math.max(0, Math.round((lostT - createdT) / 86400000)) : null;
+    };
+    for (const sc of contacts) {
+      const key = `${sc.side}|${sc.company}|${sc.name}`;
+      if (!byClientContact[key]) byClientContact[key] = { name: sc.name, company: sc.company, side: sc.side, won: 0, lost: 0, reasons: {}, lagDays: [] };
+      const e = byClientContact[key];
+      if (isLost) {
+        e.lost++;
+        const r = p.lost_reason || "（理由未入力）";
+        e.reasons[r] = (e.reasons[r] || 0) + 1;
+        const lag = lagOf();
+        if (lag != null) e.lagDays.push(lag);
+      } else {
+        e.won++;
       }
-    } else {
-      byClientContact[contact].won++;
     }
   }
 
@@ -560,19 +574,32 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
   );
 }
 
-// 担当者別 失注傾向＋スピード。提案者 / クロージング担当 をタブで切り替えて表示。
-type OwnerStat = { name: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] };
+// 失注理由のカテゴリ別カラー。コード先頭文字(A〜E)で系統色を分け、同系色での見分け困難を解消する。
+//   A=人材/スキル系=赤 / B=案件・条件系=オレンジ / C=商流・競合系=紫 / D=自社プロセス系=青 / E・その他=グレー。
+function reasonColor(reason: string): string {
+  const code = (String(reason).match(/^([A-Z])\s*\d/) || [])[1];
+  switch (code) {
+    case "A": return "#dc2626"; // スキル不足/アンマッチ 等 → 赤
+    case "B": return "#ea580c"; // 案件側の条件・予算 等 → オレンジ
+    case "C": return "#9333ea"; // 商流・他社競合 → 紫
+    case "D": return "#2563eb"; // 自社プロセス・フォロー → 青
+    case "E": return "#64748b"; // 連絡不通・タイミング・その他 → グレー
+    default:  return "#9aa7b4"; // 架電できていない/未入力 → 薄グレー
+  }
+}
+
+// 担当者別 失注傾向＋スピード。提案者 / クロージング担当 / 先方担当者 をタブで切り替えて表示。
+type OwnerStat = { name: string; company?: string; side?: string; won: number; lost: number; reasons: Record<string, number>; lagDays: number[] };
 function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byProposer: OwnerStat[]; byCloser: OwnerStat[]; byClientContact: OwnerStat[] }) {
   type View = "proposer" | "closer" | "client";
   // 既定は提案者。提案者が空ならクロージング → 先方担当 の順で初期表示。
   const [view, setView] = useState<View>(byProposer.length > 0 ? "proposer" : byCloser.length > 0 ? "closer" : "client");
   const rows = view === "proposer" ? byProposer : view === "closer" ? byCloser : byClientContact;
-  const palette = ["#b42318", "#b45309", "#7c5cff", "#0b5cab", "#9aa7b4"];
-  const hint = view === "proposer"
-    ? "提案を起票した人（提案者）でグルーピング。スキル/単価系が多い → マッチング精度の見直し。"
-    : view === "closer"
-      ? "クロージング（決定段階の交渉）を担当した人でグルーピング。フォロー/連絡系・条件交渉系が多い → クロージング動きの見直し。"
-      : "先方担当者（クライアント窓口）でグルーピング。勝率が低い窓口・刺さらない理由が分かる → 当て方/担当替え/フォロー強化の判断に。";
+  // 先方担当者タブは「会社名 担当者名（案件側/人材側）」で表示する。
+  const labelOf = (p: OwnerStat) =>
+    view === "client" && p.side
+      ? `${p.company ? p.company + " " : ""}${p.name}（${p.side}）`
+      : p.name;
 
   const TabBtn = ({ k, label, n }: { k: View; label: string; n: number }) => {
     const active = view === k;
@@ -590,17 +617,17 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
 
   return (
     <div className="card" style={{ padding: 14 }}>
-      <Header title="👤 担当者別 失注傾向＋スピード" hint={hint} />
+      <Header title="👤 担当者別 失注傾向＋スピード" />
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <TabBtn k="proposer" label="📝 提案者" n={byProposer.length} />
-        <TabBtn k="closer" label="🎯 クロージング" n={byCloser.length} />
+        <TabBtn k="closer" label="🎯 クロージング担当者" n={byCloser.length} />
         <TabBtn k="client" label="🏢 先方担当者" n={byClientContact.length} />
       </div>
       {rows.length === 0 ? (
         <div className="muted" style={{ fontSize: 12 }}>対象の担当者がいません。</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[...rows].sort((a, b) => b.lost - a.lost).map((p) => {
+          {[...rows].sort((a, b) => b.lost - a.lost).map((p, idx) => {
             const total = p.lost;
             const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
             const lagArr = [...p.lagDays].sort((a, b) => a - b);
@@ -608,10 +635,10 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
             const lagMed = lagArr.length ? lagArr[Math.floor(lagArr.length / 2)] : null;
             const slow = lagArr.filter((d) => d >= 15).length;
             return (
-              <div key={p.name} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
+              <div key={`${view}-${idx}`} style={{ borderTop: "1px dashed var(--color-border)", paddingTop: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, marginBottom: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
-                  <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won} ／ 勝率 {p.won + p.lost === 0 ? 0 : Math.round((p.won / (p.won + p.lost)) * 100)}%</span>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{labelOf(p)}</span>
+                  <span className="muted" style={{ fontSize: 11 }}>失注 {p.lost} ／ 成約 {p.won}</span>
                   {lagAvg != null && (
                     <span style={{
                       fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
@@ -625,14 +652,14 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
                 {total > 0 ? (
                   <>
                     <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", background: "var(--color-surface-inset)" }}>
-                      {top.map(([r, n], i) => (
-                        <div key={r} title={`${r}: ${n}`} style={{ width: `${(n as number / total) * 100}%`, background: palette[i % palette.length] }} />
+                      {top.map(([r, n]) => (
+                        <div key={r} title={`${r}: ${n}`} style={{ width: `${(n as number / total) * 100}%`, background: reasonColor(r) }} />
                       ))}
                     </div>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
-                      {top.map(([r, n], i) => (
+                      {top.map(([r, n]) => (
                         <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 99, background: palette[i % palette.length] }} />
+                          <span style={{ width: 8, height: 8, borderRadius: 99, background: reasonColor(r) }} />
                           {r}（{n}）
                         </span>
                       ))}
