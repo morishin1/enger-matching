@@ -13,7 +13,11 @@ export default function SignupPage() {
       const h = window.location.hostname || "";
       const qs = new URLSearchParams(window.location.search);
       const as = qs.get("as");
-      if (/^ag\./i.test(h) || as === "freelance") { setAgHost(true); setRole("freelance"); }
+      // 法人LP（ENGER business）からは ?as=client を最優先で client 固定にする。
+      //   これを先に判定しないと、ホストが ag.* の場合に下の条件で freelance に倒れてしまい、
+      //   法人として登録できない不具合になる（法人LP→フリーランス登録の原因）。
+      if (as === "client") { setRole("client"); }
+      else if (/^ag\./i.test(h) || as === "freelance") { setAgHost(true); setRole("freelance"); }
       else if (as === "candidate") { setRole("candidate"); }
       // OAuth(Google/GitHub) 初回 → 区分を選んでもらう案内
       if (qs.get("oauth") === "1") {
