@@ -415,8 +415,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             }
           } catch { /* proposals未整備でも続行 */ }
         }
-      } else if (tab === "focus") {
-        // ---- 注力 = ♥お気に入り（手動）／ 自動おすすめ = プロパー(PP)・新着で決まりやすい（is_focus以外）----
+      } else if (tab === "focus" && !drillDown) {
+        // 注力ボード（♥お気に入り＋自動おすすめ）。ただし特定案件を選んだドリルダウン(?job=)では
+        //   ここに入らず、下の else（案件→人材の取得）へ進める。これをしないと注力モード時に
+        //   選択案件のデータ(job/ranked)が取得されず、ランキングが空のままになる。
         const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
         const JOB_F = JOB_BASE; // status, created_at は JOB_BASE に含む
         const CAND_F = `${CAND_BASE}, created_at`;
