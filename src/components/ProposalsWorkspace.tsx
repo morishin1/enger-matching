@@ -102,6 +102,8 @@ export function ProposalsWorkspace({
   const boardRows = useMemo(() => proposals.filter((p) => inPeriod(p) && !isAwaitingApproval(p)), [proposals, period]);
   const historyRows = useMemo(() => historyClient.filter(inPeriod), [historyClient, period]);
   const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period]);
+  // LINE経由グラフ（失注分析内）の「提案数」算出用に、進行中の提案も期間で絞って渡す。
+  const activeInPeriod = useMemo(() => proposals.filter(inPeriod), [proposals, period]);
 
   const counts: Record<TabKey, number> = { approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
@@ -231,7 +233,7 @@ export function ProposalsWorkspace({
             この期間に見送り/失注はありません。
           </div>
         ) : (
-          <LostAnalytics history={lostRows} />
+          <LostAnalytics history={lostRows} activeRows={activeInPeriod} />
         )
       )}
     </div>
