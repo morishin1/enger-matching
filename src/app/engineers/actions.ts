@@ -43,15 +43,37 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   const engineer_name = input.engineer_name?.trim() || null;
   const job_title = input.job_title?.trim() || null;
 
-  const { error } = await admin.from("scouts").insert({
+  const scoutBody = input.message.trim();
+  const { data: scoutRow, error } = await admin.from("scouts").insert({
     engineer_id: input.engineer_id,
     engineer_name,
     agent,
     job_title,
-    message: input.message.trim(),
+    message: scoutBody,
     status: "sent",
-  });
+  }).select("id").maybeSingle();
   if (error) return { ok: false, error: error.message };
+
+  // スカウトを起点にチャットスレッドを生成し、スカウト本文を初回メッセージとして残す。
+  //   企業(client)は後から talent_interest 等で合流するため、ここでは担当↔人材で開始する。
+  //   チャット未整備環境でもスカウト自体は成功させる（best-effort）。
+  try {
+    if (scoutRow?.id) {
+      const { data: th } = await admin.from("chat_threads").insert({
+        scout_id: scoutRow.id,
+        engineer_id: input.engineer_id,
+        engineer_name,
+        agent,
+        job_title,
+        subject: job_title,
+      }).select("id").maybeSingle();
+      if (th?.id) {
+        await admin.from("chat_messages").insert({
+          thread_id: th.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody,
+        });
+      }
+    }
+  } catch { /* chat_* 未整備でもスカウトは成功 */ }
 
   // 履歴にも残す（重複アプローチ防止・引き継ぎ）
   await admin.from("engineer_actions").insert({
@@ -80,6 +102,7 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
 
   revalidatePath("/engineers");
   revalidatePath("/proposals");
+  revalidatePath("/chat");
   return { ok: true };
 }
 

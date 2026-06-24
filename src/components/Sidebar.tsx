@@ -29,6 +29,7 @@ const NAV: NavItem[] = [
     { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
+  { href: "/chat", id: "chat", label: "チャット", icon: "msg" },
   // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
   { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress", children: [
     { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）" },
@@ -99,7 +100,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi", "/funnel"];
+  const SALES_HREFS = ["/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/chat", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi", "/funnel"];
   // ダッシュボード・稼働・分析・書類・企業は全エージェント可（分析ページは金額系を admin 限定で隠す）。
   //   企業は閲覧のみ（CSV書き出しは廃止）なので、職能に関わらずメンバーでも閲覧できるようにする。
   const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents", "/companies"]);
