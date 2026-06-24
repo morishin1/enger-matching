@@ -584,11 +584,36 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
 /** 候補配列を job に対してスコアリングし降順に並べて返す。
  *  スコア同点は「新着（candidate.created_at が新しい）」を優先し、古い人材が上位に居座らないようにする。 */
+// 案件側マッチング（案件→人材）の追加除外ルール（要望対応）。
+//   既存スコアリング/除外を優先したうえで、さらに以下を満たさない人材をランキングから外す。
+//   ① 勤務形態：案件が「一部リモート」(partial_remote)なら、フルリモート希望（出社不可）の人材を除外。
+//      「出社可」「一部リモート可」「不明(空欄)」は残す（"可"や"フル/完全リモート"でない記載は対象外）。
+//   ② 利益確保：人材の希望単価(下限)が「案件の提示上限 − 3万円」を超える人材を除外（同額・僅差を排除）。
+//      例）案件上限70万 → 希望67万以下のみ対象、68万以上は除外。単価不明・上限不明のときは判定しない。
+function passesJobSideFilters(job: Job, c: Candidate): boolean {
+  // ① 勤務形態
+  if (job.remote_type === "partial_remote") {
+    const cp = (c.remote_pref ?? "").trim();
+    const onsiteOk = /出社|常駐|可/.test(cp);
+    const wantsFull = /フル|完全/.test(cp) && /リモート|在宅/.test(cp);
+    if (wantsFull && !onsiteOk) return false;
+  }
+  // ② 単価マージン（最低3万円の差を確保）
+  const jMax = job.salary_max ?? null;
+  if (jMax != null) {
+    const cMin = candRange(c).min;
+    if (cMin != null && cMin > jMax - 3) return false;
+  }
+  return true;
+}
+
 export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
   const now = Date.now();
   const scored = candidates
     .map((c) => ({ candidate: c, ...scoreMatch(job, c) }))
     .filter((r) => !r.excluded)
+    // 既存ロジックを通過した候補に、案件側の追加ルール（勤務形態・単価マージン）を適用。
+    .filter((r) => passesJobSideFilters(job, r.candidate))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       // 同点 → 新しい登録を優先（created_at 降順）。created_at 無しは後ろへ。
