@@ -8,6 +8,7 @@
 import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "./supabase";
 import { scoreMatch, canon, type Job, type Candidate } from "./match";
+import { expandSkillSet } from "./skills";
 
 export type DimStatus = { pct: number; known: boolean };
 
@@ -62,7 +63,8 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
   const cands: any[] = (cr.data ?? []).filter((c: any) => Array.isArray(c.skills) && c.skills.length > 0);
 
   // 人材スキルを canon 化した Set を前計算
-  const candPrep = cands.map((c) => ({ c, set: new Set<string>((c.skills as string[]).map(canon)) }));
+  // 内包（子→親：EC2→AWS / Spring→Java 等）も一致とみなすため expandSkillSet で展開した集合を使う。
+  const candPrep = cands.map((c) => ({ c, set: expandSkillSet(c.skills as string[]) }));
 
   // 一致率 75% 以上のペアを軽量フィルタで抽出
   type Hit = { job: any; cand: any; pct: number };
@@ -185,7 +187,8 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
   if (cr.error) cr = await sb.from("candidates").select(ccols).order("candidate_no", { ascending: false }).limit(3000);
   const cands: any[] = (cr.data ?? []).filter((c: any) => Array.isArray(c.skills) && c.skills.length > 0);
 
-  const candPrep = cands.map((c) => ({ c, set: new Set<string>((c.skills as string[]).map(canon)) }));
+  // 内包（子→親：EC2→AWS / Spring→Java 等）も一致とみなすため expandSkillSet で展開した集合を使う。
+  const candPrep = cands.map((c) => ({ c, set: expandSkillSet(c.skills as string[]) }));
   type Hit = { job: any; cand: any; pct: number };
   const hits: Hit[] = [];
   for (const j of jobs) {

@@ -115,6 +115,16 @@ const REGISTRY: Entry[] = [
   { canon: "rag",         label: "RAG", aliases: ["rag", "retrieval augmented generation"] },
   { canon: "pinecone",    label: "Pinecone", aliases: ["pinecone"] },
   { canon: "llamaindex",  label: "LlamaIndex", aliases: ["llamaindex", "llama index"] },
+  // ── クラウド個別サービス・モバイル（内包関係で取りこぼしを救済する対象）──────
+  { canon: "ec2",            label: "Amazon EC2", aliases: ["amazonec2", "amazon ec2"] },
+  { canon: "s3",             label: "Amazon S3", aliases: ["amazons3", "amazon s3"] },
+  { canon: "rds",            label: "Amazon RDS", aliases: ["amazonrds", "amazon rds"] },
+  { canon: "lambda",         label: "AWS Lambda", aliases: ["awslambda", "aws lambda"] },
+  { canon: "dynamodb",       label: "DynamoDB", aliases: ["amazondynamodb", "dynamo"] },
+  { canon: "ecs",            label: "Amazon ECS", aliases: ["amazonecs", "aws ecs"] },
+  { canon: "eks",            label: "Amazon EKS", aliases: ["amazoneks", "aws eks"] },
+  { canon: "cloudformation", label: "CloudFormation", aliases: ["awscloudformation", "aws cloudformation"] },
+  { canon: "reactnative",    label: "React Native", aliases: ["react native"] },
 ];
 
 /** 比較用の素正規化（小文字・空白/記号の一部除去）。 */
@@ -140,6 +150,70 @@ export const skillLabel = (s: string): string => {
 };
 
 export { norm as normToken };
+
+// ── スキルの内包関係（取りこぼし低減）──────────────────────────────────
+//   子 → 親：その子スキルを持っていれば親スキルの要件も満たすとみなす（逆は不成立）。
+//   例: Spring→Java / Rails→Ruby / React→JavaScript / EC2→AWS / React Native→React。
+//   ※ 広く誤一致しないよう、確立した関係のみを保守的に列挙する。
+const IMPLIES_RAW: Record<string, string[]> = {
+  // フレームワーク → 言語
+  spring: ["java"], rails: ["ruby"], laravel: ["php"],
+  django: ["python"], flask: ["python"], fastapi: ["python"],
+  // フロント／JS系（フレームワークは基盤言語/ライブラリを内包）
+  next: ["react"], nuxt: ["vue"], react: ["javascript"], vue: ["javascript"],
+  angular: ["typescript"], node: ["javascript"], typescript: ["javascript"],
+  reactnative: ["react"],
+  // AWS 個別サービス → AWS（EKS は Kubernetes も内包）
+  ec2: ["aws"], s3: ["aws"], rds: ["aws"], lambda: ["aws"], dynamodb: ["aws"],
+  ecs: ["aws"], eks: ["aws", "kubernetes"], cloudformation: ["aws"], redshift: ["aws"],
+  // その他クラウド／DB 互換
+  bigquery: ["googlecloud"], mariadb: ["mysql"],
+};
+
+// 有向グラフの推移閉包（自身は含まない）。
+const closureFrom = (graph: Record<string, string[]>): Record<string, Set<string>> => {
+  const out: Record<string, Set<string>> = {};
+  const visit = (c: string, acc: Set<string>) => {
+    for (const n of graph[c] ?? []) if (!acc.has(n)) { acc.add(n); visit(n, acc); }
+  };
+  for (const c of Object.keys(graph)) { const acc = new Set<string>(); visit(c, acc); out[c] = acc; }
+  return out;
+};
+const PARENTS = closureFrom(IMPLIES_RAW);                 // canon → 内包する親canon
+const CHILDREN = closureFrom((() => {                     // canon → 子孫canon（親の逆引き）
+  const rev: Record<string, string[]> = {};
+  for (const [child, parents] of Object.entries(IMPLIES_RAW)) for (const p of parents) (rev[p] ??= []).push(child);
+  return rev;
+})());
+
+/** canon が内包する親 canon 集合（推移閉包・自身は含まない）。 */
+export function skillParents(s: string): Set<string> { return PARENTS[canon(s)] ?? new Set<string>(); }
+
+/** 保有スキル配列を「canon＋内包する親canon」へ展開した集合（要件充足判定用）。
+ *   例: ["Spring","Amazon EC2"] → {spring, java, ec2, aws} */
+export function expandSkillSet(skills: (string | null | undefined)[] | null | undefined): Set<string> {
+  const set = new Set<string>();
+  for (const s of skills ?? []) {
+    const c = canon(String(s ?? "")); if (!c) continue;
+    set.add(c);
+    for (const p of PARENTS[c] ?? []) set.add(p);
+  }
+  return set;
+}
+
+/** スキル検索(overlaps)の取りこぼし低減用：元スキル＋関連スキルの表示ラベル配列。
+ *   direction "parents"  … 保有→要件探索（人材→案件：保有スキルの親も検索語に含める）
+ *   direction "children" … 要件→保有探索（案件→人材：要求スキルの子孫も検索語に含める） */
+export function relatedSearchLabels(skills: (string | null | undefined)[] | null | undefined, direction: "parents" | "children"): string[] {
+  const out = new Set<string>();
+  const map = direction === "parents" ? PARENTS : CHILDREN;
+  for (const s of skills ?? []) {
+    const v = String(s ?? "").trim(); if (!v) continue;
+    out.add(v); // 原表記は DB 保存表記に合わせてそのまま残す
+    for (const r of map[canon(v)] ?? []) out.add(skillLabel(r));
+  }
+  return Array.from(out);
+}
 
 /** 配列/カンマ区切り文字列 → 表示ラベル配列（canonで重複排除・空除去）。 */
 export function normalizeSkills(input: string[] | string | null | undefined): string[] {

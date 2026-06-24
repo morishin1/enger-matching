@@ -10,6 +10,7 @@ import { FocusList } from "@/components/FocusList";
 import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { relatedSearchLabels } from "@/lib/skills";
 import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
@@ -357,10 +358,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
 
         if (person?.skills?.length) {
+          // 取りこぼし低減：保有スキルの「親（内包先）」も検索語に含める
+          //   （例: 人材が EC2 を持つ → AWS 要件の案件も拾う）。スコアリングで精査される。
+          const personSearchSkills = relatedSearchLabels(person.skills, "parents");
           const buildJ = (cols: string, safe = true) => {
             // 新着優先：job_no 降順（登録が新しい順）で取得。古い案件が上位に居座らないように。
             //   削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合）。
-            let q: any = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", person.skills);
+            let q: any = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", personSearchSkills);
             if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
             // 注力(is_focus)での絞り込みは「注力ボード」用。特定人材へのドリルダウンでは
             //   注力フラグに関係なく合致案件をすべてランキングする（0件事故の防止）。
@@ -488,12 +492,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         }
 
         if (job?.skills?.length) {
+          // 取りこぼし低減：要求スキルの「子孫（具体サービス/フレームワーク）」も検索語に含める
+          //   （例: 案件が AWS 要件 → EC2/S3 等を持つ人材も拾う）。スコアリングで精査される。
+          const jobSearchSkills = relatedSearchLabels(job.skills, "children");
           // 新着優先：candidate_no 降順（＝登録が新しい順）で取得。古い候補が上位に居座る問題の対策。
           //   ★削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外する。
           //     以前は JS 側の !c.deleted_at だけで弾いていたが、列省略フォールバックの SELECT では
           //     deleted_at が取れず、削除済み人材がマッチングに出る（一覧には無い）不具合があった。
           const buildC = (cols: string, safe = true) => {
-            let q: any = sb.from("candidates").select(cols).overlaps("skills", job.skills);
+            let q: any = sb.from("candidates").select(cols).overlaps("skills", jobSearchSkills);
             if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
             return q.order("candidate_no", { ascending: false }).limit(200);
           };

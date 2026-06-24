@@ -66,7 +66,7 @@ export type MatchResult = {
 };
 
 // スキル正規化は正典辞書（skills.ts）に集約。
-import { canon, normToken as norm, skillMentionRegex } from "./skills";
+import { canon, normToken as norm, skillMentionRegex, expandSkillSet, skillParents } from "./skills";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL, type FlowCompat } from "./flow";
 import { classifyCandNationality, classifyJobNationality } from "./nationality";
 export { canon };
@@ -74,7 +74,13 @@ export { canon };
 /** 2つのスキル配列の一致スキル（candidate側の元表記で返す）。 */
 export function overlapSkills(jobSkills?: string[] | null, candSkills?: string[] | null): string[] {
   const js = new Set((jobSkills ?? []).map(canon));
-  return (candSkills ?? []).filter((s) => js.has(canon(s)));
+  // 完全一致に加え、内包（子→親：例 EC2→AWS / Spring→Java）でも一致とみなす。
+  return (candSkills ?? []).filter((s) => {
+    const c = canon(s);
+    if (js.has(c)) return true;
+    for (const p of skillParents(c)) if (js.has(p)) return true;
+    return false;
+  });
 }
 
 // ---- 勤務形態（旧 remote） ----
@@ -376,7 +382,10 @@ export function jobOpenness(job: Job, nowMs: number = Date.now()): JobOpenness {
 
 export function scoreMatch(job: Job, c: Candidate): MatchResult {
   const jobSkills = (job.skills ?? []).map(canon);
-  const candSet = new Set((c.skills ?? []).map(canon));
+  // 完全一致用（candExactSet）と、内包（子→親）を含めた充足判定用（candSet）。
+  //   例: 人材が「Spring/Amazon EC2」を持てば「Java/AWS」要件も満たすとみなす（取りこぼし低減）。
+  const candExactSet = new Set((c.skills ?? []).map(canon));
+  const candSet = expandSkillSet(c.skills ?? []);
   const origJobSkills = job.skills ?? [];
   // ── 多重チェック（第1軸：必須スキル）─────────────────────────────────────
   //   ①配列(skills[])での canon 一致 → ②本文(経歴/PR/職種/会社/スキルシート要約)に
@@ -386,9 +395,13 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   //   「スキル列に未登録（登録推奨）」として区別表示する。
   const candText = [c.exp, c.note, (c as any).skill_sheet_summary, c.title, c.company]
     .filter(Boolean).map((s) => String(s)).join("\n");
-  const matchedSkills: string[] = []; const missingSkills: string[] = []; const textHitSkills: string[] = [];
+  const matchedSkills: string[] = []; const missingSkills: string[] = []; const textHitSkills: string[] = []; const impliedSkills: string[] = [];
   origJobSkills.forEach((s, i) => {
-    if (candSet.has(jobSkills[i])) { matchedSkills.push(s); return; }
+    if (candSet.has(jobSkills[i])) {
+      matchedSkills.push(s);
+      if (!candExactSet.has(jobSkills[i])) impliedSkills.push(s); // 内包（関連スキル）で充足
+      return;
+    }
     if (candText) {
       const re = skillMentionRegex(s);
       if (re && re.test(candText)) { matchedSkills.push(s); textHitSkills.push(s); return; }
@@ -483,13 +496,18 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (ngRemote) notes.push({ level: "red", text: "勤務形態NG（出社必須の案件にリモート/在宅希望の人材）" });
 
   if (jobSkills.length) {
-    if (matchedSkills.length === jobSkills.length) notes.push({ level: "green", text: `必須スキル ${jobSkills.length}/${jobSkills.length} 完全一致` });
+    // 完全一致は「全件が skills 列で直接一致」のときのみ。内包/本文ヒットを含む場合は「充足」と表記。
+    if (matchedSkills.length === jobSkills.length) notes.push({ level: "green", text: `必須スキル ${jobSkills.length}/${jobSkills.length} ${impliedSkills.length === 0 && textHitSkills.length === 0 ? "完全一致" : "充足"}` });
     else if (skillPct >= 0.8) notes.push({ level: "green", text: `必須スキル ${matchedSkills.length}/${jobSkills.length} 一致（不足: ${missingSkills.slice(0, 3).join("・")}）` });
     else if (skillPct >= 0.5) notes.push({ level: "yellow", text: `必須スキル一部欠落 ${matchedSkills.length}/${jobSkills.length}（不足: ${missingSkills.slice(0, 3).join("・")}）` });
     else notes.push({ level: "red", text: `🚫 必須スキル不足 ${matchedSkills.length}/${jobSkills.length}（土俵に乗りにくい・不足: ${missingSkills.slice(0, 3).join("・")}）` });
     // 本文ヒットで救った必須スキルがあれば、登録漏れの是正を促す（注意喚起）。
     if (textHitSkills.length > 0) {
       notes.push({ level: "yellow", text: `必須スキル ${textHitSkills.slice(0, 3).join("・")} は人材のスキル列に未登録（経歴/PRに記載あり・登録推奨）` });
+    }
+    // 内包（関連スキル）で充足したものは、判断材料として明示（例: EC2→AWS, Spring→Java）。
+    if (impliedSkills.length > 0) {
+      notes.push({ level: "green", text: `関連スキルで充足 ${impliedSkills.slice(0, 3).join("・")}（保有スキルが要件を内包）` });
     }
   }
   // ② 尚可スキル：充足があれば緑で加点理由を明示
