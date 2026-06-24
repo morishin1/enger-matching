@@ -440,6 +440,26 @@ function FormField({ label, value, onChange, full, placeholder }: { label: strin
     </label>
   );
 }
+// 既存の値（"2026/06/01" 等）から date input 用の yyyy-mm-dd を取り出す。
+function toDateInputValue(s?: string): string {
+  const m = String(s ?? "").match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/);
+  if (!m) return "";
+  return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+}
+// 稼働開始日など：手入力（即日/6月〜 等）に加え、カレンダーから選ぶと整形日付がフォームに入る。
+function FormDateField({ label, value, onChange, full, placeholder }: { label: string; value?: string; onChange: (v: string) => void; full?: boolean; placeholder?: string }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: full ? "1 / -1" : undefined }}>
+      <span style={labelStyle}>{label}</span>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input type="text" value={value ?? ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
+        <input type="date" value={toDateInputValue(value)} title="カレンダーから選択"
+          onChange={(e) => { const v = e.target.value; if (v) { const [y, mo, d] = v.split("-"); onChange(`${y}/${mo}/${d}`); } }}
+          style={{ ...fieldStyle, width: 150, flexShrink: 0 }} />
+      </div>
+    </label>
+  );
+}
 // 人材リモート希望：自由文（AI読み取り等）を 3 区分の選択値へ寄せる。
 //   人材一覧の分類（PeopleTable.remotePrefLabel / people REMOTE_OPTIONS）と連動。
 function remoteBucketValue(raw?: string | null): string {
@@ -661,7 +681,7 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   <FormField label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full placeholder="Java, Spring, AWS" />
                   <FormField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：80万 / ¥70〜90万" />
                   <FormField label="経験年数" value={f.exp} onChange={set("exp")} placeholder="例：8 / 8年" />
-                  <FormField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜" />
+                  <FormDateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
                   <FormField label="最寄駅" value={f.location} onChange={set("location")} />
                   <FormSelect label="リモート希望" value={remoteBucketValue(f.remote_pref)} onChange={set("remote_pref")} options={[
                     { value: "", label: "未設定" },
@@ -696,7 +716,7 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   ]} />
                   <FormField label="商流" value={f.flow_note} onChange={set("flow_note")} />
                   <FormField label="勤務地" value={f.work_location} onChange={set("work_location")} />
-                  <FormField label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01" />
+                  <FormDateField label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01（カレンダー選択可）" />
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：募集中" />
                   <FormField label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} />
                   <FormField label="窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />

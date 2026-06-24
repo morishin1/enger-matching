@@ -34,6 +34,27 @@ function Field({ label, value, onChange, full, placeholder, warn }: { label: str
   );
 }
 
+// 既存の値（"2026/06/01" 等）から date input 用の yyyy-mm-dd を取り出す。
+function toDateInputValue(s?: string): string {
+  const m = String(s ?? "").match(/(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})/);
+  if (!m) return "";
+  return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+}
+// 稼働開始日など：手入力（即日/6月〜 等）に加え、カレンダーから選ぶと整形日付が入る。
+function DateField({ label, value, onChange, full, placeholder }: { label: string; value?: string; onChange: (v: string) => void; full?: boolean; placeholder?: string }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: full ? "1 / -1" : undefined }}>
+      <span style={labelStyle}>{label}</span>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input type="text" value={value ?? ""} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
+        <input type="date" value={toDateInputValue(value)} title="カレンダーから選択"
+          onChange={(e) => { const v = e.target.value; if (v) { const [y, mo, d] = v.split("-"); onChange(`${y}/${mo}/${d}`); } }}
+          style={{ ...fieldStyle, width: 150, flexShrink: 0 }} />
+      </div>
+    </label>
+  );
+}
+
 // 重複検出キー用：初期は read-only。「🔓 ロック解除」で編集可になり警告を表示。
 // 誤編集による重複は防ぎつつ、誤字修正など必要時には変更できる。
 function LockedField({ label, value, onChange, full, lockNote }: { label: string; value?: string; onChange: (v: string) => void; full?: boolean; lockNote: string }) {
@@ -185,7 +206,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <Field label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               <Field label="希望単価" value={f.rate} onChange={set("rate")} />
               <Field label="経験年数" value={f.exp} onChange={set("exp")} />
-              <Field label="稼働開始" value={f.avail} onChange={set("avail")} />
+              <DateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
               <Field label="最寄駅" value={f.location} onChange={set("location")} />
               <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
               {/* 国籍・年代は誤インポート/手動登録の修正用に自由入力で編集可能にする（空欄で未設定）。 */}
@@ -304,7 +325,7 @@ export function EditJobButton({ job }: { job: any }) {
                 { value: "商流不問",             label: "商流不問" },
               ]} />
               <Field label="勤務地" value={f.work_location} onChange={set("work_location")} />
-              <Field label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01" />
+              <DateField label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01（カレンダー選択可）" />
               <Field label="ステータス" value={f.status} onChange={set("status")} />
               <Field label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} />
               <Field label="窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
