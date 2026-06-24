@@ -183,6 +183,10 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={8} />
             <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={8} />
           </span>
+          <span style={{ flexShrink: 0, display: "inline-flex", gap: 2, alignItems: "center" }}>
+            <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onOpen?.()} title="編集（詳細を開く）" style={{ padding: "2px 4px", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit</span></button>
+            <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => { if (window.confirm("この提案を削除しますか？")) onDelete(p.id); }} title="削除" style={{ padding: "2px 4px", color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span></button>
+          </span>
         </div>
       ) : (
         <>
@@ -258,7 +262,11 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx <= 0 || busy} onClick={() => onMove(p.id, STAGES[stageIdx - 1])} title="前へ">←</button>
         <button type="button" className="btn ghost btn-xs" disabled={stageIdx >= STAGES.length - 1 || busy} onClick={() => onMove(p.id, STAGES[stageIdx + 1])} title="次へ">→</button>
-        {normStageFn(p.stage) === "合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} style={{ marginLeft: "auto" }} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
+        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4, alignItems: "center" }}>
+          {normStageFn(p.stage) === "合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
+          <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onOpen?.()} title="編集（詳細を開く）" style={{ display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span></button>
+          <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => { if (window.confirm("この提案を削除しますか？")) onDelete(p.id); }} title="削除" style={{ color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span></button>
+        </span>
       </div>
       )}
 

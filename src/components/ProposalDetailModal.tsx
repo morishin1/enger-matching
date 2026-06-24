@@ -40,7 +40,9 @@ function SelField({ label, value, options, onChange, required }: { label: string
   const invalid = required && !value;
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>
-      {label}{required && <span style={{ color: "var(--color-danger)" }}> *</span>}
+      {/* ラベルと必須記号(*)は1つの行にまとめる。flex-column 直下に分けて置くと
+          別々の行になり、必須項目（提案者）だけ select が一段下がってしまう。 */}
+      <span>{label}{required && <span style={{ color: "var(--color-danger)" }}> *</span>}</span>
       <select value={value} onChange={(e) => onChange(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: `1px solid ${invalid ? "var(--color-danger)" : "var(--color-border-strong)"}`, background: "var(--color-surface)", color: "var(--color-ink)" }}>
         <option value="">{required ? "— 選択 —" : "—"}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -613,7 +615,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
               <SelField label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
               <SelField label="提案者" value={proposer} options={proposerOpts} onChange={setProposer} required />
-              <SelField label="クロージング" value={closer} options={closerOpts} onChange={setCloser} />
+              <SelField label="クロージング担当者" value={closer} options={closerOpts} onChange={setCloser} />
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>面談予定日
                 <input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
               </label>
