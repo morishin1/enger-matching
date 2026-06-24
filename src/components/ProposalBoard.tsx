@@ -27,6 +27,7 @@ const daysSince = (d: any) => {
 const STAGE_SLA_DAYS: Record<string, number> = {
   所属確認: 2,
   提案中: 5,
+  確認中: 3,
   面談: 3,
   合格: 7,
 };
@@ -51,7 +52,7 @@ import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, LOST_PHA
 //   （承認後に「所属確認」へ入る運用なので、ボードの先頭は所属確認）。
 const STAGES = PROPOSAL_STAGES.filter((s) => s !== "承認待ち");
 const STAGE_TONE: Record<string, string> = {
-  所属確認: "#6b7280", 提案中: "#0095D9", 面談: "#d98a2b", 合格: "#1aa260",
+  所属確認: "#6b7280", 提案中: "#0095D9", 確認中: "#06b6d4", 面談: "#d98a2b", 合格: "#1aa260",
 };
 const CALLER_TONE: Record<string, string> = {
   返信あり: "#1aa260", 電話済み: "#0095D9", "電話(不在)": "#d98a2b", LINE確認中: "#7c5cff", メール確認中: "#7c5cff", 未架電: "#9aa7b4",

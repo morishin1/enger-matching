@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { createProposalManual } from "@/lib/actions";
 import { Icons } from "./icons";
 
-const STAGES = ["所属確認", "提案中", "面談", "合格"];
+const STAGES = ["所属確認", "提案中", "確認中", "面談", "合格"];
 
 const fieldStyle: React.CSSProperties = { fontSize: 12.5, padding: "6px 8px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", fontFamily: "var(--font-sans)" };
 const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)" };
