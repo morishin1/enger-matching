@@ -97,14 +97,15 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
   const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
   // 失注理由メモは全失注で必須化（原因を明確にし、失注分析の精度を上げるため）。
   //   以前は「E3: その他」のみ必須だったが、すべての理由で具体的な事情を1行残す運用へ。
-  const lostReady = !!lostReason && lostNote.trim().length > 0;
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
   const [company, setCompany] = useState(p.company ?? "");
   const [clientContact, setClientContact] = useState(p.client_contact ?? "");
   const [source, setSource] = useState(p.source ?? "");
-  // 「どの会社の誰が担当か」は勝率分析に直結するため、失注時に空なら入力を促す（保存は阻害しない）。
+  // 「どの会社の誰が担当か」は勝率分析に直結するため、失注時は会社名・先方担当者も必須にする。
   const lostContactMissing = !company.trim() || !clientContact.trim();
+  // 見送り確定の必須条件：失注理由＋理由メモ＋会社名＋先方担当者がすべて揃っていること。
+  const lostReady = !!lostReason && lostNote.trim().length > 0 && !lostContactMissing;
   const tone = STAGE_TONE[p.stage] ?? "#6b7280";
   const src = sourceMeta(p.source);
   // 左ボーダーは「登録元」の色（固定）。登録元未設定の時のみステージ色にフォールバック。
@@ -320,8 +321,8 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             </label>
             {/* どの会社の誰が担当か（勝率分析に直結）。空なら上の「会社名・先方担当者」欄の入力を促す。 */}
             {lostContactMissing && (
-              <div style={{ fontSize: 10, color: "#b45309", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 6, padding: "5px 7px" }}>
-                ⚠ 勝率分析のため、上の<b>会社名・先方担当者</b>を入力してから見送りにしてください（誰が・どの会社かを失注記録に残します）。
+              <div style={{ fontSize: 10, color: "var(--color-danger)", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 6, padding: "5px 7px" }}>
+                ※ 見送りには上の<b>会社名・先方担当者</b>が必須です（誰が・どの会社かを失注記録に残します）。
               </div>
             )}
             <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReady ? 1 : 0.5 }} disabled={busy || !lostReady}

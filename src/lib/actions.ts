@@ -449,6 +449,12 @@ export async function bulkTrashBefore(opts: {
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
+  // 見送り（失注）確定時は「会社名・先方担当者」を必須にする（誰が・どの会社かを失注記録に残す）。UIでも必須化済みの最終防衛線。
+  if ("stage" in fields && (String(fields.stage) === "見送り" || String(fields.stage) === "失注")) {
+    if (!String(fields.company ?? "").trim() || !String(fields.client_contact ?? "").trim()) {
+      return { ok: false, error: "見送りには会社名・先方担当者が必須です" };
+    }
+  }
   const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "meeting_time", "meeting_format", "meeting_url", "meeting_attendees", "meeting_note", "company", "source", "job_notify_status", "cand_notify_status",
     // 案件側 企業担当 / 人材側 会社名・企業担当・先方担当（proposals-contacts.sql）
     "company_contact", "cand_company", "cand_company_contact", "cand_contact"];
