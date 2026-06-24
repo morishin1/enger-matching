@@ -197,9 +197,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   // 古い案件（配信から JOB_STALE_DAYS 超）/ 期間外を含めて表示するか。既定は false（隠す）。
   const showStale = sp.stale === "1";
+  // 特定の人材/案件を明示選択したドリルダウン（一覧の「マッチング」ボタンからの遷移）。
+  //   この場合は相手側を鮮度ウィンドウ・注力フラグで絞らず、全件から上位をランキング表示する。
+  //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP10・注力ボード・一覧に限定する。
+  //    明示的に1件を選んだのに相手が0件、という事故を防ぐ。）
+  const drillDown = !!sp.person || !!sp.job;
   // マッチング対象期間（鮮度ウィンドウ）。取込日が直近 days 日以内のみ対象。showStale=1 で期間外も表示。
   const matchWindow = await loadMatchWindow();
-  const windowActive = matchWindow.enabled && !showStale;
+  const windowActive = matchWindow.enabled && !showStale && !drillDown;
   const windowNow = Date.now();
   const inWindow = (createdAt: string | null | undefined) => !windowActive || withinWindow(createdAt, matchWindow.days, windowNow);
   // 関連タブのカウント（マッチング/案件/人材/LP登録）。ヘッダーから本体に移したため
@@ -329,8 +334,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           markBounce(j);
           const op = jobOpenness(j as Job);
           if (op.closed) { filledCount++; continue; }            // 充足/終了 → 常に除外
-          if (!inWindow(j?.created_at)) { staleHidden++; continue; } // マッチング対象期間外 → 隠す
-          if (op.stale && !showStale) { staleHidden++; continue; } // 古い → 既定で隠す
+          if (!inWindow(j?.created_at)) { staleHidden++; continue; } // マッチング対象期間外 → 隠す（ドリルダウンでは windowActive=false で無効）
+          if (!drillDown && op.stale && !showStale) { staleHidden++; continue; } // 古い → 既定で隠す（ドリルダウンでは出してバッジで注意喚起）
           kept.push(j);
         }
         return { kept, filledCount, staleHidden };
@@ -357,8 +362,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             //   削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合）。
             let q: any = sb.from("jobs").select(cols).eq("is_published", true).overlaps("skills", person.skills);
             if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
-            if (tab === "focus") q = q.eq("is_focus", true);
-            return q.order("job_no", { ascending: false }).limit(tab === "focus" ? 500 : 200);
+            // 注力(is_focus)での絞り込みは「注力ボード」用。特定人材へのドリルダウンでは
+            //   注力フラグに関係なく合致案件をすべてランキングする（0件事故の防止）。
+            if (tab === "focus" && !drillDown) q = q.eq("is_focus", true);
+            return q.order("job_no", { ascending: false }).limit(500);
           };
           let jr: any = await buildJ(`${JOB_FRESH}, contact_email, contact_name, source_mail_url`);
           if (jr.error) jr = await buildJ(`${JOB_BASE}, contact_email, contact_name, source_mail_url`);
