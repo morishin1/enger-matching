@@ -30,6 +30,8 @@ type HItem = {
   // 提案画面（マッチング）へ戻すための識別子
   job_no?: number | null;
   candidate_no?: number | null;
+  // 登録元（"line" 等）。案件または人材が「LINE登録」のとき "line"。LINE経由グラフの集計に使う。
+  source?: string | null;
 };
 
 const LOST_STAGES = new Set(["見送り", "失注"]);
@@ -293,13 +295,7 @@ function analyze(items: HItem[]): Aggregated {
   };
 }
 
-const CAT_TONE: Record<"重点" | "様子見" | "保留", { fg: string; bg: string; bd: string; emoji: string; subtitle: string }> = {
-  重点:   { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc", emoji: "✓", subtitle: "勝率が高く接触も新しい → 連絡継続" },
-  様子見: { fg: "#b45309", bg: "#fff6e0", bd: "#fde9b0", emoji: "△", subtitle: "勝率は中。失注理由次第で見極め" },
-  保留:   { fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf", emoji: "⚠", subtitle: "勝率が低い／長期接触なし → 他社に時間を回す" },
-};
-
-export function LostAnalytics({ history }: { history: HItem[] }) {
+export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; activeRows?: HItem[] }) {
   const [period, setPeriod] = useState<PeriodKey>("90d");
   const [fromStr, setFromStr] = useState("");
   const [toStr, setToStr] = useState("");
@@ -308,12 +304,23 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
 
   const { from, to, label } = periodRange(period, fromStr, toStr, span, year);
 
-  const filtered = useMemo(() => history.filter((p) => {
+  const inRange = (p: HItem) => {
     const t = new Date(p.updated_at || p.created_at || 0).getTime();
     return t >= from && t <= to;
-  }), [history, from, to]);
+  };
+
+  const filtered = useMemo(() => history.filter(inRange), [history, from, to]);
 
   const data = useMemo(() => analyze(filtered), [filtered]);
+
+  // LINE経由（案件 or 人材が「LINE登録」= proposals.source==='line'）の提案数・失注数。
+  //   提案数は進行中(activeRows)＋終了(history)の合算、失注数は終了系のうち見送り/失注。
+  const lineStats = useMemo(() => {
+    const all = [...activeRows, ...history].filter((p) => inRange(p) && String(p.source ?? "") === "line");
+    const proposed = all.length;
+    const lost = all.filter((p) => LOST_STAGES.has(String(p.stage ?? ""))).length;
+    return { proposed, lost };
+  }, [activeRows, history, from, to]);
 
   // 履歴から登場する年を抽出（降順）
   const availableYears = useMemo(() => {
@@ -407,37 +414,36 @@ export function LostAnalytics({ history }: { history: HItem[] }) {
         <TimeAnalysisCard items={filtered} />
       )}
 
-      {/* 連絡継続判断 */}
-      {data.companies.length > 0 && (
-        <div className="card" style={{ padding: 14 }}>
-          <Header title="🏢 会社別 - 連絡継続判断" hint="勝率×0.7 + 接触の新しさ×0.3 で算出。「保留」は連絡頻度を落とし、他社に時間を回す候補。" />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
-            {(["重点", "様子見", "保留"] as const).map((cat) => {
-              const tone = CAT_TONE[cat];
-              const list = data.companies.filter((c) => c.category === cat).sort((a, b) => b.lost - a.lost);
-              return (
-                <div key={cat} style={{ background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 10, padding: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: tone.fg }}>{tone.emoji} {cat}フォロー</span>
-                    <span style={{ marginLeft: "auto", fontSize: 11, color: tone.fg, fontWeight: 700 }}>{list.length}社</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: tone.fg, marginBottom: 8, opacity: .85 }}>{tone.subtitle}</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 220, overflowY: "auto" }}>
-                    {list.length === 0 ? <span className="muted" style={{ fontSize: 11 }}>該当なし</span> : list.slice(0, 12).map((c) => (
-                      <div key={c.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, padding: "4px 6px", borderRadius: 6, background: "var(--color-surface)" }}>
-                        <span style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                        <span className="muted" style={{ fontSize: 10 }}>勝率{Math.round(c.winRate * 100)}%</span>
-                        <span style={{ fontSize: 10, color: tone.fg, fontWeight: 700 }}>{c.lost}失注</span>
-                        {c.daysSinceLastContact != null && <span className="muted" style={{ fontSize: 10 }}>{c.daysSinceLastContact}日前</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* LINE経由（案件 or 人材が「LINE登録」）の提案・失注グラフ */}
+      <div className="card" style={{ padding: 14 }}>
+        <Header title="🟩 LINE経由の提案・失注" hint="案件または人材が「LINE登録（LINE経由で受け取った）」の提案を集計。提案数のうち失注になった件数と失注率を表示。" />
+        {(() => {
+          const { proposed, lost } = lineStats;
+          const rate = proposed > 0 ? Math.round((lost / proposed) * 100) : 0;
+          const bar = (label: string, value: number, color: string) => (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ width: 64, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", flexShrink: 0 }}>{label}</span>
+              <div style={{ flex: 1, height: 22, background: "var(--color-surface-inset)", borderRadius: 6, overflow: "hidden", minWidth: 0 }}>
+                <div style={{ width: `${proposed > 0 ? Math.max(value > 0 ? 6 : 0, (value / proposed) * 100) : 0}%`, height: "100%", background: color, borderRadius: 6, transition: "width .3s ease" }} />
+              </div>
+              <span style={{ width: 48, textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--color-ink)", flexShrink: 0 }}>{value}<span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+            </div>
+          );
+          if (proposed === 0) {
+            return <div className="muted" style={{ fontSize: 12, padding: "6px 2px" }}>この期間に LINE経由（案件・人材が LINE登録）の提案はありません。</div>;
+          }
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {bar("提案", proposed, "#06c755")}
+              {bar("失注", lost, "#dc2626")}
+              <div style={{ display: "flex", gap: 14, marginTop: 2, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+                <span>失注率 <b style={{ color: lost > 0 ? "#b42318" : "var(--color-ink-2)", fontSize: 13 }}>{rate}%</b></span>
+                <span>成約・継続 <b style={{ color: "#067647", fontSize: 13 }}>{proposed - lost}</b>件</span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
 
       {/* 会社ランキング */}
       {data.companies.length > 0 && (
