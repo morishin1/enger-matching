@@ -123,6 +123,7 @@ function periodRange(period: PeriodKey, fromStr: string, toStr: string, span: Sp
 type Aggregated = {
   totals: { lost: number; won: number; winRate: number };
   phases: Record<string, number>;
+  phaseReasons: Record<string, Record<string, number>>;
   reasons: Record<string, number>;
   topReasons: string[];
   topPhase: string;
@@ -149,6 +150,7 @@ type Aggregated = {
 
 function analyze(items: HItem[]): Aggregated {
   const phases: Record<string, number> = {};
+  const phaseReasons: Record<string, Record<string, number>> = {}; // フェーズ → 失注理由 → 件数（積み上げグラフ用）
   const reasons: Record<string, number> = {};
   const companies: Record<string, any> = {};
   const byProposer: Record<string, any> = {};
@@ -174,6 +176,8 @@ function analyze(items: HItem[]): Aggregated {
       const ph = p.lost_phase || "（フェーズ未入力）";
       companies[company].phases[ph] = (companies[company].phases[ph] || 0) + 1;
       phases[ph] = (phases[ph] || 0) + 1;
+      if (!phaseReasons[ph]) phaseReasons[ph] = {};
+      phaseReasons[ph][r] = (phaseReasons[ph][r] || 0) + 1;
     } else {
       companies[company].won++;
     }
@@ -299,7 +303,7 @@ function analyze(items: HItem[]): Aggregated {
 
   return {
     totals: { lost, won, winRate },
-    phases, reasons, topReasons, topPhase,
+    phases, phaseReasons, reasons, topReasons, topPhase,
     companies: companyList,
     byProposer: Object.values(byProposer).map((p: any) => p) as Aggregated["byProposer"],
     byCloser: Object.values(byCloser).map((c: any) => c) as Aggregated["byCloser"],
@@ -410,11 +414,11 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
         <KPI label="主要失注フェーズ" value={data.topPhase} tone="#b45309" small />
       </div>
 
-      {/* 失注フェーズ分布 */}
+      {/* 失注フェーズ分布（失注理由ごとに色分けした積み上げ） */}
       {Object.keys(data.phases).length > 0 && (
         <div className="card" style={{ padding: 14 }}>
-          <Header title="🎯 失注フェーズ分布" hint="提案後・面談後失注が多い → クロージング力 / 接触前失注が多い → 提案の質を見直し" />
-          <BarList items={Object.entries(data.phases).sort((a, b) => (b[1] as number) - (a[1] as number))} total={data.totals.lost} tone="#b42318" />
+          <Header title="🎯 失注フェーズ分布（失注理由の内訳）" hint="各フェーズの横棒を失注理由で色分け。バーにマウスを重ねると理由名と件数が出ます。提案後・面談後失注が多い → クロージング力 / 接触前失注が多い → 提案の質を見直し。" />
+          <PhaseReasonChart phases={data.phases} phaseReasons={data.phaseReasons} />
         </div>
       )}
 
@@ -574,18 +578,68 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
   );
 }
 
-// 失注理由のカテゴリ別カラー。コード先頭文字(A〜E)で系統色を分け、同系色での見分け困難を解消する。
-//   A=人材/スキル系=赤 / B=案件・条件系=オレンジ / C=商流・競合系=紫 / D=自社プロセス系=青 / E・その他=グレー。
+// 失注理由のカラー。頭文字で系統色を分け、コード別に濃淡を変えて1理由ずつ見分けられるようにする。
+//   A=スキル・人材起因 → 赤・オレンジ系 / B=条件・ミスマッチ起因 → 青・水色系 /
+//   C=他社競合 → 紫系 / D=自社スピード起因 → グレー系 / E・その他・未入力 → グレー。
+const REASON_COLOR_MAP: Record<string, string> = {
+  A1: "#dc2626", A2: "#ef4444", A3: "#f97316", A4: "#b91c1c", A5: "#fb7185", A6: "#e11d48", A7: "#ea580c", A8: "#fdba74",
+  B1: "#2563eb", B2: "#0ea5e9", B3: "#0891b2", B4: "#38bdf8", B5: "#1d4ed8",
+  C1: "#7c3aed", C2: "#9333ea", C3: "#a855f7",
+  D1: "#64748b", D2: "#94a3b8", D3: "#475569", D4: "#334155",
+  E1: "#9ca3af", E2: "#cbd5e1", E3: "#9ca3af",
+};
 function reasonColor(reason: string): string {
-  const code = (String(reason).match(/^([A-Z])\s*\d/) || [])[1];
-  switch (code) {
-    case "A": return "#dc2626"; // スキル不足/アンマッチ 等 → 赤
-    case "B": return "#ea580c"; // 案件側の条件・予算 等 → オレンジ
-    case "C": return "#9333ea"; // 商流・他社競合 → 紫
-    case "D": return "#2563eb"; // 自社プロセス・フォロー → 青
-    case "E": return "#64748b"; // 連絡不通・タイミング・その他 → グレー
-    default:  return "#9aa7b4"; // 架電できていない/未入力 → 薄グレー
+  const code = (String(reason).match(/^([A-Z]\d)/) || [])[1];
+  if (code && REASON_COLOR_MAP[code]) return REASON_COLOR_MAP[code];
+  const letter = (String(reason).match(/^([A-Z])/) || [])[1];
+  switch (letter) {
+    case "A": return "#dc2626"; // 赤・オレンジ系
+    case "B": return "#2563eb"; // 青・水色系
+    case "C": return "#9333ea"; // 紫系
+    case "D": return "#64748b"; // グレー系
+    case "E": return "#9ca3af"; // グレー
   }
+  return "#9ca3af"; // 架電できていない/未入力 等 → グレー
+}
+
+// 失注フェーズ分布：各フェーズの横棒を失注理由で色分けした積み上げ表示＋凡例。
+function PhaseReasonChart({ phases, phaseReasons }: { phases: Record<string, number>; phaseReasons: Record<string, Record<string, number>> }) {
+  const phaseEntries = Object.entries(phases).sort((a, b) => b[1] - a[1]);
+  const maxTotal = Math.max(1, ...phaseEntries.map(([, n]) => n));
+  // 凡例：全フェーズ横断で出現する理由を件数降順に集約。
+  const reasonTotals: Record<string, number> = {};
+  for (const rs of Object.values(phaseReasons)) for (const [r, n] of Object.entries(rs)) reasonTotals[r] = (reasonTotals[r] || 0) + n;
+  const legend = Object.entries(reasonTotals).sort((a, b) => b[1] - a[1]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {phaseEntries.map(([ph, total]) => {
+        const segs = Object.entries(phaseReasons[ph] ?? {}).sort((a, b) => b[1] - a[1]);
+        return (
+          <div key={ph} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 116, flexShrink: 0, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={ph}>{ph}</span>
+            <div style={{ flex: 1, minWidth: 0, height: 20, background: "var(--color-surface-inset)", borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ width: `${(total / maxTotal) * 100}%`, height: "100%", display: "flex", borderRadius: 6, overflow: "hidden" }}>
+                {segs.map(([r, n]) => (
+                  <div key={r} title={`${r}：${n}件`} style={{ width: `${(n / total) * 100}%`, height: "100%", background: reasonColor(r) }} />
+                ))}
+              </div>
+            </div>
+            <span style={{ width: 46, textAlign: "right", flexShrink: 0, fontSize: 12.5, fontWeight: 800 }}>{total}<span style={{ fontSize: 10, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+          </div>
+        );
+      })}
+      {legend.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 12px", marginTop: 2, paddingTop: 8, borderTop: "1px dashed var(--color-border)" }}>
+          {legend.map(([r, n]) => (
+            <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: reasonColor(r), flexShrink: 0 }} />
+              {r}（{n}）
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // 担当者別 失注傾向＋スピード。提案者 / クロージング担当 / 先方担当者 をタブで切り替えて表示。
@@ -942,27 +996,6 @@ function Header({ title, hint }: { title: string; hint?: string }) {
     <div style={{ marginBottom: 10 }}>
       <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>{title}</h3>
       {hint && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{hint}</div>}
-    </div>
-  );
-}
-
-function BarList({ items, total, tone }: { items: [string, number][]; total: number; tone: string }) {
-  const max = Math.max(0, ...items.map((x) => x[1]));
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {items.map(([k, n]) => {
-        const w = max === 0 ? 0 : (n / max) * 100;
-        const pct = total === 0 ? 0 : Math.round((n / total) * 100);
-        return (
-          <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(120px, 200px) 1fr 56px", gap: 10, alignItems: "center", fontSize: 11.5 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k}</span>
-            <div style={{ height: 10, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
-              <div style={{ width: `${w}%`, height: "100%", background: tone, borderRadius: 99 }} />
-            </div>
-            <span className="mono tnum" style={{ fontSize: 11, textAlign: "right", color: "var(--color-ink-3)" }}>{n}（{pct}%）</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
