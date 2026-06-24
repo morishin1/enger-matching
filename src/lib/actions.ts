@@ -2127,6 +2127,36 @@ const PERIOD_FIELDS_CAND = new Set(["avail"]);
 const SOURCE_MAIL_FIELDS = new Set(["source_mail_url", "source_mail_subject", "source_mail_at"]);
 
 /**
+ * 元メール(受信箱 inbox_emails)の件名を source_mail_url から解決する。
+ *   送信確認画面で source_mail_subject が未取得（取込後にメール紐付けされた等）でも、
+ *   source_mail_url（＝返信スレッド連結先）があれば受信箱から元件名を引いて
+ *   「Re: <元件名>」を表示・送信できるようにする。表示と実送信の件名を一致させるため。
+ */
+export async function getSourceMailSubject(url?: string | null): Promise<{ ok: boolean; subject?: string | null }> {
+  try {
+    const id = extractGmailIdFromUrl(url);
+    if (!id) return { ok: false };
+    const admin = engerAdmin();
+    const r: any = await admin.from("inbox_emails").select("subject").eq("gmail_message_id", id).maybeSingle();
+    if (r.error) return { ok: false };
+    const subject = (r.data?.subject ?? null) as string | null;
+    return { ok: true, subject: subject && subject.trim() ? subject.trim() : null };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// source_mail_url（16進ID単体 / Gmail URL の #all/<id> / ?th=<id> 等）から Gmail Message-ID を抽出。
+function extractGmailIdFromUrl(v?: string | null): string | null {
+  if (!v) return null;
+  const s = String(v).trim().replace(/^["']+|["']+$/g, "");
+  if (!s) return null;
+  if (/^[0-9a-f]{8,}$/i.test(s)) return s;
+  const m = s.match(/[/#?&](?:th=|all\/|inbox\/|sent\/)?([0-9a-f]{12,})(?:[/?&]|$)/i);
+  return m?.[1] ?? null;
+}
+
+/**
  * 元メール情報（source_mail_url / source_mail_subject / source_mail_at）の更新分を解決する。
  *   ・取込は received_at 降順（新しい順）で処理されるため、同一案件/人材の新旧メールが
  *     1バッチに混ざると「最後に処理された＝最古」が上書きしてしまう順序依存バグがあった。

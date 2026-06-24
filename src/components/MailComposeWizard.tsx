@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment, type CSSProperties } from "react";
 import Link from "@/components/AppLink";
 import { useSearchParams } from "next/navigation";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
-import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft } from "@/lib/actions";
+import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft, getSourceMailSubject } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
 import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
@@ -311,6 +311,25 @@ export function MailComposeWizard({
     })();
     return () => { cancelled = true; };
   }, [initialSavedId, draftLoaded]);
+  // 人材側の件名補正：元メール(source_mail_url)が存在するのに source_mail_subject 未取得で
+  //   定型件名(LEGACY)に落ちている場合、受信箱(inbox_emails)から元件名を引いて「Re: <元件名>」に
+  //   差し替える。スレッド連結は source_mail_url で行われる一方、件名は source_mail_subject 依存
+  //   だったため、元メールがあっても定型件名が表示・送信される不具合への対応（表示＝実送信に一致）。
+  useEffect(() => {
+    if (!draftLoaded) return;                       // 下書き反映後に判定（保存件名を尊重）
+    if (!cand?.source_mail_url) return;             // 元メールが無ければ定型のままで正しい
+    if (candForm.subject.trim() !== LEGACY_CAND_SUBJECT) return; // 既に実件名があるなら触らない
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await getSourceMailSubject(cand.source_mail_url);
+        if (cancelled || !r.ok || !r.subject) return;
+        const next = buildCandMailSubject({ source_mail_subject: r.subject }); // 「Re: <元件名>」
+        setCandForm((prev) => (prev.subject.trim() === LEGACY_CAND_SUBJECT ? { ...prev, subject: next } : prev));
+      } catch { /* 解決できなければ定型のまま */ }
+    })();
+    return () => { cancelled = true; };
+  }, [draftLoaded, cand?.source_mail_url]); // eslint-disable-line react-hooks/exhaustive-deps
   // 防御策：step=2（プレビュー段階）に到達してもトークンが無いなら、ローカル生成して
   // 必ずボタン HTML を作る。送信時に createProposal(preTokens) 経由で DB と同期される。
   //   ※ 既存提案(initialSavedId)の場合は getProposalTokens が self-heal で必ず DB のトークンを
