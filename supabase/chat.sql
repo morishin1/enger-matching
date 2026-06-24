@@ -24,6 +24,19 @@ create table if not exists enger.chat_threads (
   last_message_at timestamptz not null default now(),
   created_at    timestamptz not null default now()
 );
+-- 既存テーブルが列なしで存在しても自己修復できるよう、列を個別に補完する（冪等）。
+alter table enger.chat_threads add column if not exists scout_id        uuid;
+alter table enger.chat_threads add column if not exists engineer_id     uuid;
+alter table enger.chat_threads add column if not exists engineer_name   text;
+alter table enger.chat_threads add column if not exists company         text;
+alter table enger.chat_threads add column if not exists company_email   text;
+alter table enger.chat_threads add column if not exists agent           text;
+alter table enger.chat_threads add column if not exists job_no          integer;
+alter table enger.chat_threads add column if not exists job_title       text;
+alter table enger.chat_threads add column if not exists subject         text;
+alter table enger.chat_threads add column if not exists status          text not null default 'open';
+alter table enger.chat_threads add column if not exists last_message_at timestamptz not null default now();
+alter table enger.chat_threads add column if not exists created_at      timestamptz not null default now();
 create index if not exists chat_threads_engineer_idx on enger.chat_threads (engineer_id, last_message_at desc);
 create index if not exists chat_threads_company_idx   on enger.chat_threads (company, last_message_at desc);
 create index if not exists chat_threads_scout_idx     on enger.chat_threads (scout_id);
@@ -40,6 +53,13 @@ create table if not exists enger.chat_messages (
   body        text not null,
   created_at  timestamptz not null default now()
 );
+-- 列の自己修復（冪等）。
+alter table enger.chat_messages add column if not exists thread_id   uuid;
+alter table enger.chat_messages add column if not exists sender_role text;
+alter table enger.chat_messages add column if not exists sender_id   text;
+alter table enger.chat_messages add column if not exists sender_name text;
+alter table enger.chat_messages add column if not exists body        text;
+alter table enger.chat_messages add column if not exists created_at  timestamptz not null default now();
 create index if not exists chat_messages_thread_idx on enger.chat_messages (thread_id, created_at);
 
 -- メッセージ投入時にスレッドの last_message_at を更新（一覧の並びを最新順に保つ）。
@@ -61,6 +81,9 @@ create table if not exists enger.chat_reads (
   last_read_at     timestamptz not null default now(),
   primary key (thread_id, participant_role, participant_id)
 );
+-- 列の自己修復（冪等）。
+alter table enger.chat_reads add column if not exists participant_id text not null default '';
+alter table enger.chat_reads add column if not exists last_read_at   timestamptz not null default now();
 
 -- ============================================================
 -- RLS（既存 scouts.sql と同方針）
