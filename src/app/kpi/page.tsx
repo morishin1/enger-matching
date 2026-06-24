@@ -7,7 +7,7 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, cumulativeRange, cumulateMode, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, resolveRange, cumulateMode, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -94,19 +94,21 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const activityMembers = await resolveActivityMembers({
     role: access.role, teamRole: access.teamRole, department: access.department,
   }, { allowMember: true });
-  // メンバー別アクティビティ表は「累計レンジ」で集計する：
-  //   日/週 → 月初〜（その月分のみ累計、新しい月でリセット）／四半期 → 四半期内累計
-  //   任意カレンダー → 範囲そのまま（範囲全体で累計）／月 → 月単体（従来どおり）
-  //   ※ 達成率カード（snapshot）には影響させない（要望スコープ＝表のみ累計）。
-  const cumRange = cumulativeRange(period, new Date(), custom);
+  // メンバー別アクティビティ表は「選択タブの期間そのまま」で純粋な期間合計を集計する：
+  //   日 → 本日単体（1日）／週 → 今週（月〜日）／月 → 今月（1日〜末日）／
+  //   四半期 → 今四半期／任意カレンダー → 指定範囲。
+  //   ※ グラフ・推移テーブル（KPIダッシュボード側）の「日ごと積み上げ累計」ロジックとは独立。
+  //     ここはタブ選択期間の単純合計（積み上げない）。達成率カード（snapshot）にも影響させない。
+  const actRange = resolveRange(period, new Date(), custom);
   const activity = activityMembers.length > 0
-    ? await getTeamActivity({ start: cumRange.start, end: cumRange.end, members: activityMembers })
+    ? await getTeamActivity({ start: actRange.start, end: actRange.end, members: activityMembers })
     : [];
 
-  // メンバー別アクティビティ用のチーム目標（累計レンジに按分）と提案者・CLリスト
+  // メンバー別アクティビティ用のチーム目標（選択期間の営業日数に按分）と提案者・CLリスト。
+  //   getTeamActivity の各メンバー目標と同じ「営業日比按分」で揃える（custom 経路）。
   const teamWeeklyForBoard = await getWeeklyTargets({ ownerEmail: null, weekStart });
   const teamTarget: Partial<Record<Metric, number>> = {};
-  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeeklyForBoard[m] ?? 0, "custom", cumRange);
+  for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeeklyForBoard[m] ?? 0, "custom", actRange);
   const proposalOwnersForBoard = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
   const viewerIsManager = canManageDept(access.teamRole);
 
@@ -117,12 +119,13 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
       </div>
       {activity.length > 0 && (
         <div style={{ padding: "0 18px" }}>
-          {/* メンバー別アクティビティ表は累計レンジで集計。表ラベルにも「累計」を明示する。
-              day/week → 月初からの累計、quarter → 四半期内、custom → 期間内、month → 月単体。 */}
+          {/* メンバー別アクティビティ表は選択タブの期間そのまま（純粋な期間合計）で集計。
+              タイトルも選択期間に連動させる。
+              day → 本日、week → 今週、month → 今月（＝月初〜末日。実質「月初からの累計」）、
+              quarter → 今四半期、custom → 指定期間。 */}
           <TeamActivityBoard rows={activity} periodLabel={
-            period === "day" || period === "week" ? `${PERIOD_LABEL[period]}（月初からの累計）`
-            : period === "quarter" ? `${PERIOD_LABEL[period]}（四半期累計）`
-            : period === "custom" ? `${PERIOD_LABEL[period]}（範囲累計）`
+            period === "day" ? "本日"
+            : period === "month" ? "今月（月初からの累計）"
             : PERIOD_LABEL[period]
           }
             teamTarget={teamTarget}

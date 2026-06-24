@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authServerClient, publicOrigin } from "@/lib/supabase-auth";
 import { resolveAccess, createPendingAccount } from "@/lib/accounts";
+import { isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
     void supabase.auth.signOut();
     return NextResponse.redirect(`${origin}/signup?oauth=1&email=${encodeURIComponent(email)}`);
   }
+  // フリーランス（人材）は法人ログイン不可。Google 認証に成功してもここで締め出す。
+  if (isDxBlockedRole(access.role)) return deny(DX_BLOCKED_MESSAGE);
   if (access.status === "pending") return deny("このアカウントは承認待ちです。管理者の承認後にログインできます。");
   if (access.status === "disabled") return deny("このアカウントは無効化されています。管理者にお問い合わせください。");
 

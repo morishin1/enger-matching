@@ -8,5 +8,9 @@ export async function GET(req: Request) {
     const supabase = await authServerClient();
     await supabase.auth.signOut();
   } catch { /* noop */ }
-  return NextResponse.redirect(new URL("/login", req.url));
+  // ?err= が付いていればログイン画面にエラー文言を引き継ぐ（締め出し理由の表示用）。
+  const err = new URL(req.url).searchParams.get("err");
+  const dest = new URL("/login", req.url);
+  if (err) dest.searchParams.set("err", err);
+  return NextResponse.redirect(dest);
 }

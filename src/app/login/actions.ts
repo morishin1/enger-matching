@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { authServerClient } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
+import { isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
 
 export type LoginState = { error?: string } | null;
 
@@ -22,6 +23,12 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   if (!access) {
     await supabase.auth.signOut();
     return { error: "このアカウントには dx へのアクセス権限がありません（管理者に登録を依頼してください）" };
+  }
+  // フリーランス（人材）は法人ログイン不可。Auth を LP と共有しているため、
+  //   サインインに成功してもここでセッションを破棄して締め出す。
+  if (isDxBlockedRole(access.role)) {
+    await supabase.auth.signOut();
+    return { error: DX_BLOCKED_MESSAGE };
   }
   if (access.status === "pending") {
     await supabase.auth.signOut();

@@ -20,21 +20,19 @@ ITS事業部
 デキルがあふれる社会をつくる - 「株式会社エイト」公式ホームページ
 異なるアイデアと先進技術を融合し、革新的なサービスを生み出す。コラボレーションとテクノロジーで、企業の課題解決と新たな価値創造を支援します。`;
 
-// 人材取込元メール(SES窓口/エージェント)に「Re: <元件名>」で返信し、Gmail に
+// 人材取込元メール(SES窓口/エージェント)に「Re: <人材側元件名>」で返信し、Gmail に
 // スレッド統合させて相手の受信箱の元スレッドに返信として届くようにする。
-// 元件名が無い古い人材は、案件側メールと同じ「Re: <案件タイトル>」にフォールバック
-// （旧固定文言「【案件のご紹介】希望条件に合致する案件のお知らせ」は意味のない件名で
-//  どの案件か分からず営業の混乱の原因になっていたため、案件名ベースで件名を出す）。
-//   ※ 旧文言は下書き(proposals.pending_mail)に既に保存されていることがあるため、
+// ※ 案件名へはフォールバックしない：人材側メールに案件側と同じ件名が表示される
+//    （送信確認画面で「人材側＝案件側の件名」になる）混乱の原因になっていたため。
+//    人材側元件名が解決できない場合のみ、人材向けの定型件名にフォールバックする。
+//   ※ 定型文言は下書き(proposals.pending_mail)に既に保存されていることがあるため、
 //     呼び出し側で「保存値が旧文言なら無視して再計算」できるよう export しておく。
 export const LEGACY_CAND_SUBJECT = "【案件のご紹介】希望条件に合致する案件のお知らせ";
 
-export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null, job?: { title?: string | null } | null): string {
+export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null): string {
   const orig = String(cand?.source_mail_subject ?? "").trim();
-  if (orig) return reSubject(orig);
-  const jobTitle = String(job?.title ?? "").trim();
-  if (jobTitle) return reSubject(jobTitle);
-  return LEGACY_CAND_SUBJECT;
+  if (orig) return reSubject(orig); // 「Re: <人材側元メールの件名>」
+  return LEGACY_CAND_SUBJECT;        // 案件名は使わない（案件側と同一件名になるのを防ぐ）
 }
 
 export function buildCandMailContent(job: any, cand: any): string {

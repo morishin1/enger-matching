@@ -199,6 +199,14 @@ export function MailComposeWizard({
   //   いきなり確認画面が出てしまい混乱の原因になっていた。
   const [step, setStep] = useState<1 | 2>(1);
   const [proposer, setProposer] = useState(initialProposer ?? "");
+  // 担当者（提案者）は必須。未選択なら、画面右上で選択中の操作者(localStorage)を既定にして
+  //   入力の手間を省く（操作者未選択なら空のまま＝明示選択を促す）。
+  useEffect(() => {
+    if (proposer) return;
+    try { const op = localStorage.getItem("enger.operator") || ""; if (op) setProposer(op); } catch { /* noop */ }
+    // 初回マウント時のみ評価
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // 承認者（必須）：保存時に approver として createProposal に渡す
   const [approver, setApprover] = useState("");
   // useState の初期値で定型文を入れて、最初のレンダリングから本文が見える状態にする。
@@ -237,7 +245,7 @@ export function MailComposeWizard({
     subject: (() => {
       const saved = (dCand?.subject ?? "").trim();
       if (saved && saved !== LEGACY_CAND_SUBJECT) return saved;
-      return buildCandMailSubject(cand, job);
+      return buildCandMailSubject(cand);
     })(),
     body: (dCand?.body ?? "") || buildCandMailContent(job, cand),
   }));
@@ -334,6 +342,7 @@ export function MailComposeWizard({
   // 権限者用：承認者選択なしで保存→送信モーダル自動オープン
   const handleSelfApproveAndSend = async () => {
     if (job?.job_no == null || cand?.candidate_no == null) { setMsg("保存できません（ID不足）"); return; }
+    if (!(proposer ?? "").trim()) { setMsg("担当者（提案者）を選択してください"); return; }
     const fm = flowMatchMatrix(job ?? {}, cand ?? {});
     if (fm.compat === "ng") {
       const ok = window.confirm(`⚠ 商流NGの可能性\n\n案件の受入：${JOB_FLOW_LABEL[fm.jobCat]}\n人材の所属：${CAND_FLOW_LABEL[fm.candCat]}\n\nこのまま送信を進めますか？`);
@@ -449,6 +458,7 @@ export function MailComposeWizard({
   };
 
   const handleNext = () => {
+    if (!(proposer ?? "").trim()) { setMsg("担当者（提案者）を選択してください"); return; }
     const clientOk = validateSide(clientForm, setClientErrors, "案件側");
     const candOk = validateSide(candForm, setCandErrors, "人材側");
     if (!clientOk || !candOk) return;
@@ -467,6 +477,7 @@ export function MailComposeWizard({
       );
       if (!ok) { setSaving(false); setMsg("商流NGのため申請を中止しました"); return; }
     }
+    if (!(proposer ?? "").trim()) { setMsg("担当者（提案者）を選択してください"); return; }
     const approverName = (approver ?? "").trim();
     if (!approverName) { setMsg("承認者を選択してください"); return; }
     if ((proposer ?? "").trim() === approverName) { setMsg("承認者は提案者と別の人を選んでください"); return; }
@@ -534,14 +545,14 @@ export function MailComposeWizard({
           {job.title} <span style={{ opacity: 0.4 }}>×</span> {cand.name}
         </div>
         <StepBar current={step} />
-        {/* 担当者（提案者）：選んだ人がそのまま提案管理の「提案者」として保存される（双方向に連動）。
-            選択肢は実際の提案者リスト（members）。未選択時はログイン者が自動で提案者になる。 */}
+        {/* 担当者（提案者）：必須。選んだ人がそのまま提案管理の「提案者」として保存される（双方向に連動）。
+            選択肢は実際の提案者リスト（members）。未選択では先へ進めない（承認者と同様に必須）。 */}
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--color-ink-3)", marginTop: 2 }}
-          title="このメール（提案）の担当者。選んだ人が提案管理の「提案者」になります。">
-          担当者（提案者）
+          title="このメール（提案）の担当者（必須）。選んだ人が提案管理の「提案者」になります。">
+          担当者（提案者）<span style={{ color: "var(--color-danger)" }}>*</span>
           <select value={proposer} onChange={(e) => setProposer(e.target.value)}
-            style={{ fontFamily: "inherit", fontSize: 12.5, padding: "5px 10px", borderRadius: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", minWidth: 160 }}>
-            <option value="">— 自動（ログイン者）—</option>
+            style={{ fontFamily: "inherit", fontSize: 12.5, padding: "5px 10px", borderRadius: 6, border: `1px solid ${proposer ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", minWidth: 160 }}>
+            <option value="">— 選択 —</option>
             {members.filter(Boolean).map((m) => <option key={m} value={m}>{m}</option>)}
             {proposer && !members.includes(proposer) && <option value={proposer}>{proposer}</option>}
           </select>
@@ -611,14 +622,15 @@ export function MailComposeWizard({
                   </select>
                 </label>
                 <button type="button" className="btn" onClick={handleRequestApproval}
-                  disabled={saving || !approver}
-                  title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します`}
+                  disabled={saving || !approver || !proposer}
+                  title={!proposer ? "先に担当者（提案者）を選択してください" : !approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します`}
                   style={{ fontWeight: 700 }}>
                   {saving ? "処理中…" : "📨 承認申請"}
                 </button>
               </div>
             )}
-            <button type="button" className="btn brand" onClick={handleNext}>確認画面へ →</button>
+            <button type="button" className="btn brand" onClick={handleNext} disabled={!proposer}
+              title={!proposer ? "先に担当者（提案者）を選択してください" : undefined}>確認画面へ →</button>
           </div>
         </>
       )}
@@ -660,15 +672,15 @@ export function MailComposeWizard({
             {!saved ? (
               privileged ? (
                 <button type="button" className="btn brand" onClick={handleSelfApproveAndSend}
-                  disabled={saving || privileged === null}
-                  title="承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"
+                  disabled={saving || privileged === null || !proposer}
+                  title={!proposer ? "先に担当者（提案者）を選択してください" : "承認スキップで直接送信します（管理者/マネージャー/リーダー権限）"}
                   style={{ fontWeight: 800 }}>
                   {saving ? "処理中…" : "📨 メールを送信"}
                 </button>
               ) : (
                 <button type="button" className="btn brand" onClick={handleRequestApproval}
-                  disabled={saving || !approver}
-                  title={!approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
+                  disabled={saving || !approver || !proposer}
+                  title={!proposer ? "先に担当者（提案者）を選択してください" : !approver ? "先に承認者を選択してください" : `${approver}さんに承認申請します。メール送信は承認者が行います`}
                   style={{ fontWeight: 800 }}>
                   {saving ? "処理中…" : "📨 承認申請"}
                 </button>

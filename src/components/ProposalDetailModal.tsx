@@ -36,12 +36,13 @@ function EditInfo({ label, value, onChange, placeholder }: { label: string; valu
   );
 }
 
-function SelField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+function SelField({ label, value, options, onChange, required }: { label: string; value: string; options: string[]; onChange: (v: string) => void; required?: boolean }) {
+  const invalid = required && !value;
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>
-      {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
-        <option value="">—</option>
+      {label}{required && <span style={{ color: "var(--color-danger)" }}> *</span>}
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: `1px solid ${invalid ? "var(--color-danger)" : "var(--color-border-strong)"}`, background: "var(--color-surface)", color: "var(--color-ink)" }}>
+        <option value="">{required ? "— 選択 —" : "—"}</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
     </label>
@@ -159,10 +160,10 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
 
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(p.stage)));
-  // 失注理由メモは全失注で必須化（原因の明確化・分析精度向上）。
-  const lostReady = !!lostReason && lostNote.trim().length > 0;
-  // 「どの会社の誰が担当か」が空なら入力を促す（勝率分析に直結。保存は阻害しない）。
+  // 「どの会社の誰が担当か」が空なら入力を促す（勝率分析に直結。見送りには必須）。
   const lostContactMissing = !lostCompany.trim() || !lostClientContact.trim();
+  // 見送り確定の必須条件：失注理由＋理由メモ＋会社名＋先方担当者がすべて揃っていること。
+  const lostReady = !!lostReason && lostNote.trim().length > 0 && !lostContactMissing;
 
   // 右ドロワーのスライドイン（マウント直後に true へ）
   const [shown, setShown] = useState(false);
@@ -254,11 +255,18 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     cand_company_contact: candCompanyContact.trim() || null,
     cand_contact: candContact.trim() || null,
   });
-  const saveFields = () => run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() }));
+  // 担当者（提案者）は必須。空のまま保存しようとしたら中断してフォームに戻す。
+  const requireProposer = () => {
+    if ((proposer ?? "").trim()) return true;
+    toast("担当者（提案者）を選択してください", "error");
+    return false;
+  };
+  const saveFields = () => { if (!requireProposer()) return; run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() })); };
   // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
   const pickStage = (stage: string) => {
     setStageMenuOpen(false);
     if (stage === "見送り") { setLostOpen(true); return; }
+    if (!requireProposer()) return;
     run(() => updateProposalFields(p.id, {
       stage,
       caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null,
@@ -597,7 +605,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>担当・進捗を更新</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
               <SelField label="架電進捗" value={caller} options={CALLER_STATUSES} onChange={setCaller} />
-              <SelField label="提案者" value={proposer} options={proposerOpts} onChange={setProposer} />
+              <SelField label="提案者" value={proposer} options={proposerOpts} onChange={setProposer} required />
               <SelField label="クロージング" value={closer} options={closerOpts} onChange={setCloser} />
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>面談予定日
                 <input type="date" value={meetingDate} onChange={(e) => setMeetingDate(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
@@ -622,16 +630,16 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               {/* どの会社の誰が担当か（勝率分析に直結）。失注記録に確実に残す。
                   会社名・先方担当者は案件情報／人材情報（①）から選んで自動入力でき、手入力もできる。 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>会社名
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>会社名<span style={{ color: "var(--color-danger)" }}> *</span>
                   <select value="" onChange={(e) => { const v = e.target.value; if (v === "job") setLostCompany(jobCompany); else if (v === "cand") setLostCompany(candCompany); }}
                     style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
                     <option value="">案件側／人材側から選択…</option>
                     <option value="job">案件側：{jobCompany || "（空欄）"}</option>
                     <option value="cand">人材側：{candCompany || "（空欄）"}</option>
                   </select>
-                  <input type="text" value={lostCompany} onChange={(e) => setLostCompany(e.target.value)} placeholder="会社名（手入力も可）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                  <input type="text" value={lostCompany} onChange={(e) => setLostCompany(e.target.value)} placeholder="会社名（手入力も可）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostCompany.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)" }} />
                 </label>
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>先方担当者
+                <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>先方担当者<span style={{ color: "var(--color-danger)" }}> *</span>
                   {/* 3択：案件側 / 人材側 / その他（手入力）。
                       「その他」のときだけ入力欄を表示し、画面をすっきりさせる（常時手入力欄を出していた旧UI改善）。 */}
                   <select value={lostContactMode} onChange={(e) => {
@@ -656,8 +664,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 </label>
               </div>
               {lostContactMissing && (
-                <div style={{ fontSize: 10.5, color: "#b45309", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 6, padding: "6px 9px", marginTop: 6 }}>
-                  ⚠ 勝率分析のため、<b>会社名・先方担当者</b>を入力してから確定してください（誰が・どの会社かを失注記録に残します）。
+                <div style={{ fontSize: 10.5, color: "var(--color-danger)", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 6, padding: "6px 9px", marginTop: 6 }}>
+                  ※ 見送りの確定には<b>会社名・先方担当者</b>が必須です（誰が・どの会社かを失注記録に残します）。
                 </div>
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>

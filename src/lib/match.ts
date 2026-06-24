@@ -68,6 +68,7 @@ export type MatchResult = {
 // スキル正規化は正典辞書（skills.ts）に集約。
 import { canon, normToken as norm, skillMentionRegex } from "./skills";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL, type FlowCompat } from "./flow";
+import { classifyCandNationality, classifyJobNationality } from "./nationality";
 export { canon };
 
 /** 2つのスキル配列の一致スキル（candidate側の元表記で返す）。 */
@@ -216,19 +217,30 @@ function ageFit(job: Job, c: Candidate): { fit: number; mismatch: boolean; jobRa
 }
 
 // ---- 国籍ハードフィルター ----
-/** 案件文中に「日本国籍/日本人のみ・外国籍不可」等があり、候補が日本国籍でない場合に true。 */
+/** 案件が「日本国籍のみ」（画面バッジと同じ classifyJobNationality 判定）で、
+ *   候補が「外国籍」の場合に true（ランキングから除外）。
+ *   候補が「日本国籍」または「不明」（空欄/不問を含む）は除外しない（担当が確認する運用）。 */
 function nationalityHardNg(job: Job, c: Candidate): boolean {
-  const text = `${job.detail ?? ""} ${job.title ?? ""}`;
-  const requiresJp = /日本国籍(のみ|限定|に?限る|必須)|日本人(のみ|限定|に?限る)|外国籍(不可|NG|お断り)|永住権(必須|必要)/i.test(text);
-  if (!requiresJp) return false;
-  const n = (c.nationality ?? "").trim();
-  if (!n) return false; // 不明は安全側で除外しない（注意事項で警告するだけ）
-  return !/日本|JP|JPN|Japan/i.test(n);
+  if (classifyJobNationality(job.detail, job.title) !== "jp_only") return false;
+  return classifyCandNationality(c.nationality) === "foreign";
 }
 function nationalityWarn(job: Job, c: Candidate): boolean {
   const text = `${job.detail ?? ""} ${job.title ?? ""}`;
   const requiresJp = /日本国籍|日本人|外国籍/i.test(text);
   return requiresJp && !(c.nationality && /日本|JP|Japan/i.test(c.nationality));
+}
+
+// ---- 勤務形態ハードフィルター ----
+/** 案件が「出社必須」(remote_type=onsite) で、候補がリモート/在宅を希望（出社不可）の場合に true。
+ *   「出社可」「常駐可」等（"可"を含む）や、リモート希望の記載なし（不明/空欄）は除外しない。
+ *   例）「フルリモート希望」「一部在宅希望」→ 除外 ／「出社可」「不明」「空欄」→ 残す。 */
+function remoteHardNg(job: Job, c: Candidate): boolean {
+  if (job.remote_type !== "onsite") return false;
+  const cp = (c.remote_pref ?? "").trim();
+  if (!cp) return false; // 不明・空欄は除外しない
+  const wantsRemote = /リモート|在宅/.test(cp);
+  const onsiteOk = /出社|常駐|可/.test(cp);
+  return wantsRemote && !onsiteOk; // 在宅/リモート希望 かつ 出社可の記載なし → 除外
 }
 
 // ---- 業界経験（推定・ボーナス＋注意事項） ----
@@ -391,6 +403,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   const age = ageFit(job, c);
   const ind = industryMatch(job, c);
   const ngNat = nationalityHardNg(job, c);
+  const ngRemote = remoteHardNg(job, c);
   const fm = flowMatchMatrix(job, c);
   const flowNg = fm.compat === "ng";
 
@@ -435,7 +448,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (!allKnown && baseScore >= 100) baseScore = 99;
   let score = Math.round(Math.min(100, baseScore + bonus));
   if (!allKnown && score >= 100) score = 99;
-  if (ngNat) { score = 0; baseScore = 0; }
+  if (ngNat || ngRemote) { score = 0; baseScore = 0; }
   // ① 必須スキルゲート（最優先・多重チェック）：
   //   案件企業は「必須スキル」で土俵が決まる。一致率が低い候補は、単価/勤務/経験が良くても
   //   上位・提案推奨に出さない。重み付けスコアに加え、ここで上限を被せて二重に担保する。
@@ -465,8 +478,9 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // 送達不能：宛先がバウンスしている → 赤注記＋『提案推奨』への昇格抑制
   if (job.is_undeliverable) notes.push({ level: "red", text: `宛先 ${job.contact_email} は送達不能（${job.undeliverable_count ?? 1}回観測）。正しい連絡先を確認してから提案を` });
 
-  if (ngNat) notes.push({ level: "red", text: "国籍要件NG（日本国籍が必須の案件）" });
+  if (ngNat) notes.push({ level: "red", text: "国籍要件NG（日本国籍のみの案件に外国籍の人材）" });
   else if (nationalityWarn(job, c)) notes.push({ level: "yellow", text: "国籍要件に言及あり（候補の国籍を要確認）" });
+  if (ngRemote) notes.push({ level: "red", text: "勤務形態NG（出社必須の案件にリモート/在宅希望の人材）" });
 
   if (jobSkills.length) {
     if (matchedSkills.length === jobSkills.length) notes.push({ level: "green", text: `必須スキル ${jobSkills.length}/${jobSkills.length} 完全一致` });
@@ -521,7 +535,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
   // 充足/終了はハード除外。古い案件・送達不能・商流NG は除外せず判定の引き下げで提案抑止する
   //   （バッジ＋提案時確認の運用に合わせ、完全ブロックは避ける）。
-  const hardExcluded = ngNat || open.closed;
+  const hardExcluded = ngNat || ngRemote || open.closed;
   let verdict = verdictOf(score, hardExcluded);
   if (!hardExcluded && (open.stale || job.is_undeliverable) && (verdict === "提案推奨" || verdict === "条件付き提案推奨")) {
     verdict = "条件付き提案検討";

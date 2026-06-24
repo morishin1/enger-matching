@@ -4,7 +4,8 @@ import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts } from "@/lib/counts";
 import { getStaff } from "@/lib/staff";
 import { getSessionEmail, resolveAccess, type Role } from "@/lib/accounts";
-import { canManageDept } from "@/lib/roles";
+import { canManageDept, isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
+import { redirect } from "next/navigation";
 import { loadMenuPermissions } from "@/lib/menu-permissions";
 
 export const metadata: Metadata = {
@@ -58,6 +59,13 @@ export default async function RootLayout({
     return { email: em, access: await resolveAccess(em) };
   })();
   const [counts, staff, auth, menuPerms] = await Promise.all([getSidebarCounts(), getStaff(), authP, loadMenuPermissions()]);
+
+  // フリーランス（人材）が LP と共有の Supabase セッションで dx に入室するのを全ルートで遮断する。
+  //   ＝「自動リダイレクト（共有クッキーでの素通り）」対策。signout 経由でセッションを破棄してから
+  //   ログイン画面へ戻す（クッキーが消えるため /login で再判定してもループしない）。
+  if (auth.access && isDxBlockedRole(auth.access.role)) {
+    redirect(`/api/auth/signout?err=${encodeURIComponent(DX_BLOCKED_MESSAGE)}`);
+  }
 
   // 担当者候補（提案者∪クロージング、重複排除、未割当除外）
   const operators = Array.from(new Set([...staff.proposers, ...staff.closers.filter((c) => c !== "未割当")]));
