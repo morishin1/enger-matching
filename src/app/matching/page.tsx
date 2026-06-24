@@ -776,7 +776,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   }
 
   // ============ 注力マッチング（ウォッチリスト）の描画 ============
-  if (tab === "focus") {
+  //   ※ 特定の案件/人材を選んだドリルダウン（?job= / ?person=）では注力ボードを出さず、
+  //     下のドリルダウン描画にフォールスルーする。これをしないと、注力ボードから
+  //     「マッチング」を押しても tab=focus のまま注力ボードに戻り、ランキングが出ない。
+  if (tab === "focus" && !drillDown) {
     return (
       <div className="page">
         <div className="page-head">
