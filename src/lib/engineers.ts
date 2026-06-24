@@ -94,6 +94,20 @@ export type Engineer = {
   source: EngineerSource;     // 派生フィールド（UIバッジ用）
 };
 
+// ENGER の人材一覧に出すべきでない登録経路（外部システム由来）。
+//   LMS(学習管理)は「登録＝auth.users作成」のため public.profiles に行が混入する。
+//   profiles 側に明示の経路列が無いケースもあるため、signup_source / source /
+//   （auth metadata 由来の）app のいずれかが該当値なら除外する。
+export const EXCLUDED_SIGNUP_SOURCES = new Set(["lms"]);
+
+/** その profiles 行（または auth metadata）が除外対象の登録経路か。 */
+export function isExcludedProfile(p: any): boolean {
+  for (const key of ["signup_source", "source", "app"]) {
+    if (EXCLUDED_SIGNUP_SOURCES.has(String(p?.[key] ?? "").toLowerCase())) return true;
+  }
+  return false;
+}
+
 /** LP(enger.jp)で登録したエンジニア一覧（public.profiles・service role閲覧）。 */
 export async function listEngineers(): Promise<{ rows: Engineer[]; available: boolean }> {
   if (!dbConfigured) return { rows: [], available: false };
@@ -110,6 +124,10 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     //   supabase/profiles-withdrawal.sql で追加。未マイグレ環境では列無しフォールバックに落ちる。
     const wd = "withdrawal_requested_at, withdrawal_reason, withdrawal_completed_at";
     const richVariants = [
+      // source 列がある環境ではそれも取得して LMS 等の除外に使う（無ければ下のフォールバックへ）。
+      `${base}, signup_source, signup_method, source, phone, contact_line, ${wd}`,
+      `${base}, signup_source, signup_method, source, ${wd}`,
+      `${base}, signup_source, signup_method, source`,
       `${base}, signup_source, signup_method, phone, contact_line, ${wd}`,
       `${base}, signup_source, signup_method, phone_number, line_id, ${wd}`,
       `${base}, signup_source, signup_method, tel, messenger, ${wd}`,
@@ -128,6 +146,8 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       if (!r.error) { data = r.data ?? []; break; }
     }
     if (data == null) return { rows: [], available: false };
+    // 外部システム由来（LMS 等）の混入行を除外する。
+    data = data.filter((r: any) => !isExcludedProfile(r));
     // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
     const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
     const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;

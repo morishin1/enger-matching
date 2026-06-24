@@ -2,6 +2,7 @@ import { cache } from "react";
 import { engerAdmin, engerClient, dbConfigured, publicAdmin, authAdmin } from "./supabase";
 import { authServerClient, authConfigured } from "./supabase-auth";
 import { type Role, type AccountStatus, canAccess, roleHome, isExecDepartment } from "./roles";
+import { isExcludedProfile } from "./engineers";
 
 /** 1リクエスト内でログインユーザーのメールを1回だけ解決（layout と各ページの二重 getUser を防ぐ）。
  *  getClaims: JWT をローカル検証（非対称署名キー時は Auth API への HTTP 往復ゼロ）。getUser だと
@@ -215,7 +216,7 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
   try {
     const sb = engerAdmin();
     const pub = publicAdmin();
-    const sel = "id, display_name, email, name, phone, contact_line, signup_source, signup_method, created_at, role";
+    const sel = "id, display_name, email, name, phone, contact_line, signup_source, signup_method, source, created_at, role";
     // 先に profiles を取得（候補は最大500件）。app_users 全件取得を避け、
     // 候補の email だけで .in() 存在チェックに切り替える（50000件取得→数十件 in クエリ）。
     let r: any = await pub.from("profiles").select(sel)
@@ -248,6 +249,7 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
     for (const p of r.data as any[]) {
       const em = String(p.email ?? "").toLowerCase();
       if (!em || existingEmails.has(em)) continue;
+      if (isExcludedProfile(p)) continue; // 外部システム由来（LMS 等）は承認待ちから除外
       profileEmails.add(em);
       // signup_source の解決：保存値 → メールドメイン推定 → role/ヒューリスティック
       const ss = resolveSignupSource(p?.signup_source, em, { role: p?.role });
@@ -293,6 +295,9 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
           if (!em || existingEmails.has(em) || profileEmails.has(em)) continue;
           const prov = (u.app_metadata as any)?.provider ?? "email";
           const meta: any = u.user_metadata ?? {};
+          const appMeta: any = u.app_metadata ?? {};
+          // 外部システム由来（LMS 等）は承認待ちから除外。auth metadata の app/signup_source/source を見る。
+          if (isExcludedProfile({ signup_source: meta.signup_source, source: meta.source, app: meta.app ?? appMeta.app })) continue;
           const name = (meta.full_name as string) || (meta.name as string) || null;
           // signup_source は user_metadata に保存されていれば最優先、無ければメールドメインで推定
           const metaSource = (meta.signup_source as string) || null;
