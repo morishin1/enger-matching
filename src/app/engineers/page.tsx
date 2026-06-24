@@ -2,11 +2,16 @@ import { EngineersClient } from "@/components/EngineersClient";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { FlowSteps } from "@/components/FlowSteps";
 import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
+import { listEngineerChatStatus } from "@/lib/chat";
+import { currentAccess } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
 export default async function EngineersPage() {
-  const [{ rows, available }, actions, scouts, applications] = await Promise.all([listEngineers(), listEngineerActions(), listScouts(), listApplications()]);
+  const access = await currentAccess();
+  const [{ rows, available }, actions, scouts, applications, chatStatus] = await Promise.all([
+    listEngineers(), listEngineerActions(), listScouts(), listApplications(), listEngineerChatStatus(access?.email),
+  ]);
 
   return (
     <div className="page">
@@ -33,7 +38,7 @@ export default async function EngineersPage() {
         </div>
       )}
 
-      <EngineersClient engineers={rows} actions={actions} scouts={scouts} applications={applications} />
+      <EngineersClient engineers={rows} actions={actions} scouts={scouts} applications={applications} chatStatus={chatStatus} />
     </div>
   );
 }

@@ -133,3 +133,50 @@ export async function agentUnreadTotal(agentId?: string | null): Promise<number>
   const list = await listChatThreads(agentId);
   return list.reduce((n, t) => n + t.unread, 0);
 }
+
+/** LP登録一覧（エンジニア）向け：engineer_id ごとのチャット状態。
+ *   unread    … 自分(agent)が未読のフリーランス発言数（>0 なら未読バッジ）。
+ *   unreplied … スレッドの最新発言が freelance（＝担当が未返信）なら true。
+ *   threadId  … 最新スレッド（/chat?t= で開く）。
+ */
+export type EngineerChatStatus = { threadId: string; unread: number; unreplied: boolean };
+export async function listEngineerChatStatus(agentId?: string | null): Promise<Record<string, EngineerChatStatus>> {
+  if (!dbConfigured) return {};
+  try {
+    const sb = engerClient();
+    const { data: threads, error } = await sb
+      .from("chat_threads")
+      .select("id, engineer_id, last_message_at")
+      .order("last_message_at", { ascending: false })
+      .limit(500);
+    if (error || !threads?.length) return {};
+    const ids = threads.map((t: any) => t.id);
+    const [{ data: msgs }, { data: reads }] = await Promise.all([
+      sb.from("chat_messages").select("thread_id, sender_role, created_at").in("thread_id", ids).order("created_at", { ascending: false }).limit(5000),
+      sb.from("chat_reads").select("thread_id, last_read_at").eq("participant_role", "agent").eq("participant_id", agentId ?? "").in("thread_id", ids),
+    ]);
+    const readAt = new Map<string, string>();
+    for (const r of (reads ?? []) as any[]) readAt.set(r.thread_id, r.last_read_at);
+    const lastByThread = new Map<string, any>();
+    const unreadByThread = new Map<string, number>();
+    for (const m of (msgs ?? []) as any[]) {
+      if (!lastByThread.has(m.thread_id)) lastByThread.set(m.thread_id, m); // created_at 降順なので最初=最新
+      const ra = readAt.get(m.thread_id);
+      if (m.sender_role === "freelance" && (!ra || m.created_at > ra)) {
+        unreadByThread.set(m.thread_id, (unreadByThread.get(m.thread_id) ?? 0) + 1);
+      }
+    }
+    const out: Record<string, EngineerChatStatus> = {};
+    for (const t of threads as any[]) {
+      const unread = unreadByThread.get(t.id) ?? 0;
+      const unreplied = lastByThread.get(t.id)?.sender_role === "freelance";
+      const cur = out[t.engineer_id];
+      if (!cur) out[t.engineer_id] = { threadId: t.id, unread, unreplied }; // threads は最新順 → 先頭が代表スレッド
+      else { cur.unread += unread; cur.unreplied = cur.unreplied || unreplied; }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+

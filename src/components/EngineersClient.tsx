@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
+import type { EngineerChatStatus } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 import { StageBar } from "./StageBar";
@@ -101,13 +102,29 @@ const ACTION_COLOR: Record<string, string> = {
 const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 // 登録日時（年月日＋時刻）
 const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
-// 連絡先の有無アイコン群
-function ContactIcons({ e }: { e: { email?: string | null; phone?: string | null; contact_line?: string | null } }) {
+// 連絡先の有無アイコン群（メール・電話・チャット）。
+//   チャットは ENGERフリーランスからのメッセージに気づけるよう、未読=色＋ドット / 未返信=色のみ で表示し、
+//   クリックでチャット画面(/chat?t=...)を開いて確認・返信できる。
+function ContactIcons({ e, chat }: { e: { email?: string | null; phone?: string | null; contact_line?: string | null }; chat?: EngineerChatStatus }) {
   const items: { ic: string; label: string; on: boolean; href?: string }[] = [
     { ic: "mail", label: e.email || "メールなし", on: !!e.email, href: e.email ? `mailto:${e.email}` : undefined },
     { ic: "call", label: e.phone || "電話なし", on: !!e.phone, href: e.phone ? `tel:${e.phone}` : undefined },
-    { ic: "chat", label: e.contact_line || "メッセージなし", on: !!e.contact_line },
   ];
+  const unread = chat?.unread ?? 0;
+  const unreplied = !!chat?.unreplied;
+  // 未読=赤 / 未返信=アンバー / それ以外はメッセージ連絡先の有無で青or淡色。
+  const chatColor = unread > 0 ? "#dc2626" : unreplied ? "#e0a317" : (e.contact_line ? "#0b5cab" : "var(--color-ink-5)");
+  const chatActive = unread > 0 || unreplied || !!e.contact_line || !!chat?.threadId;
+  const chatTitle = unread > 0 ? `未読チャット ${unread}件（クリックで開く）`
+    : unreplied ? "未返信のチャットあり（クリックで確認・返信）"
+    : chat?.threadId ? "チャットを開く"
+    : (e.contact_line || "メッセージなし");
+  const chatIcon = (
+    <span style={{ position: "relative", display: "inline-flex", lineHeight: 0 }}>
+      <span className="material-symbols-outlined" style={{ fontSize: 17, color: chatColor, opacity: chatActive ? 1 : 0.4 }}>chat</span>
+      {unread > 0 && <span aria-hidden style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: 99, background: "#dc2626", border: "1.5px solid var(--color-surface)" }} />}
+    </span>
+  );
   return (
     <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
       {items.map((it, i) => it.on ? (
@@ -117,6 +134,9 @@ function ContactIcons({ e }: { e: { email?: string | null; phone?: string | null
       ) : (
         <span key={i} title={it.label} className="material-symbols-outlined" style={{ fontSize: 17, color: "var(--color-ink-5)", opacity: .4 }}>{it.ic}</span>
       ))}
+      {chat?.threadId
+        ? <Link href={`/chat?t=${chat.threadId}`} title={chatTitle} onClick={(ev) => ev.stopPropagation()} style={{ textDecoration: "none", display: "inline-flex" }}>{chatIcon}</Link>
+        : <span title={chatTitle}>{chatIcon}</span>}
     </span>
   );
 }
@@ -128,7 +148,7 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
   declined: { label: "見送り", color: "#b42318" },
 };
 
-export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]> }) {
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; chatStatus?: Record<string, EngineerChatStatus> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   // withdrawal: "" (退会済みを除く＝既定) / "wish" (退会希望のみ) / "done" (退会処理済みのみ) / "all" (すべて表示)
@@ -356,7 +376,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     </td>
                     <td><SourceBadge source={e.source} /></td>
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
-                    <td><ContactIcons e={e} /></td>
+                    <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
                       <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
                         {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
