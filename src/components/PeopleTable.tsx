@@ -386,6 +386,9 @@ export function PeopleTable({
             <button type="button" className="btn ghost" onClick={() => doClose(true)} disabled={pending} title="一覧から外す（検索では表示。マッチング対象外）">
               <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>block</span> クローズ
             </button>
+            <button type="button" className="btn ghost" onClick={() => doClose(false)} disabled={pending} title="クローズを解除して一覧・マッチングに復帰させる">
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>restart_alt</span> クローズ解除
+            </button>
             <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
               style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
               削除

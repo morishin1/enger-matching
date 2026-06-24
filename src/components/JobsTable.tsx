@@ -375,6 +375,11 @@ export function JobsTable({
               </button>
             )}
             {!partner && (
+              <button type="button" className="btn ghost" onClick={() => doClose(false)} disabled={pending} title="クローズを解除して一覧・マッチングに復帰させる">
+                <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>restart_alt</span> クローズ解除
+              </button>
+            )}
+            {!partner && (
               <button type="button" className="btn ghost" onClick={() => setDeleteConfirm(true)} disabled={pending}
                 style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}>
                 削除
