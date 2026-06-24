@@ -118,6 +118,7 @@ const PEOPLE_COLS: Col[] = [
     key: "name", label: "氏名", always: true,
     render: (p) => {
       const sub = p.affiliation || "";
+      const isEnger = ["enger", "enger_lp", "engerjp"].includes(String(p.signup_source ?? "").toLowerCase());
       return (
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
@@ -128,6 +129,12 @@ const PEOPLE_COLS: Col[] = [
               {p.signup_source === "line" && <span title="LINE経由で登録" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>}
               {p.has_proposal && <span className="tag" title="この人材で提案実績があります。削除に注意してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", flexShrink: 0 }}>提案あり</span>}
             </div>
+            {/* ENGERフリーランス(LP)登録は名前の下に水色マークで識別できるようにする（LINEと同様）。 */}
+            {isEnger && (
+              <div style={{ marginTop: 2 }}>
+                <span title="ENGERフリーランス（LP）から登録" style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "#e6f4fb", color: "#0b5cab", border: "1px solid #bfe3f5" }}>ENGERフリーランス</span>
+              </div>
+            )}
             {sub && <div className="muted" style={{ fontSize: 10.5, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>}
           </div>
         </div>
