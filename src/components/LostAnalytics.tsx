@@ -9,7 +9,7 @@
 //   - 担当者別 失注理由
 // 「そもそも連絡する意味あるのか？」を score = 勝率×0.7 + 接触の新しさ×0.3 で判定。
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "@/components/AppLink";
 
 type HItem = {
@@ -1003,37 +1003,65 @@ function Header({ title, hint }: { title: string; hint?: string }) {
 // 失注ログテーブル：担当者・理由・タイムラグを一覧。担当者/期間で絞り込み可能。
 function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
   const [proposerFilter, setProposerFilter] = useState("");
+  const [closerFilter, setCloserFilter] = useState("");
   const [reasonFilter, setReasonFilter] = useState("");
-  const [order, setOrder] = useState<"recent" | "slow" | "fast">("recent");
-  const proposers = useMemo(() => Array.from(new Set(rows.map((r) => r.proposer))).sort(), [rows]);
+  const [pageSize, setPageSize] = useState(20);
+  const [page, setPage] = useState(1);
+  const proposers = useMemo(() => Array.from(new Set(rows.map((r) => r.proposer).filter((v) => v && v !== "—"))).sort(), [rows]);
+  const closers = useMemo(() => Array.from(new Set(rows.map((r) => r.closer).filter((v) => v && v !== "—"))).sort(), [rows]);
   const reasons = useMemo(() => Array.from(new Set(rows.map((r) => r.reason))).sort(), [rows]);
 
+  // フィルタ → 失注日が新しい順（既定）。
   const filtered = useMemo(() => {
     let r = rows;
     if (proposerFilter) r = r.filter((x) => x.proposer === proposerFilter);
+    if (closerFilter) r = r.filter((x) => x.closer === closerFilter);
     if (reasonFilter) r = r.filter((x) => x.reason === reasonFilter);
-    if (order === "slow") r = [...r].sort((a, b) => (b.lagDays ?? -1) - (a.lagDays ?? -1));
-    else if (order === "fast") r = [...r].sort((a, b) => (a.lagDays ?? 1e9) - (b.lagDays ?? 1e9));
-    else r = [...r].sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0));
-    return r.slice(0, 200);
-  }, [rows, proposerFilter, reasonFilter, order]);
+    return [...r].sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0));
+  }, [rows, proposerFilter, closerFilter, reasonFilter]);
+
+  // フィルタ・表示件数が変わったら1ページ目へ戻す。
+  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, pageSize]);
+
+  const total = filtered.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(page, pageCount);
+  const pageRows = filtered.slice((cur - 1) * pageSize, cur * pageSize);
 
   const fmtD = (ms: number) => { if (!ms) return "—"; const d = new Date(ms); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`; };
-  const lagTone = (d: number | null) => d == null ? "var(--color-ink-4)" : d >= 15 ? "#b42318" : d >= 7 ? "#9a7b12" : "#067647";
 
   const sel: React.CSSProperties = { fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" };
   const td: React.CSSProperties = { padding: "6px 10px", borderTop: "1px solid var(--color-border)", verticalAlign: "top" };
   const th: React.CSSProperties = { padding: "6px 10px", textAlign: "left", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, background: "var(--color-surface-soft)", whiteSpace: "nowrap" };
 
+  // ページャの表示ページ番号（先頭/末尾＋現在の前後を表示、省略は … ）。
+  const pageNums: (number | "…")[] = (() => {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+    const set = new Set<number>([1, 2, pageCount - 1, pageCount, cur - 1, cur, cur + 1]);
+    const arr = Array.from(set).filter((n) => n >= 1 && n <= pageCount).sort((a, b) => a - b);
+    const out: (number | "…")[] = [];
+    let prev = 0;
+    for (const n of arr) { if (n - prev > 1) out.push("…"); out.push(n); prev = n; }
+    return out;
+  })();
+  const pageBtn = (active: boolean): React.CSSProperties => ({ minWidth: 30, padding: "4px 8px", borderRadius: 7, border: `1px solid ${active ? "var(--color-brand-600)" : "var(--color-border)"}`, background: active ? "var(--color-brand-600)" : "var(--color-surface)", color: active ? "#fff" : "var(--color-ink-2)", fontSize: 12, fontWeight: active ? 800 : 600, cursor: "pointer", fontFamily: "inherit" });
+
   return (
     <div className="card" style={{ padding: 14 }}>
-      <Header title="📋 失注ログ（担当者・理由・スピード一覧）" hint="提案日／失注日／タイムラグ／担当者／理由 を1行で確認。長期化(赤)の上位を優先的に振り返り、スピードを上げる打ち手を考える。" />
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+      <Header title="📋 失注ログ（提案者・クロージング担当者・理由 一覧）" hint="失注日／提案日／提案者／クロージング担当者／理由 を1行で確認。失注日が新しい順に表示します。" />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
-          担当者
+          提案者
           <select value={proposerFilter} onChange={(e) => setProposerFilter(e.target.value)} style={sel}>
             <option value="">すべて</option>
             {proposers.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          クロージング担当者
+          <select value={closerFilter} onChange={(e) => setCloserFilter(e.target.value)} style={sel}>
+            <option value="">すべて</option>
+            {closers.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
@@ -1044,45 +1072,40 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
           </select>
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
-          並び順
-          <select value={order} onChange={(e) => setOrder(e.target.value as any)} style={sel}>
-            <option value="recent">新しい順</option>
-            <option value="slow">ラグが大きい順（要振り返り）</option>
-            <option value="fast">ラグが小さい順（即決）</option>
+          表示件数
+          <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={sel}>
+            <option value={20}>20件</option>
+            <option value={50}>50件</option>
           </select>
         </label>
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{filtered.length}件 / 全{rows.length}件（最大200件表示）</span>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>全{total}件中 {total === 0 ? 0 : (cur - 1) * pageSize + 1}〜{Math.min(cur * pageSize, total)}件</span>
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 980 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 880 }}>
           <thead>
             <tr>
-              <th style={th}>提案日</th><th style={th}>失注日</th>
-              <th style={{ ...th, textAlign: "right" }}>タイムラグ</th>
-              <th style={th}>担当者</th>
+              <th style={th}>失注日</th>
+              <th style={th}>提案日</th>
+              <th style={th}>提案者</th>
+              <th style={th}>クロージング担当者</th>
               <th style={th}>会社 / 案件</th>
               <th style={th}>人材</th>
-              <th style={th}>失注フェーズ</th>
               <th style={th}>失注理由</th>
               <th style={{ ...th, textAlign: "right" }}>再提案</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {pageRows.map((r) => (
               <tr key={r.id}>
-                <td style={td} className="mono">{fmtD(r.created_at)}</td>
                 <td style={td} className="mono">{fmtD(r.lost_at)}</td>
-                <td style={{ ...td, textAlign: "right", color: lagTone(r.lagDays), fontWeight: 800 }} className="mono">{r.lagDays != null ? `${r.lagDays}日` : "—"}</td>
-                <td style={td}>
-                  <div style={{ fontWeight: 700 }}>{r.proposer}</div>
-                  {r.closer && r.closer !== r.proposer && r.closer !== "—" && <div className="muted" style={{ fontSize: 10.5 }}>CL: {r.closer}</div>}
-                </td>
+                <td style={td} className="mono">{fmtD(r.created_at)}</td>
+                <td style={td}>{r.proposer}</td>
+                <td style={td}>{r.closer && r.closer !== "—" ? r.closer : "—"}</td>
                 <td style={td}>
                   <div style={{ fontWeight: 600 }}>{r.company}</div>
                   <div className="muted" style={{ fontSize: 11 }}>{r.job_title}</div>
                 </td>
                 <td style={td}>{r.candidate_name}</td>
-                <td style={{ ...td, color: "var(--color-ink-3)", fontSize: 11 }}>{r.phase}</td>
                 <td style={td}>
                   <div>{r.reason}</div>
                   {r.note && <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginTop: 2, whiteSpace: "pre-wrap" }}>「{r.note}」</div>}
@@ -1100,6 +1123,16 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
           </tbody>
         </table>
       </div>
+      {/* ページャ */}
+      {pageCount > 1 && (
+        <div style={{ display: "flex", gap: 5, alignItems: "center", justifyContent: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" style={pageBtn(false)} disabled={cur <= 1} onClick={() => setPage(cur - 1)}>‹ 前へ</button>
+          {pageNums.map((n, i) => n === "…"
+            ? <span key={`e${i}`} style={{ padding: "0 4px", color: "var(--color-ink-4)" }}>…</span>
+            : <button key={n} type="button" style={pageBtn(n === cur)} onClick={() => setPage(n)}>{n}</button>)}
+          <button type="button" style={pageBtn(false)} disabled={cur >= pageCount} onClick={() => setPage(cur + 1)}>次へ ›</button>
+        </div>
+      )}
     </div>
   );
 }
