@@ -269,8 +269,9 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     const na = nextActionFor(p);
     const naTone = URGENCY_TONE[na.urgency];
     const sel = selected.has(p.id);
+    const isLine = p.source === "line";
     return (
-      <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)", background: sel ? "var(--color-brand-25, #eff6ff)" : undefined }}>
+      <div key={p.id} style={{ borderBottom: "1px solid var(--color-border)", borderLeft: isLine ? "3px solid #06C755" : "3px solid transparent", background: sel ? "var(--color-brand-25, #eff6ff)" : isLine ? "#eafaf0" : undefined }}>
         <div onClick={() => setActive(p)} title="クリックで詳細・編集ドロワーを開く"
           style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", paddingLeft: member ? 40 : 14, cursor: "pointer" }}
           onMouseEnter={(e) => { if (!sel) e.currentTarget.style.background = "var(--color-surface-soft)"; }}
