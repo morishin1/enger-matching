@@ -92,6 +92,20 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
   const [jobRes, setJobRes] = useState<SideResult>(null);
   const [candRes, setCandRes] = useState<SideResult>(null);
   const [done, setDone] = useState(false);
+  // 件名をユーザーがこの確認画面で手入力したか（手入力後は親の更新で上書きしない）。
+  const [jobSubjEdited, setJobSubjEdited] = useState(false);
+  const [candSubjEdited, setCandSubjEdited] = useState(false);
+
+  // 親（プレビュー元）の件名が後から解決（Re: <元件名>等）された場合に、確認画面の件名も追従させる。
+  //   未送信かつユーザー未編集のときだけ同期（手入力を尊重）。プレビュー件名＝実送信件名を一致させる。
+  useEffect(() => {
+    if (done || jobRes?.ok || jobSubjEdited) return;
+    setJob((p) => (p.subject === jobSide.subject ? p : { ...p, subject: jobSide.subject }));
+  }, [jobSide.subject, done, jobRes?.ok, jobSubjEdited]);
+  useEffect(() => {
+    if (done || candRes?.ok || candSubjEdited) return;
+    setCand((p) => (p.subject === candSide.subject ? p : { ...p, subject: candSide.subject }));
+  }, [candSide.subject, done, candRes?.ok, candSubjEdited]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -171,6 +185,7 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
     err: string | null,
     setErr: (e: string | null) => void,
     res: SideResult,
+    onSubjectEdited: () => void,
   ) => (
     <div style={{ flex: 1, minWidth: 0, border: "1px solid var(--color-border)", borderRadius: 12, background: "var(--color-surface)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-soft)" }}>
@@ -207,7 +222,7 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
           {err && <span style={{ color: "var(--color-danger)", fontSize: 11 }}>{err}</span>}
         </label>
         <label style={lbl}>CC（任意）<input value={st.cc} onChange={(e) => setSt((p) => ({ ...p, cc: e.target.value }))} placeholder="cc@example.com" style={inp} disabled={res?.ok} /></label>
-        <label style={lbl}>件名<input value={st.subject} onChange={(e) => setSt((p) => ({ ...p, subject: e.target.value }))} style={inp} disabled={res?.ok} /></label>
+        <label style={lbl}>件名<input value={st.subject} onChange={(e) => { onSubjectEdited(); setSt((p) => ({ ...p, subject: e.target.value })); }} style={inp} disabled={res?.ok} /></label>
         <div style={lbl}>
           <span>本文</span>
           <div style={{ border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface-soft)", padding: "10px 12px", fontSize: 12.5, lineHeight: 1.7, overflowY: "auto", maxHeight: 240 }}>
@@ -266,8 +281,8 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
                 );
               })()}
               <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
-                {renderSide(jobSide, job, setJob, jobErr, setJobErr, jobRes)}
-                {renderSide(candSide, cand, setCand, candErr, setCandErr, candRes)}
+                {renderSide(jobSide, job, setJob, jobErr, setJobErr, jobRes, () => setJobSubjEdited(true))}
+                {renderSide(candSide, cand, setCand, candErr, setCandErr, candRes, () => setCandSubjEdited(true))}
               </div>
               {done && (
                 <div style={{ fontSize: 12.5, padding: "9px 12px", borderRadius: 8, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>✓ 両方のメールを送信しました</div>
