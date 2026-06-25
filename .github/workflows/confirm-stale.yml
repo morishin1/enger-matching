@@ -1,0 +1,38 @@
+# 「確認中」フォルダ滞留通知を無料で日次実行する。
+#   確認中に入って3日以上 動きのない提案を、翌日にクロージング担当者へメール通知する。
+#
+# 必要な GitHub Secrets（Settings → Secrets and variables → Actions）:
+#   CONFIRM_STALE_URL : https://<本番ドメイン>/api/cron/confirm-stale
+#   CRON_SECRET       : Vercel に設定したものと同じ値
+#
+# 注意: スケジュール実行は「デフォルトブランチ（main 等）」に置かれている時だけ動く。
+#       事前に supabase/proposal-confirm-notify.sql を実行しておくこと（confirm_notified_at 列が必要）。
+
+name: confirm-stale
+
+on:
+  schedule:
+    - cron: "0 23 * * *" # 毎日 23:00 UTC = JST 08:00。前日までの滞留を朝に通知。
+  workflow_dispatch: {}
+
+concurrency:
+  group: confirm-stale
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger confirm-stale endpoint
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.CONFIRM_STALE_URL }}")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "confirm-stale failed (HTTP $code)" >&2
+            exit 1
+          fi

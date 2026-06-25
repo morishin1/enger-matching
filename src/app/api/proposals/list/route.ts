@@ -33,17 +33,29 @@ export async function GET(req: Request) {
     // 案件/人材の number 紐づけ（履歴UIで /jobs/{job_no}, /people/{candidate_no} のリンクに使う）。
     const jobIds  = Array.from(new Set(all.map((p) => p.job_id).filter(Boolean)));
     const candIds = Array.from(new Set(all.map((p) => p.candidate_id).filter(Boolean)));
-    const [jn, cn] = await Promise.all([
-      jobIds.length  ? sb.from("jobs").select("id, job_no, is_closed").in("id", jobIds).limit(2000).then((r: any) => r.error ? [] : (r.data ?? [])) : Promise.resolve([]),
-      candIds.length ? sb.from("candidates").select("id, candidate_no, is_closed, source_company, company").in("id", candIds).limit(2000).then((r: any) => r.error ? [] : (r.data ?? [])) : Promise.resolve([]),
-    ]);
-    const mJ: Record<string, { job_no: number; closed: boolean }> = {};
-    for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, closed: !!j.is_closed };
-    const mC: Record<string, { candidate_no: number; closed: boolean; cand_company: string | null }> = {};
-    for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, closed: !!c.is_closed, cand_company: c.source_company ?? c.company ?? null };
+    // signup_source（LINE登録判定）も取得。未マイグレ環境では列無しでも落ちないようフォールバック。
+    const fetchJn = async () => {
+      if (!jobIds.length) return [];
+      let r: any = await sb.from("jobs").select("id, job_no, is_closed, signup_source").in("id", jobIds).limit(2000);
+      if (r.error) r = await sb.from("jobs").select("id, job_no, is_closed").in("id", jobIds).limit(2000);
+      return r.error ? [] : (r.data ?? []);
+    };
+    const fetchCn = async () => {
+      if (!candIds.length) return [];
+      let r: any = await sb.from("candidates").select("id, candidate_no, is_closed, source_company, company, signup_source").in("id", candIds).limit(2000);
+      if (r.error) r = await sb.from("candidates").select("id, candidate_no, is_closed, source_company, company").in("id", candIds).limit(2000);
+      return r.error ? [] : (r.data ?? []);
+    };
+    const [jn, cn] = await Promise.all([fetchJn(), fetchCn()]);
+    const mJ: Record<string, { job_no: number; closed: boolean; line: boolean }> = {};
+    for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
+    const mC: Record<string, { candidate_no: number; closed: boolean; cand_company: string | null; line: boolean }> = {};
+    for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, closed: !!c.is_closed, cand_company: c.source_company ?? c.company ?? null, line: String(c.signup_source ?? "") === "line" };
     for (const p of all) {
       if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_closed = mJ[p.job_id].closed; }
       if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_closed = mC[p.candidate_id].closed; p.cand_company = p.cand_company ?? mC[p.candidate_id].cand_company; }
+      // LINE経由（案件 or 人材のどちらかが LINE登録、または提案自体が source='line'）。
+      p.line_origin = String(p.source ?? "") === "line" || !!(p.job_id && mJ[p.job_id]?.line) || !!(p.candidate_id && mC[p.candidate_id]?.line);
       p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));
     }
 

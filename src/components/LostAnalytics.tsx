@@ -34,6 +34,9 @@ type HItem = {
   candidate_no?: number | null;
   // 登録元（"line" 等）。案件または人材が「LINE登録」のとき "line"。LINE経由グラフの集計に使う。
   source?: string | null;
+  // 案件 or 人材のどちらかが LINE登録（signup_source='line'）、または提案自体が source='line' のとき true。
+  //   ローダー（proposals/page.tsx・/api/proposals/list）で案件/人材を突合して付与する。
+  line_origin?: boolean;
 };
 
 const LOST_STAGES = new Set(["見送り", "失注"]);
@@ -331,12 +334,31 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
 
   const data = useMemo(() => analyze(filtered), [filtered]);
 
-  // LINE経由（案件 or 人材が「LINE登録」= proposals.source==='line'）の提案数・失注数。
-  //   提案数は進行中(activeRows)＋終了(history)の合算、失注数は終了系のうち見送り/失注。
+  // LINE経由（案件 or 人材のどちらかが「LINE登録」）の提案数・失注数。
+  //   集計ルール（要望）：
+  //   ・提案数 = ステータスが「提案」以降に到達した LINE経由案件（＝承認待ち/所属確認は除外）。
+  //       所属確認に戻された／削除された場合は対象外になるため自然に減算される（スナップショット集計）。
+  //       提案以降（確認中・面談・合格・見送り・失注・稼働）はどこにいても「提案済み」として1回だけ計上。
+  //   ・失注数 = 上記の提案済みのうち、見送り/失注になったもの（ステータス段階を問わず1加算）。
+  //   進行中(activeRows)＋終了(history)を id で重複排除して集計する。
   const lineStats = useMemo(() => {
-    const all = [...activeRows, ...history].filter((p) => inRange(p) && String(p.source ?? "") === "line");
-    const proposed = all.length;
-    const lost = all.filter((p) => LOST_STAGES.has(String(p.stage ?? ""))).length;
+    const NOT_PROPOSED = new Set(["承認待ち", "所属確認"]);
+    const seen = new Map<string, HItem>();
+    for (const p of [...activeRows, ...history]) {
+      if (!p?.id || seen.has(p.id)) continue;
+      seen.set(p.id, p);
+    }
+    let proposed = 0, lost = 0;
+    for (const p of seen.values()) {
+      if (!inRange(p)) continue;
+      const isLine = !!p.line_origin || String(p.source ?? "") === "line";
+      if (!isLine) continue;
+      const stage = String(p.stage ?? "").trim();
+      const reachedProposal = stage !== "" && !NOT_PROPOSED.has(stage);
+      if (!reachedProposal) continue;       // 提案前（承認待ち/所属確認）は加算しない
+      proposed++;
+      if (LOST_STAGES.has(stage)) lost++;    // 提案済みのうち見送り/失注
+    }
     return { proposed, lost };
   }, [activeRows, history, from, to]);
 
