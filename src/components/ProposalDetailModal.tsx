@@ -429,7 +429,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
 
           {/* 会社名・担当の保存（自動表示された値もそのまま保存できる） */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -8 }}>
-            <button type="button" className="btn ghost btn-sm" disabled={busy === "save"} onClick={saveFields} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button type="button" className="btn btn-sm" disabled={busy === "save"} onClick={saveFields} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
               {busy === "save" && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
               <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: "-3px" }}>save</span>
               会社名・担当を保存
@@ -753,8 +753,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 </>
               ) : (
                 <>
-                  <span style={{ fontSize: 11, opacity: 0.9, marginRight: 6 }}>ステータス</span>
-                  <b>{effStage}</b>
+                  {/* 現在のステータスを「現在のステータス（提案中）」形式で明示。矢印クリックで選択メニュー。 */}
+                  <b style={{ fontSize: 13 }}>現在のステータス（{effStage}）</b>
                   <span className="material-symbols-outlined" style={{ fontSize: 16, marginLeft: 4, verticalAlign: "-3px" }}>{stageMenuOpen ? "expand_more" : "expand_less"}</span>
                 </>
               )}
