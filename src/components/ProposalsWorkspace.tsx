@@ -14,6 +14,7 @@ import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
 import { KpiDashboardClient } from "./KpiDashboardClient";
+import { TeamActivityBoard } from "./TeamActivityBoard";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
 
@@ -62,12 +63,13 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
-  // KPI推移タブ用（KpiDashboardClient の props）／日報タブ用（MyDailyScorecard + ReportsClient）。
+  // KPI推移タブ用（KpiDashboardClient の props）／メンバー別アクティビティ／日報タブ用。
   kpiProps?: any;
+  teamActivity?: any;
   reportsView?: any;
   // history: 全件（進行中＋終了）。期間で絞り込みして ProposalHistory に渡す
   history: any[];
@@ -231,8 +233,15 @@ export function ProposalsWorkspace({
           「初回だけ極端に重い／開けば普通」の主因になっていた。見えていないタブは描画しない。 */}
       {tab === "kpi" && (
         kpiProps ? (
-          <div className="card flush" style={{ overflow: "hidden" }}>
-            <KpiDashboardClient {...kpiProps} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {teamActivity && (
+              <div className="card" style={{ padding: 14 }}>
+                <TeamActivityBoard {...teamActivity} />
+              </div>
+            )}
+            <div className="card flush" style={{ overflow: "hidden" }}>
+              <KpiDashboardClient {...kpiProps} />
+            </div>
           </div>
         ) : (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>

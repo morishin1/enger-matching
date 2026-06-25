@@ -5,13 +5,16 @@
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import {
   getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets,
-  jstStartOfWeek, cumulateMode, type PeriodType, type Metric,
+  jstStartOfWeek, cumulateMode, resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
 } from "@/lib/kpi";
+import { getTeamActivity } from "@/lib/team-activity";
+import { resolveActivityMembers } from "@/lib/activity-members";
+import { loadProposalOwners } from "@/lib/proposal-owners";
 import { canManageDept } from "@/lib/roles";
 
 const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
-export type KpiAccess = { email: string; name: string | null; role: string; teamRole: string | null };
+export type KpiAccess = { email: string; name: string | null; role: string; teamRole: string | null; department: string | null };
 export type KpiSearch = { period?: string; from?: string; to?: string; owner?: string };
 
 /** KpiDashboardClient にそのまま渡せる props を返す。DB 未設定時は null。 */
@@ -64,7 +67,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     });
     const viewerIsManager = canManageDept(access.teamRole);
 
-    return {
+    const kpi = {
       access: { email: access.email, name: access.name, role: access.role, isManager: viewerIsManager },
       target: { email: isTeam ? "__team__" : (targetEmail ?? ""), name: targetName },
       scope: (isTeam ? "team" : "person") as "team" | "person",
@@ -79,6 +82,36 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       historyTable,
       historyPeriodLabel: PERIOD_LABEL[historyType],
     };
+
+    // メンバー別アクティビティ（誰が何件・目標/実績/達成率）。/kpi と同じ算出。
+    let teamActivity: any = null;
+    try {
+      const activityMembers = await resolveActivityMembers(
+        { role: access.role, teamRole: access.teamRole, department: access.department },
+        { allowMember: true },
+      );
+      const actRange = resolveRange(period, new Date(), custom);
+      const activity = activityMembers.length > 0
+        ? await getTeamActivity({ start: actRange.start, end: actRange.end, members: activityMembers })
+        : [];
+      if (activity.length > 0) {
+        const teamWeeklyForBoard = await getWeeklyTargets({ ownerEmail: null, weekStart });
+        const teamTarget: Partial<Record<Metric, number>> = {};
+        for (const m of METRIC_ORDER) teamTarget[m] = scaleWeeklyTarget(teamWeeklyForBoard[m] ?? 0, "custom", actRange);
+        const proposalOwnersForBoard = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
+        teamActivity = {
+          rows: activity,
+          periodLabel: period === "day" ? "本日" : period === "month" ? "今月（月初からの累計）" : PERIOD_LABEL[period],
+          teamTarget,
+          teamWeeklyTarget: teamWeeklyForBoard as Partial<Record<Metric, number>>,
+          weekStart: weekStart.toISOString().slice(0, 10),
+          viewer: { role: access.role, teamRole: access.teamRole ?? null, isAdmin: access.role === "admin", isManager: viewerIsManager },
+          proposalOwners: proposalOwnersForBoard,
+        };
+      }
+    } catch { /* アクティビティ取得失敗時はKPIのみ表示 */ }
+
+    return { kpi, teamActivity };
   } catch {
     return null;
   }
