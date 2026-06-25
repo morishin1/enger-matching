@@ -21,8 +21,14 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const like = `%${safe}%`;
-      // 数値だけが入力された場合は job_no / candidate_no の完全一致も合わせて検索する
-      const asInt = /^\d+$/.test(safe) ? Number(safe) : null;
+      // 番号での直打ち検索。純数字に加え、接頭辞付き（人材 P-17013 / 案件 No.45509 / J-123 等）も拾う。
+      //   接頭辞 P… → 人材(candidate_no)、それ以外の接頭辞(No/J 等) → 案件(job_no)、
+      //   接頭辞なし(純数字) → 両方を検索（番号空間が異なるため誤ヒットは少ない）。
+      const idm = safe.match(/^([A-Za-z]{0,4})[\s\-#.．_]*(\d{1,9})$/);
+      const asInt = idm ? Number(idm[2]) : null;
+      const idPfx = (idm?.[1] ?? "").toUpperCase();
+      const idWantCand = asInt != null && (idPfx === "" || idPfx.startsWith("P"));
+      const idWantJob = asInt != null && (idPfx === "" || !idPfx.startsWith("P"));
       const orJob = [
         `title.ilike.${like}`,
         `client_name.ilike.${like}`,
@@ -53,8 +59,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       // ID/番号の直打ち（数値入力時）。重複は後段で uniq する
       if (asInt != null) {
         const [jr2, cr2] = await Promise.all([
-          sb.from("jobs").select(jobCols).eq("job_no", asInt).limit(5),
-          sb.from("candidates").select(candCols).eq("candidate_no", asInt).limit(5),
+          idWantJob ? sb.from("jobs").select(jobCols).eq("job_no", asInt).limit(5) : Promise.resolve({ data: [] } as any),
+          idWantCand ? sb.from("candidates").select(candCols).eq("candidate_no", asInt).limit(5) : Promise.resolve({ data: [] } as any),
         ]);
         const seenJ = new Set<number>((jr.data ?? []).map((j: any) => j.job_no));
         const seenC = new Set<number>((cr.data ?? []).map((c: any) => c.candidate_no));
