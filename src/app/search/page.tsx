@@ -98,13 +98,14 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div style={{ fontSize: 14, fontWeight: 700 }}>案件</div><span className="tag brand">{jobs.length}件</span>
           </div>
           {jobs.map((j) => (
-            <Link key={j.job_no} href={`/matching?job=${j.job_no}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
-              <div style={{ minWidth: 0 }}>
+            <div key={j.job_no} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
+              {/* 案件名クリックは詳細画面へ（マッチングはボタンから）。 */}
+              <Link href={`/jobs/${j.job_no}`} style={{ textDecoration: "none", color: "inherit", minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{j.job_no}</span>{j.title}{j.is_published === false && <span className="tag" style={{ fontSize: 9.5, marginLeft: 6 }}>非公開</span>}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{j.client_name ?? "—"} · {j.role_label ?? ""} · {remoteLabel(j.remote_type)} · {salaryLabel(j.salary_min, j.salary_max)}</div>
-              </div>
-              <span className="btn brand btn-xs"><Icons.matching /><span>マッチング</span></span>
-            </Link>
+              </Link>
+              <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+            </div>
           ))}
         </div>
       )}
