@@ -54,16 +54,13 @@ export async function upsertTimeEntry(input: {
   if (!isSelf && !isAdmin) return { ok: false, error: "他のメンバーのタイムカードを編集する権限がありません" };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.workDate)) return { ok: false, error: "日付の形式が不正です" };
 
-  // 既存行を取得（status と user_name/department のキャッシュ更新のため）
-  const existing: any = await admin.from("time_entries").select("id, status, user_name, department")
+  // 既存行を取得（status / shift_status と user_name/department のキャッシュ更新のため）
+  const existing: any = await admin.from("time_entries").select("id, status, shift_status, user_name, department")
     .eq("user_email", input.userEmail).eq("work_date", input.workDate).maybeSingle();
-  // submitted/approved の編集はマネージャー（自部署）/admin のみ。本人は open/rejected のみ編集可。
-  if (existing.data && !isAdmin) {
-    const s = existing.data.status as string;
-    if (s === "submitted" || s === "approved") {
-      return { ok: false, error: "申請中・承認済の打刻は編集できません（管理者に差し戻しを依頼してください）" };
-    }
-  }
+  // 予定（シフト）の編集制限：月締が申請中/承認済、またはシフトが申請中/承認済のときは本人ロック（admin のみ可）。
+  //   ※ 実績（出退勤・休憩・メモ・シフト外理由）は申請中/承認済でも本人が編集できる（要望対応）。
+  //     シフト承認後に実績を記録できないと運用できないため、実績は status に関わらず編集可とする。
+  const monthLocked = !isAdmin && (existing.data?.status === "submitted" || existing.data?.status === "approved");
 
   // department は app_users から引く（初回作成時のキャッシュ）。失敗してもエントリ作成は続行。
   let department: string | null = existing.data?.department ?? null;
@@ -82,10 +79,10 @@ export async function upsertTimeEntry(input: {
     work_date: input.workDate,
     updated_at: new Date().toISOString(),
   };
-  // シフト（予定）：申請中/承認済のときは本人は予定を変更できない（admin のみ）。
+  // シフト（予定）：申請中/承認済（シフト or 月締）のときは本人は予定を変更できない（admin のみ）。
   const shiftStatus = existing.data?.shift_status as string | null | undefined;
   const shiftLocked = !isAdmin && (shiftStatus === "submitted" || shiftStatus === "approved");
-  if (shiftLocked && (input.plannedStart !== undefined || input.plannedEnd !== undefined)) {
+  if ((shiftLocked || monthLocked) && (input.plannedStart !== undefined || input.plannedEnd !== undefined)) {
     return { ok: false, error: "申請中・承認済のシフト（予定）は本人では編集できません（管理者に差戻しを依頼してください）" };
   }
 
