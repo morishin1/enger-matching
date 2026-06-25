@@ -15,6 +15,7 @@ import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
 import { KpiDashboardClient } from "./KpiDashboardClient";
 import { TeamActivityBoard } from "./TeamActivityBoard";
+import { StageTargetBoard } from "./StageTargetBoard";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
 
@@ -63,13 +64,16 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, stageTargets, kgiByMember, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
   // KPI推移タブ用（KpiDashboardClient の props）／メンバー別アクティビティ／日報タブ用。
   kpiProps?: any;
   teamActivity?: any;
+  // ステージ別 担当者目標（{owner:{stage:target}}）と メンバー別KGI（稼働化目標）。
+  stageTargets?: Record<string, Record<string, number>>;
+  kgiByMember?: Record<string, { placementTarget: number | null }>;
   reportsView?: any;
   // history: 全件（進行中＋終了）。期間で絞り込みして ProposalHistory に渡す
   history: any[];
@@ -129,6 +133,25 @@ export function ProposalsWorkspace({
   const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period]);
   // LINE経由グラフ（失注分析内）の「提案数」算出用に、進行中の提案も期間で絞って渡す。
   const activeInPeriod = useMemo(() => proposals.filter(inPeriod), [proposals, period]);
+
+  // メンバー別 KPI達成率（メンバー別アクティビティの 実績合計 ÷ 目標合計）。
+  const kpiPctByMember = useMemo(() => {
+    const out: Record<string, number | null> = {};
+    for (const r of (teamActivity?.rows ?? []) as any[]) {
+      const nm = String(r?.name ?? "").trim();
+      if (!nm) continue;
+      out[nm] = r.targetTotal > 0 ? Math.round((r.total / r.targetTotal) * 100) : null;
+    }
+    return out;
+  }, [teamActivity]);
+
+  // ステージ目標ボードの対象メンバー：提案者 ∪ アクティビティ行の担当者（重複排除）。
+  const stageBoardMembers = useMemo(() => {
+    const set = new Set<string>();
+    for (const nm of proposers ?? []) { const v = String(nm ?? "").trim(); if (v) set.add(v); }
+    for (const r of (teamActivity?.rows ?? []) as any[]) { const v = String(r?.name ?? "").trim(); if (v) set.add(v); }
+    return Array.from(set);
+  }, [proposers, teamActivity]);
 
   const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length, report: reportsView?.replyUnread ?? 0 };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
@@ -239,6 +262,21 @@ export function ProposalsWorkspace({
                 <TeamActivityBoard {...teamActivity} />
               </div>
             )}
+            <div className="card" style={{ padding: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
+                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
+                <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>所属確認 → 提案中 → 確認中 → 面談 → 合格 の目標/現在/達成率</span>
+              </div>
+              <StageTargetBoard
+                proposals={proposals}
+                members={stageBoardMembers}
+                stageTargets={stageTargets ?? {}}
+                kgiByMember={kgiByMember ?? {}}
+                kpiPctByMember={kpiPctByMember}
+                canEdit={!!privileged}
+              />
+            </div>
             <div className="card flush" style={{ overflow: "hidden" }}>
               <KpiDashboardClient {...kpiProps} />
             </div>
