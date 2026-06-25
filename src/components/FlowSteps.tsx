@@ -21,6 +21,13 @@ const STEPS: Step[] = [
 ];
 
 export function FlowSteps({ current, sub }: { current: FlowStepKey; sub?: string }) {
+  // 「進め方（この順番で操作）」のステップバーは全ページで非表示にする（要望対応）。
+  //   各ページの呼び出しはそのまま残し、ここで非表示にして将来の復活を容易にしている。
+  //   復活する場合は下の return null を削除する。
+  void current; void sub;
+  return null;
+
+  // eslint-disable-next-line no-unreachable
   const currentIdx = STEPS.findIndex((s) => s.key === current);
   return (
     <nav aria-label="営業フロー" className="flow-steps"
