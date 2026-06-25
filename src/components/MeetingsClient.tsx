@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
-import { createMeeting, updateMeeting, deleteMeeting, setMeetingFollowDone } from "@/lib/actions";
+import { createMeeting, updateMeeting, deleteMeeting, setMeetingFollowDone, upsertMeetingCompany } from "@/lib/actions";
 import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_OWNERS, MEETING_COMPETITORS, MEETING_TAGS, MEETING_HITS, MEETING_MISSES, MEETING_NEEDS, MEETING_NEXT_ACTIONS } from "@/lib/proposal-constants";
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -69,9 +69,16 @@ function SegButtons({ options, value, onChange }: { options: string[]; value: st
   );
 }
 
-function MeetingForm({ companies, onDone, initial, editId, onDeleted }: { companies: string[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
+// 企業名の正規化（類似企業検出・窓口担当者プリフィルの突合用）。法人格・記号・空白を除去。
+const normCo = (s: string) => String(s ?? "").toLowerCase()
+  .replace(/株式会社|（株）|\(株\)|有限会社|（有）|\(有\)|合同会社|合資会社/g, "")
+  .replace(/[\s　・，,.。\-―ー_]/g, "").trim();
+
+function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDeleted }: { companies: string[]; companyDir?: { name: string; contact_name: string | null }[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
   const router = useRouter();
   const [f, setF] = useState({ ...empty, ...(initial ?? {}) });
+  // 窓口担当者を手入力で変えたら、企業切替時の自動プリフィルで上書きしない。
+  const [contactTouched, setContactTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
@@ -81,6 +88,37 @@ function MeetingForm({ companies, onDone, initial, editId, onDeleted }: { compan
   const [aiDone, setAiDone] = useState(false);
   const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
   const toggle = (k: "competitors" | "tags", v: string) => setF((p) => ({ ...p, [k]: p[k].includes(v) ? p[k].filter((x) => x !== v) : [...p[k], v] }));
+
+  // 企業マスタ（正規化名→企業）。窓口担当者プリフィル・類似検出に使う。
+  const dirByNorm = useMemo(() => {
+    const m = new Map<string, { name: string; contact_name: string | null }>();
+    for (const c of companyDir) { const k = normCo(c.name); if (k && !m.has(k)) m.set(k, c); }
+    return m;
+  }, [companyDir]);
+
+  // 相手企業の入力に連動して窓口担当者を自動プリフィル（既存企業に記録があり、手入力していない場合のみ）。
+  const onCompanyName = (v: string) => {
+    setF((p) => {
+      const hit = dirByNorm.get(normCo(v));
+      const next: typeof p = { ...p, company_name: v };
+      if (hit && !contactTouched && !p.their_contact?.trim() && hit.contact_name) next.their_contact = hit.contact_name;
+      return next;
+    });
+  };
+
+  // 新規入力（既存に完全一致しない）かつ類似企業がある場合に注意喚起。保存はそのまま可能。
+  const isExistingCompany = dirByNorm.has(normCo(f.company_name));
+  const similarCompanies = useMemo(() => {
+    const n = normCo(f.company_name);
+    if (n.length < 2 || dirByNorm.has(n)) return [];
+    const out: string[] = [];
+    for (const c of companyDir) {
+      const k = normCo(c.name);
+      if (!k || k === n) continue;
+      if (k.includes(n) || n.includes(k)) out.push(c.name);
+    }
+    return Array.from(new Set(out)).slice(0, 5);
+  }, [f.company_name, companyDir, dirByNorm]);
 
   const analyze = async () => {
     if (!transcript.trim()) { setAiMsg("文字起こしを貼り付けてください"); return; }
@@ -117,6 +155,10 @@ function MeetingForm({ companies, onDone, initial, editId, onDeleted }: { compan
     if (!f.company_name.trim()) { setErr("相手企業を入力してください"); return; }
     setSaving(true); setErr(null);
     const res = editId ? await updateMeeting(editId, f) : await createMeeting(f);
+    if (res.ok) {
+      // 企業マスタへ反映：既存企業は窓口担当者を同期、新規企業は窓口担当者＋自社担当者で新規登録。
+      try { await upsertMeetingCompany({ name: f.company_name, contact_name: f.their_contact, our_owner: f.our_owner }); } catch { /* 企業反映失敗でも打合せ保存は成立 */ }
+    }
     setSaving(false);
     if (res.ok) { router.refresh(); onDone(); } else setErr(res.error || "保存に失敗しました");
   };
@@ -128,11 +170,21 @@ function MeetingForm({ companies, onDone, initial, editId, onDeleted }: { compan
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* 基本（最小） */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
-        <div><L>相手企業 *</L><input style={inp} list="company-list" value={f.company_name} onChange={(e) => set("company_name", e.target.value)} placeholder="企業名" /><datalist id="company-list">{companies.map((c) => <option key={c} value={c} />)}</datalist></div>
+        <div><L>相手企業 *</L><input style={inp} list="company-list" value={f.company_name} onChange={(e) => onCompanyName(e.target.value)} placeholder="企業名" /><datalist id="company-list">{companies.map((c) => <option key={c} value={c} />)}</datalist></div>
+        {/* 窓口担当者：企業マスタの contact_name を自動表示。入力すると保存時に企業マスタへ同期。 */}
+        <div><L>窓口担当者{isExistingCompany ? "（企業マスタと連携）" : ""}</L><input style={inp} value={f.their_contact} onChange={(e) => { setContactTouched(true); set("their_contact", e.target.value); }} placeholder="例：山田 様" /></div>
         <div><L>打ち合わせ日</L><input style={inp} type="date" value={f.meeting_date} onChange={(e) => set("meeting_date", e.target.value)} /></div>
         <div><L>時刻</L><input style={inp} type="time" value={(f as any).meeting_time ?? ""} onChange={(e) => set("meeting_time" as any, e.target.value)} /></div>
         <div><L>自社担当者</L><select style={inp} value={f.our_owner} onChange={(e) => set("our_owner", e.target.value)}><option value="">—</option>{MEETING_OWNERS.map((o) => <option key={o}>{o}</option>)}</select></div>
       </div>
+
+      {/* 類似企業の注意喚起（保存はそのまま可能）。新規入力で似た既存企業があるときだけ表示。 */}
+      {!isExistingCompany && similarCompanies.length > 0 && (
+        <div style={{ fontSize: 11.5, color: "#9a3412", background: "#fff7ed", border: "1px solid #f5b97f", borderRadius: 8, padding: "8px 11px", lineHeight: 1.6 }}>
+          ⚠ 似た企業が既に登録されています：{similarCompanies.map((c) => <button key={c} type="button" onClick={() => onCompanyName(c)} style={{ margin: "0 4px", padding: "1px 8px", borderRadius: 99, border: "1px solid #f5b97f", background: "#fff", color: "#9a3412", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>{c}</button>)}
+          <span className="muted" style={{ marginLeft: 4 }}>同じ企業ならクリックで選択。別企業ならそのまま新規登録できます。</span>
+        </div>
+      )}
 
       {/* タップで素早く入力（AI不使用） */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
@@ -172,7 +224,6 @@ function MeetingForm({ companies, onDone, initial, editId, onDeleted }: { compan
             <div><L>戦略的示唆</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.strategy} onChange={(e) => set("strategy", e.target.value)} /></div>
             <div><L>次回アクション(相手)</L><input style={inp} value={f.next_action_them} onChange={(e) => set("next_action_them", e.target.value)} /></div>
             <div><L>エンジャーへのFB</L><textarea style={{ ...inp, resize: "vertical" }} rows={2} value={f.enger_fb} onChange={(e) => set("enger_fb", e.target.value)} /></div>
-            <div><L>相手側担当者</L><input style={inp} value={f.their_contact} onChange={(e) => set("their_contact", e.target.value)} /></div>
             <div><L>競合言及の詳細</L><input style={inp} value={f.competitor_detail} onChange={(e) => set("competitor_detail", e.target.value)} /></div>
             <div><L>配信可否</L><select style={inp} value={f.publishable} onChange={(e) => set("publishable", e.target.value)}><option>配信可能</option><option>配信不可</option></select></div>
           </div>
@@ -295,7 +346,7 @@ function MonthCalendar({ meetings, interviews, onPick, onInterview, onPickDay }:
   );
 }
 
-export function MeetingsClient({ meetings, companies, interviews = [] }: { meetings: any[]; companies: string[]; interviews?: any[] }) {
+export function MeetingsClient({ meetings, companies, companyDir = [], interviews = [] }: { meetings: any[]; companies: string[]; companyDir?: { name: string; contact_name: string | null }[]; interviews?: any[] }) {
   const router = useRouter();
   const [show, setShow] = useState(false);
   const [formInitial, setFormInitial] = useState<Partial<typeof empty> | undefined>(undefined);
@@ -361,7 +412,7 @@ export function MeetingsClient({ meetings, companies, interviews = [] }: { meeti
         </div>
       </div>
 
-      {show && <MeetingForm key={editId ?? JSON.stringify(formInitial ?? {})} companies={companies} initial={formInitial} editId={editId} onDone={() => { setShow(false); setFormInitial(undefined); setEditId(null); }} onDeleted={() => { /* refresh after deletion handled in form */ }} />}
+      {show && <MeetingForm key={editId ?? JSON.stringify(formInitial ?? {})} companies={companies} companyDir={companyDir} initial={formInitial} editId={editId} onDone={() => { setShow(false); setFormInitial(undefined); setEditId(null); }} onDeleted={() => { /* refresh after deletion handled in form */ }} />}
 
       {view === "calendar" ? (
         <MonthCalendar meetings={filtered} interviews={interviews} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} onPickDay={(ds) => setDayDrawer(ds)} />
