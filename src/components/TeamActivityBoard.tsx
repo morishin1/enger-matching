@@ -107,7 +107,7 @@ export function TeamActivityBoard({
                 {METRIC_ORDER.map((m) => {
                   const on = sortKey === m; const tone = METRIC_LABELS[m].tone;
                   return (
-                    <th key={m} onClick={() => setSortKey(m)} title="クリックで並び替え（実績 / 目標）"
+                    <th key={m} onClick={() => setSortKey(m)} title="クリックで並び替え（上段=実績 / 下段=目標）"
                       style={{ ...th, fontWeight: on ? 800 : 700, color: on ? tone : "var(--color-ink-3)" }}>
                       {METRIC_LABELS[m].short}{on ? " ▾" : ""}
                     </th>
@@ -122,10 +122,13 @@ export function TeamActivityBoard({
                   {METRIC_ORDER.map((m) => {
                     const a = r.actual[m]; const t = r.target[m]; const tone = METRIC_LABELS[m].tone;
                     const hit = t > 0 && a >= t;
+                    // 2段表示：上段=実績（大きく太字。達成時は緑、未達は通常色）／下段=目標（小さく薄いグレー）。
                     return (
-                      <td key={m} style={{ padding: "8px 10px", textAlign: "right" }}>
-                        <span className="mono" style={{ fontWeight: a > 0 ? 700 : 400, color: hit ? "#067647" : a > 0 ? tone : "var(--color-ink-4)" }}>{a || "·"}</span>
-                        {t > 0 && <span className="mono" style={{ color: "var(--color-ink-4)", fontSize: 10.5 }}> /{t}</span>}
+                      <td key={m} style={{ padding: "6px 10px", textAlign: "right", verticalAlign: "middle" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.15 }}>
+                          <span className="mono" style={{ fontSize: 15, fontWeight: 800, color: hit ? "#067647" : a > 0 ? tone : "var(--color-ink-4)" }}>{a || "·"}</span>
+                          {t > 0 && <span className="mono" style={{ color: "var(--color-ink-4)", fontSize: 10, fontWeight: 500 }}>目標 {t}</span>}
+                        </div>
                       </td>
                     );
                   })}
@@ -165,7 +168,7 @@ export function TeamActivityBoard({
         </div>
       )}
       <div className="muted" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.6 }}>
-        ※ 各セルは「実績 / 目標」。提案=新規提案（提案者）。コンタクト/調整中/日程確定/成約は<b>CL担当</b>に加算（架電・通知・面談・合格に連動）。
+        ※ 各セルは上段=実績（達成時は<b style={{ color: "#067647" }}>緑</b>）／下段=目標。提案=新規提案（提案者）。コンタクト/調整中/日程確定/成約は<b>CL担当</b>に加算（架電・通知・面談・合格に連動）。
         目標は各メンバーの週次目標を期間に按分。<b>達成率＝チーム合計実績 ÷ チーム目標 × 100</b>。
       </div>
 

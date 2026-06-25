@@ -1,6 +1,4 @@
 import { ProposalsWorkspace } from "@/components/ProposalsWorkspace";
-import { NewProposalButton } from "@/components/NewProposalButton";
-import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -212,17 +210,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div style={{ maxWidth: 760 }}>
-          <div className="meta">Proposals · 提案管理</div>
-          <h1>提案管理</h1>
-          <div className="sub"><b>所属確認 → 提案中 → 面談 → 合格</b> の4ステップで管理します。①情報が届いたら案件先「まだ募集中？」・人材先「まだ営業できる？」を<b>所属確認</b>→②両方OKで<b>提案</b>（LINE/メール等の社外連絡もメモにコピペ）→③双方マッチで<b>面談</b>→④<b>合格</b>の「稼働化」で稼働管理へ。提案は2人1組（提案者＋パートナー）で進めます。</div>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
-          <NextStepLink href="/progress" label="稼働管理を見る" hint="面談合格→稼働化したエンゲージメントへ" />
-          <NewProposalButton />
-        </div>
-      </div>
+      {/* 画面スッキリ化のため、最上部のタイトル・説明文と「稼働管理を見る／＋新規追加」ボタンは非表示（要望対応）。 */}
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
