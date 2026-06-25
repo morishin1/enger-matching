@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { sendChatMessage, markThreadRead, setThreadStatus } from "@/app/chat/actions";
+import { sendChatMessage, markThreadRead, setThreadStatus, saveThreadMemo } from "@/app/chat/actions";
 import type { ChatThreadListItem, ChatThread, ChatMessage, ChatRead, ChatRole } from "@/lib/chat";
 
 const dt = (d: string) => {
@@ -31,6 +31,19 @@ export function ChatClient({
   const [draft, setDraft] = useState("");
   const [sendAs, setSendAs] = useState<ChatRole>("agent");
   const endRef = useRef<HTMLDivElement>(null);
+  // スレッドごとのメモ（左一覧で手入力・保存）。初期値は各スレッドの memo。
+  const [memos, setMemos] = useState<Record<string, string>>(() => Object.fromEntries(threads.map((t) => [t.id, t.memo ?? ""])));
+  const [memoSavedId, setMemoSavedId] = useState<string | null>(null);
+  const saveMemo = (id: string) => {
+    start(async () => {
+      const r = await saveThreadMemo({ thread_id: id, memo: memos[id] ?? "" });
+      if (r.ok) { setMemoSavedId(id); setTimeout(() => setMemoSavedId((v) => (v === id ? null : v)), 1500); router.refresh(); }
+      else alert(r.error ?? "メモの保存に失敗しました");
+    });
+  };
+  // 表示名（姓名＋イニシャル）。
+  const nameWithInitials = (name: string | null, initials: string | null) =>
+    name ? (initials ? `${name}（${initials}）` : name) : "（人材）";
 
   const threadId = selected?.thread.id ?? null;
 
@@ -91,40 +104,39 @@ export function ChatClient({
         {threads.map((t) => {
           const active = t.id === threadId;
           return (
-            <button
+            <div
               key={t.id}
-              onClick={() => open(t.id)}
               className="card"
               style={{
-                textAlign: "left",
-                cursor: "pointer",
                 borderColor: active ? "var(--color-brand-400)" : undefined,
                 background: active ? "var(--color-brand-25)" : undefined,
                 padding: "10px 12px",
                 display: "flex",
                 flexDirection: "column",
-                gap: 4,
+                gap: 6,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-                <b style={{ fontSize: 13 }}>{t.engineer_name || "（人材）"}</b>
+              {/* 人材名（姓名＋イニシャル）。クリックでスレッドを開く。 */}
+              <button type="button" onClick={() => open(t.id)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, background: "transparent", border: 0, padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+                <b style={{ fontSize: 13, color: "var(--color-ink)" }}>{nameWithInitials(t.engineer_name, t.engineer_initials)}</b>
                 {t.unread > 0 && (
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: "var(--color-brand-600)", borderRadius: 99, padding: "1px 7px" }}>{t.unread}</span>
                 )}
+              </button>
+              {/* メモ（手入力・保存）。企業名/メッセージ抜粋/終了表示は廃止。 */}
+              <textarea
+                value={memos[t.id] ?? ""}
+                onChange={(e) => setMemos((p) => ({ ...p, [t.id]: e.target.value }))}
+                placeholder="メモ（この人材についての覚書）"
+                rows={2}
+                style={{ resize: "vertical", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--color-border)", fontSize: 11.5, fontFamily: "inherit", width: "100%", boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button type="button" className="btn ghost btn-xs" disabled={pending} onClick={() => saveMemo(t.id)}>メモを保存</button>
+                {memoSavedId === t.id && <span style={{ fontSize: 10.5, color: "#067647" }}>✓ 保存しました</span>}
               </div>
-              <div className="muted" style={{ fontSize: 11.5 }}>
-                {t.company || "企業未設定"}{t.job_title ? ` ・ ${t.job_title}` : ""}
-              </div>
-              {t.last_body && (
-                <div style={{ fontSize: 11.5, color: "var(--color-ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {t.last_role ? `${ROLE_LABEL[t.last_role]}: ` : ""}{t.last_body}
-                </div>
-              )}
-              <div className="muted mono" style={{ fontSize: 10, display: "flex", justifyContent: "space-between" }}>
-                <span>{t.status === "closed" ? "終了" : "進行中"}</span>
-                <span>{dt(t.last_message_at)}</span>
-              </div>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -135,11 +147,12 @@ export function ChatClient({
           {/* ヘッダ */}
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.thread.engineer_name || "（人材）"} <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>× {selected.thread.company || "企業未設定"}</span></div>
-              <div className="muted" style={{ fontSize: 11.5 }}>
-                担当 {selected.thread.agent || "—"}{selected.thread.job_title ? ` ・ 案件 ${selected.thread.job_title}` : ""}
-                {selected.thread.job_no ? ` (No.${String(selected.thread.job_no).padStart(5, "0")})` : ""}
-              </div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{nameWithInitials(selected.thread.engineer_name, selected.thread.engineer_initials)}</div>
+              {selected.thread.job_title && (
+                <div className="muted" style={{ fontSize: 11.5 }}>
+                  案件 {selected.thread.job_title}{selected.thread.job_no ? ` (No.${String(selected.thread.job_no).padStart(5, "0")})` : ""}
+                </div>
+              )}
             </div>
             <button className="btn ghost btn-xs" disabled={pending} onClick={toggleStatus}>
               {selected.thread.status === "closed" ? "再開する" : "スレッドを終了"}

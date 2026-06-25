@@ -1,4 +1,4 @@
-import { engerClient, dbConfigured } from "@/lib/supabase";
+import { engerClient, publicAdmin, dbConfigured } from "@/lib/supabase";
 
 export type ChatRole = "company" | "freelance" | "agent";
 
@@ -7,6 +7,7 @@ export type ChatThread = {
   scout_id: string | null;
   engineer_id: string;
   engineer_name: string | null;
+  engineer_initials: string | null; // 表示用イニシャル（姓名から導出）
   company: string | null;
   company_email: string | null;
   agent: string | null;
@@ -14,9 +15,47 @@ export type ChatThread = {
   job_title: string | null;
   subject: string | null;
   status: string;
+  memo: string | null;            // 担当者の手入力メモ
   last_message_at: string;
   created_at: string;
 };
+
+// 姓名からイニシャルを作る（例「藤本 太郎」→「藤本」「Taro Yamada」→「T.Y」）。
+function initialsOf(name: string | null | undefined): string | null {
+  const s = String(name ?? "").trim();
+  if (!s) return null;
+  // 英字名は各単語の頭文字。日本語名は姓（最初の空白前 or 先頭2文字）。
+  if (/^[A-Za-z][A-Za-z.\s'-]*$/.test(s)) {
+    const parts = s.split(/\s+/).filter(Boolean);
+    return parts.map((p) => p[0]?.toUpperCase()).filter(Boolean).join(".") || null;
+  }
+  const head = s.split(/\s+|　/)[0] ?? s;
+  return head.slice(0, 4);
+}
+
+/** engineer_id（profiles.id か email）から ENGERフリーランスの姓名を解決して Map で返す。 */
+async function resolveEngineerNames(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const uniq = Array.from(new Set(ids.filter(Boolean)));
+  if (uniq.length === 0) return out;
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return out; }
+  const uuidLike = uniq.filter((v) => /^[0-9a-f-]{32,36}$/i.test(v));
+  const emailLike = uniq.filter((v) => v.includes("@"));
+  try {
+    if (uuidLike.length) {
+      const r: any = await pub.from("profiles").select("id, display_name, name").in("id", uuidLike);
+      for (const p of (r.data ?? []) as any[]) { const nm = (p.display_name || p.name || "").trim(); if (p.id && nm) out.set(String(p.id), nm); }
+    }
+  } catch { /* noop */ }
+  try {
+    if (emailLike.length) {
+      const r: any = await pub.from("profiles").select("email, display_name, name").in("email", emailLike);
+      for (const p of (r.data ?? []) as any[]) { const nm = (p.display_name || p.name || "").trim(); if (p.email && nm) out.set(String(p.email), nm); }
+    }
+  } catch { /* noop */ }
+  return out;
+}
 
 export type ChatMessage = {
   id: string;
@@ -36,7 +75,7 @@ export type ChatRead = {
 };
 
 const THREAD_COLS =
-  "id, scout_id, engineer_id, engineer_name, company, company_email, agent, job_no, job_title, subject, status, last_message_at, created_at";
+  "id, scout_id, engineer_id, engineer_name, company, company_email, agent, job_no, job_title, subject, status, memo, last_message_at, created_at";
 const MSG_COLS = "id, thread_id, sender_role, sender_id, sender_name, body, created_at";
 
 /** 一覧用：スレッド＋最新メッセージのプレビュー＋（自分=agent から見た）未読件数。 */
@@ -55,13 +94,15 @@ export async function listChatThreads(agentId?: string | null): Promise<ChatThre
   if (!dbConfigured) return [];
   try {
     const sb = engerClient();
-    const { data: threads, error } = await sb
-      .from("chat_threads")
-      .select(THREAD_COLS)
-      .order("last_message_at", { ascending: false })
-      .limit(300);
-    if (error || !threads?.length) return [];
+    let tr: any = await sb.from("chat_threads").select(THREAD_COLS).order("last_message_at", { ascending: false }).limit(300);
+    if (tr.error && /memo|column/i.test(tr.error.message ?? "")) {
+      tr = await sb.from("chat_threads").select(THREAD_COLS.replace(", memo", "")).order("last_message_at", { ascending: false }).limit(300);
+    }
+    const threads = tr.data as any[] | null;
+    if (tr.error || !threads?.length) return [];
     const ids = threads.map((t: any) => t.id);
+    // ENGERフリーランスの姓名を解決（スナップショットが空でも表示できるように）。
+    const nameMap = await resolveEngineerNames(threads.map((t: any) => String(t.engineer_id ?? "")));
 
     // 対象スレッドのメッセージをまとめて取得し、JS で最新＆未読を集計する。
     const { data: msgs } = await sb
@@ -93,13 +134,19 @@ export async function listChatThreads(agentId?: string | null): Promise<ChatThre
       }
     }
 
-    return (threads as any[]).map((t) => ({
-      ...t,
-      last_body: last.get(t.id)?.body ?? null,
-      last_role: (last.get(t.id)?.sender_role ?? null) as ChatRole | null,
-      message_count: count.get(t.id) ?? 0,
-      unread: unread.get(t.id) ?? 0,
-    }));
+    return (threads as any[]).map((t) => {
+      const name = (t.engineer_name && String(t.engineer_name).trim()) || nameMap.get(String(t.engineer_id ?? "")) || null;
+      return {
+        ...t,
+        engineer_name: name,
+        engineer_initials: initialsOf(name),
+        memo: t.memo ?? null,
+        last_body: last.get(t.id)?.body ?? null,
+        last_role: (last.get(t.id)?.sender_role ?? null) as ChatRole | null,
+        message_count: count.get(t.id) ?? 0,
+        unread: unread.get(t.id) ?? 0,
+      };
+    });
   } catch {
     return [];
   }
@@ -112,14 +159,20 @@ export async function getChatThread(
   if (!dbConfigured) return null;
   try {
     const sb = engerClient();
-    const { data: thread, error } = await sb.from("chat_threads").select(THREAD_COLS).eq("id", id).maybeSingle();
-    if (error || !thread) return null;
+    let tr: any = await sb.from("chat_threads").select(THREAD_COLS).eq("id", id).maybeSingle();
+    if (tr.error && /memo|column/i.test(tr.error.message ?? "")) {
+      tr = await sb.from("chat_threads").select(THREAD_COLS.replace(", memo", "")).eq("id", id).maybeSingle();
+    }
+    const thread = tr.data;
+    if (tr.error || !thread) return null;
     const [{ data: messages }, { data: reads }] = await Promise.all([
       sb.from("chat_messages").select(MSG_COLS).eq("thread_id", id).order("created_at", { ascending: true }).limit(2000),
       sb.from("chat_reads").select("thread_id, participant_role, participant_id, last_read_at").eq("thread_id", id),
     ]);
+    const nameMap = await resolveEngineerNames([String(thread.engineer_id ?? "")]);
+    const name = (thread.engineer_name && String(thread.engineer_name).trim()) || nameMap.get(String(thread.engineer_id ?? "")) || null;
     return {
-      thread: thread as ChatThread,
+      thread: { ...thread, engineer_name: name, engineer_initials: initialsOf(name), memo: thread.memo ?? null } as ChatThread,
       messages: (messages ?? []) as ChatMessage[],
       reads: (reads ?? []) as ChatRead[],
     };
