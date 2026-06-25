@@ -303,7 +303,9 @@ export function MailComposeWizard({
         setCandForm((prev) => ({
           email:   typeof c.to === "string" && c.to ? c.to : prev.email,
           cc:      typeof c.cc === "string" ? c.cc : prev.cc,
-          subject: typeof c.subject === "string" && c.subject ? c.subject : prev.subject,
+          // 旧下書きに保存された固定件名(LEGACY)は無視し、算出済みの実件名（Re: <元件名>）を維持する。
+          //   保存値で上書きすると、確認画面のプレビュー件名が実送信(Re:)と食い違う原因になる。
+          subject: typeof c.subject === "string" && c.subject && c.subject.trim() !== LEGACY_CAND_SUBJECT ? c.subject : prev.subject,
           body:    typeof c.body === "string" && c.body ? c.body : prev.body,
         }));
       } catch { /* fail-soft：取れなければ定型文のまま */ }
