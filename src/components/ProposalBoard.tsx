@@ -141,6 +141,8 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         padding: compact ? 8 : 12,
         opacity: busy ? 0.5 : isDragging ? 0.35 : 1,
         borderLeft: `4px solid ${edgeColor}`,
+        // LINE 経由の提案は一目で分かるよう、カード全体を淡い緑で塗る（左枠の緑＋背景）。
+        background: p.source === "line" ? "#eafaf0" : undefined,
         // 滞留が警告/危険な場合は右端にもアクセント
         boxShadow: at.level === "danger" ? `inset -3px 0 0 ${at.fg}` : at.level === "warn" ? `inset -3px 0 0 ${at.fg}` : "none",
         cursor: busy ? "default" : "pointer",
