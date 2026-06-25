@@ -533,8 +533,8 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
       const res = await upsertTimeEntry({
         userEmail: entry?.user_email || meEmail,
         workDate,
-        plannedStart: plannedLocked ? undefined : toIso(workDate, ps),
-        plannedEnd:   plannedLocked ? undefined : toIso(workDate, pe),
+        plannedStart: (plannedLocked || locked) ? undefined : toIso(workDate, ps),
+        plannedEnd:   (plannedLocked || locked) ? undefined : toIso(workDate, pe),
         actualStart: toIso(workDate, as), actualEnd: toIso(workDate, ae),
         breakMinutes: Number(brk) || 0, note,
         deviationReason: devReason,
@@ -561,17 +561,17 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
             {entry.shift_reject_reason && <span style={{ fontSize: 11.5, color: "#b42318" }}>シフト差戻し：{entry.shift_reject_reason}</span>}
           </div>
         )}
-        {locked && <div className="muted" style={{ fontSize: 11.5 }}>※ 勤怠が申請中・承認済のため編集できません（管理者に差し戻しを依頼してください）。</div>}
+        {locked && <div className="muted" style={{ fontSize: 11.5 }}>※ 勤怠が申請中・承認済のため<b>予定（シフト）</b>は変更できません（管理者に差し戻しを依頼してください）。<b>実績</b>は編集できます。</div>}
 
-        <fieldset disabled={locked || pending} style={{ border: 0, padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
             <div className="meta" style={{ fontSize: 11, marginBottom: 4, color: "#0b5cab" }}>
-              働く予定（シフト）{plannedLocked && <span style={{ marginLeft: 6, color: "#9a7b12" }}>🔒 {shiftStatus === "approved" ? "承認済のため変更不可" : "申請中のため変更不可"}</span>}
+              働く予定（シフト）{(plannedLocked || locked) && <span style={{ marginLeft: 6, color: "#9a7b12" }}>🔒 {locked ? "勤怠申請中/承認済のため変更不可" : shiftStatus === "approved" ? "承認済のため変更不可" : "申請中のため変更不可"}</span>}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <HmSelect value={ps} onChange={setPs} disabled={plannedLocked} />
+              <HmSelect value={ps} onChange={setPs} disabled={plannedLocked || locked} />
               <span>〜</span>
-              <HmSelect value={pe} onChange={setPe} disabled={plannedLocked} />
+              <HmSelect value={pe} onChange={setPe} disabled={plannedLocked || locked} />
             </div>
           </div>
           <div>
@@ -604,7 +604,7 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
         {err && <div style={{ fontSize: 12.5, color: "var(--color-danger)" }}>{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button className="btn ghost" onClick={onClose} disabled={pending}>キャンセル</button>
-          <button className="btn brand" onClick={save} disabled={pending || locked}>{pending ? "保存中…" : "保存"}</button>
+          <button className="btn brand" onClick={save} disabled={pending}>{pending ? "保存中…" : "保存"}</button>
         </div>
       </div>
     </div>
