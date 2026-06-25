@@ -13,6 +13,9 @@ import { ProposalBoardSwitcher } from "./ProposalBoardSwitcher";
 import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
+import { KpiDashboardClient } from "./KpiDashboardClient";
+import { MyDailyScorecard } from "./MyDailyScorecard";
+import { ReportsClient } from "./ReportsClient";
 
 type Period = "today" | "week" | "lastweek" | "month" | "thirty" | "all";
 
@@ -50,7 +53,7 @@ function inRangeMs(t: number, p: Period): boolean {
   return !!t && t >= startMs(p) && t < endMs(p);
 }
 
-type TabKey = "approval" | "board" | "history" | "lost";
+type TabKey = "kpi" | "approval" | "board" | "history" | "lost" | "report";
 
 /** 承認フォルダ対象：承認待ち（pending）または差戻し（rejected）の提案。 */
 function isAwaitingApproval(p: any): boolean {
@@ -59,10 +62,13 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
+  // KPI推移タブ用（KpiDashboardClient の props）／日報タブ用（MyDailyScorecard + ReportsClient）。
+  kpiProps?: any;
+  reportsView?: any;
   // history: 全件（進行中＋終了）。期間で絞り込みして ProposalHistory に渡す
   history: any[];
   // analyticsRows: 終了系（見送り/失注/稼働/稼働決定）。LostAnalytics 用
@@ -78,7 +84,8 @@ export function ProposalsWorkspace({
   // 承認待ちが1件でもあれば最初から「承認」タブを開く（承認漏れを防ぐ）。
   const approvalRows = useMemo(() => proposals.filter(isAwaitingApproval), [proposals]);
   const [period, setPeriod] = useState<Period>("week");
-  const [tab, setTab] = useState<TabKey>(approvalRows.length > 0 ? "approval" : "board");
+  // 既定は「KPI推移」タブ（KPI/KGI→提案→結果→日報 の流れの起点）。
+  const [tab, setTab] = useState<TabKey>("kpi");
 
   // 履歴・失注は「タブを開いた時」に /api/proposals/list で取得する（遅延ロード）。
   //   従来は親 props で初期描画時にブラウザへ大量転送（履歴326+失注258件＋全列）していたが、
@@ -121,16 +128,18 @@ export function ProposalsWorkspace({
   // LINE経由グラフ（失注分析内）の「提案数」算出用に、進行中の提案も期間で絞って渡す。
   const activeInPeriod = useMemo(() => proposals.filter(inPeriod), [proposals, period]);
 
-  const counts: Record<TabKey, number> = { approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length };
+  const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length, report: reportsView?.replyUnread ?? 0 };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
   //   行を二重に転送していたため。終了した提案は「失注分析」タブで見られる（mode=analytics）。
   //   ※ コンポーネント(ProposalHistory)は残してあるので、必要なら show: true に戻せば復活可能。
   const tabsDef: { key: TabKey; label: string; icon: string; show: boolean; title?: string }[] = [
+    { key: "kpi",      label: "KPI推移",    icon: "insights",    show: true, title: "自分／チームの KPI・KGI 推移。ここを起点に、提案 → 結果（失注分析）→ 改善（日報）の流れで振り返ります。" },
     { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（承認依頼が無くても常に表示・期間フィルタ対象外）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
     { key: "history", label: "提案履歴",   icon: "history",     show: false, title: "提案履歴。期間フィルタで絞り込み。" },
     // 失注分析タブは件数 0 でも常に表示する（運用上、確認できる場所を固定したいため）。
     { key: "lost",    label: "失注分析",   icon: "monitoring",  show: true, title: "見送り/失注の分析。期間フィルタで絞り込み。0件のときも表示。" },
+    { key: "report",  label: "日報",       icon: "edit_note",   show: true, title: "KPI/失注を踏まえた気づき・改善策を日報に記録します。" },
   ];
 
   const PeriodChip = ({ p }: { p: Period }) => {
@@ -158,7 +167,8 @@ export function ProposalsWorkspace({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* 期間フィルター（上部固定。下の件数・カンバン・履歴・失注すべてに反映） */}
+      {/* 期間フィルター（提案ボード・失注分析にのみ作用。KPI推移/承認/日報では非表示）。 */}
+      {(tab === "board" || tab === "lost") && (
       <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", flexWrap: "wrap" }}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 800 }}>
           <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>filter_alt</span>
@@ -176,6 +186,7 @@ export function ProposalsWorkspace({
           {lostRows.length > 0 && <> ・失注 <b>{lostRows.length}</b>件</>}
         </span>
       </div>
+      )}
 
       {/* 承認待ちの常時バナー：承認タブ以外を見ているときに承認漏れを防ぐため上部に表示。 */}
       {approvalRows.length > 0 && tab !== "approval" && (
@@ -218,6 +229,17 @@ export function ProposalsWorkspace({
           以前は全タブを display:none で隠しつつ全部レンダリングしていたため、初回に
           履歴(数百件)・失注(数百件)のカードまでサーバーSSR＋ブラウザでハイドレートしており、
           「初回だけ極端に重い／開けば普通」の主因になっていた。見えていないタブは描画しない。 */}
+      {tab === "kpi" && (
+        kpiProps ? (
+          <div className="card flush" style={{ overflow: "hidden" }}>
+            <KpiDashboardClient {...kpiProps} />
+          </div>
+        ) : (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+            KPI を表示できません（ログイン情報またはDB設定をご確認ください）。
+          </div>
+        )
+      )}
       {tab === "approval" && (
         <ApprovalQueue rows={approvalRows} currentUserName={currentUserName} privileged={privileged} />
       )}
@@ -251,6 +273,18 @@ export function ProposalsWorkspace({
           </div>
         ) : (
           <LostAnalytics history={lostRows} activeRows={activeInPeriod} />
+        )
+      )}
+      {tab === "report" && (
+        reportsView ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {reportsView.scorecard && <MyDailyScorecard s={reportsView.scorecard} />}
+            <ReportsClient {...reportsView.reportsClient} />
+          </div>
+        ) : (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+            日報を表示できません（ログイン情報をご確認ください）。
+          </div>
         )
       )}
     </div>
