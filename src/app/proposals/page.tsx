@@ -9,10 +9,13 @@ import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { Collapsible } from "@/components/Collapsible";
+import { loadKpiClientProps } from "@/lib/kpi-embed";
+import { loadReportsView } from "@/lib/reports-embed";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProposalsPage() {
+export default async function ProposalsPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; owner?: string }> }) {
+  const sp = await searchParams;
   let proposals: any[] = [];
   let dbError: string | null = null;
   let needSetup = false;
@@ -20,6 +23,11 @@ export default async function ProposalsPage() {
   let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
 
   const [staff, proposalOwners, access] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess()]);
+  // KPI推移タブ・日報タブの埋め込みデータ（/kpi・/reports と同等の集計を再利用）。
+  const [kpiProps, reportsView] = await Promise.all([
+    loadKpiClientProps({ email: access?.email ?? "", name: access?.name ?? null, role: access?.role ?? "", teamRole: access?.teamRole ?? null }, sp),
+    loadReportsView(access ? { email: access.email, name: access.name, role: access.role, rawRole: access.rawRole, teamRole: access.teamRole, department: access.department } : null),
+  ]);
   // 担当者（提案者・クロージング）の名前を追加/削除できるのは管理者のみ
   //   （保存 saveProposalOwners が admin 限定のため、表示もそれに合わせる）。
   //   設定画面だけでなく、この提案管理画面からも編集できるようにする（運用導線の集約）。
@@ -239,6 +247,8 @@ export default async function ProposalsPage() {
             members={staff.members}
             currentUserName={currentUserName}
             privileged={canApprove}
+            kpiProps={kpiProps}
+            reportsView={reportsView}
             // 編集UI（ProposalOwnersEditor）と提案詳細の割当ドロップダウンで
             // 選択肢が食い違わないよう、同じ ownersInitial（未保存時は members に統一）を渡す。
             proposers={ownersInitial.proposers}
