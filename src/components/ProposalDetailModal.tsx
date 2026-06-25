@@ -129,7 +129,10 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const proposerOpts = (proposers && proposers.length > 0) ? proposers : PROPOSERS;
   const closerOpts = (closers && closers.length > 0) ? closers : CLOSERS;
   const router = useRouter();
-  const [pending, start] = useTransition();
+  const [, start] = useTransition();
+  // どの操作が実行中か（null=なし）。ボタンごとに独立してスピナー/無効化するために使う
+  //   （以前は共通の pending で全ボタンが一斉にくるくるしていた）。
+  const [busy, setBusy] = useState<string | null>(null);
   const [caller, setCaller] = useState(p.caller_status ?? "");
   const [proposer, setProposer] = useState(p.proposer ?? "");
   // パートナー機能は廃止（互換のため保存は null で上書き）。
@@ -243,17 +246,20 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     if (contactChannel === "その他" && !contactChannelOther.trim()) { setContactErr("「その他」の手段を入力してください"); return; }
     const prefix = formatContactPrefix(contactChannel, contactChannelOther || null, at);
     const body = `${prefix}${contactBody.trim() ? " " + contactBody.trim() : ""}`;
+    setBusy("contact");
     start(async () => {
-      const r = await addProposalMemo(p.id, "連絡記録", body);
-      if (!r.ok) { setContactErr(r.error || "保存に失敗しました"); return; }
-      setContactChannel("電話"); setContactChannelOther(""); setContactAt(""); setContactBody("");
-      loadMemos();
+      try {
+        const r = await addProposalMemo(p.id, "連絡記録", body);
+        if (!r.ok) { setContactErr(r.error || "保存に失敗しました"); return; }
+        setContactChannel("電話"); setContactChannelOther(""); setContactAt(""); setContactBody("");
+        loadMemos();
+      } finally { setBusy(null); }
     });
   };
   const contactMemos = memos.filter((m) => m.category === "連絡記録");
 
-  const run = (fn: () => Promise<any>) => start(async () => { await fn(); router.refresh(); });
-  const moveTo = (stage: string) => { if (stage !== effStage) { setEffStage(stage); run(() => updateProposalStage(p.id, stage)); } };
+  const run = (key: string, fn: () => Promise<any>) => { setBusy(key); start(async () => { try { await fn(); router.refresh(); } finally { setBusy(null); } }); };
+  const moveTo = (stage: string) => { if (stage !== effStage) { setEffStage(stage); run("stage", () => updateProposalStage(p.id, stage)); } };
   // 案件情報 / 人材情報（会社名・企業担当・先方担当）も含めて保存する共通ペイロード。
   const contactFields = () => ({
     company: jobCompany.trim() || null,
@@ -269,21 +275,21 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     toast("担当者（提案者）を選択してください", "error");
     return false;
   };
-  const saveFields = () => { if (!requireProposer()) return; run(() => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() })); };
+  const saveFields = () => { if (!requireProposer()) return; run("save", () => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() })); };
   // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
   const pickStage = (stage: string) => {
     setStageMenuOpen(false);
     if (stage === "見送り") { setLostOpen(true); return; }
     if (!requireProposer()) return;
     setEffStage(stage); // チェック(✓)と進捗表示を即時に選択ステージへ追従させる
-    run(() => updateProposalFields(p.id, {
+    run("stage", () => updateProposalFields(p.id, {
       stage,
       caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null,
       meeting_date: meetingDate || null, meeting_status: meetingStatus || null,
     }));
   };
-  const engage = () => run(() => convertToEngagement(p.id));
-  const lose = () => run(() => updateProposalFields(p.id, {
+  const engage = () => run("engage", () => convertToEngagement(p.id));
+  const lose = () => run("lose", () => updateProposalFields(p.id, {
     // 案件情報/人材情報の編集内容も保存しつつ、失注時の会社名・先方担当（選択/手入力）で上書き。
     ...contactFields(),
     stage: "見送り", lost_phase: lostPhase, lost_reason: lostReason, lost_reason_note: lostNote.trim() || null,
@@ -293,11 +299,14 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   }));
   const removeProposal = () => {
     if (!confirm(`「${p.candidate_name ?? "—"} × ${p.job_title ?? "—"}」の提案を削除しますか？\n（記録ミスの取り消し。元に戻せません）`)) return;
+    setBusy("delete");
     start(async () => {
-      const r = await deleteProposal(p.id);
-      if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
-      router.refresh();
-      onClose();
+      try {
+        const r = await deleteProposal(p.id);
+        if (!r.ok) { toast(("error" in r ? r.error : null) || "削除に失敗しました", "error"); return; }
+        router.refresh();
+        onClose();
+      } finally { setBusy(null); }
     });
   };
 
@@ -345,10 +354,10 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 return (
                   <div key={s} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, position: "relative" }}>
                     {i > 0 && <div style={{ position: "absolute", top: 13, right: "50%", width: "100%", height: 2, background: i <= stageIdx ? tone : "var(--color-border)" }} />}
-                    <button type="button" onClick={() => moveTo(s)} disabled={pending} title={`「${s}」へ移動`}
+                    <button type="button" onClick={() => moveTo(s)} disabled={busy === "stage"} title={`「${s}」へ移動`}
                       style={{ position: "relative", zIndex: 1, width: 28, height: 28, borderRadius: 99, border: current ? `2px solid ${tone}` : "2px solid transparent",
                         background: current ? tone : done ? tone : "var(--color-surface)", color: current || done ? "#fff" : "var(--color-ink-4)",
-                        boxShadow: current ? `0 0 0 4px ${tone}22` : "none", fontWeight: 800, fontSize: 12, cursor: pending ? "wait" : "pointer", fontFamily: "inherit",
+                        boxShadow: current ? `0 0 0 4px ${tone}22` : "none", fontWeight: 800, fontSize: 12, cursor: busy === "stage" ? "wait" : "pointer", fontFamily: "inherit",
                         outline: !current && !done ? "1px solid var(--color-border-strong)" : "none" }}>
                       {done ? "✓" : i + 1}
                     </button>
@@ -420,8 +429,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
 
           {/* 会社名・担当の保存（自動表示された値もそのまま保存できる） */}
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -8 }}>
-            <button type="button" className="btn ghost btn-sm" disabled={pending} onClick={saveFields} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+            <button type="button" className="btn ghost btn-sm" disabled={busy === "save"} onClick={saveFields} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {busy === "save" && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
               <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: "-3px" }}>save</span>
               会社名・担当を保存
             </button>
@@ -512,7 +521,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                     style={{ fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
                 )}
               </label>
-              <button type="button" className="btn brand btn-sm" disabled={pending} onClick={submitContact} style={{ whiteSpace: "nowrap" }}>
+              <button type="button" className="btn brand btn-sm" disabled={busy === "contact"} onClick={submitContact} style={{ whiteSpace: "nowrap" }}>
                 <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>add</span>
                 追加
               </button>
@@ -678,10 +687,10 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 </div>
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
-                <button type="button" className="btn ghost btn-sm" onClick={() => setLostOpen(false)} disabled={pending}>キャンセル</button>
-                <button type="button" className="btn btn-sm" style={{ background: "var(--color-danger)", color: "#fff", borderColor: "var(--color-danger)", opacity: lostReady ? 1 : 0.5, display: "inline-flex", alignItems: "center", gap: 6 }} disabled={pending || !lostReady} onClick={lose}>
-                  {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
-                  {pending ? "保存中…" : "見送りを確定"}
+                <button type="button" className="btn btn-sm" onClick={() => setLostOpen(false)} style={{ border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink-2)" }}>キャンセル</button>
+                <button type="button" className="btn btn-sm" style={{ background: "var(--color-danger)", color: "#fff", borderColor: "var(--color-danger)", opacity: lostReady ? 1 : 0.5, display: "inline-flex", alignItems: "center", gap: 6 }} disabled={busy === "lose" || !lostReady} onClick={lose}>
+                  {busy === "lose" && <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+                  {busy === "lose" ? "保存中…" : "見送りを確定"}
                 </button>
               </div>
             </div>
@@ -702,25 +711,27 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               {/* 推奨：メール内容を確認してから送信＝承認。下書きが無いときは内部でエラー表示。 */}
               <ApproveAndSendButton proposalId={p.id} jobNo={p.job_no ?? null} candNo={p.candidate_no ?? null} />
               {/* メール送信を伴わない承認（下書きが無い旧データ・手動入力分の救済用） */}
-              <button type="button" className="btn ghost btn-sm" disabled={pending}
+              <button type="button" className="btn ghost btn-sm" disabled={busy === "approve"}
                 title="メール下書きが無い場合のみ使用（既に他経路で送信済みの提案を承認）"
                 onClick={async () => {
                   if (!confirm("メール下書きを使わずに承認だけしますか？（通常は『メール内容を確認して送信』をお使いください）")) return;
                   const { approveProposal } = await import("@/lib/actions");
+                  setBusy("approve");
                   start(async () => {
-                    const r = await approveProposal(p.id);
-                    if (!r.ok) toast(r.error || "更新に失敗しました", "error"); else router.refresh();
+                    try { const r = await approveProposal(p.id); if (!r.ok) toast(r.error || "更新に失敗しました", "error"); else router.refresh(); }
+                    finally { setBusy(null); }
                   });
                 }}>承認のみ</button>
-              <button type="button" className="btn btn-sm" disabled={pending}
+              <button type="button" className="btn btn-sm" disabled={busy === "reject"}
                 style={{ color: "#b42318", borderColor: "#f7c5cf" }}
                 onClick={async () => {
                   const reason = window.prompt("差戻し理由を入力してください（提案者に表示されます）");
                   if (reason == null) return;
                   const { rejectProposal } = await import("@/lib/actions");
+                  setBusy("reject");
                   start(async () => {
-                    const r = await rejectProposal(p.id, reason);
-                    if (!r.ok) toast(r.error || "更新に失敗しました", "error"); else router.refresh();
+                    try { const r = await rejectProposal(p.id, reason); if (!r.ok) toast(r.error || "更新に失敗しました", "error"); else router.refresh(); }
+                    finally { setBusy(null); }
                   });
                 }}>差戻し</button>
             </div>
@@ -731,16 +742,19 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
         <div style={{ position: "sticky", bottom: 0, background: "var(--color-surface)", borderTop: "1px solid var(--color-border)", padding: "14px 22px", display: "flex", gap: 10, alignItems: "center" }}>
           {/* ステータス更新ドロップダウン（クリックでステージ選択メニュー） */}
           <div ref={stageMenuRef} style={{ position: "relative" }}>
-            <button type="button" className="btn brand" disabled={pending} onClick={() => setStageMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={stageMenuOpen} style={{ display: "inline-flex", alignItems: "center" }}>
-              {pending ? (
+            {/* 現在のステータスを色付きで表示（押さなくても分かる）。クリックで変更メニュー。 */}
+            <button type="button" className="btn" disabled={busy === "stage"} onClick={() => setStageMenuOpen((v) => !v)} aria-haspopup="listbox" aria-expanded={stageMenuOpen}
+              title="クリックでステータスを変更"
+              style={{ display: "inline-flex", alignItems: "center", background: STAGE_TONE[effStage] ?? "var(--color-brand-600)", borderColor: STAGE_TONE[effStage] ?? "var(--color-brand-600)", color: "#fff" }}>
+              {busy === "stage" ? (
                 <>
                   <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block", marginRight: 6, animation: "spin .8s linear infinite" }} />
-                  保存中…
+                  更新中…
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>check</span>
-                  ステータス更新
+                  <span style={{ fontSize: 11, opacity: 0.9, marginRight: 6 }}>ステータス</span>
+                  <b>{effStage}</b>
                   <span className="material-symbols-outlined" style={{ fontSize: 16, marginLeft: 4, verticalAlign: "-3px" }}>{stageMenuOpen ? "expand_more" : "expand_less"}</span>
                 </>
               )}
@@ -773,20 +787,20 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               </div>
             )}
           </div>
-          <button type="button" className="btn ghost" disabled={pending} onClick={saveFields} title="ステージは変更せず編集内容のみ保存" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {pending && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
-            {pending ? "保存中…" : "編集を保存"}
+          <button type="button" className="btn" disabled={busy === "save"} onClick={saveFields} title="ステージは変更せず編集内容のみ保存" style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+            {busy === "save" && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
+            {busy === "save" ? "保存中…" : "編集を保存"}
           </button>
           {normalizeStage(effStage) === "合格" && (
-            <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={pending} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
+            <button type="button" className="btn" style={{ background: "#1aa260", color: "#fff", borderColor: "#1aa260" }} disabled={busy === "engage"} onClick={engage} title="稼働化すると稼働管理へ移ります">稼働化 →</button>
           )}
-          <button type="button" className="btn ghost" disabled={pending}
+          <button type="button" className="btn ghost"
             onClick={() => { setLostOpen(true); setTimeout(() => document.getElementById("lost-panel")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); }}
             title="失注理由（A〜E）を選んで見送りにする" style={{ color: "var(--color-danger)" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>do_not_disturb_on</span>
             見送り内容を記入する
           </button>
-          <button type="button" className="btn ghost" disabled={pending} onClick={removeProposal} title="提案を削除（記録ミスの取り消し・元に戻せません）" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>
+          <button type="button" className="btn ghost" disabled={busy === "delete"} onClick={removeProposal} title="提案を削除（記録ミスの取り消し・元に戻せません）" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>delete</span>
             削除
           </button>
