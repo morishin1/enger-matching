@@ -343,7 +343,15 @@ export function JobsTable({
             </label>
           );
         })}
-        <div ref={colMenuRef} style={{ position: "relative", marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12 }}>
+          {/* LINEのみ表示（signup_source=line のサーバフィルタを切替）＋件数（右上）。 */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-2)", cursor: "pointer", whiteSpace: "nowrap" }} title="LINE経由で登録した案件だけを表示">
+            <input type="checkbox" checked={(filters.signup_source ?? "") === "line"} onChange={(e) => pushParams({ f_signup_source: e.target.checked ? "line" : null, page: null })} style={{ accentColor: "#06C755" }} />
+            <Icons.line size={14} /> LINEのみ
+          </label>
+          <span style={{ fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>{total.toLocaleString("ja-JP")} <span style={{ fontSize: 11, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+        </div>
+        <div ref={colMenuRef} style={{ position: "relative" }}>
           <button type="button" className="btn ghost" onClick={() => setColMenu((v) => !v)} style={{ fontSize: 12 }}>
             <Icons.settings /><span>表示列</span>
           </button>
