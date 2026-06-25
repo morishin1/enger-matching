@@ -2,7 +2,7 @@
 
 // 提案管理ワークスペース：期間フィルターを上に1つ持ち、その配下のタブ（ボード/履歴/失注分析）
 //   と件数表示がすべて連動して絞り込まれる統合ビュー。
-//   - 期間チップ：本日/今週/今月/30日/全期間
+//   - 期間チップ：本日/今週/先週/今月/30日/全期間
 //   - 期間で proposals を絞り込み → 進行中/履歴/失注 を再分類してから子に渡す
 //   - 既存のProposalStartStats（外部APIで正確COUNT）の機能を内包（クライアント側で配列フィルタ）
 //
@@ -14,24 +14,40 @@ import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
 
-type Period = "today" | "week" | "month" | "thirty" | "all";
+type Period = "today" | "week" | "lastweek" | "month" | "thirty" | "all";
 
 const PERIOD_LABEL: Record<Period, string> = {
-  today: "本日", week: "今週", month: "今月", thirty: "30日", all: "全期間",
+  today: "本日", week: "今週", lastweek: "先週", month: "今月", thirty: "30日", all: "全期間",
 };
+
+// 今週（月曜起点）の開始時刻。
+function thisWeekStart(): number {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  const dow = (d.getDay() + 6) % 7; // 月曜起点
+  d.setDate(d.getDate() - dow);
+  return d.getTime();
+}
 
 function startMs(p: Period): number {
   const now = new Date();
   if (p === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
-  if (p === "week") {
-    const d = new Date(); d.setHours(0, 0, 0, 0);
-    const dow = (d.getDay() + 6) % 7; // 月曜起点
-    d.setDate(d.getDate() - dow);
-    return d.getTime();
-  }
+  if (p === "week") return thisWeekStart();
+  if (p === "lastweek") return thisWeekStart() - 7 * 86400000; // 先週月曜
   if (p === "month") { const d = new Date(now.getFullYear(), now.getMonth(), 1); return d.getTime(); }
   if (p === "thirty") { return Date.now() - 30 * 86400000; }
   return 0; // all
+}
+
+// 期間の終端（この時刻“未満”が対象）。先週のみ「今週月曜」で区切り、他は上限なし。
+function endMs(p: Period): number {
+  if (p === "lastweek") return thisWeekStart();
+  return Number.POSITIVE_INFINITY;
+}
+
+// 指定期間に created_at(ms) が入るか。
+function inRangeMs(t: number, p: Period): boolean {
+  if (p === "all") return true;
+  return !!t && t >= startMs(p) && t < endMs(p);
 }
 
 type TabKey = "approval" | "board" | "history" | "lost";
@@ -95,7 +111,7 @@ export function ProposalsWorkspace({
   const inPeriod = (row: any): boolean => {
     if (period === "all") return true;
     const t = new Date(row?.created_at ?? 0).getTime();
-    return !!t && t >= startMs(period);
+    return inRangeMs(t, period);
   };
 
   // 承認待ち・差戻しは「承認」タブに集約し、ボードからは除外（重複表示を防ぐ）。
@@ -122,9 +138,9 @@ export function ProposalsWorkspace({
     // 期間カウントはボード（進行中）+ 取得済みの失注/稼働分のみ。失注分析タブを開く前は
     // analyticsClient は空（=未取得）になるが、進行中件数だけ表示される（タブを開けば加算）。
     const n = p === "all" ? proposals.length + analyticsClient.length : (proposals.filter((r) => {
-      const t = new Date(r?.created_at ?? 0).getTime(); return !!t && t >= startMs(p);
+      const t = new Date(r?.created_at ?? 0).getTime(); return inRangeMs(t, p);
     }).length + analyticsClient.filter((r) => {
-      const t = new Date(r?.created_at ?? 0).getTime(); return !!t && t >= startMs(p);
+      const t = new Date(r?.created_at ?? 0).getTime(); return inRangeMs(t, p);
     }).length);
     return (
       <button type="button" onClick={() => setPeriod(p)}
@@ -150,6 +166,7 @@ export function ProposalsWorkspace({
         </span>
         <PeriodChip p="today" />
         <PeriodChip p="week" />
+        <PeriodChip p="lastweek" />
         <PeriodChip p="month" />
         <PeriodChip p="thirty" />
         <PeriodChip p="all" />
