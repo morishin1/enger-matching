@@ -31,8 +31,18 @@ export const dynamic = "force-dynamic";
 const remoteLabel = (r: string | null | undefined) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社必須" : (r || "—");
 // 人材側の勤務希望ラベル（人材は希望＝onsite は「出社可」。案件の「出社必須」と区別する）。
-const candRemoteLabel = (r: string | null | undefined) =>
-  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社可" : (r || "—");
+//   enum 値に加え、自由文（"一部リモート可" など）も「希望」表記に正規化する。
+const candRemoteLabel = (r: string | null | undefined) => {
+  const s = (r ?? "").trim();
+  if (!s) return "—";
+  if (s === "full_remote") return "フルリモート希望";
+  if (s === "partial_remote") return "一部リモート希望";
+  if (s === "onsite") return "出社可";
+  if (/フル|完全/.test(s) && /リモート|在宅/.test(s)) return "フルリモート希望";
+  if (/リモート|在宅/.test(s)) return "一部リモート希望"; // 「一部リモート可」等も希望表記へ
+  if (/出社|常駐/.test(s)) return "出社可";
+  return s;
+};
 const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
 

@@ -672,11 +672,31 @@ export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
   return collapseSamePeople(scored).slice(0, limit);
 }
 
+// 人材側マッチング（人材→案件）の追加除外ルール（要望対応）。案件ランキングから外す。
+//   ① リモート：人材が「フル/一部リモート希望」なら、案件が「出社必須」(onsite)の案件を除外。
+//      ＝人材が出社可（出社/常駐の記載）の場合は除外しない。
+//   ② 利益確保：案件の提示上限が「人材の希望下限＋3万円」未満なら除外（最低3万円のマージン確保）。
+//      例）人材65万〜 → 案件上限68万以上のみ対象。〜60万 や 60万固定は除外。単価不明は判定しない。
+function passesCandSideFilters(cand: Candidate, job: Job): boolean {
+  // ① リモート希望 vs 出社必須
+  const cp = (cand.remote_pref ?? "").trim();
+  const wantsRemote = (cp === "full_remote" || cp === "partial_remote"
+    || (/リモート|在宅/.test(cp) && !/出社|常駐/.test(cp)));
+  if (wantsRemote && job.remote_type === "onsite") return false;
+  // ② 単価マージン（最低3万円の差を確保）
+  const cMin = candRange(cand).min;
+  const jMax = job.salary_max ?? null;
+  if (cMin != null && jMax != null && jMax < cMin + 3) return false;
+  return true;
+}
+
 /** 案件配列を 1 人材に対してスコアリングし降順に並べて返す */
 export function rankJobs(candidate: Candidate, jobs: Job[], limit = 30) {
   return jobs
     .map((j) => ({ job: j, ...scoreMatch(j, candidate) }))
     .filter((r) => !r.excluded)
+    // 既存ロジックを通過した案件に、人材側の追加ルール（リモート希望・単価マージン）を適用。
+    .filter((r) => passesCandSideFilters(candidate, r.job))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }
