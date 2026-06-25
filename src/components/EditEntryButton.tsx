@@ -200,7 +200,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
                 { value: "エイト社員",   label: "エイト社員（自社正社員）" },
                 { value: "BP",          label: "BP（自社のBP/FL）" },
                 { value: "一社下社員",   label: "一社下社員" },
-                { value: "一社下FL",    label: "一社下FL" },
+                { value: "一社下フリーランス", label: "一社下フリーランス" },
                 { value: "二社下以降",  label: "二社下以降" },
               ]} />
               <Field label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
