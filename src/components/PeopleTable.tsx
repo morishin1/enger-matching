@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import Link from "@/components/AppLink";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "./icons";
@@ -77,16 +78,42 @@ function CandNatBadge({ value }: { value?: string | null }) {
 
 function SkillTags({ skills }: { skills?: unknown }) {
   const ss = Array.isArray(skills) ? (skills as string[]) : [];
-  // マッチング判定に重要なスキルが隠れないよう、基本は折り返しで全表示。
-  //   極端に多い場合（8件超）だけ truncate して「+N」を出す（行が高くなりすぎないように）。
-  const CAP = 8;
+  // 一覧の行が縦に伸びないよう、常時表示は先頭4件まで。5件以上は「+N」で省略し、
+  //   「+N」にホバーすると全スキルをポップアップ（ツールチップ）でふわっと表示する。
+  const CAP = 4;
   const top = ss.slice(0, CAP);
   const more = ss.length - top.length;
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   if (ss.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+  const showPop = (e: React.MouseEvent) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setPos({ x: r.left, y: r.bottom + 6 });
+  };
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
       {top.map((s) => <span key={s} className="tag brand">{s}</span>)}
-      {more > 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{more}</span>}
+      {more > 0 && (
+        <span
+          onMouseEnter={showPop}
+          onMouseMove={(e) => { if (!pos) showPop(e); }}
+          onMouseLeave={() => setPos(null)}
+          style={{ fontSize: 11, fontWeight: 700, color: "var(--color-brand-700)", cursor: "default", whiteSpace: "nowrap" }}
+          title={ss.join(" / ")}
+        >
+          +{more}
+        </span>
+      )}
+      {more > 0 && pos && typeof document !== "undefined" && createPortal(
+        <div style={{
+          position: "fixed", left: pos.x, top: pos.y, zIndex: 1000, maxWidth: 360,
+          background: "var(--color-surface)", border: "1px solid var(--color-border-strong)",
+          borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,.16)", padding: 10,
+          display: "flex", flexWrap: "wrap", gap: 6, animation: "skill-pop-in .14s ease-out",
+        }}>
+          {ss.map((s) => <span key={s} className="tag brand" style={{ fontSize: 11 }}>{s}</span>)}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -146,8 +173,10 @@ const PEOPLE_COLS: Col[] = [
     key: "company", label: "会社", width: 168,
     render: (p) => {
       const co = p.source_company || p.company;
+      // 長い会社名（例：フューブライト・コミュニケーションズ株式会社）が右で切れないよう、
+      //   カラム幅に応じて自動で折り返して全文字を表示する（word-break で日本語・英数とも改行）。
       return co
-        ? <span style={{ fontSize: 12, color: "var(--color-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }} title={co}>{co}</span>
+        ? <span style={{ fontSize: 12, color: "var(--color-ink-2)", display: "block", whiteSpace: "normal", wordBreak: "break-word", overflowWrap: "anywhere", lineHeight: 1.4 }} title={co}>{co}</span>
         : <span className="muted" style={{ fontSize: 12 }}>—</span>;
     },
   },

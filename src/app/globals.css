@@ -301,6 +301,8 @@ button { font-family: inherit; }
   animation: bulk-bar-in .18s ease-out;
 }
 @keyframes bulk-bar-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+/* スキルタグの「+N」ホバーで全スキルをふわっと表示するポップアップ */
+@keyframes skill-pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 .bulk-bar b { font-size: 15px; }
 /* 濃色バー上のゴーストボタンが黒文字で見えない問題を解消（白文字＋半透明枠） */
 .bulk-bar .btn.ghost { color: #fff; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.10); }
