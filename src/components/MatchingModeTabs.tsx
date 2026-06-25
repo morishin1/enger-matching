@@ -1,8 +1,8 @@
 "use client";
 
-// マッチング種別を1ブロックに集約：注力マッチング / 自動マッチング / ランキング100。
-//   ・注力（既定）→ /matching?tab=focus。注力ビュー内で「番号で直接マッチング」も行える。
-//   ・自動 → /matching?tab=auto
+// マッチング種別を1ブロックに集約：自動マッチング / 注力マッチング / ランキング100。
+//   ・自動（既定）→ /matching?tab=auto
+//   ・注力 → /matching?tab=focus。注力ビュー内で「番号で直接マッチング」も行える。
 //   ・ランキング → /matching?tab=ranking
 //   ・番号 → 案件NO/人材NO を入力して /matching?job=… / /matching?person=… へジャンプ
 //     （旧「番号マッチング」タブは廃止し、注力ビュー内の入力欄に統合）
@@ -17,12 +17,12 @@ type Mode = "auto" | "focus" | "ranking";
 export function MatchingModeTabs() {
   const router = useRouter();
   const sp = useSearchParams();
-  // URL の tab からアクティブを判定。既定は注力（focus）。番号ジャンプ(job/person)後も注力扱い。
+  // URL の tab からアクティブを判定。既定は自動（auto）。番号ジャンプ(job/person)後も自動扱い。
   const initialMode: Mode = (() => {
     const tab = sp?.get("tab");
-    if (tab === "auto") return "auto";
+    if (tab === "focus") return "focus";
     if (tab === "ranking") return "ranking";
-    return "focus"; // tab 未指定・focus・番号ジャンプはすべて注力
+    return "auto"; // tab 未指定・auto・番号ジャンプはすべて自動
   })();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [job, setJob] = useState("");
@@ -35,11 +35,13 @@ export function MatchingModeTabs() {
   const goJob = () => { const n = numOf(job); if (n) router.push(`/matching?job=${n}`); };
   const goPerson = () => { const n = numOf(person); if (n) router.push(`/matching?person=${n}`); };
 
-  // 注力を先頭（既定）に。番号マッチングはタブ廃止し注力ビュー内の入力欄へ統合。
-  const TABS: { key: Mode; label: string; note: string; href?: string }[] = [
-    { key: "focus",   label: "注力マッチング", note: "★ ♡・プロパー・新着", href: "/matching?tab=focus" },
+  // 自動を先頭（既定）に。番号マッチングはタブ廃止し注力ビュー内の入力欄へ統合。
+  //   注力は note の ★（ゴールド）・♡（赤）を着色して目立たせ、ランキングは先頭に👑を付ける。
+  const TABS: { key: Mode; label: React.ReactNode; note: React.ReactNode; href?: string }[] = [
     { key: "auto",    label: "自動マッチング", note: "全案件・全人材",     href: "/matching?tab=auto" },
-    { key: "ranking", label: "ランキング100",  note: "必須スキル75%以上",   href: "/matching?tab=ranking" },
+    { key: "focus",   label: "注力マッチング", href: "/matching?tab=focus",
+      note: <><span style={{ color: "#f0a92b" }}>★</span> <span style={{ color: "#e0245e" }}>♡</span>・プロパー・新着</> },
+    { key: "ranking", label: <>👑 ランキング100</>, note: "必須スキル75%以上", href: "/matching?tab=ranking" },
   ];
 
   const inputStyle: React.CSSProperties = {

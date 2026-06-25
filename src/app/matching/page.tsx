@@ -257,9 +257,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     );
   }
 
-  // 既定は注力マッチング（focus）。URL で tab=auto が明示された時のみ自動マッチング。
+  // 既定は自動マッチング（auto）。URL で tab=focus が明示された時のみ注力マッチング。
   const tab: "auto" | "focus" =
-    sp.tab === "auto" ? "auto" : "focus";
+    sp.tab === "focus" ? "focus" : "auto";
   const personNo = sp.person ? Number(sp.person) : null;
 
   let dbError: string | null = null;

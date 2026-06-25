@@ -10,14 +10,14 @@ import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";
 
-// タブ順は「案件 → 人材 → LP → マッチング」。日常運用の入口である案件・人材を先頭に置き、
-// マッチング（注力/自動）は最後にまとめる。サイドバーの「マッチング」クリックは案件に着地する。
+// タブ順は「マッチング → 案件 → 人材 → LP」。中核であるマッチングを先頭に置き、サイドバーの
+// 「マッチング」クリックもこのマッチング画面に着地・初期表示する。
 //   ※ LINE登録タブは廃止し、案件/人材一覧の「登録元」フィルタ（?f_signup_source=line）に統合した。
 const TABS = [
+  { key: "matching", href: "/matching", label: "マッチング" },
   { key: "jobs", href: "/jobs", label: "案件" },
   { key: "people", href: "/people", label: "人材" },
   { key: "engineers", href: "/engineers", label: "LP登録" },
-  { key: "matching", href: "/matching", label: "マッチング" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
