@@ -7,7 +7,7 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, resolveRange, cumulateMode, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, resolveRange, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -65,17 +65,16 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const weekStart = jstStartOfWeek(new Date());
   const weekly = await getWeeklyTargets({ ownerEmail: targetEmail, weekStart });
   const custom = (period === "custom" && sp.from && sp.to) ? { from: sp.from, to: sp.to } : undefined;
-  // 達成率カードも累計表示（cumulate: true）。日/週は月初〜の積み上げ、四半期/任意/月は
-  //   それぞれのレンジで実績・目標を積み上げる（cumulativeRange のルール。画面全体で統一）。
+  // 達成率カードは「選択タブの期間そのまま」で集計（cumulate: false）。
+  //   メンバー別アクティビティ表と同じ単純な期間合計に揃え、サマリーカードとの乖離をなくす。
+  //   （以前は月初〜の累計表示だったため、日/週タブで表と数値が大きく食い違っていた。）
   const { range, snapshot } = await getKpiSnapshot({
     ownerName: isTeam ? null : (targetName || null),
-    type: period, custom, weeklyTargets: weekly, cumulate: true,
+    type: period, custom, weeklyTargets: weekly, cumulate: false,
   });
 
-  // 累計（積み上げ）リセット境界：カード・グラフ・テーブルで共通（cumulateMode）。
-  //   日/週/月 → 月境界でリセット（日・週はその月分のみ積み上げ、月は各月単体）／
-  //   四半期 → 四半期内で積み上げ／任意カレンダー → 範囲全体を積み上げ。
-  const cumulate = cumulateMode(period);
+  // 推移グラフ・推移テーブルも累計せず各期間単体で表示（"off"）。カード／表と基準を統一。
+  const cumulate = "off" as const;
   // 推移グラフ（custom は週次で推移を取る）。達成率を累計で積み上げ（テーブルと同境界）。
   const historyType: Exclude<PeriodType, "custom"> = period === "custom" ? "week" : period;
   const history = await getKpiHistory({

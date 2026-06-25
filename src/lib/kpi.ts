@@ -237,9 +237,11 @@ export async function getKpiSnapshot(opts: {
   const props: any[] = r.error ? [] : (r.data ?? []);
 
   const inRange = (d: string | null) => !!d && d >= start && d < end;
-  // 提案は「提案者 or CL」のどちらかが本人なら計上（従来通り）。
-  const isOwnerAny = (p: any) =>
-    !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
+  // 提案は「提案者(proposer)」に計上（メンバー別アクティビティ表と同一基準で揃える）。
+  //   以前は proposer OR closer で計上していたため、CL担当だけ本人の提案がアクティビティ表より
+  //   多く出てサマリーカードと乖離していた。表＝正としてここを proposer 一致に統一する。
+  const isProposer = (p: any) =>
+    !opts.ownerName || ownerMatches(opts.ownerName, p.proposer);
   // それ以外の指標は CL担当（closer）に計上。
   const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
   // 承認待ち / 差戻し は「まだ提案として実施されていない」ためKPIから除外（既存提案は approval_status=approved or NULL=旧データ）。
@@ -252,7 +254,7 @@ export async function getKpiSnapshot(opts: {
   let proposal = 0, contact = 0, adjusting = 0, schedule = 0, deal = 0;
   for (const p of props) {
     // 提案：現在ステータスが「提案中」以降のみ計上（所属確認・承認待ち・失注/見送りは除外）。
-    if (isApproved(p) && a.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) proposal++;
+    if (isApproved(p) && a.isProposed(p) && isProposer(p) && inRange(p.created_at)) proposal++;
     if (!isCloser(p)) continue;
     const ev = p.stage_updated_at ?? p.updated_at ?? null;     // ステージ変化の起点
     const evAny = p.updated_at ?? p.stage_updated_at ?? null;  // 任意更新（架電/通知）の起点
@@ -348,7 +350,8 @@ export async function getKpiHistoryTable(opts: {
   const props: any[] = pq.error ? [] : (pq.data ?? []);
   const targets: any[] = tq.error ? [] : (tq.data ?? []);
 
-  const isOwnerAny = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
+  // 提案は提案者(proposer)に計上（メンバー別アクティビティ表と同一基準）。
+  const isProposer = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.proposer);
   const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
   // 承認待ち / 差戻し は KPI(proposal) から除外。
   const isApproved = (p: any) => {
@@ -374,7 +377,7 @@ export async function getKpiHistoryTable(opts: {
     const act: Record<Metric, number> = { proposal: 0, contact: 0, adjusting: 0, schedule: 0, deal: 0 };
     for (const p of props) {
       // 提案：スナップショット/メンバー別と同じ母数（提案中以降 or 見送り/失注・所属確認/承認待ちは除外）。
-      if (isApproved(p) && metricFlags.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) act.proposal++;
+      if (isApproved(p) && metricFlags.isProposed(p) && isProposer(p) && inRange(p.created_at)) act.proposal++;
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
@@ -482,8 +485,8 @@ export async function getKpiHistory(opts: {
   const targets: any[] = tr.error ? [] : (tr.data ?? []);
 
   // 3) 期間バケットに振り分けて指標を集計
-  const isOwnerAny = (p: any) =>
-    !opts.ownerName || ownerMatches(opts.ownerName, p.proposer) || ownerMatches(opts.ownerName, p.closer);
+  // 提案は提案者(proposer)に計上（メンバー別アクティビティ表と同一基準）。
+  const isProposer = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.proposer);
   const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
   // 承認待ち / 差戻し は KPI(proposal) から除外。
   const isApproved = (p: any) => {
@@ -507,7 +510,7 @@ export async function getKpiHistory(opts: {
 
     let actual = 0;
     for (const p of props) {
-      if (metric === "proposal") { if (isApproved(p) && metricFlags.isProposed(p) && isOwnerAny(p) && inRange(p.created_at)) actual++; continue; }
+      if (metric === "proposal") { if (isApproved(p) && metricFlags.isProposed(p) && isProposer(p) && inRange(p.created_at)) actual++; continue; }
       if (!isCloser(p)) continue;
       const ev = p.stage_updated_at ?? p.updated_at ?? null;
       const evAny = p.updated_at ?? p.stage_updated_at ?? null;
