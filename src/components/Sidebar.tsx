@@ -37,17 +37,10 @@ const NAV: NavItem[] = [
   ] },
 ];
 
-// 振り返り・分析（時間軸での見直しに使う画面）。
-//   「分析」1メニューに集約し、内部タブで KPI推移 / ファネル / パイプライン / 詳細分析 へ。
-//   サイドバーの肥大化を避け、誰が見ても「ここで分析する」が一目で分かる導線にする。
-const ANALYSIS: NavItem[] = [
-  { href: "/kpi", id: "analytics-hub", label: "分析", icon: "analytics", children: [
-    { href: "/kpi",       id: "kpi",       label: "KPI推移" },
-    { href: "/funnel",    id: "funnel",    label: "ファネル" },
-    { href: "/pipeline",  id: "pipeline",  label: "パイプライン" },
-    { href: "/analytics", id: "analytics", label: "詳細分析" },
-  ] },
-];
+// 「分析」メニューは非表示にした（KPI推移は提案管理タブへ移動済み）。
+//   各ページ（/kpi・/funnel・/pipeline・/analytics）は URL では引き続きアクセス可能。
+//   復活させたい場合は ANALYSIS 配列を定義し、下の analysis0 にセットする。
+const ANALYSIS: NavItem[] = [];
 
 // その他（補助ツール）。ユーザー管理・各種設定は /settings 内のタブに統合済み。
 //   サイドバーは「設定」1行のみ（承認待ち件数は親バッジで通知）。
