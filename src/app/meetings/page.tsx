@@ -1,6 +1,5 @@
 import { Icons } from "@/components/icons";
 import { MeetingsClient } from "@/components/MeetingsClient";
-import { FlowSteps } from "@/components/FlowSteps";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getCompanyOverview } from "@/lib/companies";
 
@@ -13,6 +12,8 @@ export default async function MeetingsPage() {
 
   // 提案管理の面談予定（meeting_date のある提案）をカレンダーに連動表示する
   let interviews: any[] = [];
+  // 企業マスタ（窓口担当者プリフィル・類似企業検出用）。
+  let companyDir: { name: string; contact_name: string | null }[] = [];
 
   if (dbConfigured) {
     try {
@@ -24,6 +25,12 @@ export default async function MeetingsPage() {
         .limit(300);
       if (error) needSetup = true;
       else meetings = data ?? [];
+
+      // 企業マスタの窓口担当者（contact_name）を取得。打合せフォームの窓口担当者プリフィルに使う。
+      try {
+        const cr: any = await sb.from("companies").select("name, contact_name").limit(5000);
+        companyDir = (cr.data ?? []).filter((c: any) => c?.name).map((c: any) => ({ name: String(c.name), contact_name: c.contact_name ?? null }));
+      } catch { /* companies 未整備でも続行 */ }
 
       // 面談予定（提案）: 失注・稼働済みを除く、面談日が入った提案
       try {
@@ -41,7 +48,9 @@ export default async function MeetingsPage() {
     dbError = "Supabase の環境変数が未設定です";
   }
 
-  const companies = ((await getCompanyOverview()) ?? []).map((c) => c.name);
+  // datalist 候補は company_overview（案件/人材由来）と企業マスタ名の和集合。
+  const overviewNames = ((await getCompanyOverview()) ?? []).map((c) => c.name);
+  const companies = Array.from(new Set([...overviewNames, ...companyDir.map((c) => c.name)].filter(Boolean)));
 
   const total = meetings.length;
   const positive = meetings.filter((m) => m.fb_sentiment === "👍ポジティブ").length;
@@ -57,8 +66,6 @@ export default async function MeetingsPage() {
           <div className="sub">企業ごとの温度感（FB感情）・刺さった訴求点・競合言及・次回アクションを蓄積し、今後の対応に反映します。Geminiメモは要約欄に貼り付け、Drive原本はリンクで紐付けます。</div>
         </div>
       </div>
-
-      <FlowSteps current="proposals" sub="顧客との打合せ記録（提案改善の材料）" />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {needSetup && (
@@ -86,7 +93,7 @@ export default async function MeetingsPage() {
         </div>
       </div>
 
-      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} interviews={interviews} />}
+      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} companyDir={companyDir} interviews={interviews} />}
     </div>
   );
 }

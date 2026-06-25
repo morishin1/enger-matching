@@ -1479,6 +1479,40 @@ export async function saveCompany(input: CompanyInput) {
   return { ok: true };
 }
 
+/** 打合せ記録の保存に連動して企業マスタへ反映する。
+ *   ・既存企業 … 窓口担当者(contact_name)のみ同期（入力があれば上書き。自社担当は触らない）。
+ *   ・新規企業 … name＋窓口担当者＋自社担当者(owner_staff) を新規登録する。
+ *   企業名（name）は ilike で既存判定（表記ゆれは呼び出し側で吸収済みの想定）。 */
+export async function upsertMeetingCompany(input: { name: string; contact_name?: string | null; our_owner?: string | null }): Promise<{ ok: boolean; existed?: boolean; error?: string }> {
+  const name = (input.name ?? "").trim();
+  if (!name) return { ok: true };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const contact = (input.contact_name ?? "").trim();
+  const owner = (input.our_owner ?? "").trim();
+  const ex: any = await admin.from("companies").select("name").ilike("name", name).maybeSingle();
+  if (ex?.data?.name) {
+    // 既存：窓口担当者のみ同期（入力があるときだけ上書き）。
+    if (contact) {
+      const { error } = await admin.from("companies").update({ contact_name: contact }).eq("name", ex.data.name);
+      if (error && !/contact_name|column/i.test(error.message)) return { ok: false, error: error.message };
+    }
+    revalidatePath("/companies");
+    return { ok: true, existed: true };
+  }
+  // 新規：企業マスタに登録（窓口担当者＋自社担当者）。
+  const row: Record<string, any> = { name };
+  if (contact) row.contact_name = contact;
+  if (owner) row.owner_staff = owner;
+  let { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  if (error && /owner_staff|contact_name|column/i.test(error.message)) {
+    ({ error } = await admin.from("companies").upsert({ name }, { onConflict: "name" }));
+  }
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/companies");
+  return { ok: true, existed: false };
+}
+
 /** 企業の打合せ完了フラグの「現在のDB状態」を返す診断アクション。
  *  企業詳細モーダルの診断ボタンから呼び、保存できているのに表示に出ないのか・
  *  そもそも保存自体が効いていないのかを画面で切り分けるために使う。 */
