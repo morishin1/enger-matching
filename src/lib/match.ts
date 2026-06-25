@@ -590,6 +590,42 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 //      「出社可」「一部リモート可」「不明(空欄)」は残す（"可"や"フル/完全リモート"でない記載は対象外）。
 //   ② 利益確保：人材の希望単価(下限)が「案件の提示上限 − 3万円」を超える人材を除外（同額・僅差を排除）。
 //      例）案件上限70万 → 希望67万以下のみ対象、68万以上は除外。単価不明・上限不明のときは判定しない。
+// 案件テキストから年齢上限を抽出（"45歳まで/以下/以内" や "20〜45歳" → ageCap、
+//   "40代まで/以下" や "30〜40代" → decadeCap）。"以上/以降" などの下限指定は無視。
+function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number | null } {
+  const text = [job.title, (job as any).role_label, (job as any).flow_note, (job as any).detail].filter(Boolean).join(" ");
+  let ageCap: number | null = null;
+  let decadeCap: number | null = null;
+  // 具体年齢の上限： "45歳まで/以下/以内/迄"
+  const up = text.match(/([1-9][0-9])\s*[歳才]\s*(?:まで|以下|以内|迄)/);
+  if (up) ageCap = Number(up[1]);
+  // 範囲の上端： "20〜45歳"
+  if (ageCap == null) {
+    const r = text.match(/([1-9][0-9])\s*[〜～~\-－ー]\s*([1-9][0-9])\s*[歳才]/);
+    if (r) ageCap = Number(r[2]);
+  }
+  // 年代の上限： "40代まで/以下/以内/迄"
+  const dUp = text.match(/([1-9]0)\s*代\s*(?:まで|以下|以内|迄)/);
+  if (dUp) decadeCap = Number(dUp[1]);
+  // 範囲の上端： "30〜40代" / "30代〜40代"
+  if (decadeCap == null) {
+    const dr = text.match(/([1-9]0)\s*代?\s*[〜～~\-－ー]\s*([1-9]0)\s*代/);
+    if (dr) decadeCap = Number(dr[2]);
+  }
+  return { ageCap, decadeCap };
+}
+
+// 人材の年代グループから「年代（decade）」と「上限年齢（hi）」を返す。判定不能（不明）なら null。
+//   前半→decade+4 / 後半→decade+9 / 修飾なし→decade+9 を上限とする。
+function candAgeRange(c: Candidate): { decade: number; hi: number } | null {
+  const b = String(c.age_band ?? "").trim();
+  const m = b.match(/([1-9]0)\s*代/);
+  if (!m) return null;
+  const decade = Number(m[1]);
+  const hi = /前半/.test(b) ? decade + 4 : decade + 9;
+  return { decade, hi };
+}
+
 function passesJobSideFilters(job: Job, c: Candidate): boolean {
   // ① 勤務形態
   if (job.remote_type === "partial_remote") {
@@ -603,6 +639,18 @@ function passesJobSideFilters(job: Job, c: Candidate): boolean {
   if (jMax != null) {
     const cMin = candRange(c).min;
     if (cMin != null && cMin > jMax - 3) return false;
+  }
+  // ③ 年齢・年代の上限（安全側＝条件オーバーは除外。人材の年齢/年代が不明なら除外しない）。
+  //   ・"〇〇歳まで" … 人材の年代グループの上限年齢が案件上限を超えるなら除外
+  //       例) 45歳まで：40代前半(〜44)=表示 / 40代後半(〜49)=除外 / 30代後半(〜39)=表示
+  //   ・"〇〇代まで" … 指定年代より上の年代グループは一律除外（例: 40代まで→50代/60代は除外）
+  const { ageCap, decadeCap } = parseJobAgeLimit(job);
+  if (ageCap != null || decadeCap != null) {
+    const ar = candAgeRange(c); // 不明(null)は除外対象にしない
+    if (ar) {
+      if (ageCap != null && ar.hi > ageCap) return false;
+      if (decadeCap != null && ar.decade > decadeCap) return false;
+    }
   }
   return true;
 }
