@@ -5,6 +5,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { MailButton } from "@/components/MailButton";
 import { EditJobButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
+import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
@@ -96,6 +97,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
           {origMailUrl && <a href={origMailUrl} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>↗ 元メール</a>}
           <MailButton to={j.contact_email} subject={`Re: ${j.title}`} body={""} label="窓口にメール" block />
           <EditJobButton job={j} />
+          <CloseToggleButton kind="jobs" idValue={j.job_no} isClosed={!!j.is_closed} />
           <DeleteEntityButton kind="jobs" idValue={j.job_no} label={j.title ?? undefined} />
           <Link href="/jobs" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>

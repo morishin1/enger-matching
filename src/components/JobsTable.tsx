@@ -9,6 +9,7 @@ import { MailButton } from "./MailButton";
 import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
+import { CloseToggleButton } from "./CloseToggleButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
@@ -492,6 +493,7 @@ export function JobsTable({
               {!partner && <Link href={`/jobs/${detail.job_no}`} className="btn ghost" style={{ textDecoration: "none" }}>案件ページへ</Link>}
               {detail.source_mail_url && <MailButton url={detail.source_mail_url} label="元メールを開く" block />}
               <EditJobButton job={detail} />
+              {!partner && <CloseToggleButton kind="jobs" idValue={detail.job_no} isClosed={!!detail.is_closed} />}
               <DeleteEntityButton kind="jobs" idValue={detail.job_no} label={titleOf(detail)} />
             </div>
 

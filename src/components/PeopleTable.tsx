@@ -8,6 +8,7 @@ import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
 import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
+import { CloseToggleButton } from "./CloseToggleButton";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
@@ -509,6 +510,7 @@ export function PeopleTable({
               )}
               {detail.source_mail_url && <MailButton url={detail.source_mail_url} label="元メールを開く" block />}
               <EditCandidateButton candidate={detail} />
+              <CloseToggleButton kind="candidates" idValue={detail.candidate_no} isClosed={!!detail.is_closed} />
               <DeleteEntityButton kind="candidates" idValue={detail.candidate_no} label={titleOf(detail)} />
             </div>
 

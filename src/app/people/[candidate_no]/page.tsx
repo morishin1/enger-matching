@@ -5,6 +5,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { MailButton } from "@/components/MailButton";
 import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
+import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
@@ -107,6 +108,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
           {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
           <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
           <EditCandidateButton candidate={c} />
+          <CloseToggleButton kind="candidates" idValue={c.candidate_no} isClosed={!!c.is_closed} />
           <DeleteEntityButton kind="candidates" idValue={c.candidate_no} label={c.name ?? undefined} />
           <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 一覧</Link>
         </div>
