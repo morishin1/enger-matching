@@ -692,7 +692,12 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：提案可 / 即アサイン可能" />
                   <FormField label="ランク" value={f.rank} onChange={set("rank")} placeholder="例：A / B / C" />
                   <FormField label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半" />
-                  <FormField label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="例：日本 / 中国 / ベトナム" />
+                  <FormSelect label="国籍" value={f.nationality} onChange={set("nationality")} options={[
+                    { value: "", label: "未設定" },
+                    { value: "日本国籍", label: "日本国籍" },
+                    { value: "外国籍", label: "外国籍" },
+                    { value: "不明", label: "不明" },
+                  ]} />
                   <FormField label="スキルシートURL（またはDrive ID）" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
                   <FormField label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} placeholder="例：山田太郎（SES窓口）" />
                   <FormField label="本人メール" value={f.email} onChange={set("email")} />
@@ -714,7 +719,16 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                     { value: "partial_remote", label: "一部リモート" },
                     { value: "onsite", label: "出社必須" },
                   ]} />
-                  <FormField label="商流" value={f.flow_note} onChange={set("flow_note")} />
+                  <FormSelect label="商流" value={f.flow_note} onChange={set("flow_note")} options={[
+                    { value: "", label: "未設定（不明）" },
+                    { value: "貴社まで", label: "貴社まで" },
+                    { value: "貴社正社員まで", label: "貴社正社員まで" },
+                    { value: "貴社一社まで", label: "貴社一社まで" },
+                    { value: "貴社一社正社員まで", label: "貴社一社正社員まで" },
+                    { value: "貴社二社まで", label: "貴社二社まで" },
+                    { value: "貴社二社正社員まで", label: "貴社二社正社員まで" },
+                    { value: "商流不問", label: "商流不問" },
+                  ]} />
                   <FormField label="勤務地" value={f.work_location} onChange={set("work_location")} />
                   <FormDateField label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01（カレンダー選択可）" />
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：募集中" />

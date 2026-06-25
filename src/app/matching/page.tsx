@@ -7,7 +7,6 @@ import { RankList } from "@/components/RankList";
 import { RankJobList } from "@/components/RankJobList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { FocusList } from "@/components/FocusList";
-import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
 import { relatedSearchLabels } from "@/lib/skills";
@@ -852,17 +851,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <h1>マッチング</h1>
           <div className="sub">案件を選ぶと、スキル一致を主軸（単価・職種・リモートで補正）に候補をランキング表示します。</div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-          <NextStepLink href="/proposals" label="提案管理を見る" hint="マッチングからの提案を一覧で管理" />
-          <CopyLinkButton />
-        </div>
-        <form style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-          <input type="hidden" name="tab" value={tab} />
-          <select name="job" defaultValue={job?.job_no ?? ""} style={{ fontFamily: "inherit", fontSize: 12, padding: "8px 12px", borderRadius: 99, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-ink)", maxWidth: 340 }}>
-            {jobList.map((j) => <option key={j.job_no} value={j.job_no}>No.{String(j.job_no).padStart(5, "0")} — {j.title.slice(0, 36)}</option>)}
-          </select>
-          <button className="btn brand" type="submit"><Icons.matching /><span>マッチ</span></button>
-        </form>
       </div>
 
       <MatchingPeerTabs counts={peerCounts} />
