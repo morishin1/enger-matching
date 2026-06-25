@@ -24,8 +24,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
 
   const [staff, proposalOwners, access] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess()]);
   // KPI推移タブ・日報タブの埋め込みデータ（/kpi・/reports と同等の集計を再利用）。
-  const [kpiProps, reportsView] = await Promise.all([
-    loadKpiClientProps({ email: access?.email ?? "", name: access?.name ?? null, role: access?.role ?? "", teamRole: access?.teamRole ?? null }, sp),
+  const [kpiData, reportsView] = await Promise.all([
+    loadKpiClientProps({ email: access?.email ?? "", name: access?.name ?? null, role: access?.role ?? "", teamRole: access?.teamRole ?? null, department: access?.department ?? null }, sp),
     loadReportsView(access ? { email: access.email, name: access.name, role: access.role, rawRole: access.rawRole, teamRole: access.teamRole, department: access.department } : null),
   ]);
   // 担当者（提案者・クロージング）の名前を追加/削除できるのは管理者のみ
@@ -247,7 +247,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             members={staff.members}
             currentUserName={currentUserName}
             privileged={canApprove}
-            kpiProps={kpiProps}
+            kpiProps={kpiData?.kpi}
+            teamActivity={kpiData?.teamActivity}
             reportsView={reportsView}
             // 編集UI（ProposalOwnersEditor）と提案詳細の割当ドロップダウンで
             // 選択肢が食い違わないよう、同じ ownersInitial（未保存時は members に統一）を渡す。
