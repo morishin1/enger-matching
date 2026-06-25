@@ -11,6 +11,8 @@ import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { canManageDept } from "@/lib/roles";
+import { getStageTargets } from "@/lib/stage-targets";
+import { listPersonKgi, monthKey } from "@/lib/person-kgi";
 
 const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
@@ -111,7 +113,19 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* アクティビティ取得失敗時はKPIのみ表示 */ }
 
-    return { kpi, teamActivity };
+    // ステージ別の担当者目標 と メンバー別KGI（月次稼働化目標）。
+    let stageTargets: Record<string, Record<string, number>> = {};
+    let kgiByMember: Record<string, { placementTarget: number | null }> = {};
+    try {
+      stageTargets = await getStageTargets();
+      const kgis = await listPersonKgi(monthKey(), access.role === "admin" ? undefined : { department: access.department });
+      for (const k of kgis) {
+        const nm = String(k.owner_name ?? "").trim();
+        if (nm) kgiByMember[nm] = { placementTarget: k.placement_target ?? (k.targets?.placement ?? null) };
+      }
+    } catch { /* テーブル未整備でもKPIは表示 */ }
+
+    return { kpi, teamActivity, stageTargets, kgiByMember };
   } catch {
     return null;
   }
