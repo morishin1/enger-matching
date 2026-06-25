@@ -117,6 +117,21 @@ async function upsertRead(
   return { ok: true };
 }
 
+/** スレッドのメモ（担当者の手入力）を保存する。 */
+export async function saveThreadMemo(input: { thread_id: string; memo: string }): Promise<Result> {
+  const admin = adminOrNull();
+  if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
+  if (!input.thread_id) return { ok: false, error: "スレッドが未指定です" };
+  const memo = (input.memo ?? "").trim() || null;
+  const { error } = await admin.from("chat_threads").update({ memo }).eq("id", input.thread_id);
+  if (error) {
+    if (/memo|column/i.test(error.message)) return { ok: false, error: "メモ列が未作成です。supabase/chat-id-text.sql を実行してください。" };
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/chat");
+  return { ok: true };
+}
+
 /** スレッドを終了/再開する。 */
 export async function setThreadStatus(input: { thread_id: string; status: "open" | "closed" }): Promise<Result> {
   const admin = adminOrNull();
