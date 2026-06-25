@@ -43,11 +43,13 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
     if (r.data) { targetEmail = (r.data.email ?? "").toLowerCase(); targetName = r.data.name ?? ""; }
   }
 
-  // 名前未解決（app_users.name が空の場合）→ staff から email で引く
-  if (!isTeam && !targetName && targetEmail) {
+  // KPI個人の対象名は staff 名（＝提案の担当者 proposer に使われる名前）に合わせる。
+  //   アカウント表示名が会社名等で proposer と一致しないと個人KPIが0になるため、
+  //   email から staff 名を引いて優先する（admin が対象を切替えた場合はその名前を使う）。
+  if (!isTeam && targetEmail && !(access.role === "admin" && sp.owner)) {
     const sb = engerAdmin();
     const r: any = await sb.from("staff").select("name").ilike("email", targetEmail).maybeSingle();
-    targetName = r.data?.name ?? "";
+    if (r.data?.name) targetName = r.data.name;
   }
 
   // ITS メンバー一覧（管理者の切替用）

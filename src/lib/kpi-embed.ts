@@ -30,10 +30,12 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       const r: any = await sb.from("staff").select("name, email").ilike("email", sp.owner).maybeSingle();
       if (r.data) { targetEmail = (r.data.email ?? "").toLowerCase(); targetName = r.data.name ?? ""; }
     }
-    if (!isTeam && !targetName && targetEmail) {
+    if (!isTeam && targetEmail && !(access.role === "admin" && sp.owner)) {
+      // KPI個人の対象名は staff 名（＝提案の担当者名）に合わせる（会社名等の表示名だと提案と
+      //   一致せず個人KPIが0になるため、email から staff 名を引いて優先）。
       const sb = engerAdmin();
       const r: any = await sb.from("staff").select("name").ilike("email", targetEmail).maybeSingle();
-      targetName = r.data?.name ?? "";
+      if (r.data?.name) targetName = r.data.name;
     }
 
     let members: { name: string; email: string }[] = [];
