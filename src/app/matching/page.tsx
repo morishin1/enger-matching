@@ -28,8 +28,12 @@ import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
 
+// 案件側の勤務形態ラベル（案件は条件＝onsite は「出社必須」）。
 const remoteLabel = (r: string | null | undefined) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社必須" : (r || "—");
+// 人材側の勤務希望ラベル（人材は希望＝onsite は「出社可」。案件の「出社必須」と区別する）。
+const candRemoteLabel = (r: string | null | undefined) =>
+  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社可" : (r || "—");
 const salaryLabel = (lo: number | null | undefined, hi: number | null | undefined) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
 
@@ -697,7 +701,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
                   {person.affiliation && <span className="tag">{person.affiliation}</span>}
                   {/* リモート希望・国籍・最寄駅・年代を明示。デザインは他項目と統一（プレーンな tag）。 */}
-                  <span className="tag">リモート {remoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : remoteLabel(person.remote_pref)}</span>
+                  <span className="tag">リモート {candRemoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : candRemoteLabel(person.remote_pref)}</span>
                   <span className="tag">国籍 {CAND_NAT_LABEL[classifyCandNationality(person.nationality)]}</span>
                   <span className="tag">最寄駅 {person.location ?? "不明"}</span>
                   {person.age_band && <span className="tag">年代 {person.age_band}</span>}
@@ -964,7 +968,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
                         <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
-                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, remoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
+                        <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, candRemoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
                         <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>
                           <span>国籍 <b style={{ color: "var(--color-ink)" }}>{CAND_NAT_LABEL[classifyCandNationality(c.nationality)]}</b></span>
@@ -980,7 +984,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       jobNo={job?.job_no ?? null}
                       candNo={c?.candidate_no ?? null}
                       job={{ title: job?.title, skills: job?.skills, salary_label: salaryLabel(job?.salary_min, job?.salary_max), remote_type: remoteLabel(job?.remote_type), flow_note: job?.flow_note }}
-                      cand={{ title: c.title, skills: c.skills, rate: c.rate ?? salaryLabel(c.salary_min, c.salary_max), nationality: CAND_NAT_LABEL[classifyCandNationality(c.nationality)], age_band: c.age_band, avail: c.avail, remote_pref: remoteLabel(c.remote_pref) }}
+                      cand={{ title: c.title, skills: c.skills, rate: c.rate ?? salaryLabel(c.salary_min, c.salary_max), nationality: CAND_NAT_LABEL[classifyCandNationality(c.nationality)], age_band: c.age_band, avail: c.avail, remote_pref: candRemoteLabel(c.remote_pref) }}
                       score={sel.score}
                       verdict={sel.verdict}
                     />
