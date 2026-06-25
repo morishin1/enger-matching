@@ -74,6 +74,20 @@ export function TimecardClient({ me, ym, myEntries, approvalQueue, shiftQueue = 
     });
   };
 
+  // 打刻（出勤/退勤）専用。失敗時はアラートボックスで明確に通知（シフト未申請・早すぎる打刻など）。
+  const clock = (fn: () => Promise<any>, okText: string) => {
+    setMsg(null);
+    start(async () => {
+      const res = await fn();
+      if (res?.ok) { setMsg({ ok: true, text: okText }); router.refresh(); }
+      else {
+        const text = res?.error || "打刻できませんでした";
+        setMsg({ ok: false, text });
+        if (typeof window !== "undefined") window.alert(text);
+      }
+    });
+  };
+
   // 編集モーダル
   const [editDate, setEditDate] = useState<string | null>(null);
 
@@ -93,11 +107,11 @@ export function TimecardClient({ me, ym, myEntries, approvalQueue, shiftQueue = 
           {me.isTimecardUser && isThisMonth && (
             <div style={{ display: "flex", gap: 6 }}>
               <button className="btn brand tc-clock-btn" disabled={pending || !!todayEntry?.actual_start}
-                onClick={() => run(() => clockIn(), "出勤しました")}>
+                onClick={() => clock(() => clockIn(), "出勤しました")}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-3px" }}>login</span> 出勤
               </button>
               <button className="btn tc-clock-btn" disabled={pending || !todayEntry?.actual_start || !!todayEntry?.actual_end}
-                onClick={() => run(() => clockOut(), "退勤しました")}>
+                onClick={() => clock(() => clockOut(), "退勤しました")}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-3px" }}>logout</span> 退勤
               </button>
             </div>

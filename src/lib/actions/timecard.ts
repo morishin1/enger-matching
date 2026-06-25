@@ -127,8 +127,34 @@ export async function clockIn(userEmail?: string): Promise<TimecardActionResult>
   const workDate = now.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
   const iso = now.toISOString();
 
-  const existing: any = await admin.from("time_entries").select("id, actual_start, status")
+  let existing: any = await admin.from("time_entries").select("id, actual_start, status, planned_start, planned_end, shift_status")
     .eq("user_email", target).eq("work_date", workDate).maybeSingle();
+  // shift_status / planned 列が無い旧環境では従来通り（シフト申請チェックはスキップ）。
+  let shiftCols = true;
+  if (existing.error && /shift_status|planned_start|planned_end|column/i.test(existing.error.message ?? "")) {
+    shiftCols = false;
+    existing = await admin.from("time_entries").select("id, actual_start, status").eq("user_email", target).eq("work_date", workDate).maybeSingle();
+  }
+
+  // シフト申請ガード：本日のシフトが申請済（submitted/approved）で予定が入っていることを必須にする。
+  //   ・未申請でタイムカードを押した場合はアラート（打刻不可）。
+  //   ・シフト開始の30分以上前は打刻不可（例：7:00開始は6:30以降のみ。6:25はアラート）。
+  if (shiftCols) {
+    const plannedStart: string | null = existing.data?.planned_start ?? null;
+    const shiftStatus: string | null = existing.data?.shift_status ?? null;
+    const applied = !!plannedStart && (shiftStatus === "submitted" || shiftStatus === "approved");
+    if (!applied) {
+      return { ok: false, error: "本日のシフトが申請されていません。先に「シフト申請」から本日のシフトを申請・承認してから打刻してください。" };
+    }
+    const psMs = new Date(plannedStart).getTime();
+    if (isFinite(psMs)) {
+      const earlyMin = (psMs - now.getTime()) / 60000;
+      if (earlyMin > 30) {
+        const hm = new Date(plannedStart).toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit", hour12: false });
+        return { ok: false, error: `シフト開始（${hm}）の30分以上前は打刻できません。開始時刻の30分前以降に打刻してください。` };
+      }
+    }
+  }
 
   if (existing.data) {
     if (existing.data.actual_start) return { ok: false, error: "本日はすでに出勤打刻済みです" };
