@@ -37,6 +37,8 @@ type HItem = {
   // 案件 or 人材のどちらかが LINE登録（signup_source='line'）、または提案自体が source='line' のとき true。
   //   ローダー（proposals/page.tsx・/api/proposals/list）で案件/人材を突合して付与する。
   line_origin?: boolean;
+  // 承認済企業（企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら true。
+  company_approved?: boolean;
 };
 
 const LOST_STAGES = new Set(["見送り", "失注"]);
@@ -362,6 +364,36 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
     return { proposed, lost };
   }, [activeRows, history, from, to]);
 
+  // 承認済（企業マスタ「打ち合わせ済」ON）／未承認 企業の「提案フォルダ以降への移行数」と、
+  //   承認済企業が要因で失注（見送り/失注）した件数・理由内訳。集計ルールは LINE経由と同一
+  //   （提案以降に到達＝加算。承認待ち/所属確認は除外。所属確認に戻す/削除で自然に減算）。
+  const approvalStats = useMemo(() => {
+    const NOT_PROPOSED = new Set(["承認待ち", "所属確認"]);
+    const seen = new Map<string, HItem>();
+    for (const p of [...activeRows, ...history]) {
+      if (!p?.id || seen.has(p.id)) continue;
+      seen.set(p.id, p);
+    }
+    let approvedProposed = 0, unapprovedProposed = 0, approvedLost = 0;
+    const approvedLostReasons: Record<string, number> = {};
+    for (const p of seen.values()) {
+      if (!inRange(p)) continue;
+      const stage = String(p.stage ?? "").trim();
+      if (stage === "" || NOT_PROPOSED.has(stage)) continue; // 提案前は除外
+      if (p.company_approved) {
+        approvedProposed++;
+        if (LOST_STAGES.has(stage)) {
+          approvedLost++;
+          const r = p.lost_reason || "（理由未入力）";
+          approvedLostReasons[r] = (approvedLostReasons[r] || 0) + 1;
+        }
+      } else {
+        unapprovedProposed++;
+      }
+    }
+    return { approvedProposed, unapprovedProposed, approvedLost, approvedLostReasons };
+  }, [activeRows, history, from, to]);
+
   // 履歴から登場する年を抽出（降順）
   const availableYears = useMemo(() => {
     const ys = new Set<number>();
@@ -484,6 +516,9 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
           );
         })()}
       </div>
+
+      {/* 承認済／未承認 企業の提案移行・失注（②＝提案移行数の比較、③＝承認済起因の失注理由） */}
+      <ApprovalStatsCard stats={approvalStats} />
 
       {/* 会社ランキング */}
       {data.companies.length > 0 && (
@@ -624,6 +659,57 @@ function reasonColor(reason: string): string {
   return "#9ca3af"; // 架電できていない/未入力 等 → グレー
 }
 
+// 承認済／未承認 企業の「提案移行数」比較（②）と、承認済企業 起因の失注理由内訳（③）。
+function ApprovalStatsCard({ stats }: { stats: { approvedProposed: number; unapprovedProposed: number; approvedLost: number; approvedLostReasons: Record<string, number> } }) {
+  const { approvedProposed, unapprovedProposed, approvedLost, approvedLostReasons } = stats;
+  const maxProp = Math.max(1, approvedProposed, unapprovedProposed);
+  const reasons = Object.entries(approvedLostReasons).sort((a, b) => b[1] - a[1]);
+  const lostRate = approvedProposed > 0 ? Math.round((approvedLost / approvedProposed) * 100) : 0;
+  const bar = (label: string, value: number, color: string) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ width: 120, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, height: 22, background: "var(--color-surface-inset)", borderRadius: 6, overflow: "hidden", minWidth: 0 }}>
+        <div style={{ width: `${Math.max(value > 0 ? 6 : 0, (value / maxProp) * 100)}%`, height: "100%", background: color, borderRadius: 6, transition: "width .3s ease" }} />
+      </div>
+      <span style={{ width: 48, textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--color-ink)", flexShrink: 0 }}>{value}<span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+    </div>
+  );
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <Header title="🏢 承認済／未承認 企業の提案移行・失注" hint="承認済＝企業マスタ「打ち合わせ済」ON。案件 or 人材いずれかの会社が打合せ済なら承認済。提案フォルダ以降（提案中/確認中/面談/合格/見送り/失注 等）に到達した件数を集計（承認待ち/所属確認は除外。所属確認に戻す/削除で減算）。" />
+      {/* ② 提案移行数の比較（承認済 vs 未承認） */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {bar("承認済 提案移行", approvedProposed, "#067647")}
+        {bar("未承認 提案移行", unapprovedProposed, "#94a3b8")}
+      </div>
+      {/* ③ 承認済企業 起因の失注（理由内訳） */}
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--color-border)" }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
+          承認済企業 起因の失注 <b style={{ color: "#b42318", fontSize: 14 }}>{approvedLost}</b>件
+          <span className="muted" style={{ fontWeight: 500 }}> ／ 承認済 提案移行 {approvedProposed}件（失注率 {lostRate}%）</span>
+        </div>
+        {approvedLost === 0 ? (
+          <div className="muted" style={{ fontSize: 12 }}>承認済企業 起因の失注はありません。</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", height: 16, borderRadius: 99, overflow: "hidden", background: "var(--color-surface-inset)" }}>
+              {reasons.map(([r, n]) => <div key={r} title={`${r}：${n}件`} style={{ width: `${(n / approvedLost) * 100}%`, background: reasonColor(r) }} />)}
+            </div>
+            <div style={{ display: "flex", gap: "5px 12px", flexWrap: "wrap", marginTop: 6 }}>
+              {reasons.map(([r, n]) => (
+                <span key={r} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, color: "var(--color-ink-3)" }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: reasonColor(r), flexShrink: 0 }} />{r}（{n}）
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+      <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ ②承認済/未承認の提案移行数と、③そのうち承認済企業が要因の失注を比較できます。</div>
+    </div>
+  );
+}
+
 // 失注フェーズ分布：各フェーズの横棒を失注理由で色分けした積み上げ表示＋凡例。
 function PhaseReasonChart({ phases, phaseReasons }: { phases: Record<string, number>; phaseReasons: Record<string, Record<string, number>> }) {
   const phaseEntries = Object.entries(phases).sort((a, b) => b[1] - a[1]);
@@ -670,7 +756,14 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
   type View = "proposer" | "closer" | "client";
   // 既定は提案者。提案者が空ならクロージング → 先方担当 の順で初期表示。
   const [view, setView] = useState<View>(byProposer.length > 0 ? "proposer" : byCloser.length > 0 ? "closer" : "client");
+  const [page, setPage] = useState(0); // 1ページ最大10人。タブ切替でリセット。
+  const PER_PAGE = 10;
   const rows = view === "proposer" ? byProposer : view === "closer" ? byCloser : byClientContact;
+  // 初期表示は失注数が多い順（降順）。同数は成約数の少ない順で安定化。
+  const sortedRows = useMemo(() => [...rows].sort((a, b) => b.lost - a.lost || a.won - b.won), [rows]);
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / PER_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = sortedRows.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
   // 先方担当者タブは「会社名 担当者名（案件側/人材側）」で表示する。
   const labelOf = (p: OwnerStat) =>
     view === "client" && p.side
@@ -680,7 +773,7 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
   const TabBtn = ({ k, label, n }: { k: View; label: string; n: number }) => {
     const active = view === k;
     return (
-      <button type="button" onClick={() => setView(k)}
+      <button type="button" onClick={() => { setView(k); setPage(0); }}
         style={{
           fontFamily: "inherit", fontSize: 12.5, fontWeight: active ? 800 : 600, cursor: "pointer",
           padding: "6px 14px", borderRadius: 99, border: `1px solid ${active ? "var(--color-brand-600)" : "var(--color-border)"}`,
@@ -703,7 +796,7 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
         <div className="muted" style={{ fontSize: 12 }}>対象の担当者がいません。</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[...rows].sort((a, b) => b.lost - a.lost).map((p, idx) => {
+          {pageRows.map((p, idx) => {
             const total = p.lost;
             const top = Object.entries(p.reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 5);
             const lagArr = [...p.lagDays].sort((a, b) => a - b);
@@ -747,6 +840,17 @@ function OwnerLostBreakdown({ byProposer, byCloser, byClientContact }: { byPropo
               </div>
             );
           })}
+          {/* ページネーション（1ページ最大10人） */}
+          {pageCount > 1 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+              <button type="button" className="pg-btn" disabled={safePage <= 0} onClick={() => setPage(safePage - 1)} aria-label="前へ">‹</button>
+              {Array.from({ length: pageCount }, (_, i) => i).map((i) => (
+                <button key={i} type="button" className={"pg-btn" + (i === safePage ? " active" : "")} onClick={() => setPage(i)}>{i + 1}</button>
+              ))}
+              <button type="button" className="pg-btn" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)} aria-label="次へ">›</button>
+              <span className="muted" style={{ fontSize: 11, marginLeft: 6 }}>{sortedRows.length}人中 {safePage * PER_PAGE + 1}–{Math.min(sortedRows.length, safePage * PER_PAGE + PER_PAGE)}人</span>
+            </div>
+          )}
         </div>
       )}
     </div>

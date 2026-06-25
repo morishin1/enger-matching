@@ -152,7 +152,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           ...Object.values(candCompanyById).filter(Boolean) as string[],
         ]));
         const companyRows = allCompNames.length
-          ? await sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r: any) => r.error ? [] : nq(r.data))
+          ? await sb.from("companies").select("name, owner, contact_name, meeting_done").in("name", allCompNames).limit(2000)
+              .then((r: any) => r.error ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r2: any) => r2.error ? [] : nq(r2.data)) : nq(r.data))
           : [];
 
         try {
@@ -164,9 +165,11 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
           const contactByCompany: Record<string, string> = {};
+          const meetingDoneByCompany: Record<string, boolean> = {};
           for (const c of companyRows as any[]) {
             if (c?.owner) ownerByCompany[c.name] = c.owner;
             if (c?.contact_name) contactByCompany[c.name] = c.contact_name;
+            if (c?.name) meetingDoneByCompany[c.name] = !!c.meeting_done;
           }
           for (const p of all) {
             if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed; }
@@ -177,6 +180,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             // 人材側 会社名（保存値 → 人材所属会社の順で自動表示）。
             const candCompany = p.cand_company ?? (p.candidate_id ? candCompanyById[p.candidate_id] : null) ?? null;
             p.cand_company = candCompany;
+            // 承認済（＝企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら承認済扱い。
+            p.company_approved = !!(meetingDoneByCompany[p.company] || (candCompany && meetingDoneByCompany[candCompany]));
             // 企業担当（窓口担当者）は保存値が無ければ企業マスタの contact_name を自動表示。
             p.company_contact = p.company_contact ?? (p.company ? contactByCompany[p.company] : null) ?? null;
             p.cand_company_contact = p.cand_company_contact ?? (candCompany ? contactByCompany[candCompany] : null) ?? null;

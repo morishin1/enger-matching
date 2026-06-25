@@ -51,11 +51,20 @@ export async function GET(req: Request) {
     for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
     const mC: Record<string, { candidate_no: number; closed: boolean; cand_company: string | null; line: boolean }> = {};
     for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, closed: !!c.is_closed, cand_company: c.source_company ?? c.company ?? null, line: String(c.signup_source ?? "") === "line" };
+    // 案件 or 人材の会社が「打ち合わせ済」(meeting_done) かどうか（＝承認済企業の判定）。
+    const compNames = Array.from(new Set(all.flatMap((p) => [p.company, p.cand_company ?? (p.candidate_id ? mC[p.candidate_id]?.cand_company : null)]).filter(Boolean))) as string[];
+    const meetingDoneByCompany: Record<string, boolean> = {};
+    if (compNames.length) {
+      const cr: any = await sb.from("companies").select("name, meeting_done").in("name", compNames).limit(5000);
+      if (!cr.error) for (const c of (cr.data ?? []) as any[]) if (c?.name) meetingDoneByCompany[c.name] = !!c.meeting_done;
+    }
     for (const p of all) {
       if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_closed = mJ[p.job_id].closed; }
       if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_closed = mC[p.candidate_id].closed; p.cand_company = p.cand_company ?? mC[p.candidate_id].cand_company; }
       // LINE経由（案件 or 人材のどちらかが LINE登録、または提案自体が source='line'）。
       p.line_origin = String(p.source ?? "") === "line" || !!(p.job_id && mJ[p.job_id]?.line) || !!(p.candidate_id && mC[p.candidate_id]?.line);
+      // 承認済（企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら承認済扱い。
+      p.company_approved = !!(meetingDoneByCompany[p.company] || (p.cand_company && meetingDoneByCompany[p.cand_company]));
       p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));
     }
 
