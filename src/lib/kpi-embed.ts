@@ -5,7 +5,7 @@
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import {
   getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets,
-  jstStartOfWeek, cumulateMode, resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
+  jstStartOfWeek, resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
 } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
@@ -53,10 +53,12 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     const weekStart = jstStartOfWeek(new Date());
     const weekly = await getWeeklyTargets({ ownerEmail: targetEmail, weekStart });
     const custom = (period === "custom" && sp.from && sp.to) ? { from: sp.from, to: sp.to } : undefined;
+    // カード／グラフ／表とも「選択タブの期間そのまま」で集計（累計しない）。
+    //   メンバー別アクティビティ表と同基準に揃え、サマリーカードとの乖離をなくす。
     const { range, snapshot } = await getKpiSnapshot({
-      ownerName: isTeam ? null : (targetName || null), type: period, custom, weeklyTargets: weekly, cumulate: true,
+      ownerName: isTeam ? null : (targetName || null), type: period, custom, weeklyTargets: weekly, cumulate: false,
     });
-    const cumulate = cumulateMode(period);
+    const cumulate = "off" as const;
     const historyType: Exclude<PeriodType, "custom"> = period === "custom" ? "week" : period;
     const history = await getKpiHistory({
       ownerName: isTeam ? null : (targetName || null), ownerEmail: targetEmail,

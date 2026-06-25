@@ -25,12 +25,13 @@ const PERIODS: { key: PeriodType; label: string }[] = [
 
 const toneOf = (pct: number) => pct >= 100 ? "#067647" : pct >= 80 ? "#0095D9" : pct >= 50 ? "#b45309" : "#b42318";
 
-// 累計（積み上げ）のリセット規則を説明する注記。タブごとに表示。
-function cumulativeNote(period: PeriodType): string {
-  if (period === "day" || period === "week") return "実績・目標とも月初からの累計（新しい月でリセット）";
-  if (period === "quarter") return "実績・目標とも四半期内の累計";
-  if (period === "custom")  return "実績・目標とも指定期間の累計";
-  return "実績・目標とも当月の累計"; // month
+// 集計期間を説明する注記。タブごとに表示（選択タブの期間そのままで集計＝累計しない）。
+function periodNote(period: PeriodType): string {
+  if (period === "day")     return "選択した日（当日）の実績・目標";
+  if (period === "week")    return "選択した週（月〜日）の実績・目標";
+  if (period === "quarter") return "選択した四半期の実績・目標";
+  if (period === "custom")  return "指定期間の実績・目標";
+  return "選択した月の実績・目標"; // month
 }
 
 function fmtRange(startIso: string, endIso: string) {
@@ -176,9 +177,9 @@ export function KpiDashboardClient(props: {
         </div>
       </div>
 
-      {/* 指標カード（実績・目標とも累計表示） */}
+      {/* 指標カード（選択タブの期間そのままで集計） */}
       <div className="muted" style={{ fontSize: 11.5, marginTop: -6 }}>
-        {cumulativeNote(props.period)}
+        {periodNote(props.period)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
         {METRIC_ORDER.map((m) => {
@@ -211,8 +212,8 @@ export function KpiDashboardClient(props: {
       {/* 推移グラフ */}
       <div className="card" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>達成率の推移（累計・直近12{PERIODS.find((p) => p.key === (props.period === "custom" ? "week" : props.period))?.label}）</span>
-          <span className="muted" style={{ fontSize: 11 }}>指標: 提案 ／ {cumulativeNote(props.period)}</span>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>達成率の推移（直近12{PERIODS.find((p) => p.key === (props.period === "custom" ? "week" : props.period))?.label}）</span>
+          <span className="muted" style={{ fontSize: 11 }}>指標: 提案 ／ 各期間単体の達成率</span>
         </div>
         <HistoryChart data={props.history} />
       </div>
@@ -243,8 +244,8 @@ function HistoryTable({ rows, periodLabel, teamName }: { rows: HistoryRow[]; per
   return (
     <div className="card flush" style={{ overflowX: "auto" }}>
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "baseline", gap: 8, borderBottom: "1px solid var(--color-border)" }}>
-        <span style={{ fontSize: 13, fontWeight: 700 }}>📋 実績の推移表（累計）</span>
-        <span className="muted" style={{ fontSize: 11 }}>{teamName} ／ {periodLabel}ごと（実績 / 目標）。実績・目標とも累計（積み上げ）表示。</span>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>📋 実績の推移表</span>
+        <span className="muted" style={{ fontSize: 11 }}>{teamName} ／ {periodLabel}ごと（実績 / 目標）。各期間単体の数値。</span>
       </div>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 640 }}>
         <thead>
