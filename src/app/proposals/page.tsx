@@ -1,13 +1,10 @@
 import { ProposalsWorkspace } from "@/components/ProposalsWorkspace";
-import { NewProposalButton } from "@/components/NewProposalButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
-import { ProposalOwnersEditor } from "@/components/ProposalOwnersEditor";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
-import { Collapsible } from "@/components/Collapsible";
 import { loadKpiClientProps } from "@/lib/kpi-embed";
 import { loadReportsView } from "@/lib/reports-embed";
 
@@ -28,9 +25,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
     loadReportsView(access ? { email: access.email, name: access.name, role: access.role, rawRole: access.rawRole, teamRole: access.teamRole, department: access.department } : null),
   ]);
   // 担当者（提案者・クロージング）の名前を追加/削除できるのは管理者のみ
-  //   （保存 saveProposalOwners が admin 限定のため、表示もそれに合わせる）。
-  //   設定画面だけでなく、この提案管理画面からも編集できるようにする（運用導線の集約）。
-  const canEditOwners = !access || access.role === "admin";
+  //   （保存 saveProposalOwners が admin 限定）。選択肢の編集は「設定」へ集約済み。
   // 承認操作の権限：admin / 経営部署（=admin昇格済） / マネージャー / リーダー。
   const canApprove = !access || access.role === "admin" || canManageDept(access.teamRole ?? null);
   const currentUserName = access?.name ?? null;
@@ -250,25 +245,14 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="page">
-      {/* 最上部のタイトル・説明文は非表示のまま。提案の手動新規登録ボタンは復活（要員入替時の別要員提案を記録するため）。 */}
-      {!needSetup && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-          <NewProposalButton />
-        </div>
-      )}
-
-      {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
+      {/* 新規登録ボタンは提案ボードのツールバー（AIコーチの隣）へ移動。
+          提案者・クロージング担当の選択肢編集は「設定」へ移動。 */}
+      {dbError &&<div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
       {needSetup && (
         <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)" }}>
           <b>提案テーブルが未作成です。</b> 中央 Supabase の SQL Editor で <span className="mono">supabase/schema-matching.sql</span> を実行すると、提案管理・稼働管理が使えるようになります。
         </div>
-      )}
-
-      {!needSetup && canEditOwners && (
-        <Collapsible label="👥 提案者・クロージング担当を編集（名前の追加・削除・並び替え）">
-          <ProposalOwnersEditor initial={ownersInitial} suggestions={staff.members} />
-        </Collapsible>
       )}
 
       {!needSetup && (

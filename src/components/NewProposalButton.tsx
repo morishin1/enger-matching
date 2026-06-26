@@ -124,8 +124,13 @@ export function NewProposalButton() {
               <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>提案を新規追加</h3>
               <button className="btn ghost btn-xs" onClick={close} disabled={pending}>閉じる</button>
             </div>
-            <div className="muted" style={{ fontSize: 11.5 }}>
-              既存の案件・人材は「NO」を入力。新規（LINE/書面など）は下のフィールドに入力すると自動でマスタに追加されます。
+            {/* 機能説明（AIコーチ同様、何ができるかをモーダル冒頭で明示）。 */}
+            <div style={{ border: "1px solid var(--color-brand-100)", background: "var(--color-brand-25)", borderRadius: 10, padding: "10px 12px", fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, marginBottom: 2 }}>提案を手動で1件登録します</div>
+              要員入替やLINE/書面など、マッチング画面を経由しない提案をここから記録できます。
+              <br />・既存の案件・人材は <b>「NO」</b> を入力すれば紐付きます。
+              <br />・新規（未登録）の場合は下のフィールドに入力すると<b>自動でマスタに追加</b>されます。
+              <br />・LINE/メール本文を貼り付ければ <b>AIが項目を抽出</b>して埋めます。
             </div>
 
             {/* LINE / メール 貼り付け取り込み（案件一覧・人材一覧の新規登録モーダルと同UI） */}
