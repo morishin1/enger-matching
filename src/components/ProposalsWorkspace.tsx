@@ -93,6 +93,8 @@ export function ProposalsWorkspace({
   const [period, setPeriod] = useState<Period>("week");
   // 既定は「KPI推移」タブ（KPI/KGI→提案→結果→日報 の流れの起点）。
   const [tab, setTab] = useState<TabKey>("kpi");
+  // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
+  const [kpiSubTab, setKpiSubTab] = useState<"activity" | "stage">("activity");
 
   // 履歴・失注は「タブを開いた時」に /api/proposals/list で取得する（遅延ロード）。
   //   従来は親 props で初期描画時にブラウザへ大量転送（履歴326+失注258件＋全列）していたが、
@@ -258,32 +260,48 @@ export function ProposalsWorkspace({
       {tab === "kpi" && (
         kpiProps ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* 期間切替バー（本日/前日/今週/今月/四半期/任意）。下の各表・ダッシュボードに連動。 */}
+            {/* 期間切替は1つに統合（このバーがダッシュボード・各表すべてに連動）。 */}
             <KpiPeriodBar current={kpiProps.period} />
-            {teamActivity && (
-              <div className="card" style={{ padding: 14 }}>
-                <TeamActivityBoard {...teamActivity} />
-              </div>
-            )}
-            <div className="card" style={{ padding: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
-                <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
-                <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>所属確認 → 提案中 → 確認中 → 面談 → 合格 の目標/現在/達成率</span>
-              </div>
-              {/* この表にも期間切替を直接表示（本日/前日/今週/今月/四半期/任意）。KPI達成率列が期間連動。 */}
-              <div style={{ marginBottom: 12 }}><KpiPeriodBar current={kpiProps.period} /></div>
-              <StageTargetBoard
-                proposals={proposals}
-                members={stageBoardMembers}
-                stageTargets={stageTargets ?? {}}
-                kgiByMember={kgiByMember ?? {}}
-                kpiPctByMember={kpiPctByMember}
-                canEdit={!!privileged}
-              />
-            </div>
+            {/* ① KPIダッシュボードを一番上に（期間タブは内蔵せず上の1バーに統一）。 */}
             <div className="card flush" style={{ overflow: "hidden" }}>
-              <KpiDashboardClient {...kpiProps} />
+              <KpiDashboardClient {...kpiProps} hidePeriodTabs />
+            </div>
+            {/* ② メンバー別：アクティビティ と ステージ目標・達成率 をサブタブで分離。 */}
+            <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", padding: "0 8px", overflowX: "auto" }}>
+                {([["activity", "メンバー別アクティビティ（本日）"], ["stage", "メンバー別 ステージ目標・KPI/KGI達成率"]] as const).map(([k, label]) => {
+                  const on = kpiSubTab === k;
+                  return (
+                    <button key={k} type="button" onClick={() => setKpiSubTab(k)} style={{
+                      padding: "10px 14px", background: "transparent", border: 0,
+                      borderBottom: on ? "2px solid var(--color-brand-600)" : "2px solid transparent",
+                      color: on ? "var(--color-brand-700)" : "var(--color-ink-3)",
+                      fontWeight: on ? 700 : 600, fontSize: 13, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+              <div style={{ padding: 14 }}>
+                {kpiSubTab === "activity" ? (
+                  teamActivity ? <TeamActivityBoard {...teamActivity} /> : <div className="muted" style={{ fontSize: 12 }}>アクティビティはありません。</div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                      <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
+                      <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
+                      <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>所属確認 → 提案中 → 確認中 → 面談 → 合格 の目標/現在/達成率</span>
+                    </div>
+                    <StageTargetBoard
+                      proposals={proposals}
+                      members={stageBoardMembers}
+                      stageTargets={stageTargets ?? {}}
+                      kgiByMember={kgiByMember ?? {}}
+                      kpiPctByMember={kpiPctByMember}
+                      canEdit={!!privileged}
+                    />
+                  </>
+                )}
+              </div>
             </div>
           </div>
         ) : (

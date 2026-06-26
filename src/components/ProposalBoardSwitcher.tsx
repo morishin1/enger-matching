@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { ProposalBoard } from "./ProposalBoard";
 import { ProposalListView } from "./ProposalListView";
 import { ProposalCoach } from "./ProposalCoach";
+import { NewProposalButton } from "./NewProposalButton";
 
 type View = "kanban" | "list";
 
@@ -38,6 +39,7 @@ export function ProposalBoardSwitcher({ proposals, members, proposers, closers, 
         <Btn v="kanban" icon="view_kanban" label="カンバン" />
         {/* AIコーチ＋コピーはツールバー右端に寄せて、表示切替と視覚的に分離（すっきり） */}
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <NewProposalButton />
           <ProposalCoach proposals={proposals} periodLabel={periodLabel} />
         </span>
       </div>

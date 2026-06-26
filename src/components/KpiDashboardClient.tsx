@@ -58,6 +58,8 @@ export function KpiDashboardClient(props: {
   history: HistoryPoint[];
   historyTable?: HistoryRow[];
   historyPeriodLabel?: string;
+  /** 期間タブを内蔵表示しない（上位で単一の期間バーを使う場合）。custom の日付入力は残す。 */
+  hidePeriodTabs?: boolean;
 }) {
   const router = useRouter();
   const isAdmin = props.access.role === "admin";
@@ -138,9 +140,10 @@ export function KpiDashboardClient(props: {
         })}
       </div>
 
-      {/* 期間タブ */}
+      {/* 期間タブ（hidePeriodTabs のときは非表示。ただし custom の日付入力は残す）。 */}
+      {(!props.hidePeriodTabs || props.period === "custom") && (
       <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--color-border)" }}>
-        {PERIODS.map((p) => {
+        {!props.hidePeriodTabs && PERIODS.map((p) => {
           const on = props.period === p.key;
           return (
             <button key={p.key} type="button" onClick={() => switchPeriod(p.key)} style={{
@@ -164,6 +167,7 @@ export function KpiDashboardClient(props: {
           </span>
         )}
       </div>
+      )}
 
       {/* 総合達成率 */}
       <div className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 16 }}>
