@@ -99,12 +99,18 @@ export type Engineer = {
 //   LMS(学習管理)は「登録＝auth.users作成」のため public.profiles に行が混入する。
 //   profiles 側に明示の経路列が無いケースもあるため、signup_source / source /
 //   （auth metadata 由来の）app のいずれかが該当値なら除外する。
-export const EXCLUDED_SIGNUP_SOURCES = new Set(["lms"]);
+//   無限道場（mugen_dojo / dojo / 無限道場LP）も DX の LP登録一覧には出さない（要望）。
+export const EXCLUDED_SIGNUP_SOURCES = new Set(["lms", "mugen_dojo", "dojo"]);
+// 表記ゆれ（"無限道場LP" 等）も拾うための部分一致キーワード。
+const EXCLUDED_SOURCE_KEYWORDS = ["lms", "mugen", "dojo", "無限道場", "無限"];
 
 /** その profiles 行（または auth metadata）が除外対象の登録経路か。 */
 export function isExcludedProfile(p: any): boolean {
   for (const key of ["signup_source", "source", "app"]) {
-    if (EXCLUDED_SIGNUP_SOURCES.has(String(p?.[key] ?? "").toLowerCase())) return true;
+    const v = String(p?.[key] ?? "").toLowerCase().trim();
+    if (!v) continue;
+    if (EXCLUDED_SIGNUP_SOURCES.has(v)) return true;
+    if (EXCLUDED_SOURCE_KEYWORDS.some((kw) => v.includes(kw.toLowerCase()))) return true;
   }
   return false;
 }
