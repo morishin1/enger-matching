@@ -15,6 +15,7 @@ import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
 import { KpiDashboardClient } from "./KpiDashboardClient";
 import { TeamActivityBoard } from "./TeamActivityBoard";
+import { KpiPeriodBar } from "./KpiPeriodBar";
 import { StageTargetBoard } from "./StageTargetBoard";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
@@ -257,6 +258,8 @@ export function ProposalsWorkspace({
       {tab === "kpi" && (
         kpiProps ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* 期間切替バー（本日/前日/今週/今月/四半期/任意）。下の各表・ダッシュボードに連動。 */}
+            <KpiPeriodBar current={kpiProps.period} />
             {teamActivity && (
               <div className="card" style={{ padding: 14 }}>
                 <TeamActivityBoard {...teamActivity} />
