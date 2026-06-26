@@ -14,6 +14,7 @@ import { extractEntityFields, upsertCandidateManual, upsertJobManual, type Candi
 import { rankCandidates, rankJobs } from "@/lib/match";
 import { relatedSearchLabels } from "@/lib/skills";
 import { lineworksConfigured, verifyWebhookSignature, sendBotMessage, textMessage, matchCarousel, diagnoseAuth, type LwTarget, type MatchColumn } from "@/lib/lineworks";
+import { recordLineworksTarget } from "@/lib/lineworks-targets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -178,6 +179,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: true });
   }
   const target: LwTarget = { channelId: body.source?.channelId ?? null, userId: body.source?.userId ?? null };
+  // ENGER→LINE 共有の宛先候補として、このトークを記憶（fail-soft）。
+  await recordLineworksTarget(target, String(body.content.text));
   try {
     await handleMessage(String(body.content.text), target);
   } catch (e) {
