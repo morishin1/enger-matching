@@ -146,15 +146,19 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       `${base}, signup_source, signup_method`,
       base,
     ];
-    const orFilter = "github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,role.eq.student";
+    // 無限道場（role=student）は DX の LP登録一覧に出さないため、student のみで拾う条件は外す。
+    // ※ ENGERフリーランス登録者は github_login / display_name / email のいずれかを持つため取りこぼさない。
+    const orFilter = "github_id.not.is.null,github_login.not.is.null,display_name.not.is.null";
     let data: any[] | null = null;
     for (const sel of richVariants) {
       const r: any = await sb.from("profiles").select(sel).or(orFilter).order("created_at", { ascending: false }).limit(500);
       if (!r.error) { data = r.data ?? []; break; }
     }
     if (data == null) return { rows: [], available: false };
-    // 外部システム由来（LMS 等）の混入行を除外する。
-    data = data.filter((r: any) => !isExcludedProfile(r));
+    // 外部システム由来（LMS 等）と無限道場の混入行を除外する。
+    //   signup_source/source 列が無い既存データでも、classifySource のヒューリスティック
+    //   （role=student → dojo 等）で無限道場と判定された行は LP登録一覧に出さない。
+    data = data.filter((r: any) => !isExcludedProfile(r) && classifySource(r).key !== "dojo");
     // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
     const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
     const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;

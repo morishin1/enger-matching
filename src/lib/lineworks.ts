@@ -48,6 +48,11 @@ export function verifyWebhookSignature(rawBody: string, signature: string | null
 
 // ---- アクセストークン（JWT Bearer / メモリキャッシュ）------------------
 let cachedToken: { token: string; exp: number } | null = null;
+// 直近の認証失敗理由（診断用）。getAccessToken の各失敗経路でセットし、diagnoseAuth() で返す。
+let lastAuthError: string | null = null;
+
+/** 直近のトークン取得失敗理由（無ければ null）。 */
+export function lastLineworksAuthError(): string | null { return lastAuthError; }
 
 function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -62,30 +67,61 @@ function buildAssertionJwt(): string {
   return `${data}.${b64url(sig)}`;
 }
 
-async function getAccessToken(): Promise<string | null> {
-  if (!lineworksConfigured()) return null;
+/** アクセストークンを取得（メモリキャッシュ）。失敗時は理由を lastAuthError に記録しログ出力。
+ *  force=true でキャッシュを無視して必ず取り直す（自己診断 diagnoseAuth 用）。 */
+async function getAccessToken(force = false): Promise<string | null> {
+  if (!lineworksConfigured()) { lastAuthError = "環境変数(LINEWORKS_*)が未設定です"; return null; }
   const now = Math.floor(Date.now() / 1000);
-  if (cachedToken && cachedToken.exp - 60 > now) return cachedToken.token;
+  if (!force && cachedToken && cachedToken.exp - 60 > now) return cachedToken.token;
+
+  // JWT 署名は PRIVATE_KEY が不正だとここで例外（通信前）。よくある原因：PEMの改行/BEGIN-END欠落。
+  let assertion: string;
+  try {
+    assertion = buildAssertionJwt();
+  } catch (e) {
+    lastAuthError = `JWT署名に失敗（LINEWORKS_PRIVATE_KEY の形式不正の可能性）: ${e instanceof Error ? e.message : String(e)}`;
+    console.error("[lineworks]", lastAuthError);
+    return null;
+  }
+
   try {
     const res = await fetch(AUTH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        assertion: buildAssertionJwt(),
+        assertion,
         grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
         client_id: CLIENT_ID!,
         client_secret: CLIENT_SECRET!,
         scope: "bot bot.message",
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      lastAuthError = `トークン取得失敗 HTTP ${res.status}: ${body.slice(0, 300)}`;
+      console.error("[lineworks]", lastAuthError);
+      return null;
+    }
     const d: any = await res.json();
-    if (!d?.access_token) return null;
+    if (!d?.access_token) {
+      lastAuthError = "トークン応答に access_token がありません（scope/権限を確認）";
+      console.error("[lineworks]", lastAuthError);
+      return null;
+    }
     cachedToken = { token: d.access_token, exp: now + (Number(d.expires_in) || 3600) };
+    lastAuthError = null;
     return cachedToken.token;
-  } catch {
+  } catch (e) {
+    lastAuthError = `トークン取得の通信エラー: ${e instanceof Error ? e.message : String(e)}`;
+    console.error("[lineworks]", lastAuthError);
     return null;
   }
+}
+
+/** 認証（トークン取得）が通るかを実際に試す自己診断。ブラウザ等から原因確認するための read-only 関数。 */
+export async function diagnoseAuth(): Promise<{ ok: boolean; error?: string }> {
+  const token = await getAccessToken(true);
+  return token ? { ok: true } : { ok: false, error: lastAuthError ?? "不明なエラー" };
 }
 
 // ---- メッセージ送信 ----------------------------------------------------
@@ -94,22 +130,34 @@ export type LwTarget = { channelId?: string | null; userId?: string | null };
 /** Bot メッセージを送信（グループは channelId、1:1 は userId）。fail-soft。 */
 export async function sendBotMessage(target: LwTarget, content: unknown): Promise<{ ok: boolean; error?: string }> {
   const token = await getAccessToken();
-  if (!token) return { ok: false, error: "LINE WORKS 未設定/認証失敗" };
+  if (!token) {
+    const err = `LINE WORKS 認証に失敗（送信中止）: ${lastAuthError ?? "理由不明"}`;
+    console.error("[lineworks]", err);
+    return { ok: false, error: err };
+  }
   const dest = target.channelId
     ? `${API_BASE}/bots/${BOT_ID}/channels/${encodeURIComponent(target.channelId)}/messages`
     : target.userId
       ? `${API_BASE}/bots/${BOT_ID}/users/${encodeURIComponent(target.userId)}/messages`
       : null;
-  if (!dest) return { ok: false, error: "送信先(channelId/userId)がありません" };
+  if (!dest) {
+    console.error("[lineworks] 送信先(channelId/userId)がありません。webhook payload の source を確認", JSON.stringify(target));
+    return { ok: false, error: "送信先(channelId/userId)がありません" };
+  }
   try {
     const res = await fetch(dest, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     });
-    if (!res.ok) return { ok: false, error: `送信失敗 HTTP ${res.status}` };
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[lineworks]", `メッセージ送信失敗 HTTP ${res.status}: ${body.slice(0, 300)}`);
+      return { ok: false, error: `送信失敗 HTTP ${res.status}` };
+    }
     return { ok: true };
   } catch (e) {
+    console.error("[lineworks]", "メッセージ送信の通信エラー:", e instanceof Error ? e.message : String(e));
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
