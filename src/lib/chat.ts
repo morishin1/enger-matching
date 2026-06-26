@@ -1,6 +1,15 @@
-import { engerClient, publicAdmin, dbConfigured } from "@/lib/supabase";
+import { engerClient, engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 
 export type ChatRole = "company" | "freelance" | "agent";
+
+/** チャット読み取り用クライアント。
+ *  社内(dx)の閲覧は service role を優先し、未設定時のみ anon にフォールバックする。
+ *  ※ anon は RLS の select ポリシー（chat.sql の `using (true)`）が本番に適用されていないと
+ *    0件になり「ENGERフリーランスのチャットが見えない」事故になる。サーバ専用関数なので
+ *    service role で確実に読む（proposal_memos の取得と同じ方針）。 */
+function chatReader() {
+  try { return engerAdmin(); } catch { return engerClient(); }
+}
 
 export type ChatThread = {
   id: string;
@@ -93,7 +102,7 @@ export type ChatThreadListItem = ChatThread & {
 export async function listChatThreads(agentId?: string | null): Promise<ChatThreadListItem[]> {
   if (!dbConfigured) return [];
   try {
-    const sb = engerClient();
+    const sb = chatReader();
     let tr: any = await sb.from("chat_threads").select(THREAD_COLS).order("last_message_at", { ascending: false }).limit(300);
     if (tr.error && /memo|column/i.test(tr.error.message ?? "")) {
       tr = await sb.from("chat_threads").select(THREAD_COLS.replace(", memo", "")).order("last_message_at", { ascending: false }).limit(300);
@@ -158,7 +167,7 @@ export async function getChatThread(
 ): Promise<{ thread: ChatThread; messages: ChatMessage[]; reads: ChatRead[] } | null> {
   if (!dbConfigured) return null;
   try {
-    const sb = engerClient();
+    const sb = chatReader();
     let tr: any = await sb.from("chat_threads").select(THREAD_COLS).eq("id", id).maybeSingle();
     if (tr.error && /memo|column/i.test(tr.error.message ?? "")) {
       tr = await sb.from("chat_threads").select(THREAD_COLS.replace(", memo", "")).eq("id", id).maybeSingle();
@@ -196,7 +205,7 @@ export type EngineerChatStatus = { threadId: string; unread: number; unreplied: 
 export async function listEngineerChatStatus(agentId?: string | null): Promise<Record<string, EngineerChatStatus>> {
   if (!dbConfigured) return {};
   try {
-    const sb = engerClient();
+    const sb = chatReader();
     const { data: threads, error } = await sb
       .from("chat_threads")
       .select("id, engineer_id, last_message_at")
