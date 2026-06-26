@@ -40,6 +40,7 @@ export type Account = {
   meeting_done_by_name?: string | null;
   department?: string | null;
   team_role?: string | null;
+  kpi_role?: string | null;       // KPI役割: outside / inside / telapo（kpi-roles-funnel.sql）
   is_timecard_user?: boolean | null;
   /** LP登録の出所。'enger' | 'dojo' | 将来の値（profile/auth起源のときのみ）。表示バッジ用。 */
   signup_source?: string | null;
