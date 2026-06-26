@@ -4,6 +4,7 @@
 //   選択中の 1組（人材 × 案件）を、記憶済みの LINE WORKS トークへ送信する。
 //   送信は Bot（service account）経由。権限は admin / agent のみ。
 import { sendBotMessage, textMessage, matchCarousel } from "@/lib/lineworks";
+import { recordLineworksMessage } from "@/lib/lineworks-messages";
 import { currentAccess } from "@/lib/accounts";
 
 const BASE = (process.env.NEXT_PUBLIC_SITE_URL || "https://dx.enger.jp").replace(/\/$/, "");
@@ -35,19 +36,20 @@ export async function sendMatchToLineworks(input: {
 
   const op = access.name?.trim() || access.email || "ENGER";
   // 1通目：共有の見出しテキスト（誰が・何を共有したか）。
-  const head = await sendBotMessage(
-    target,
-    textMessage(`📤 ${op} がマッチを共有しました\n${input.candidateName} × ${input.jobTitle}${scoreText ? `（${scoreText}）` : ""}`),
-  );
+  const headText = `📤 ${op} がマッチを共有しました\n${input.candidateName} × ${input.jobTitle}${scoreText ? `（${scoreText}）` : ""}`;
+  const head = await sendBotMessage(target, textMessage(headText));
   if (!head.ok) return head;
+  await recordLineworksMessage({ target, direction: "outbound", msg_type: "text", body: headText, sender_name: op });
 
   // 2通目：カルーセル（1カード）。「ENGERで開く」で該当マッチに直行できる。
-  const card = matchCarousel([
+  const cols = [
     {
       title: `${input.candidateName} × ${input.jobTitle}`,
       text: [scoreText, skills].filter(Boolean).join(" / ") || "ENGERで詳細を確認",
       url: link,
     },
-  ]);
-  return sendBotMessage(target, card);
+  ];
+  const res = await sendBotMessage(target, matchCarousel(cols));
+  if (res.ok) await recordLineworksMessage({ target, direction: "outbound", msg_type: "cards", cards: cols, sender_name: op });
+  return res;
 }

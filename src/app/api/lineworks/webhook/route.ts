@@ -15,6 +15,7 @@ import { rankCandidates, rankJobs } from "@/lib/match";
 import { relatedSearchLabels } from "@/lib/skills";
 import { lineworksConfigured, verifyWebhookSignature, sendBotMessage, textMessage, matchCarousel, diagnoseAuth, type LwTarget, type MatchColumn } from "@/lib/lineworks";
 import { recordLineworksTarget } from "@/lib/lineworks-targets";
+import { recordLineworksMessage } from "@/lib/lineworks-messages";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,7 +99,18 @@ async function topCandidatesForJob(admin: ReturnType<typeof engerAdmin>, jobNo: 
 
 /** 1メッセージを処理（分類→抽出→登録→マッチング→返信）。 */
 async function handleMessage(text: string, target: LwTarget): Promise<void> {
-  const reply = (content: unknown) => sendBotMessage(target, content);
+  // テキスト返信：送信しつつ ENGER の会話履歴(outbound)にも保存する。
+  const reply = async (content: any) => {
+    await sendBotMessage(target, content);
+    if (content?.type === "text") {
+      await recordLineworksMessage({ target, direction: "outbound", msg_type: "text", body: content.text, sender_name: "Enger_bot" });
+    }
+  };
+  // マッチ結果カルーセル返信：カード配列も履歴に保存（会話画面でカード表示するため）。
+  const replyCards = async (cols: MatchColumn[]) => {
+    await sendBotMessage(target, matchCarousel(cols));
+    await recordLineworksMessage({ target, direction: "outbound", msg_type: "cards", cards: cols, sender_name: "Enger_bot" });
+  };
 
   // 1) 案件/人材の判定
   const pre = detectKindByPrefix(text);
@@ -130,7 +142,7 @@ async function handleMessage(text: string, target: LwTarget): Promise<void> {
     if (!res.ok || res.candidate_no == null) { await reply(textMessage(`登録に失敗しました：${(res as any).error ?? "不明なエラー"}`)); return; }
     const { cand, cols } = await topJobsForCandidate(admin, res.candidate_no);
     await reply(textMessage(`✅ 人材「${cand?.name ?? input.name}」を登録しました（P-${String(res.candidate_no).padStart(5, "0")}）。${cols.length ? `合う案件 上位${cols.length}件：` : ""}`));
-    if (cols.length) await reply(matchCarousel(cols));
+    if (cols.length) await replyCards(cols);
     else await reply(textMessage(`合う案件が見つかりませんでした。スキル情報が少ない可能性があります。\n${BASE}/matching?person=${res.candidate_no} で確認できます。`));
   } else {
     const input: JobInput = {
@@ -146,7 +158,7 @@ async function handleMessage(text: string, target: LwTarget): Promise<void> {
     if (!res.ok || res.job_no == null) { await reply(textMessage(`登録に失敗しました：${(res as any).error ?? "不明なエラー"}`)); return; }
     const { job, cols } = await topCandidatesForJob(admin, res.job_no);
     await reply(textMessage(`✅ 案件「${job?.title ?? input.title}」を登録しました（No.${String(res.job_no).padStart(5, "0")}）。${cols.length ? `合う人材 上位${cols.length}名：` : ""}`));
-    if (cols.length) await reply(matchCarousel(cols));
+    if (cols.length) await replyCards(cols);
     else await reply(textMessage(`合う人材が見つかりませんでした。スキル情報が少ない可能性があります。\n${BASE}/matching?job=${res.job_no} で確認できます。`));
   }
 }
@@ -181,6 +193,8 @@ export async function POST(req: NextRequest) {
   const target: LwTarget = { channelId: body.source?.channelId ?? null, userId: body.source?.userId ?? null };
   // ENGER→LINE 共有の宛先候補として、このトークを記憶（fail-soft）。
   await recordLineworksTarget(target, String(body.content.text));
+  // 受信メッセージを会話履歴(inbound)に保存（fail-soft）。
+  await recordLineworksMessage({ target, direction: "inbound", msg_type: "text", body: String(body.content.text), sender_name: body.source?.userId ?? null });
   try {
     await handleMessage(String(body.content.text), target);
   } catch (e) {
