@@ -2918,11 +2918,10 @@ skills は最重要。経歴・自己PR・得意分野・職種から、本文�
 ${text}`;
 
 /** 貼り付けテキストを AI で構造化（kind=candidates|jobs）。フォーム初期値用の文字列マップを返す。 */
-export async function parseEntityText(kind: "candidates" | "jobs", text: string): Promise<{ ok: true; fields: Record<string, string>; summary?: string } | { ok: false; error: string }> {
+/** 貼り付けテキストの AI 構造化（認証チェックなし）。サーバ内部・Webhook（LINE WORKS 取込）から再利用する。 */
+export async function extractEntityFields(kind: "candidates" | "jobs", text: string): Promise<{ ok: true; fields: Record<string, string>; summary?: string } | { ok: false; error: string }> {
   const raw = (text ?? "").trim();
   if (raw.length < 4) return { ok: false, error: "テキストが短すぎます。LINE/メールの本文を貼り付けてください。" };
-  const me = await currentAccess();
-  if (!me) return { ok: false, error: "未ログインです" };
 
   const { callLLM, parseJsonLoose } = await import("./llm");
   const { logUsage } = await import("./ai-usage");
@@ -2985,6 +2984,13 @@ export async function parseEntityText(kind: "candidates" | "jobs", text: string)
   // 空キーは落とす（既存入力を上書きしないため）
   for (const k of Object.keys(fields)) if (!fields[k]) delete fields[k];
   return { ok: true, fields };
+}
+
+/** UI（ログインユーザー）向けラッパー。未ログインは拒否したうえで extractEntityFields を呼ぶ。 */
+export async function parseEntityText(kind: "candidates" | "jobs", text: string): Promise<{ ok: true; fields: Record<string, string>; summary?: string } | { ok: false; error: string }> {
+  const me = await currentAccess();
+  if (!me) return { ok: false, error: "未ログインです" };
+  return extractEntityFields(kind, text);
 }
 
 export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; job_no?: number; error?: string }> {

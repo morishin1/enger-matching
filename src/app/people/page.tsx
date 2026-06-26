@@ -54,6 +54,7 @@ const SKILL_SHEET_OPTIONS = [
 // 登録元フィルタ（LINE登録タブ廃止に伴い、人材一覧で LINE/通常 を絞り込めるように）。
 const SIGNUP_SOURCE_OPTIONS = [
   { value: "line", label: "LINE登録" },
+  { value: "line_works", label: "LINE WORKS" },
   { value: "enger", label: "ENGERフリーランス" },
   { value: "normal", label: "通常（CSV/手動/メール）" },
 ];
@@ -243,8 +244,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         // 登録元（LINE登録 / ENGERフリーランス / 通常）。
         //   LINE: signup_source='line' / ENGER: enger 系 / 通常: それ以外（null含む）。
         if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
+        else if (fSignupSource === "line_works") qb = qb.eq("signup_source", "line_works");
         else if (fSignupSource === "enger") qb = qb.in("signup_source", ENGER_SOURCES);
-        else if (fSignupSource === "normal") qb = qb.or(`signup_source.is.null,and(signup_source.neq.line,signup_source.not.in.(${ENGER_SOURCES.join(",")}))`);
+        else if (fSignupSource === "normal") qb = qb.or(`signup_source.is.null,and(signup_source.neq.line,signup_source.neq.line_works,signup_source.not.in.(${ENGER_SOURCES.join(",")}))`);
         // リモート希望は自由テキストのため ilike バケットで判定（PeopleTable.remotePrefLabel と同じ優先順位）
         if (fRemote === "remote") {
           qb = qb.ilike("remote_pref", "%フル%");
