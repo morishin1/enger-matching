@@ -25,6 +25,23 @@ const STAGE_TONE: Record<string, string> = {
 };
 const fmtDateTime = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
 
+// 会社の提案適性ランク バッジ（NG/A/B/C）。提案してダメな会社を一目で分かるようにする。
+function CompanyRankBadge({ rank }: { rank?: { grade: "NG" | "A" | "B" | "C"; label: string } | null }) {
+  if (!rank) return null;
+  const tone =
+    rank.grade === "NG" ? { bg: "#fdecef", fg: "#b42318", bd: "#f7c5cf", text: "NG" }
+    : rank.grade === "A" ? { bg: "#e7f7ee", fg: "#067647", bd: "#bfe3cc", text: "A" }
+    : rank.grade === "C" ? { bg: "#fff1e6", fg: "#b45309", bd: "#f5b97f", text: "C" }
+    : { bg: "var(--color-surface-inset)", fg: "var(--color-ink-3)", bd: "var(--color-border)", text: "B" };
+  return (
+    <span title={`提案適性ランク：${rank.label}`}
+      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}`, whiteSpace: "nowrap" }}>
+      <span>ランク {tone.text}</span>
+      <span style={{ fontWeight: 500 }}>{rank.label}</span>
+    </span>
+  );
+}
+
 // 案件情報 / 人材情報の編集可能な行（ラベル＋テキスト入力）。
 function EditInfo({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
@@ -384,8 +401,11 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
           {/* 案件情報 / 人材情報（上の元メール並びと一致させて縦に揃える） */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div className="card" style={{ padding: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
+                  <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
+                  <CompanyRankBadge rank={p.company_rank} />
+                </div>
                 {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
                     style={{ textDecoration: "none", opacity: url ? 1 : 0.35, pointerEvents: url ? "auto" : "none", cursor: url ? "pointer" : "not-allowed" }}
@@ -402,8 +422,11 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <EditInfo label="先方担当" value={jobClientContact} onChange={setJobClientContact} placeholder="（任意）" />
             </div>
             <div className="card" style={{ padding: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
+                  <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
+                  <CompanyRankBadge rank={p.cand_company_rank} />
+                </div>
                 {(() => { const url = gmailMessageUrl(p.cand_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
                     style={{ textDecoration: "none", opacity: url ? 1 : 0.35, pointerEvents: url ? "auto" : "none", cursor: url ? "pointer" : "not-allowed" }}
