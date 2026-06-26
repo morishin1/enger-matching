@@ -127,7 +127,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; focus?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -146,6 +146,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   // 承認状況フィルタ：approved=打合せ済企業のみ / unapproved=未承認のみ。空=すべて。
   const fApproved = sp.f_approved ?? "";
   const fSignupSource = sp.f_signup_source ?? "";
+  // 「提案あり」除外フィルタ：提案実績のある案件（has_proposal）を一覧から除外する。
+  const fNoProposal = sp.f_no_proposal === "1";
   const scope = await getViewerScope();
   // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
   const access = await currentAccess();
@@ -229,6 +231,17 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         return qb;
       };
 
+      // 「提案あり」除外：提案実績のある job_id を事前に集め、id の not.in で一覧から外す。
+      //   ページング前に DB 側で除外しないと件数・ページ数がズレるため、ここで解決する（承認フィルタと同方針）。
+      let proposedJobIds: string[] = [];
+      if (fNoProposal) {
+        try {
+          const pr: any = await sb.from("proposals").select("job_id").not("job_id", "is", null).limit(20000);
+          if (!pr.error) proposedJobIds = Array.from(new Set((pr.data ?? []).map((r: any) => r.job_id).filter(Boolean)));
+        } catch { /* proposals 未整備時は除外せず全件表示にフォールバック */ }
+      }
+      const applyNoProposal = (qb: any) => (fNoProposal && proposedJobIds.length) ? qb.not("id", "in", `(${proposedJobIds.join(",")})`) : qb;
+
       // 検索＋フィルタを 1 本のクエリに集約（outside_owner フィルタだけは列の有無に依存するため別関数）
       const buildBase = (selectCols: string, hideClosed = false) => {
         let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
@@ -269,6 +282,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
         if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
         qb = applyApproved(qb);
+        qb = applyNoProposal(qb);
         return qb;
       };
       const withOwner = (qb: any) =>
@@ -305,6 +319,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
         if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
         qb = applyApproved(qb);
+        qb = applyNoProposal(qb);
         return qb;
       };
       const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
@@ -378,7 +393,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
 
   // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved, signup_source: fSignupSource };
+  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved, signup_source: fSignupSource, no_proposal: fNoProposal ? "1" : "" };
   const jobFilterOptions = {
     status: FRESH_OPTIONS,
     role: roleOptionVals.map((v) => ({ value: v, label: v })),
@@ -421,7 +436,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。
           検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || showAll);
+        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 
