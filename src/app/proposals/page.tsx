@@ -1,4 +1,5 @@
 import { ProposalsWorkspace } from "@/components/ProposalsWorkspace";
+import { NewProposalButton } from "@/components/NewProposalButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -249,7 +250,12 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="page">
-      {/* 画面スッキリ化のため、最上部のタイトル・説明文と「稼働管理を見る／＋新規追加」ボタンは非表示（要望対応）。 */}
+      {/* 最上部のタイトル・説明文は非表示のまま。提案の手動新規登録ボタンは復活（要員入替時の別要員提案を記録するため）。 */}
+      {!needSetup && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <NewProposalButton />
+        </div>
+      )}
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
