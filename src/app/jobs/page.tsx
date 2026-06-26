@@ -103,6 +103,7 @@ const ilikeOr = (keys: readonly string[], fields: string[]) =>
 // 登録元フィルタ（LINE登録タブ廃止に伴い、案件一覧で LINE/通常 を絞り込めるように）。
 const SIGNUP_SOURCE_OPTIONS = [
   { value: "line", label: "LINE登録" },
+  { value: "line_works", label: "LINE WORKS" },
   { value: "normal", label: "通常（CSV/手動/メール）" },
 ];
 const freshRange = (label: string): { gte?: string; lt?: string } | null => {
@@ -259,7 +260,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         }
         if (fRole) qb = qb.eq("role_label", fRole);
         if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
-        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,signup_source.neq.line");
+        else if (fSignupSource === "line_works") qb = qb.eq("signup_source", "line_works");
+        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,and(signup_source.neq.line,signup_source.neq.line_works)");
         if (fRemote) qb = qb.eq("remote_type", fRemote);
         if (fFlow) {
           if (fFlow === "unknown") qb = qb.or("flow_note.is.null,flow_note.eq.");
@@ -303,7 +305,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         }
         if (fRole) qb = qb.eq("role_label", fRole);
         if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
-        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,signup_source.neq.line");
+        else if (fSignupSource === "line_works") qb = qb.eq("signup_source", "line_works");
+        else if (fSignupSource === "normal") qb = qb.or("signup_source.is.null,and(signup_source.neq.line,signup_source.neq.line_works)");
         if (fRemote) qb = qb.eq("remote_type", fRemote);
         if (fFlow) {
           if (fFlow === "unknown") qb = qb.or("flow_note.is.null,flow_note.eq.");
