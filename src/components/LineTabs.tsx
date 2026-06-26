@@ -4,13 +4,14 @@
 // slot で受け取り、display で出し分ける（state を保つため unmount しない）。
 import { useState, type ReactNode } from "react";
 
-export function LineTabs({ people, jobs, peopleCount = 0, jobsCount = 0 }: {
-  people: ReactNode; jobs: ReactNode; peopleCount?: number; jobsCount?: number;
+export function LineTabs({ people, jobs, talk, peopleCount = 0, jobsCount = 0, talkCount = 0 }: {
+  people: ReactNode; jobs: ReactNode; talk?: ReactNode; peopleCount?: number; jobsCount?: number; talkCount?: number;
 }) {
-  const [tab, setTab] = useState<"people" | "jobs">("people");
-  const tabs: { key: "people" | "jobs"; label: string; icon: string; badge: number }[] = [
+  const [tab, setTab] = useState<"people" | "jobs" | "talk">("people");
+  const tabs: { key: "people" | "jobs" | "talk"; label: string; icon: string; badge: number }[] = [
     { key: "people", label: "人材", icon: "person", badge: peopleCount },
     { key: "jobs", label: "案件", icon: "work", badge: jobsCount },
+    ...(talk ? [{ key: "talk" as const, label: "トーク", icon: "chat", badge: talkCount }] : []),
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -35,6 +36,7 @@ export function LineTabs({ people, jobs, peopleCount = 0, jobsCount = 0 }: {
       </div>
       <div style={{ display: tab === "people" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{people}</div>
       <div style={{ display: tab === "jobs" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{jobs}</div>
+      {talk && <div style={{ display: tab === "talk" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{talk}</div>}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { CandidateNewLineButton, JobNewLineButton } from "@/components/CsvTools";
 import { CopyButton } from "@/components/CopyButton";
 import { LineTabs } from "@/components/LineTabs";
+import { LineConversations } from "@/components/LineConversations";
+import { listLineworksTargets } from "@/lib/lineworks-targets";
 import { MailButton } from "@/components/MailButton";
 import { getSidebarCounts } from "@/lib/counts";
 
@@ -105,6 +107,8 @@ export default async function LinePage() {
   }
 
   const activeCount = jobs.length + candidates.length;
+  // LINE のやりとり（トークビュー）用：Bot が参加するトーク一覧。
+  const lwTargets = await listLineworksTargets();
 
   return (
     <div className="page" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -272,6 +276,8 @@ export default async function LinePage() {
         )}
       </section>
         }
+        talkCount={lwTargets.length}
+        talk={<LineConversations targets={lwTargets} />}
       />
 
       {/* LINE 文面テンプレ */}
