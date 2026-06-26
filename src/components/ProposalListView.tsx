@@ -132,7 +132,8 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   const [pendingOnly, setPendingOnly] = useState(false);
   // 同一案件（企業×案件名）に複数人材を提案している行をまとめて表示する（既定ON）。
   //   1社の複数募集に対し同じ案件が重複して並び、コンタクト確認が漏れる問題への対応。
-  const [groupByJob, setGroupByJob] = useState(true);
+  // まとめ表示モード：案件(job) / 人材(cand) / まとめない(none)。
+  const [groupMode, setGroupMode] = useState<"job" | "cand" | "none">("job");
   const [active, setActive] = useState<any | null>(null);
   // 行クリックで開くドロワー(ProposalDetailModal)に詳細・編集・削除を集約（人材/案件一覧と同じ操作感）。
   const router = useRouter();
@@ -212,17 +213,19 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
       .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
   }, [proposals, q, stageFilter, ownerFilter, pendingOnly]);
 
-  // 案件（企業×案件名）ごとにグルーピング。出現順を維持しつつ同一案件をまとめる。
+  // 案件（企業×案件名）または人材（人材NO×イニシャル×氏名）ごとにグルーピング。出現順は維持。
   const groups = useMemo(() => {
     const m = new Map<string, any[]>();
     const order: string[] = [];
     for (const p of rows) {
-      const k = `${String(p.company ?? "").trim()}|||${String(p.job_title ?? "").trim()}`;
+      const k = groupMode === "cand"
+        ? `${String(p.candidate_no ?? "").trim()}|||${String(p.c_init ?? "").trim()}|||${String(p.candidate_name ?? "").trim()}`
+        : `${String(p.company ?? "").trim()}|||${String(p.job_title ?? "").trim()}`;
       if (!m.has(k)) { m.set(k, []); order.push(k); }
       m.get(k)!.push(p);
     }
     return order.map((k) => ({ key: k, items: m.get(k)! }));
-  }, [rows]);
+  }, [rows, groupMode]);
 
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   const someSelected = rows.some((r) => selected.has(r.id));
@@ -333,10 +336,22 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
         </button>
         <div onClick={() => toggleCollapse(g.key)} style={{ flex: "1 1 auto", minWidth: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {top.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
-          <span style={{ fontWeight: 800, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "min(60vw, 520px)" }}>{top.job_title ?? "—"}</span>
-          {top.company && <span className="muted" style={{ fontSize: 11.5 }}>{top.company}</span>}
-          {idJob(top) && <span className="mono muted" style={{ fontSize: 10.5 }}>{idJob(top)}</span>}
-          <span className="tag brand" style={{ fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
+          {groupMode === "cand" ? (
+            <>
+              {/* 人材ごとにまとめた見出し：人材名（イニシャル）＋人材NO＋提案した案件数。 */}
+              <span style={{ fontWeight: 800, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "min(60vw, 520px)" }}>{top.candidate_name ?? top.c_init ?? "—"}</span>
+              {top.c_init && top.candidate_name && top.c_init !== top.candidate_name && <span className="muted" style={{ fontSize: 11.5 }}>{top.c_init}</span>}
+              {top.candidate_no != null && <span className="mono muted" style={{ fontSize: 10.5 }}>P-{String(top.candidate_no).padStart(5, "0")}</span>}
+              <span className="tag brand" style={{ fontSize: 10.5, fontWeight: 700 }}>{g.items.length}件の提案</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontWeight: 800, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "min(60vw, 520px)" }}>{top.job_title ?? "—"}</span>
+              {top.company && <span className="muted" style={{ fontSize: 11.5 }}>{top.company}</span>}
+              {idJob(top) && <span className="mono muted" style={{ fontSize: 10.5 }}>{idJob(top)}</span>}
+              <span className="tag brand" style={{ fontSize: 10.5, fontWeight: 700 }}>{g.items.length}名提案</span>
+            </>
+          )}
           {!open && <span className="muted" style={{ fontSize: 10.5 }}>（折りたたみ中・クリックで展開）</span>}
         </div>
       </div>
@@ -412,13 +427,21 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
           <span style={{ width: 8, height: 8, borderRadius: 99, background: pendingOnly ? "#fff" : "#dc2626" }} />
           未処理のみ <span style={{ opacity: 0.85 }}>({pendingCount})</span>
         </button>
-        <button type="button" onClick={() => setGroupByJob((v) => !v)} aria-pressed={groupByJob}
+        <button type="button" onClick={() => setGroupMode((v) => (v === "job" ? "none" : "job"))} aria-pressed={groupMode === "job"}
           title="同じ案件（企業×案件名）への提案をまとめて表示"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 8,
-            border: "1px solid " + (groupByJob ? "var(--color-brand-600)" : "var(--color-border-strong)"),
-            background: groupByJob ? "var(--color-brand-600)" : "var(--color-surface)", color: groupByJob ? "#fff" : "var(--color-ink-2)", cursor: "pointer" }}>
+            border: "1px solid " + (groupMode === "job" ? "var(--color-brand-600)" : "var(--color-border-strong)"),
+            background: groupMode === "job" ? "var(--color-brand-600)" : "var(--color-surface)", color: groupMode === "job" ? "#fff" : "var(--color-ink-2)", cursor: "pointer" }}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>splitscreen</span>
           案件ごとにまとめる
+        </button>
+        <button type="button" onClick={() => setGroupMode((v) => (v === "cand" ? "none" : "cand"))} aria-pressed={groupMode === "cand"}
+          title="同じ人材への提案（複数案件）をまとめて表示"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 12px", borderRadius: 8,
+            border: "1px solid " + (groupMode === "cand" ? "var(--color-brand-600)" : "var(--color-border-strong)"),
+            background: groupMode === "cand" ? "var(--color-brand-600)" : "var(--color-surface)", color: groupMode === "cand" ? "#fff" : "var(--color-ink-2)", cursor: "pointer" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>person</span>
+          人材ごとにまとめる
         </button>
       </div>
 
@@ -446,7 +469,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
               <input type="checkbox" checked={allSelected} ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }} onChange={() => setManySel(rows.map((r) => r.id), !allSelected)} style={cbStyle} aria-label="すべて選択" />
               <span className="muted" style={{ fontSize: 11.5 }}>全{rows.length}件を選択</span>
             </div>
-            {groupByJob
+            {groupMode !== "none"
               ? groups.map((g: any) => {
                   const multi = g.items.length >= 2;
                   if (!multi) return renderRow(g.items[0], false);
