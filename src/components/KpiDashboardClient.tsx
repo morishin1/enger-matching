@@ -15,8 +15,11 @@ type Snapshot = Record<Metric, { target: number; actual: number; pct: number }>;
 type HistoryPoint = { label: string; pct: number; actual: number; target: number };
 type HistoryRow = { label: string; start: string; cells: Record<Metric, { actual: number; target: number }> };
 
-const PERIODS: { key: PeriodType; label: string }[] = [
+// 「前日」は UI 上の選択肢（サーバ側で day を前日基準に集計）。
+type UiPeriod = PeriodType | "yesterday";
+const PERIODS: { key: UiPeriod; label: string }[] = [
   { key: "day", label: "日" },
+  { key: "yesterday", label: "前日" },
   { key: "week", label: "週" },
   { key: "month", label: "月" },
   { key: "quarter", label: "四半期" },
@@ -26,7 +29,8 @@ const PERIODS: { key: PeriodType; label: string }[] = [
 const toneOf = (pct: number) => pct >= 100 ? "#067647" : pct >= 80 ? "#0095D9" : pct >= 50 ? "#b45309" : "#b42318";
 
 // 集計期間を説明する注記。タブごとに表示（選択タブの期間そのままで集計＝累計しない）。
-function periodNote(period: PeriodType): string {
+function periodNote(period: UiPeriod): string {
+  if (period === "yesterday") return "前日（昨日）の実績・目標";
   if (period === "day")     return "選択した日（当日）の実績・目標";
   if (period === "week")    return "選択した週（月〜日）の実績・目標";
   if (period === "quarter") return "選択した四半期の実績・目標";
@@ -45,7 +49,7 @@ export function KpiDashboardClient(props: {
   target: { email: string; name: string };
   scope?: "person" | "team";
   members: { name: string; email: string }[];
-  period: PeriodType;
+  period: UiPeriod;
   range: { start: string; end: string };
   custom: { from: string; to: string } | null;
   snapshot: Snapshot;
@@ -69,7 +73,7 @@ export function KpiDashboardClient(props: {
     router.push(u.pathname + "?" + u.searchParams.toString());
   };
 
-  const switchPeriod = (p: PeriodType) => {
+  const switchPeriod = (p: UiPeriod) => {
     const u = new URL(window.location.href);
     u.searchParams.set("period", p);
     if (p !== "custom") { u.searchParams.delete("from"); u.searchParams.delete("to"); }
@@ -212,7 +216,7 @@ export function KpiDashboardClient(props: {
       {/* 推移グラフ */}
       <div className="card" style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>達成率の推移（直近12{PERIODS.find((p) => p.key === (props.period === "custom" ? "week" : props.period))?.label}）</span>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>達成率の推移（直近12{PERIODS.find((p) => p.key === (props.period === "custom" ? "week" : props.period === "yesterday" ? "day" : props.period))?.label}）</span>
           <span className="muted" style={{ fontSize: 11 }}>指標: 提案 ／ 各期間単体の達成率</span>
         </div>
         <HistoryChart data={props.history} />

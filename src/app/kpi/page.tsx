@@ -7,7 +7,7 @@
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, scaleWeeklyTarget, resolveRange, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, jstStartOfDay, addDays, scaleWeeklyTarget, resolveRange, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -26,9 +26,11 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   if (!dbConfigured) return <div style={{ padding: 24 }}>DB 接続が設定されていません。</div>;
 
   const sp = await searchParams;
-  // 既定は「今日」。各メンバーの当日の動きをまず見せる。
-  const period: PeriodType = (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any)
-    ? (sp.period as PeriodType) : "day";
+  // 既定は「今日」。各メンバーの当日の動きをまず見せる。「前日」は day を前日基準で集計。
+  const isYesterday = sp.period === "yesterday";
+  const period: PeriodType = isYesterday ? "day"
+    : (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any) ? (sp.period as PeriodType) : "day";
+  const base = isYesterday ? addDays(jstStartOfDay(new Date()), -1) : new Date();
 
   // ?owner=__team__ ならチーム全体（全員参照可）。管理者は ?owner=email で他メンバーに切替可。
   // それ以外（マネージャー/一般）は自分のみ＋チーム閲覧。
@@ -70,7 +72,7 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   //   （以前は月初〜の累計表示だったため、日/週タブで表と数値が大きく食い違っていた。）
   const { range, snapshot } = await getKpiSnapshot({
     ownerName: isTeam ? null : (targetName || null),
-    type: period, custom, weeklyTargets: weekly, cumulate: false,
+    type: period, base, custom, weeklyTargets: weekly, cumulate: false,
   });
 
   // 推移グラフ・推移テーブルも累計せず各期間単体で表示（"off"）。カード／表と基準を統一。
@@ -100,7 +102,7 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   //   四半期 → 今四半期／任意カレンダー → 指定範囲。
   //   ※ グラフ・推移テーブル（KPIダッシュボード側）の「日ごと積み上げ累計」ロジックとは独立。
   //     ここはタブ選択期間の単純合計（積み上げない）。達成率カード（snapshot）にも影響させない。
-  const actRange = resolveRange(period, new Date(), custom);
+  const actRange = resolveRange(period, base, custom);
   const activity = activityMembers.length > 0
     ? await getTeamActivity({ start: actRange.start, end: actRange.end, members: activityMembers })
     : [];
@@ -125,7 +127,8 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
               day → 本日、week → 今週、month → 今月（＝月初〜末日。実質「月初からの累計」）、
               quarter → 今四半期、custom → 指定期間。 */}
           <TeamActivityBoard rows={activity} periodLabel={
-            period === "day" ? "本日"
+            isYesterday ? "前日"
+            : period === "day" ? "本日"
             : period === "month" ? "今月（月初からの累計）"
             : PERIOD_LABEL[period]
           }
@@ -141,7 +144,7 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
         target={{ email: isTeam ? "__team__" : (targetEmail ?? ""), name: targetName }}
         scope={isTeam ? "team" : "person"}
         members={members}
-        period={period}
+        period={isYesterday ? "yesterday" : period}
         range={{ start: range.start.toISOString(), end: range.end.toISOString() }}
         custom={custom ?? null}
         snapshot={snapshot}
@@ -149,7 +152,7 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
         weekStart={weekStart.toISOString().slice(0, 10)}
         history={history}
         historyTable={historyTable}
-        historyPeriodLabel={PERIOD_LABEL[historyType]}
+        historyPeriodLabel={isYesterday ? "前日" : PERIOD_LABEL[historyType]}
       />
     </>
   );

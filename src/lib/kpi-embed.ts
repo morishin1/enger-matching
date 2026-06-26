@@ -5,7 +5,7 @@
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import {
   getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets,
-  jstStartOfWeek, resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
+  jstStartOfWeek, jstStartOfDay, addDays, resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
 } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
@@ -23,8 +23,12 @@ export type KpiSearch = { period?: string; from?: string; to?: string; owner?: s
 export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
   if (!dbConfigured) return null;
   try {
-    const period: PeriodType = (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any)
-      ? (sp.period as PeriodType) : "day";
+    // 「前日」は内部的には day を前日基準で集計する。それ以外は通常の期間タイプ。
+    const isYesterday = sp.period === "yesterday";
+    const period: PeriodType = isYesterday ? "day"
+      : (["day", "week", "month", "quarter", "custom"] as const).includes(sp.period as any) ? (sp.period as PeriodType) : "day";
+    // 集計の基準日（前日のみ昨日、それ以外は今日）。
+    const base = isYesterday ? addDays(jstStartOfDay(new Date()), -1) : new Date();
 
     const isTeam = sp.owner === "__team__";
     let targetEmail: string | null = access.email.toLowerCase();
@@ -56,7 +60,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     // カード／グラフ／表とも「選択タブの期間そのまま」で集計（累計しない）。
     //   メンバー別アクティビティ表と同基準に揃え、サマリーカードとの乖離をなくす。
     const { range, snapshot } = await getKpiSnapshot({
-      ownerName: isTeam ? null : (targetName || null), type: period, custom, weeklyTargets: weekly, cumulate: false,
+      ownerName: isTeam ? null : (targetName || null), type: period, base, custom, weeklyTargets: weekly, cumulate: false,
     });
     const cumulate = "off" as const;
     const historyType: Exclude<PeriodType, "custom"> = period === "custom" ? "week" : period;
@@ -76,7 +80,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       target: { email: isTeam ? "__team__" : (targetEmail ?? ""), name: targetName },
       scope: (isTeam ? "team" : "person") as "team" | "person",
       members,
-      period,
+      period: isYesterday ? "yesterday" : period,
       range: { start: range.start.toISOString(), end: range.end.toISOString() },
       custom: custom ?? null,
       snapshot,
@@ -84,7 +88,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       weekStart: weekStart.toISOString().slice(0, 10),
       history,
       historyTable,
-      historyPeriodLabel: PERIOD_LABEL[historyType],
+      historyPeriodLabel: isYesterday ? "前日" : PERIOD_LABEL[historyType],
     };
 
     // メンバー別アクティビティ（誰が何件・目標/実績/達成率）。/kpi と同じ算出。
@@ -94,7 +98,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
         { role: access.role, teamRole: access.teamRole, department: access.department },
         { allowMember: true },
       );
-      const actRange = resolveRange(period, new Date(), custom);
+      const actRange = resolveRange(period, base, custom);
       const activity = activityMembers.length > 0
         ? await getTeamActivity({ start: actRange.start, end: actRange.end, members: activityMembers })
         : [];
@@ -105,7 +109,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
         const proposalOwnersForBoard = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
         teamActivity = {
           rows: activity,
-          periodLabel: period === "day" ? "本日" : period === "month" ? "今月（月初からの累計）" : PERIOD_LABEL[period],
+          periodLabel: isYesterday ? "前日" : period === "day" ? "本日" : period === "month" ? "今月（月初からの累計）" : PERIOD_LABEL[period],
           teamTarget,
           teamWeeklyTarget: teamWeeklyForBoard as Partial<Record<Metric, number>>,
           weekStart: weekStart.toISOString().slice(0, 10),
