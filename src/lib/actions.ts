@@ -457,10 +457,12 @@ export async function updateProposalFields(id: string, fields: Record<string, an
   }
   const allowed = ["caller_status", "proposer", "partner", "closer", "client_contact", "lost_reason", "lost_phase", "lost_reason_note", "next_action", "stage", "meeting_date", "meeting_status", "meeting_time", "meeting_format", "meeting_url", "meeting_attendees", "meeting_note", "company", "source", "job_notify_status", "cand_notify_status",
     // 案件側 企業担当 / 人材側 会社名・企業担当・先方担当（proposals-contacts.sql）
-    "company_contact", "cand_company", "cand_company_contact", "cand_contact"];
-  // 上記のうち proposals-contacts.sql 未適用の環境で存在しない可能性がある列。
+    "company_contact", "cand_company", "cand_company_contact", "cand_contact",
+    // 失注時の★評価（proposals-lost-rating-delete.sql）
+    "cand_rating", "job_rating"];
+  // 上記のうち proposals-contacts.sql / proposals-lost-rating-delete.sql 未適用の環境で存在しない可能性がある列。
   // 書込みで「column ... does not exist」になったら、その列を外して再試行する。
-  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact"];
+  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact", "cand_rating", "job_rating"];
   const now = new Date().toISOString();
   const patch: Record<string, any> = { updated_at: now };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
@@ -476,6 +478,9 @@ export async function updateProposalFields(id: string, fields: Record<string, an
       if (!("lost_reason" in fields))      patch.lost_reason      = null;
       if (!("lost_phase" in fields))       patch.lost_phase       = null;
       if (!("lost_reason_note" in fields)) patch.lost_reason_note = null;
+      // 失注時の★評価も、失注以外へ戻すときはクリア（失注分析に誤って残らないように）。
+      if (!("cand_rating" in fields))      patch.cand_rating      = null;
+      if (!("job_rating" in fields))       patch.job_rating       = null;
     }
   }
   let { error } = await admin.from("proposals").update(patch).eq("id", id);
@@ -1094,8 +1099,8 @@ export async function updateProposalStage(id: string, stage: string) {
   return { ok: true };
 }
 
-/** 提案を削除（記録ミスの取り消し）。紐づく稼働があれば一緒に削除。 */
-export async function deleteProposal(id: string) {
+/** 提案の実削除（内部用）。紐づく稼働があれば一緒に削除。権限チェックは呼び出し側で行う。 */
+async function hardDeleteProposal(id: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!id) return { ok: false, error: "id がありません" };
@@ -1106,8 +1111,85 @@ export async function deleteProposal(id: string) {
   return { ok: true };
 }
 
-/** 提案の一括削除（リストのチェックボックス選択分）。記録ミスの一括取り消し用。 */
+/** 提案を削除（管理者のみ）。記録ミスの取り消し。紐づく稼働があれば一緒に削除。 */
+export async function deleteProposal(id: string) {
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false, error: "提案の削除は管理者のみ可能です" };
+  return hardDeleteProposal(id);
+}
+
+/** 提案削除の権限（クライアントUIで申請/承認ボタンの出し分けに使う）。 */
+export async function getProposalDeletePermissions(): Promise<{ canRequest: boolean; canApprove: boolean }> {
+  const me = await currentAccess();
+  const isAdmin = me?.role === "admin";
+  // 申請は admin / agent（社内メンバー）が可能。承認(=実削除)は admin のみ（基本管理者のみ）。
+  return { canRequest: !!me && (isAdmin || me.role === "agent"), canApprove: isAdmin };
+}
+
+/**
+ * 提案削除の申請。理由必須。
+ *   ・管理者：申請＝即承認とみなして即削除（deleted:true を返す）。
+ *   ・管理者以外（agent）：削除申請(pending)として記録し、管理者の承認を待つ（deleted:false）。
+ */
+export async function requestProposalDeletion(id: string, reason: string): Promise<{ ok: boolean; deleted?: boolean; error?: string }> {
+  const me = await currentAccess();
+  if (!me || (me.role !== "admin" && me.role !== "agent")) return { ok: false, error: "権限がありません" };
+  if (!id) return { ok: false, error: "id がありません" };
+  const rsn = String(reason ?? "").trim();
+  if (!rsn) return { ok: false, error: "削除理由を入力してください" };
+
+  // 管理者は申請＝即承認（即削除）。
+  if (me.role === "admin") {
+    const r = await hardDeleteProposal(id);
+    return r.ok ? { ok: true, deleted: true } : r;
+  }
+
+  // agent は pending として記録（管理者の承認待ち）。
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const by = me.name?.trim() || me.email || null;
+  const { error } = await admin.from("proposals").update({
+    delete_requested_at: new Date().toISOString(),
+    delete_reason: rsn,
+    delete_requested_by: by,
+  }).eq("id", id);
+  if (error) {
+    if (/delete_requested_at|delete_reason|delete_requested_by|column/i.test(error.message)) {
+      return { ok: false, error: "supabase/proposals-lost-rating-delete.sql の適用が必要です（削除申請列が未追加）" };
+    }
+    return { ok: false, error: error.message };
+  }
+  revalidatePath("/proposals");
+  return { ok: true, deleted: false };
+}
+
+/** 削除申請を承認して実削除（管理者のみ）。 */
+export async function approveProposalDeletion(id: string): Promise<{ ok: boolean; error?: string }> {
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false, error: "削除の承認は管理者のみ可能です" };
+  if (!id) return { ok: false, error: "id がありません" };
+  return hardDeleteProposal(id);
+}
+
+/** 削除申請を却下（管理者のみ）。pending を解除して提案は残す。 */
+export async function rejectProposalDeletion(id: string): Promise<{ ok: boolean; error?: string }> {
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false, error: "削除の却下は管理者のみ可能です" };
+  if (!id) return { ok: false, error: "id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("proposals").update({
+    delete_requested_at: null, delete_reason: null, delete_requested_by: null,
+  }).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/proposals");
+  return { ok: true };
+}
+
+/** 提案の一括削除（リストのチェックボックス選択分・管理者のみ）。記録ミスの一括取り消し用。 */
 export async function bulkDeleteProposals(ids: string[]) {
+  const me = await currentAccess();
+  if (!me || me.role !== "admin") return { ok: false, error: "一括削除は管理者のみ可能です" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const clean = Array.from(new Set((ids ?? []).filter((x) => typeof x === "string" && x)));

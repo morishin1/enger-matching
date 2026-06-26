@@ -11,6 +11,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Link from "@/components/AppLink";
+import { StarsView } from "./Stars";
 
 type HItem = {
   id: string;
@@ -32,6 +33,9 @@ type HItem = {
   // 提案画面（マッチング）へ戻すための識別子
   job_no?: number | null;
   candidate_no?: number | null;
+  // 失注時の★評価（人材／案件）。案件★は企業評価に連動。
+  cand_rating?: number | null;
+  job_rating?: number | null;
   // 登録元（"line" 等）。案件または人材が「LINE登録」のとき "line"。LINE経由グラフの集計に使う。
   source?: string | null;
   // 案件 or 人材のどちらかが LINE登録（signup_source='line'）、または提案自体が source='line' のとき true。
@@ -150,7 +154,7 @@ type Aggregated = {
   lagBuckets: Array<{ label: string; range: [number, number]; n: number }>;
   lagStats: { avg: number | null; median: number | null; p90: number | null; total: number };
   // 失注ログ（担当者・理由・日数・コメント）。テーブル表示用。
-  lostRows: Array<{ id: string; company: string; job_title: string; candidate_name: string; proposer: string; closer: string; reason: string; phase: string; note: string | null; created_at: number; lost_at: number; lagDays: number | null; job_no: number | null; candidate_no: number | null }>;
+  lostRows: Array<{ id: string; company: string; job_title: string; candidate_name: string; proposer: string; closer: string; reason: string; phase: string; note: string | null; created_at: number; lost_at: number; lagDays: number | null; job_no: number | null; candidate_no: number | null; cand_rating: number | null; job_rating: number | null }>;
 };
 
 function analyze(items: HItem[]): Aggregated {
@@ -207,6 +211,7 @@ function analyze(items: HItem[]): Aggregated {
           proposer, closer: (p.closer ?? "—") || "—", reason: r, phase: p.lost_phase || "（未入力）",
           note: p.lost_reason_note ?? null, created_at: createdT, lost_at: lostT, lagDays: days,
           job_no: p.job_no ?? null, candidate_no: p.candidate_no ?? null,
+          cand_rating: p.cand_rating ?? null, job_rating: p.job_rating ?? null,
         });
       } else {
         lostRowsRaw.push({
@@ -214,6 +219,7 @@ function analyze(items: HItem[]): Aggregated {
           proposer, closer: (p.closer ?? "—") || "—", reason: r, phase: p.lost_phase || "（未入力）",
           note: p.lost_reason_note ?? null, created_at: createdT, lost_at: lostT, lagDays: null,
           job_no: p.job_no ?? null, candidate_no: p.candidate_no ?? null,
+          cand_rating: p.cand_rating ?? null, job_rating: p.job_rating ?? null,
         });
       }
     } else {
@@ -1215,7 +1221,9 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
               <th style={th}>提案者</th>
               <th style={th}>クロージング担当者</th>
               <th style={th}>会社 / 案件</th>
+              <th style={{ ...th, textAlign: "center" }}>案件★</th>
               <th style={th}>人材</th>
+              <th style={{ ...th, textAlign: "center" }}>人材★</th>
               <th style={th}>失注理由</th>
               <th style={{ ...th, textAlign: "right" }}>再提案</th>
             </tr>
@@ -1231,7 +1239,9 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
                   <div style={{ fontWeight: 600 }}>{r.company}</div>
                   <div className="muted" style={{ fontSize: 11 }}>{r.job_title}</div>
                 </td>
+                <td style={{ ...td, textAlign: "center" }}><StarsView value={r.job_rating} size={13} /></td>
                 <td style={td}>{r.candidate_name}</td>
+                <td style={{ ...td, textAlign: "center" }}><StarsView value={r.cand_rating} size={13} /></td>
                 <td style={td}>
                   <div>{r.reason}</div>
                   {r.note && <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginTop: 2, whiteSpace: "pre-wrap" }}>「{r.note}」</div>}

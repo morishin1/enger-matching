@@ -5,6 +5,7 @@ import { CompanyProposalsRanking } from "@/components/CompanyProposalsRanking";
 import { CompanyTargetingBoard } from "@/components/CompanyTargetingBoard";
 import { CompanyContactBoard } from "@/components/CompanyContactBoard";
 import { getCompanyOverview } from "@/lib/companies";
+import { getCompanyRatings } from "@/lib/company-ratings";
 import { FlowSteps } from "@/components/FlowSteps";
 import { CompaniesTabs } from "@/components/CompaniesTabs";
 import { loadCompanyFunnels, loadCompanyContactFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
@@ -15,11 +16,12 @@ export const dynamic = "force-dynamic";
 
 export default async function CompaniesPage() {
   // 並列取得：企業概要・提案ファネル・担当者別ファネル・案件スキル分布
-  const [companies, funnels, contactFunnels, topSkillsByCompany] = await Promise.all([
+  const [companies, funnels, contactFunnels, topSkillsByCompany, companyRatings] = await Promise.all([
     getCompanyOverview().then((r) => r ?? []),
     loadCompanyFunnels(),
     loadCompanyContactFunnels(),
     loadCompanyTopSkills(),
+    getCompanyRatings(),
   ]);
   // 情報持ち出し防止：CSV取込/書出/テンプレは admin のみに開放。
   // ローカル（認証未設定）は admin 相当として開放、それ以外は role==="admin" のみ。
@@ -179,7 +181,7 @@ export default async function CompaniesPage() {
       {/* タブで分割してスクロールを削減（既定＝企業一覧） */}
       <CompaniesTabs
         followCount={followups.length}
-        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} lineCompanies={lineCompanies} />}
+        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} lineCompanies={lineCompanies} ratings={companyRatings} />}
         target={
           <>
             {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}

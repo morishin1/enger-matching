@@ -5,6 +5,8 @@ import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
 import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";
+import { StarsView } from "./Stars";
+import type { CompanyRating } from "@/lib/company-ratings";
 import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, type CompanyDiagnosis } from "@/lib/actions";
 
 type Registered = {
@@ -38,7 +40,7 @@ const statusColor = (s: string) => s === "主要" ? "var(--color-brand-600)" : s
 
 type SortKey = "target" | "job_count" | "active_jobs" | "candidate_count" | "avg_rate" | "last_job_at";
 
-export function CompaniesView({ companies, registered = [], candidateCounts = {}, lineCompanies = [] }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number>; lineCompanies?: string[] }) {
+export function CompaniesView({ companies, registered = [], candidateCounts = {}, lineCompanies = [], ratings = {} }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number>; lineCompanies?: string[]; ratings?: Record<string, CompanyRating> }) {
   // LINE でやり取りしている企業（正規化名の Set）。一覧で「💬 LINE」バッジを出すために使う。
   const lineSet = useMemo(() => new Set(lineCompanies.map((n) => (n ?? "").replace(/^[\s　]+|[\s　]+$/g, ""))), [lineCompanies]);
   const isLineCompany = (name: string) => lineSet.has((name ?? "").replace(/^[\s　]+|[\s　]+$/g, ""));
@@ -116,6 +118,9 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
   // 案件メール由来の企業名に前後の空白/全角スペースが紛れていると、生の名前では永遠に一致しない。
   // → 突合は正規化（前後の空白・全角スペース除去）した名前で行う（表示は元の名前のまま）。
   const normName = (s?: string | null) => (s ?? "").replace(/^[\s　]+|[\s　]+$/g, "");
+  // 企業評価★（失注時の案件★平均）。企業名を正規化して引けるようにする。
+  const ratingByKey = useMemo(() => { const m: Record<string, CompanyRating> = {}; for (const [k, v] of Object.entries(ratings)) m[normName(k)] = v; return m; }, [ratings]);
+  const ratingOf = (name: string): CompanyRating | undefined => ratingByKey[normName(name)];
   const regMap = useMemo(() => {
     const m = new Map<string, Registered>();
     for (const r of registered) { const k = normName(r.name); if (k && !m.has(k)) m.set(k, r); }
@@ -410,6 +415,7 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
                               <Icons.line size={15} />
                             </span>
                           )}
+                          {(() => { const rt = ratingOf(c.name); return rt ? <span title={`企業評価（失注時の案件★平均）${rt.avg} / ${rt.count}件`} style={{ flexShrink: 0 }}><StarsView value={rt.avg} size={12} showNumber count={rt.count} /></span> : null; })()}
                         </div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
                           <span style={{ fontSize: 10.5, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
