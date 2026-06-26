@@ -680,6 +680,16 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         {opennessBanner}
         {selectedJobWarning(sel?.job)}
 
+        {/* スキル未登録の人材はマッチング（スキル一致でのランキング）ができないため、0件の理由を明示する。
+            LINE取込などでスキルが抽出されていない人材で「マッチング」を押したときの無言0件対策。 */}
+        {person && !(person.skills?.length) && (
+          <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "12px 16px", marginBottom: 12, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e", fontSize: 13 }}>
+            <span style={{ fontWeight: 700 }}>⚠ スキルが未登録です</span>
+            <span>この人材は<b>スキルが登録されていない</b>ため、マッチング（スキル一致による案件ランキング）ができません。LINE取込などでスキルが抽出されていない場合に起こります。人材を編集してスキルを追加すると、ここに案件が表示されます。</span>
+            <Link href={`/people?focus=${person.candidate_no}`} className="btn ghost btn-xs" style={{ marginLeft: "auto", textDecoration: "none", whiteSpace: "nowrap" }}>人材を編集してスキルを登録</Link>
+          </div>
+        )}
+
         {person && (
           <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
             {/* 左: 案件ランキング（AI再ランキング対応） */}
@@ -895,6 +905,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         return (
           <>
             {selectedJobWarning(job)}
+            {/* スキル未登録の案件はマッチング（スキル一致での人材ランキング）ができないため、0件の理由を明示する。 */}
+            {job && !(job.skills?.length) && (
+              <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "12px 16px", marginBottom: 12, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e", fontSize: 13 }}>
+                <span style={{ fontWeight: 700 }}>⚠ スキルが未登録です</span>
+                <span>この案件は<b>スキルが登録されていない</b>ため、マッチング（スキル一致による人材ランキング）ができません。LINE取込などでスキルが抽出されていない場合に起こります。案件を編集してスキルを追加すると、ここに人材が表示されます。</span>
+                <Link href={`/jobs?focus=${job.job_no}`} className="btn ghost btn-xs" style={{ marginLeft: "auto", textDecoration: "none", whiteSpace: "nowrap" }}>案件を編集してスキルを登録</Link>
+              </div>
+            )}
             {job && (
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
