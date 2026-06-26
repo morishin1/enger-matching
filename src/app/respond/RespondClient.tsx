@@ -26,6 +26,28 @@ const DONE_COLOR: Record<string, { bg: string; text: string }> = {
     "未回答":     { bg: "#f1f5f9", text: "#64748b" },
 };
 
+// 面談希望時間の選択肢（30分単位）。
+const TIME_OPTIONS = (() => {
+    const arr: string[] = [];
+    for (let h = 9; h <= 21; h++) {
+        for (const m of [0, 30]) {
+            if (h === 21 && m === 30) continue;
+            arr.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+        }
+    }
+    return arr;
+})();
+
+// 今日から days 日後の日付を YYYY-MM-DD（ローカル）で返す。
+function todayPlus(days: number): string {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+}
+
 export function RespondClient({ token, action }: { token: string; action: string }) {
     const [info, setInfo] = useState<ProposalInfo | null>(null);
     const [loading, setLoading] = useState(true);
@@ -33,8 +55,14 @@ export function RespondClient({ token, action }: { token: string; action: string
     const [confirming, setConfirming] = useState(false);
     const [done, setDone] = useState(false);
     const [doneAction, setDoneAction] = useState<string>("");
+    const [slots, setSlots] = useState<{ date: string; time: string }[]>([
+        { date: "", time: "" }, { date: "", time: "" }, { date: "", time: "" }, { date: "", time: "" },
+    ]);
 
     const isValidAction = action === "話を進める" || action === "見送り";
+    const isProceed = action === "話を進める";
+    // 当日・翌日は選択不可（明後日＝2日後以降のみ）。
+    const minDate = todayPlus(2);
 
     useEffect(() => {
         if (!token) { setError("URLが無効です。"); setLoading(false); return; }
@@ -53,10 +81,16 @@ export function RespondClient({ token, action }: { token: string; action: string
         if (!isValidAction || confirming) return;
         setConfirming(true);
         try {
+            // 入力された希望日時のみ抽出（日付必須・時間は任意）。「2026/06/28 10:00」形式。
+            const meetingCandidates = isProceed
+                ? slots
+                    .filter((s) => s.date)
+                    .map((s) => `${s.date.replace(/-/g, "/")}${s.time ? ` ${s.time}` : ""}`)
+                : [];
             const res = await fetch("/api/respond", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token, action }),
+                body: JSON.stringify({ token, action, meetingCandidates }),
             });
             const d = await res.json();
             if (d.ok) { setDone(true); setDoneAction(action); }
@@ -127,22 +161,58 @@ export function RespondClient({ token, action }: { token: string; action: string
         <div style={containerStyle}>
             <div style={cardStyle}>
                 <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 6 }}>ご確認のお願い</div>
-                <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 20, color: "#0f172a" }}>
-                    以下の内容でよろしいですか？
+                <div style={{ fontSize: isProceed ? 16 : 20, fontWeight: 800, marginBottom: 20, color: "#0f172a", lineHeight: 1.5 }}>
+                    {isProceed ? "面談ご希望をご選択後、送信してください" : "以下の内容でよろしいですか？"}
                 </div>
 
-                {/* 案件情報 */}
-                <div style={{ background: "#f8fafc", borderRadius: 10, padding: "16px 20px", marginBottom: 24, textAlign: "left" }}>
-                    <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginBottom: 4 }}>案件</div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b" }}>{info?.job_title ?? "—"}</div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{info?.company ?? ""}</div>
-                    {info?.c_init && (
-                        <>
-                            <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginTop: 12, marginBottom: 4 }}>候補者</div>
-                            <div style={{ fontWeight: 700, fontSize: 14 }}>{info.c_init}</div>
-                        </>
-                    )}
-                </div>
+                {/* 案件情報（見送りのみ表示。話を進める場合は希望日時フォームに置き換え） */}
+                {!isProceed && (
+                    <div style={{ background: "#f8fafc", borderRadius: 10, padding: "16px 20px", marginBottom: 24, textAlign: "left" }}>
+                        <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginBottom: 4 }}>案件</div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b" }}>{info?.job_title ?? "—"}</div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{info?.company ?? ""}</div>
+                        {info?.c_init && (
+                            <>
+                                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginTop: 12, marginBottom: 4 }}>候補者</div>
+                                <div style={{ fontWeight: 700, fontSize: 14 }}>{info.c_init}</div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* 面談希望日時フォーム（任意・最大4件。当日/翌日は選択不可） */}
+                {isProceed && (
+                    <div style={{ marginBottom: 24, textAlign: "left" }}>
+                        <div style={{ fontSize: 13, color: "#334155", fontWeight: 700, marginBottom: 4 }}>面談ご希望日時（任意・最大4件）</div>
+                        <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 12, lineHeight: 1.6 }}>
+                            ご希望があればご入力ください。未入力のままでも送信いただけます。
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {slots.map((s, i) => (
+                                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                    <span style={{ fontSize: 12, color: "#94a3b8", flex: "0 0 18px" }}>{i + 1}</span>
+                                    <input
+                                        type="date"
+                                        min={minDate}
+                                        value={s.date}
+                                        onChange={(e) => setSlots((prev) => prev.map((p, j) => (j === i ? { ...p, date: e.target.value } : p)))}
+                                        style={{ flex: 1, minWidth: 0, padding: "10px 12px", border: "1px solid #d6dce5", borderRadius: 8, fontSize: 14, fontFamily: "inherit", background: "#fff", color: "#1e293b" }}
+                                    />
+                                    <select
+                                        value={s.time}
+                                        onChange={(e) => setSlots((prev) => prev.map((p, j) => (j === i ? { ...p, time: e.target.value } : p)))}
+                                        style={{ flex: "0 0 96px", padding: "10px 8px", border: "1px solid #d6dce5", borderRadius: 8, fontSize: 14, fontFamily: "inherit", background: "#fff", color: "#1e293b" }}
+                                    >
+                                        <option value="">時間</option>
+                                        {TIME_OPTIONS.map((t) => (
+                                            <option key={t} value={t}>{t}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* 選択アクション */}
                 <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>

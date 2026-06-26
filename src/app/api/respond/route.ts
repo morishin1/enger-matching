@@ -20,8 +20,29 @@ async function logRespondError(method: "GET" | "POST", reason: string, ctx: { to
   } catch { /* 監視ログ失敗は本処理を止めない */ }
 }
 
+/** 承認時に先方が提示した面談希望日時を、提案レコードの「メモ履歴」(proposal_memos) へ自動追記する。
+ *  日時が1件も無ければ呼び出し側でスキップする。本処理（承認通知）は止めない fail-soft。 */
+async function recordMeetingMemo(admin: ReturnType<typeof engerAdmin>, proposalId: string, candidates: string[]) {
+    try {
+        const lines = candidates.map((c, i) => `・候補${i + 1}：${c}`).join("\n");
+        const body = `【自動記録】承認時に先方より面談希望日時の提示がありました。\n${lines}`;
+        await admin.from("proposal_memos").insert({
+            proposal_id: proposalId,
+            category: "連絡記録",
+            body,
+            created_by_email: null,
+            created_by_name: "自動記録",
+        });
+    } catch { /* メモ記録失敗は承認通知を止めない */ }
+}
+
 export async function POST(req: NextRequest) {
-    const { token, action } = await req.json().catch(() => ({}));
+    const reqBody = await req.json().catch(() => ({}));
+    const { token, action } = reqBody;
+    // 面談希望日時（「2026/06/28 10:00」形式の文字列配列）。話を進める時のみ送られる想定。
+    const meetingCandidates: string[] = Array.isArray(reqBody?.meetingCandidates)
+        ? reqBody.meetingCandidates.filter((x: unknown) => typeof x === "string" && x.trim()).map((x: string) => x.trim())
+        : [];
     if (!token || !VALID_ACTIONS.includes(action)) {
         await logRespondError("POST", "invalid request (token/action missing or unknown)", { token, action });
         return NextResponse.json({ ok: false, error: "invalid request" }, { status: 400 });
@@ -46,6 +67,7 @@ export async function POST(req: NextRequest) {
             .update({ job_action_type: action as ActionType, updated_at: new Date().toISOString() })
             .eq("id", jobRes.data.id);
         if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+        if (action === "話を進める" && meetingCandidates.length) await recordMeetingMemo(admin, jobRes.data.id, meetingCandidates);
         return NextResponse.json({ ok: true, side: "job", action });
     }
 
@@ -62,6 +84,7 @@ export async function POST(req: NextRequest) {
             .update({ cand_action_type: action as ActionType, updated_at: new Date().toISOString() })
             .eq("id", candRes.data.id);
         if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+        if (action === "話を進める" && meetingCandidates.length) await recordMeetingMemo(admin, candRes.data.id, meetingCandidates);
         return NextResponse.json({ ok: true, side: "cand", action });
     }
 
