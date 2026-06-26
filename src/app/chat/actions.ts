@@ -73,17 +73,18 @@ export async function sendChatMessage(input: {
   const sender_id = access?.email ?? null;
   const sender_name = access?.name ?? access?.email ?? "担当";
 
-  const { error } = await admin.from("chat_messages").insert({
-    thread_id: input.thread_id,
-    sender_role: role,
-    sender_id,
-    sender_name,
-    body,
-  });
+  const baseRow = { thread_id: input.thread_id, sender_role: role, sender_id, sender_name, body };
+  let { error } = await admin.from("chat_messages").insert(baseRow);
+  // 旧スキーマで sender_id 列が uuid 型だと email を入れられず
+  //   「invalid input syntax for type uuid」になる。その場合は sender_id=null で再送（表示名は sender_name に残る）。
+  //   ※ 恒久対応は supabase/chat-id-text.sql（id列を text 化）。未実行でも送信できるようにするフォールバック。
+  if (error && /uuid/i.test(error.message)) {
+    ({ error } = await admin.from("chat_messages").insert({ ...baseRow, sender_id: null }));
+  }
   if (error) return { ok: false, error: error.message };
 
-  // 送った本人(agent)は読んだ扱いにする。
-  if (sender_id) await upsertRead(admin, input.thread_id, "agent", sender_id);
+  // 送った本人(agent)は読んだ扱いにする（既読列が uuid 型だと email で失敗するため、失敗は無視）。
+  if (sender_id) { try { await upsertRead(admin, input.thread_id, "agent", sender_id); } catch { /* noop */ } }
   revalidatePath("/chat");
   return { ok: true };
 }
