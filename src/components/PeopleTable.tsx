@@ -394,6 +394,11 @@ export function PeopleTable({
           );
         })}
         <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12 }}>
+          {/* 「提案あり」除外（提案実績のある人材を一覧から外す）。 */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-2)", cursor: "pointer", whiteSpace: "nowrap" }} title="「提案あり」の人材を一覧から除外する">
+            <input type="checkbox" checked={(filters.no_proposal ?? "") === "1"} onChange={(e) => pushParams({ f_no_proposal: e.target.checked ? "1" : null, page: null })} style={{ accentColor: "#067647" }} />
+            提案ありを除外
+          </label>
           {/* LINEのみ表示（signup_source=line のサーバフィルタを切替）＋件数（右上）。 */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-2)", cursor: "pointer", whiteSpace: "nowrap" }} title="LINE経由で登録した人材だけを表示">
             <input type="checkbox" checked={(filters.signup_source ?? "") === "line"} onChange={(e) => pushParams({ f_signup_source: e.target.checked ? "line" : null, page: null })} style={{ accentColor: "#06C755" }} />

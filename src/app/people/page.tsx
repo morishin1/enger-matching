@@ -113,7 +113,7 @@ const EXPORT_HEADERS = [
   { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
 ];
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; f_signup_source?: string; focus?: string }> }) {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string }> }) {
   const sp = await searchParams;
   const { q: initialQuery, focus: focusId } = sp;
   const scope = await getViewerScope();
@@ -139,6 +139,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   // 承認状況フィルタ：approved=所属企業が打合せ済のみ / unapproved=未承認のみ。空=すべて。
   const fApproved = sp.f_approved ?? "";
   const fSignupSource = sp.f_signup_source ?? "";
+  // 「提案あり」除外フィルタ：提案実績のある人材（has_proposal）を一覧から除外する。
+  const fNoProposal = sp.f_no_proposal === "1";
   // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
   if (scope.isTenant) {
     if (dbConfigured && scope.ownerKey) {
@@ -212,6 +214,17 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         return qb;
       };
 
+      // 「提案あり」除外：提案実績のある candidate_id を事前に集め、id の not.in で一覧から外す。
+      //   ページング前に DB 側で除外しないと件数・ページ数がズレるため、ここで解決する（承認フィルタと同方針）。
+      let proposedIds: string[] = [];
+      if (fNoProposal) {
+        try {
+          const pr: any = await sb.from("proposals").select("candidate_id").not("candidate_id", "is", null).limit(20000);
+          if (!pr.error) proposedIds = Array.from(new Set((pr.data ?? []).map((r: any) => r.candidate_id).filter(Boolean)));
+        } catch { /* proposals 未整備時は除外せず全件表示にフォールバック */ }
+      }
+      const applyNoProposal = (qb: any) => (fNoProposal && proposedIds.length) ? qb.not("id", "in", `(${proposedIds.join(",")})`) : qb;
+
       // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
       const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false) => {
         let qb: any = sb.from("candidates").select(selectCols, { count: "exact" });
@@ -271,6 +284,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
             : qb.or("skill_sheet_url.is.null,skill_sheet_url.eq.");
         }
         qb = applyApproved(qb);
+        qb = applyNoProposal(qb);
         return qb;
       };
       const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
@@ -327,7 +341,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   const growth = scope.isTenant ? { total: people.length, last7: 0 } as any : await getEntityDelta("candidates");
 
   // PeopleTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank, approved: fApproved, signup_source: fSignupSource };
+  const peopleFilters = { status: fStatus, title: fTitle, remote: fRemote, skill_sheet: fSkillSheet, affiliation: fAffiliation, nationality: fNationality, rank: fRank, approved: fApproved, signup_source: fSignupSource, no_proposal: fNoProposal ? "1" : "" };
   const peopleFilterOptions = {
     status: FRESH_OPTIONS,
     title: titleOptionVals.map((v) => ({ value: v, label: v })),
@@ -362,7 +376,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource);
+        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource || fNoProposal);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 
