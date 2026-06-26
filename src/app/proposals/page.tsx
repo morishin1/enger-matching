@@ -49,7 +49,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
       const activeStage = (q: any) => q.in("stage", ACTIVE_STAGES);
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await activeStage(sb.from("proposals")
-        .select(`${base}, company_contact, cand_company, cand_company_contact, cand_contact, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason`))
+        .select(`${base}, company_contact, cand_company, cand_company_contact, cand_contact, updated_at, stage_updated_at, caller_status, proposer, partner, closer, client_contact, lost_reason, lost_phase, lost_reason_note, meeting_date, meeting_status, meeting_time, meeting_format, meeting_url, meeting_attendees, meeting_note, source, job_notify_status, cand_notify_status, job_action_type, cand_action_type, approver, approval_status, approved_at, reject_reason, cand_rating, job_rating, delete_requested_at, delete_reason, delete_requested_by`))
         .order("created_at", { ascending: false }).limit(400);
       // 連絡先の追加列（proposals-contacts.sql 未適用）だけが無い場合は、承認列は残したまま連絡先列のみ外して再試行。
       if (res.error && /company_contact|cand_company|cand_contact/i.test(res.error?.message ?? "")) {

@@ -6,7 +6,11 @@
 //   - 「目標を編集」モーダルで週次目標をその場で設定
 
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
-import { currentAccess } from "@/lib/accounts";
+import { currentAccess, listAccounts } from "@/lib/accounts";
+import { getFunnel, resolveFunnelPeriod } from "@/lib/funnel";
+import { getKpiFunnelTarget } from "@/lib/kpi-funnel";
+import { KpiOverview, type MemberToday } from "@/components/KpiOverview";
+import type { KpiRoleKey } from "@/lib/kpi-roles";
 import { getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets, jstStartOfWeek, jstStartOfDay, addDays, scaleWeeklyTarget, resolveRange, METRIC_ORDER, type PeriodType, type Metric } from "@/lib/kpi";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
@@ -115,10 +119,43 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
   const proposalOwnersForBoard = (await loadProposalOwners()) ?? { proposers: [], closers: [] };
   const viewerIsManager = canManageDept(access.teamRole);
 
+  // ── KPI推移 概要（チーム目標ファネル＋役割別KGI/KPI＋メンバーの「今日」）──
+  //   ファネルは今月実績、当日ボードは選択タブに関係なく「本日」固定で集計する。
+  const todayStart = jstStartOfDay(new Date());
+  const fp = resolveFunnelPeriod("this_month");
+  const [funnelRes, funnelTarget, todayActivity, accountList] = await Promise.all([
+    getFunnel(fp.start, fp.end, fp.label),
+    getKpiFunnelTarget(),
+    activityMembers.length > 0 ? getTeamActivity({ start: todayStart, end: addDays(todayStart, 1), members: activityMembers }) : Promise.resolve([]),
+    listAccounts(),
+  ]);
+  const roleByEmail = new Map<string, string | null>();
+  const roleByName = new Map<string, string | null>();
+  for (const a of accountList) {
+    if (a.email) roleByEmail.set(a.email.toLowerCase(), (a as any).kpi_role ?? null);
+    if (a.name) roleByName.set(a.name, (a as any).kpi_role ?? null);
+  }
+  const asRoleKey = (v: any): KpiRoleKey | null => (v === "outside" || v === "inside" || v === "telapo" ? v : null);
+  const overviewMembers: MemberToday[] = todayActivity.map((r) => ({
+    name: r.name, email: r.email,
+    kpiRole: asRoleKey((r.email ? roleByEmail.get(r.email.toLowerCase()) : null) ?? roleByName.get(r.name) ?? null),
+    actual: { proposal: r.actual.proposal, contact: r.actual.contact, adjusting: r.actual.adjusting, schedule: r.actual.schedule, deal: r.actual.deal },
+    target: { proposal: r.target.proposal, contact: r.target.contact, adjusting: r.target.adjusting, schedule: r.target.schedule, deal: r.target.deal },
+  }));
+  const canManageKpi = access.role === "admin" || viewerIsManager;
+
   return (
     <>
       <div style={{ padding: "16px 18px 0" }}>
         <AnalyticsTabs />
+      </div>
+      <div style={{ padding: "12px 18px 0" }}>
+        <KpiOverview
+          funnelTarget={funnelTarget}
+          funnelActual={{ proposal: funnelRes.total.proposal, meeting: funnelRes.total.meeting, won: funnelRes.total.won }}
+          members={overviewMembers}
+          canManage={canManageKpi}
+        />
       </div>
       {activity.length > 0 && (
         <div style={{ padding: "0 18px" }}>

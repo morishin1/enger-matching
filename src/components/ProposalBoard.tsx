@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposal } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, requestProposalDeletion } from "@/lib/actions";
 import { toast } from "./toast";
 import { NotifyDot } from "./NotifyDot";
 import { ActionChips } from "./ProposalActionChip";
@@ -188,7 +188,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           </span>
           <span style={{ flexShrink: 0, display: "inline-flex", gap: 2, alignItems: "center" }}>
             <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onOpen?.()} title="編集（詳細を開く）" style={{ padding: "2px 4px", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit</span></button>
-            <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => { if (window.confirm("この提案を削除しますか？")) onDelete(p.id); }} title="削除" style={{ padding: "2px 4px", color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span></button>
+            <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onDelete(p.id)} title="削除" style={{ padding: "2px 4px", color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span></button>
           </span>
         </div>
       ) : (
@@ -268,7 +268,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4, alignItems: "center" }}>
           {normStageFn(p.stage) === "合格" && <button type="button" className="btn brand btn-xs" disabled={busy} onClick={() => onEngage(p.id)} title="稼働化すると稼働管理へ移り、この一覧から消えます">稼働化 →</button>}
           <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onOpen?.()} title="編集（詳細を開く）" style={{ display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span></button>
-          <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => { if (window.confirm("この提案を削除しますか？")) onDelete(p.id); }} title="削除" style={{ color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span></button>
+          <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onDelete(p.id)} title="削除" style={{ color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span></button>
         </span>
       </div>
       )}
@@ -396,7 +396,20 @@ export function ProposalBoard({ proposals: proposalsAll, members, proposers, clo
     // 失注時に「どの会社の誰が担当か」（会社名・先方担当者・提案者・クロージング担当）も
     // 併せて保存し、失注レコード単体で勝率分析に使えるようにする。
     run(id, () => updateProposalFields(id, { stage: "見送り", lost_phase, lost_reason, lost_reason_note: lost_reason_note ?? null, ...(extra ?? {}) }));
-  const onDelete = (id: string) => run(id, () => deleteProposal(id));
+  // 削除：理由を入力して申請（管理者は即削除・それ以外は承認待ち）。
+  const onDelete = (id: string) => {
+    const reason = window.prompt("この提案を削除します。削除理由を入力してください（管理者以外は承認待ちになります）。");
+    if (reason == null) return;
+    if (!reason.trim()) { toast("削除理由を入力してください", "error"); return; }
+    setBusyId(id);
+    start(async () => {
+      const r = await requestProposalDeletion(id, reason.trim());
+      if (!r.ok) toast(("error" in r ? r.error : null) || "処理に失敗しました", "error");
+      else if (!r.deleted) toast("削除を申請しました（管理者の承認待ち）", "success");
+      router.refresh();
+      setBusyId(null);
+    });
+  };
 
   // 未知のステージ（旧仕様の "返信あり" 等の残骸や null）は新ステージにマップして
   // ボード合計(boardCount) と 各カラムの合計が一致するようにする。
