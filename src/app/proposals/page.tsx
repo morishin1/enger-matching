@@ -152,9 +152,36 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           ...Object.values(candCompanyById).filter(Boolean) as string[],
         ]));
         const companyRows = allCompNames.length
-          ? await sb.from("companies").select("name, owner, contact_name, meeting_done").in("name", allCompNames).limit(2000)
+          ? await sb.from("companies").select("name, owner, contact_name, meeting_done, is_ng").in("name", allCompNames).limit(2000)
               .then((r: any) => r.error ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r2: any) => r2.error ? [] : nq(r2.data)) : nq(r.data))
           : [];
+        // 会社の「提案適性ランク」用に、各社の成約(稼働)・失注(見送り/失注)実績を集計する。
+        //   ランク: NG（取引NG）/ A（実績あり）/ C（失注多・提案注意）/ B（通常・新規）。
+        const wonByCompany: Record<string, number> = {};
+        const lostByCompany: Record<string, number> = {};
+        if (allCompNames.length) {
+          try {
+            const rr: any = await sb.from("proposals").select("company, stage").in("company", allCompNames).limit(20000);
+            for (const row of (rr.data ?? []) as any[]) {
+              const nm = String(row.company ?? "").trim(); if (!nm) continue;
+              const st = String(row.stage ?? "");
+              if (st === "稼働" || st === "稼働決定") wonByCompany[nm] = (wonByCompany[nm] ?? 0) + 1;
+              else if (st === "見送り" || st === "失注") lostByCompany[nm] = (lostByCompany[nm] ?? 0) + 1;
+            }
+          } catch { /* 集計失敗時はランク無し */ }
+        }
+        const ngByCompany: Record<string, boolean> = {};
+        for (const c of companyRows as any[]) if (c?.name) ngByCompany[c.name] = !!c.is_ng;
+        // 会社名 → 提案適性ランク（表示用）。
+        const rankOf = (name: string | null | undefined): { grade: "NG" | "A" | "B" | "C"; label: string } | null => {
+          const nm = String(name ?? "").trim(); if (!nm) return null;
+          if (ngByCompany[nm]) return { grade: "NG", label: "取引NG（提案非推奨）" };
+          const won = wonByCompany[nm] ?? 0, lost = lostByCompany[nm] ?? 0;
+          if (won >= 1) return { grade: "A", label: `実績あり（成約${won}・失注${lost}）` };
+          if (lost >= 2) return { grade: "C", label: `提案注意（失注${lost}・成約0）` };
+          if (lost >= 1) return { grade: "B", label: `様子見（失注${lost}・成約0）` };
+          return { grade: "B", label: "新規/実績なし" };
+        };
 
         try {
           const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
@@ -182,6 +209,9 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             p.cand_company = candCompany;
             // 承認済（＝企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら承認済扱い。
             p.company_approved = !!(meetingDoneByCompany[p.company] || (candCompany && meetingDoneByCompany[candCompany]));
+            // 会社の提案適性ランク（案件側＝クライアント会社／人材側＝所属会社）。
+            p.company_rank = rankOf(p.company);
+            p.cand_company_rank = rankOf(candCompany);
             // 企業担当（窓口担当者）は保存値が無ければ企業マスタの contact_name を自動表示。
             p.company_contact = p.company_contact ?? (p.company ? contactByCompany[p.company] : null) ?? null;
             p.cand_company_contact = p.cand_company_contact ?? (candCompany ? contactByCompany[candCompany] : null) ?? null;
