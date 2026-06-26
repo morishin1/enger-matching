@@ -205,6 +205,36 @@ export async function deleteEngineerAction(id: string): Promise<Result> {
   return { ok: true };
 }
 
+/** エンジニアの「面談済」を設定／解除する。
+ *  専用列を増やさず、対応履歴(engineer_actions) の action="面談済" の有無で表現する。
+ *    done=true  : 既に無ければ1件 insert（重複は作らない）
+ *    done=false : action="面談済" の行をすべて delete
+ *  これで未マイグレ環境でも動作し、対応履歴とも整合する。 */
+export async function setEngineerMeetingDone(input: { engineer_id: string; engineer_name?: string | null; done: boolean }): Promise<Result> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  if (!input.engineer_id) return { ok: false, error: "対象エンジニアが未指定です" };
+  const access = await currentAccess();
+  const operator = access?.name || access?.email || null;
+  if (input.done) {
+    const { data: ex } = await admin.from("engineer_actions").select("id").eq("engineer_id", input.engineer_id).eq("action", "面談済").limit(1);
+    if (!ex || ex.length === 0) {
+      const { error } = await admin.from("engineer_actions").insert({
+        engineer_id: input.engineer_id,
+        engineer_name: input.engineer_name?.trim() || null,
+        action: "面談済",
+        operator,
+      });
+      if (error) return { ok: false, error: error.message };
+    }
+  } else {
+    const { error } = await admin.from("engineer_actions").delete().eq("engineer_id", input.engineer_id).eq("action", "面談済");
+    if (error) return { ok: false, error: error.message };
+  }
+  revalidatePath("/engineers");
+  return { ok: true };
+}
+
 /** LP登録者（public.profiles）を複数まとめて削除（admin / agent）。
  *  削除対象は profiles のみに限定（app_users 等の内部アカウントは触らない＝権限昇格防止）。
  *  ※ OAuth(GitHub/Google)の auth ユーザーは残るため、本人が再ログインすると LP 側で再生成される

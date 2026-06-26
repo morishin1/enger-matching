@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import type { EngineerChatStatus } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, convertEngineerToCandidate, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn } from "@/app/engineers/actions";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 import { StageBar } from "./StageBar";
 import { Icons } from "./icons";
-import { MailButton } from "./MailButton";
 
 // ---------- 一覧表示用ヘルパ（人材一覧 EntityTable と同じ rule） ----------
 const FRESH_OPTIONS = [
@@ -97,7 +96,7 @@ const skillNames = (e: Engineer) => (e.skills ?? []).map((s) => s.name).filter(B
 const ACTION_TYPES = ["スカウト送信", "メール送信", "返信あり", "面談設定", "面談実施", "見送り", "保留", "メモ"];
 const ACTION_COLOR: Record<string, string> = {
   "スカウト送信": "#0b5cab", "メール送信": "#0b5cab", "返信あり": "#067647", "面談設定": "#067647",
-  "面談実施": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
+  "面談実施": "#067647", "面談済": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
 };
 const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 // 登録日時（年月日＋時刻）
@@ -152,35 +151,38 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
   const router = useRouter();
   const [q, setQ] = useState("");
   // withdrawal: "" (退会済みを除く＝既定) / "wish" (退会希望のみ) / "done" (退会処理済みのみ) / "all" (すべて表示)
-  const [filters, setFilters] = useState<{ status: string; lang: string; source: string; sheet: string; withdrawal: string }>({ status: "", lang: "", source: "", sheet: "", withdrawal: "" });
+  // meeting: "" (すべて) / "done" (面談済のみ)
+  const [filters, setFilters] = useState<{ status: string; lang: string; sheet: string; withdrawal: string; meeting: string }>({ status: "", lang: "", sheet: "", withdrawal: "", meeting: "" });
   const [detail, setDetail] = useState<Engineer | null>(null);
-  const [matchingBusy, setMatchingBusy] = useState<string | null>(null);
   const [matchingMsg, setMatchingMsg] = useState<string | null>(null);
   // 一括削除用の選択状態
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const goMatching = (e: Engineer) => {
-    setMatchingBusy(e.id); setMatchingMsg(null);
-    convertEngineerToCandidate(e.id).then((res) => {
-      setMatchingBusy(null);
-      if (res.ok && res.candidate_no) router.push(`/matching?person=${res.candidate_no}`);
-      else setMatchingMsg(res.error || "マッチングへ進めませんでした");
+  // 面談済：対応履歴(engineer_actions)に action="面談済" があれば面談済とみなす。
+  //   チェックで記録(insert)／解除(delete)。楽観的に即時反映し、失敗時のみ元に戻す。
+  const [meetingDoneIds, setMeetingDoneIds] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const [id, list] of Object.entries(actions)) if ((list ?? []).some((a) => a.action === "面談済")) s.add(id);
+    return s;
+  });
+  const [meetingBusy, setMeetingBusy] = useState<string | null>(null);
+  const toggleMeetingDone = (e: Engineer) => {
+    const next = !meetingDoneIds.has(e.id);
+    setMeetingBusy(e.id); setMatchingMsg(null);
+    setMeetingDoneIds((s) => { const n = new Set(s); if (next) n.add(e.id); else n.delete(e.id); return n; });
+    setEngineerMeetingDone({ engineer_id: e.id, engineer_name: e.display_name || e.github_login || e.name, done: next }).then((res) => {
+      setMeetingBusy(null);
+      if (!res.ok) {
+        setMeetingDoneIds((s) => { const n = new Set(s); if (next) n.delete(e.id); else n.add(e.id); return n; });
+        setMatchingMsg(res.error || "面談済の更新に失敗しました");
+      }
     });
   };
 
   // フィルタ選択肢（データから動的生成）
   const langOptions = useMemo(() => Array.from(new Set(engineers.map((e) => e.primary_language).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, "ja")), [engineers]);
-  const sourceOptions = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const e of engineers) {
-      const key = e.source.key + "|" + (e.source.method || "");
-      const label = `${e.source.label}${e.source.method ? ` · ${e.source.method}` : ""}`;
-      if (!m.has(key)) m.set(key, label);
-    }
-    return Array.from(m.entries()).map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "ja"));
-  }, [engineers]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -191,7 +193,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       }
       if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
       if (filters.lang && (e.primary_language || "") !== filters.lang) return false;
-      if (filters.source && (e.source.key + "|" + (e.source.method || "")) !== filters.source) return false;
+      if (filters.meeting === "done" && !meetingDoneIds.has(e.id)) return false;
       if (filters.sheet === "あり" && !e.skill_sheet_url) return false;
       if (filters.sheet === "なし" && e.skill_sheet_url) return false;
       // 退会フィルタ：
@@ -207,7 +209,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       if (wd === "done" && !isDone) return false;
       return true;
     });
-  }, [q, filters, engineers]);
+  }, [q, filters, engineers, meetingDoneIds]);
 
   // ページング
   const [pageSize, setPageSize] = useState(50);
@@ -270,10 +272,10 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
               {langOptions.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </label>
-          <label className="tbl-filter"><span>登録元</span>
-            <select value={filters.source} onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}>
+          <label className="tbl-filter"><span>面談</span>
+            <select value={filters.meeting} onChange={(e) => setFilters((f) => ({ ...f, meeting: e.target.value }))}>
               <option value="">すべて</option>
-              {sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              <option value="done">面談済のみ</option>
             </select>
           </label>
           <label className="tbl-filter"><span>スキルシート</span>
@@ -316,7 +318,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 <th style={{ width: 132 }}>登録日時</th>
                 <th style={{ width: 96 }}>連絡先</th>
                 <th style={{ width: 80 }}>履歴</th>
-                <th style={{ width: 200 }}>アクション</th>
+                <th style={{ width: 90, textAlign: "center" }}>面談済</th>
               </tr>
             </thead>
             <tbody>
@@ -385,21 +387,13 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                         {ap.length + sc.length + log.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
                       </span>
                     </td>
-                    <td>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <button
-                          type="button"
-                          className="btn btn-xs"
-                          disabled={matchingBusy === e.id}
-                          onClick={(ev) => { ev.stopPropagation(); goMatching(e); }}
-                          title="このエンジニアを候補者として取り込み、マッチング画面で案件探し"
-                          style={{ background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span>
-                          <span>{matchingBusy === e.id ? "準備中…" : "マッチング"}</span>
-                        </button>
-                        <MailButton to={e.email} search={[name, e.github_login].filter(Boolean).join(" ")} />
-                      </div>
+                    <td style={{ textAlign: "center" }}>
+                      <input type="checkbox" aria-label={`${name} を面談済にする`}
+                        checked={meetingDoneIds.has(e.id)} disabled={meetingBusy === e.id}
+                        onClick={(ev) => ev.stopPropagation()}
+                        onChange={(ev) => { ev.stopPropagation(); toggleMeetingDone(e); }}
+                        title="面談済みのときチェック（対応履歴に記録されます）"
+                        style={{ accentColor: "#067647", width: 17, height: 17, cursor: meetingBusy === e.id ? "wait" : "pointer" }} />
                     </td>
                   </tr>
                 );
