@@ -13,7 +13,7 @@ import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { extractEntityFields, upsertCandidateManual, upsertJobManual, type CandidateInput, type JobInput } from "@/lib/actions";
 import { rankCandidates, rankJobs } from "@/lib/match";
 import { relatedSearchLabels } from "@/lib/skills";
-import { lineworksConfigured, verifyWebhookSignature, sendBotMessage, textMessage, matchCarousel, type LwTarget, type MatchColumn } from "@/lib/lineworks";
+import { lineworksConfigured, verifyWebhookSignature, sendBotMessage, textMessage, matchCarousel, diagnoseAuth, type LwTarget, type MatchColumn } from "@/lib/lineworks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -150,8 +150,14 @@ async function handleMessage(text: string, target: LwTarget): Promise<void> {
   }
 }
 
-/** ヘルスチェック（Webhook URL 登録時の疎通確認用）。 */
-export async function GET() {
+/** ヘルスチェック（Webhook URL 登録時の疎通確認用）。
+ *  `?selftest=1` を付けると実際にトークン取得を試し、失敗理由(JSON)を返す（原因切り分け用）。 */
+export async function GET(req: NextRequest) {
+  const selftest = new URL(req.url).searchParams.get("selftest") === "1";
+  if (selftest) {
+    const auth = lineworksConfigured() ? await diagnoseAuth() : { ok: false, error: "環境変数(LINEWORKS_*)が未設定です" };
+    return NextResponse.json({ ok: true, service: "lineworks-webhook", configured: lineworksConfigured(), auth });
+  }
   return NextResponse.json({ ok: true, service: "lineworks-webhook", configured: lineworksConfigured() });
 }
 
