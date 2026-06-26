@@ -266,11 +266,13 @@ export function ProposalsWorkspace({
               </div>
             )}
             <div className="card" style={{ padding: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                 <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
                 <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
                 <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>所属確認 → 提案中 → 確認中 → 面談 → 合格 の目標/現在/達成率</span>
               </div>
+              {/* この表にも期間切替を直接表示（本日/前日/今週/今月/四半期/任意）。KPI達成率列が期間連動。 */}
+              <div style={{ marginBottom: 12 }}><KpiPeriodBar current={kpiProps.period} /></div>
               <StageTargetBoard
                 proposals={proposals}
                 members={stageBoardMembers}
