@@ -314,7 +314,6 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 <th style={{ width: 110 }} className="num">単価</th>
                 <th style={{ width: 100 }} className="num">GitHub</th>
                 <th style={{ width: 120 }}>スキルシート</th>
-                <th style={{ width: 160 }}>登録元</th>
                 <th style={{ width: 132 }}>登録日時</th>
                 <th style={{ width: 96 }}>連絡先</th>
                 <th style={{ width: 80 }}>履歴</th>
@@ -323,7 +322,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={14} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+                <tr><td colSpan={13} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
               ) : pageRows.map((e) => {
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
@@ -376,7 +375,6 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                         ? <a href={e.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
                         : <span className="muted" style={{ fontSize: 12 }}>—</span>}
                     </td>
-                    <td><SourceBadge source={e.source} /></td>
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
                     <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
