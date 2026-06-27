@@ -158,27 +158,27 @@ button { font-family: inherit; }
 .nav .active .badge { background: var(--color-brand-100); color: var(--color-brand-700); }
 .nav .badge.hot { background: var(--color-brand-600); color:#fff; }
 
-/* === サイドバー：ダーク基調＋項目説明（見た目スタイル統一・構成は不変） === */
-.side { background: linear-gradient(180deg, #1f3a64 0%, #14284a 100%); color: #dbe6f7; border-right: 1px solid rgba(255,255,255,.07); }
-.side::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); }
-.side::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+/* === サイドバー：#00bfff 基調＋項目説明（見た目スタイル統一・構成は不変） === */
+.side { background: linear-gradient(180deg, #00bfff 0%, #00a6e6 100%); color: #ffffff; border-right: 1px solid rgba(255,255,255,.18); }
+.side::-webkit-scrollbar-thumb { background: rgba(255,255,255,.35); }
+.side::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.5); }
 .side-brand .wm { color: #fff; }
-.side-brand .wm small { color: #9fb6da; }
-.nav-group-label { color: rgba(255,255,255,.45); }
-.nav a, .nav button.nav-item { color: #c3d3ee; align-items: center; }
-.nav a:hover, .nav button.nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
-.nav .active { background: rgba(255,255,255,.14); color: #fff; }
+.side-brand .wm small { color: rgba(255,255,255,.8); }
+.nav-group-label { color: rgba(255,255,255,.75); }
+.nav a, .nav button.nav-item { color: rgba(255,255,255,.92); align-items: center; }
+.nav a:hover, .nav button.nav-item:hover { background: rgba(255,255,255,.18); color: #fff; }
+.nav .active { background: rgba(255,255,255,.24); color: #fff; }
 .nav .active .ico { color: #fff; opacity: 1; }
-.nav .ico { color: #aebfdd; opacity: .85; }
-.nav .badge { background: rgba(255,255,255,.14); color: #dbe6f7; }
-.nav .active .badge { background: rgba(255,255,255,.26); color: #fff; }
+.nav .ico { color: #fff; opacity: .9; }
+.nav .badge { background: rgba(255,255,255,.26); color: #fff; }
+.nav .active .badge { background: rgba(255,255,255,.4); color: #fff; }
 /* 項目内：アイコンの右にラベル＋説明を縦積み */
 .nav .nav-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .nav .nav-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav .nav-desc { font-size: 10px; line-height: 1.25; color: rgba(255,255,255,.45); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav .nav-sub .nav-label { font-weight: 500; color: #aebfdd; }
+.nav .nav-desc { font-size: 10px; line-height: 1.25; color: rgba(255,255,255,.72); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .nav-sub .nav-label { font-weight: 500; color: rgba(255,255,255,.85); }
 .nav .nav-sub.active .nav-label { color: #fff; }
-.nav .nav-sub .nav-desc { color: rgba(255,255,255,.4); }
+.nav .nav-sub .nav-desc { color: rgba(255,255,255,.68); }
 
 .side-foot { margin-top: auto; padding: 12px; background: var(--color-surface-soft); border-radius: 12px; display:flex; align-items:center; gap: 10px; }
 .side-foot .ava { width:32px; height:32px; border-radius:99px; background: linear-gradient(135deg, var(--color-brand-500), var(--color-brand-700)); display:grid; place-items:center; color:#fff; font-weight:600; font-size: 12px;}
