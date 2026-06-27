@@ -19,42 +19,11 @@ import { KpiPeriodBar } from "./KpiPeriodBar";
 import { StageTargetBoard } from "./StageTargetBoard";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
+import { PeriodChips, CLIENT_PERIOD_LABEL, CLIENT_PERIOD_KEYS, inClientPeriod, type ClientPeriod } from "./PeriodChips";
 
-type Period = "today" | "week" | "lastweek" | "month" | "thirty" | "all";
-
-const PERIOD_LABEL: Record<Period, string> = {
-  today: "本日", week: "今週", lastweek: "先週", month: "今月", thirty: "30日", all: "全期間",
-};
-
-// 今週（月曜起点）の開始時刻。
-function thisWeekStart(): number {
-  const d = new Date(); d.setHours(0, 0, 0, 0);
-  const dow = (d.getDay() + 6) % 7; // 月曜起点
-  d.setDate(d.getDate() - dow);
-  return d.getTime();
-}
-
-function startMs(p: Period): number {
-  const now = new Date();
-  if (p === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
-  if (p === "week") return thisWeekStart();
-  if (p === "lastweek") return thisWeekStart() - 7 * 86400000; // 先週月曜
-  if (p === "month") { const d = new Date(now.getFullYear(), now.getMonth(), 1); return d.getTime(); }
-  if (p === "thirty") { return Date.now() - 30 * 86400000; }
-  return 0; // all
-}
-
-// 期間の終端（この時刻“未満”が対象）。先週のみ「今週月曜」で区切り、他は上限なし。
-function endMs(p: Period): number {
-  if (p === "lastweek") return thisWeekStart();
-  return Number.POSITIVE_INFINITY;
-}
-
-// 指定期間に created_at(ms) が入るか。
-function inRangeMs(t: number, p: Period): boolean {
-  if (p === "all") return true;
-  return !!t && t >= startMs(p) && t < endMs(p);
-}
+type Period = ClientPeriod;
+const PERIOD_LABEL = CLIENT_PERIOD_LABEL;
+const inRangeMs = (t: number, p: Period) => inClientPeriod(t, p);
 
 type TabKey = "kpi" | "approval" | "board" | "history" | "lost" | "report";
 
@@ -89,6 +58,8 @@ export function ProposalsWorkspace({
   privileged?: boolean;
 }) {
   // 承認待ちが1件でもあれば最初から「承認」タブを開く（承認漏れを防ぐ）。
+  //   ・banner / タブ起動判定は「全期間」を見る（期間外の承認漏れを防ぐため）。
+  //   ・承認タブの表示は下の approvalRowsInPeriod で期間連動させる。
   const approvalRows = useMemo(() => proposals.filter(isAwaitingApproval), [proposals]);
   const [period, setPeriod] = useState<Period>("week");
   // 既定は「KPI推移」タブ（KPI/KGI→提案→結果→日報 の流れの起点）。
@@ -132,6 +103,8 @@ export function ProposalsWorkspace({
 
   // 承認待ち・差戻しは「承認」タブに集約し、ボードからは除外（重複表示を防ぐ）。
   const boardRows = useMemo(() => proposals.filter((p) => inPeriod(p) && !isAwaitingApproval(p)), [proposals, period]);
+  // 承認タブの表示も期間連動（ただし banner/タブ起動は approvalRows=全期間で判定）。
+  const approvalRowsInPeriod = useMemo(() => approvalRows.filter(inPeriod), [approvalRows, period]);
   const historyRows = useMemo(() => historyClient.filter(inPeriod), [historyClient, period]);
   const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period]);
   // LINE経由グラフ（失注分析内）の「提案数」算出用に、進行中の提案も期間で絞って渡す。
@@ -170,28 +143,16 @@ export function ProposalsWorkspace({
     { key: "report",  label: "日報",       icon: "edit_note",   show: true, title: "KPI/失注を踏まえた気づき・改善策を日報に記録します。" },
   ];
 
-  const PeriodChip = ({ p }: { p: Period }) => {
-    const active = period === p;
-    // 期間カウントはボード（進行中）+ 取得済みの失注/稼働分のみ。失注分析タブを開く前は
-    // analyticsClient は空（=未取得）になるが、進行中件数だけ表示される（タブを開けば加算）。
-    const n = p === "all" ? proposals.length + analyticsClient.length : (proposals.filter((r) => {
-      const t = new Date(r?.created_at ?? 0).getTime(); return inRangeMs(t, p);
-    }).length + analyticsClient.filter((r) => {
-      const t = new Date(r?.created_at ?? 0).getTime(); return inRangeMs(t, p);
-    }).length);
-    return (
-      <button type="button" onClick={() => setPeriod(p)}
-        style={{
-          fontFamily: "inherit", fontSize: 12.5, fontWeight: active ? 800 : 600,
-          padding: "6px 14px", borderRadius: 99, cursor: "pointer",
-          border: `1px solid ${active ? "var(--color-brand-600)" : "var(--color-border)"}`,
-          background: active ? "var(--color-brand-600)" : "#fff",
-          color: active ? "#fff" : "var(--color-ink-2)",
-        }}>
-        {PERIOD_LABEL[p]}<span style={{ marginLeft: 6, opacity: 0.85, fontWeight: 700 }}>{n}</span>
-      </button>
-    );
-  };
+  // 期間チップに出す件数（ボード進行中 + 取得済みの失注/稼働）。承認タブのときは承認待ち件数。
+  const periodOptions = useMemo(() => {
+    const countFor = (p: Period) => {
+      if (tab === "approval") return approvalRows.filter((r) => inRangeMs(new Date(r?.created_at ?? 0).getTime(), p)).length;
+      if (p === "all") return proposals.length + analyticsClient.length;
+      const f = (arr: any[]) => arr.filter((r) => inRangeMs(new Date(r?.created_at ?? 0).getTime(), p)).length;
+      return f(proposals) + f(analyticsClient);
+    };
+    return CLIENT_PERIOD_KEYS.map((k) => ({ key: k, label: PERIOD_LABEL[k], count: countFor(k) }));
+  }, [tab, proposals, analyticsClient, approvalRows, period]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -210,7 +171,7 @@ export function ProposalsWorkspace({
       )}
 
       {/* タブ＋期間フィルターを1段に揃える（タブを左、期間チップを右）。
-          期間フィルターは提案ボード・失注分析にのみ作用。KPI推移/承認/日報では非表示。 */}
+          期間フィルターは 提案ボード・失注分析・承認 に作用（統一デザイン）。KPI推移は専用バー、日報は対象外。 */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
         <div role="tablist" style={{ display: "flex", gap: 2 }}>
           {tabsDef.filter((t) => t.show).map((t) => {
@@ -233,18 +194,9 @@ export function ProposalsWorkspace({
             );
           })}
         </div>
-        {(tab === "board" || tab === "lost") && (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingBottom: 6 }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 800, color: "var(--color-ink-2)" }}>
-              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 17, color: "var(--color-brand-700)" }}>filter_alt</span>
-              期間
-            </span>
-            <PeriodChip p="today" />
-            <PeriodChip p="week" />
-            <PeriodChip p="lastweek" />
-            <PeriodChip p="month" />
-            <PeriodChip p="thirty" />
-            <PeriodChip p="all" />
+        {(tab === "board" || tab === "lost" || tab === "approval") && (
+          <div style={{ paddingBottom: 6 }}>
+            <PeriodChips value={period} onChange={setPeriod} options={periodOptions} />
           </div>
         )}
       </div>
@@ -307,7 +259,13 @@ export function ProposalsWorkspace({
         )
       )}
       {tab === "approval" && (
-        <ApprovalQueue rows={approvalRows} currentUserName={currentUserName} privileged={privileged} />
+        approvalRows.length > 0 && approvalRowsInPeriod.length === 0 ? (
+          <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+            この期間に承認待ち・差戻しはありません（全期間では {approvalRows.length} 件）。
+          </div>
+        ) : (
+          <ApprovalQueue rows={approvalRowsInPeriod} currentUserName={currentUserName} privileged={privileged} />
+        )
       )}
       {tab === "board" && (
         boardRows.length === 0 ? (
