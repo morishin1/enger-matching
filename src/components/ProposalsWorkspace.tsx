@@ -349,6 +349,7 @@ export function ProposalsWorkspace({
                       roleByMember={roleByMember ?? {}}
                       roleKgiByMember={roleKgiByMember}
                       kpiPctByMember={kpiPctByMember}
+                      currentUserName={currentUserName}
                       canEdit={!!privileged}
                     />
                   </>

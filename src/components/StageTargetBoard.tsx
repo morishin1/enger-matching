@@ -30,6 +30,25 @@ const STAGE_COLUMNS: { key: string; label?: string; source: "proposal" | "overri
 const STAGE_KEYS = STAGE_COLUMNS.map((c) => c.key);
 const PROPOSAL_COLUMNS = STAGE_COLUMNS.filter((c) => c.source === "proposal");
 
+// 役割ごとに「やるべき」列。該当しない列は対象外（グレー）表示にする（営業マニュアル§10の役割分担）。
+//   打ち合わせ/案件の仕入れ＝アウトサイド、提案中＝インサイド、面談＝両者、合格＝アウトサイド。
+//   テレアポは本ボードの列に該当なし（架電は別途）。
+const COLUMN_ROLES: Record<string, ("outside" | "inside" | "telapo")[]> = {
+  "打ち合わせ": ["outside"],
+  "提案中": ["inside"],
+  "案件の仕入れ": ["outside"],
+  "面談": ["outside", "inside"],
+  "合格": ["outside"],
+};
+// 役割フィルタの選択肢。
+const ROLE_FILTERS: { key: string; label: string }[] = [
+  { key: "all", label: "チーム全体" },
+  { key: "outside", label: "アウトサイド" },
+  { key: "inside", label: "インサイド" },
+  { key: "telapo", label: "テレアポ" },
+  { key: "me", label: "個人" },
+];
+
 // 役割別KGI（インサイド＝面談率／アウトサイド＝合格率／テレアポ＝独自KGIなし）。
 type RoleKgi =
   | { role: "outside" | "inside"; label: string; rate: number | null; targetRate: number; numer: number; denom: number; numerLabel: string; denomLabel: string }
@@ -52,16 +71,18 @@ type Props = {
   roleByMember?: Record<string, string>;
   roleKgiByMember?: Record<string, RoleKgi>;
   kpiPctByMember?: Record<string, number | null>;
+  currentUserName?: string | null;   // 「個人」フィルタ用
   canEdit: boolean;
 };
 
 const pctTone = (pct: number | null) => pct == null ? "var(--color-ink-4)" : pct >= 100 ? "#067647" : pct >= 60 ? "#9a7b12" : "#b42318";
 const roleOf = (owner: string, roleKgi: Record<string, RoleKgi>): string | null => roleKgi[owner]?.role ?? null;
 
-export function StageTargetBoard({ proposals, members, stageTargets, currentOverrides = {}, kgiByMember, roleByMember = {}, roleKgiByMember = {}, kpiPctByMember = {}, canEdit }: Props) {
+export function StageTargetBoard({ proposals, members, stageTargets, currentOverrides = {}, kgiByMember, roleByMember = {}, roleKgiByMember = {}, kpiPctByMember = {}, currentUserName, canEdit }: Props) {
   const router = useRouter();
   const [, start] = useTransition();
   const [edits, setEdits] = useState<Record<string, string>>({}); // `${owner}|${stage}` -> 入力中の値
+  const [roleFilter, setRoleFilter] = useState<string>("all"); // 役割フィルタ（チーム全体/アウト/イン/テレアポ/個人）
 
   // 担当者×列 の現在件数。提案系は proposals から、打合せ/仕入れは currentOverrides から。
   const current = useMemo(() => {
@@ -129,6 +150,11 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
     const hasTg = STAGE_KEYS.some((s) => (tg[s] ?? 0) > 0);
     const hasKpi = kpiPctByMember[nm] != null;
     return hasCur || hasTg || hasKpi;
+  }).filter((nm) => {
+    // 役割フィルタ（チーム全体/アウト/イン/テレアポ/個人）。
+    if (roleFilter === "all") return true;
+    if (roleFilter === "me") return currentUserName ? ownerMatches(nm, currentUserName) : true;
+    return roleOf(nm, roleKgiByMember) === roleFilter;
   }).sort((a, b) => {
     // 役割でまとめる（アウトサイド→インサイド→テレアポ→未設定）。同役割内は名前順。
     const ra = ROLE_ORDER[roleOf(a, roleKgiByMember) ?? ""] ?? 9;
@@ -136,15 +162,45 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
     return ra !== rb ? ra - rb : a.localeCompare(b, "ja");
   });
 
+  const filterChips = (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+      {ROLE_FILTERS.map((f) => {
+        const on = roleFilter === f.key;
+        return (
+          <button key={f.key} type="button" onClick={() => setRoleFilter(f.key)}
+            style={{ fontFamily: "inherit", fontSize: 12, fontWeight: on ? 800 : 600, cursor: "pointer", padding: "5px 12px", borderRadius: 99,
+              border: `1px solid ${on ? "var(--color-brand-600)" : "var(--color-border)"}`, background: on ? "var(--color-brand-600)" : "#fff", color: on ? "#fff" : "var(--color-ink-2)" }}>
+            {f.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   if (shownMembers.length === 0) {
-    return <div className="muted" style={{ fontSize: 12, padding: 8 }}>対象の担当者がいません。</div>;
+    return <div>{filterChips}<div className="muted" style={{ fontSize: 12, padding: 8 }}>対象の担当者がいません。</div></div>;
   }
+
+  // 役割に該当しない列は「対象外」グレー表示（白紙にしない）。役割未設定の人は全列表示。
+  const isOutOfScope = (owner: string, stage: string): boolean => {
+    const role = roleOf(owner, roleKgiByMember);
+    if (!role) return false;
+    const cols = COLUMN_ROLES[stage];
+    return !!cols && !cols.includes(role as "outside" | "inside" | "telapo");
+  };
 
   const cell = (owner: string, stage: string) => {
     const cur = current[owner]?.[stage] ?? 0;
     const tg = stageTargets[owner]?.[stage] ?? 0;
     const pct = tg > 0 ? Math.round((cur / tg) * 100) : null;
     const key = `${owner}|${stage}`;
+    if (isOutOfScope(owner, stage)) {
+      return (
+        <td key={stage} style={{ ...td, background: "var(--color-surface-inset)", color: "var(--color-ink-5)" }}>
+          <span style={{ fontSize: 11 }}>対象外</span>
+        </td>
+      );
+    }
     return (
       <td key={stage} style={td}>
         <div style={{ fontWeight: 700 }}>
@@ -172,7 +228,9 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
   };
 
   return (
-    <div style={{ overflowX: "auto" }}>
+    <div>
+      {filterChips}
+      <div style={{ overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 760 }}>
         <thead>
           <tr>
@@ -228,6 +286,7 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
           })}
         </tbody>
       </table>
+      </div>
       <div className="muted" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.7 }}>
         <b>打ち合わせ</b>＝打合せ記録（メニュー「打合わせ」）の自社担当者×打ち合わせ日の件数。
         <b>案件の仕入れ</b>＝承認済（打合せ完了）かつ自社担当者ありの企業から取り込んだ案件数（案件側のみ・人材側は対象外）。
@@ -235,6 +294,7 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
         <b>合格（稼働決定）</b>＝「合格」ステージの件数（クロージング担当者で集計）。
         いずれも上部の期間に連動します。
         <br /><b>KGI達成率（役割別）</b>＝<b style={{ color: ROLE_BADGE.outside.fg }}>アウトサイド</b>は合格率（面談→合格/稼働）、<b style={{ color: ROLE_BADGE.inside.fg }}>インサイド</b>は面談率（提案→面談）。テレアポは独自KGIなし。目標率はチームのファネル目標。役割と目標は「KPI＆KGI」ページで割当・設定できます（未設定は従来の合格÷稼働化目標）。
+        <br />上部の役割フィルタ（チーム全体/アウト/イン/テレアポ/個人）で絞り込み。役割に該当しない列は<b>対象外</b>（グレー）表示です。
         {canEdit && <><br />※ 各列の数値（/の右）が目標。直接入力して変更できます（フォーカスを外すと保存）。</>}
       </div>
     </div>
