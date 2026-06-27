@@ -3,10 +3,10 @@ import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
 import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
-import { EntityGrowthLine } from "@/components/EntityGrowthLine";
+import { UrlPeriodChips } from "@/components/UrlPeriodChips";
+import { asClientPeriod, periodStartMs, periodEndMs, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
-import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskJobs } from "@/lib/tenant";
 import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
 import { JOB_FLOW_OPTIONS } from "@/lib/flow";
@@ -117,7 +117,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string; period?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -138,8 +138,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const fSignupSource = sp.f_signup_source ?? "";
   // 「提案あり」除外フィルタ：提案実績のある案件（has_proposal）を一覧から除外する。
   const fNoProposal = sp.f_no_proposal === "1";
+  // 期間セレクタ（統一デザイン）。登録日(created_at)で一覧を絞り込む。既定=全期間。
+  const mPeriod = asClientPeriod(sp.period, "all");
+  const periodGte = mPeriod === "all" ? null : new Date(periodStartMs(mPeriod)).toISOString();
+  const periodLt = mPeriod === "all" || periodEndMs(mPeriod) === Number.POSITIVE_INFINITY ? null : new Date(periodEndMs(mPeriod)).toISOString();
   const scope = await getViewerScope();
   let jobs: any[] = [];
+  let periodCounts: Partial<Record<ClientPeriod, number | null>> = {};
   let total = 0;
   let pageCount = 1;
   let roleOptionVals: string[] = [];
@@ -269,6 +274,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         }
         if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
         if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
+        if (periodGte) qb = qb.gte("created_at", periodGte);
+        if (periodLt) qb = qb.lt("created_at", periodLt);
         qb = applyApproved(qb);
         qb = applyNoProposal(qb);
         return qb;
@@ -307,6 +314,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         else if (fNat === "open") qb = qb.or(ilikeOr(JOB_NAT_SQL_KEYS.open, ["detail", "title"]));
         if (fresh?.gte) qb = qb.gte("created_at", fresh.gte);
         if (fresh?.lt) qb = qb.lt("created_at", fresh.lt);
+        if (periodGte) qb = qb.gte("created_at", periodGte);
+        if (periodLt) qb = qb.lt("created_at", periodLt);
         qb = applyApproved(qb);
         qb = applyNoProposal(qb);
         return qb;
@@ -321,6 +330,29 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
       pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+      // 期間チップの件数（登録日ベース・表示対象の基本可視性のみ。テキストフィルタは無視＝旧サマリと同義）。
+      //   head:true の COUNT を6期間ぶん並列実行。失敗時は黙って null（チップは数値非表示）。
+      try {
+        const countFor = async (p: ClientPeriod, noTrash = false): Promise<number | null> => {
+          let qb: any = sb.from("jobs").select("job_no", { count: "exact", head: true });
+          if (!noTrash) qb = qb.is("deleted_at", null);
+          if (!showAll) qb = qb.eq("is_published", true);
+          if (p !== "all") {
+            qb = qb.gte("created_at", new Date(periodStartMs(p)).toISOString());
+            if (periodEndMs(p) !== Number.POSITIVE_INFINITY) qb = qb.lt("created_at", new Date(periodEndMs(p)).toISOString());
+          }
+          const r: any = await qb;
+          if (r.error) {
+            if (!noTrash && /deleted_at|column/i.test(r.error.message ?? "")) return countFor(p, true);
+            return null;
+          }
+          return r.count ?? null;
+        };
+        const vals = await Promise.all(CLIENT_PERIOD_KEYS.map((k) => countFor(k)));
+        periodCounts = Object.fromEntries(CLIENT_PERIOD_KEYS.map((k, i) => [k, vals[i]])) as Partial<Record<ClientPeriod, number | null>>;
+      } catch { /* 件数取得失敗は無視 */ }
+
       // 承認(打合せ済)バッジ用に、各行へ client_name の承認状態を付与。
       try {
         const approvedSet = await getApprovedCompanySet();
@@ -379,7 +411,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const staff = scope.isTenant ? { rows: [] as any[] } : await getStaff();
   const outsideNames = staff.rows.filter((s: any) => s.position === "outside").map((s: any) => s.name);
   const ownerOptions = outsideNames.length ? outsideNames : staff.rows.map((s: any) => s.name);
-  const growth = scope.isTenant ? { total: jobs.length, last7: 0 } as any : await getEntityDelta("jobs");
 
   // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
   const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved, signup_source: fSignupSource, no_proposal: fNoProposal ? "1" : "" };
@@ -403,7 +434,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <div className="meta">Jobs · 案件マスタ（実データ）</div>
           <h1>案件</h1>
-          <EntityGrowthLine unit="件" delta={growth} />
+          {/* 旧「累計/新規サマリ」を期間チップに置換。期間を選ぶと登録日で一覧を絞り込み、各期間の件数を表示。 */}
+          {!scope.isTenant && <div style={{ marginTop: 6 }}><UrlPeriodChips basePath="/jobs" counts={periodCounts} /></div>}
         </div>
         {/* ボタンは「新規登録 / CSV取込 / ゴミ箱」の3つに統一（マッチング系メニュー共通）。 */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -416,7 +448,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。
           検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll);
+        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll || mPeriod !== "all");
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 
