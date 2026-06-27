@@ -1157,6 +1157,12 @@ export async function updateProposalStage(id: string, stage: string) {
   }
   const error = r.error;
   if (error) return { ok: false, error: error.message };
+  // 「面談」または「合格」に入った時、面談到達日時を初回のみ記録（累計集計「面談」列のソース）。
+  //   ※ 既に値があれば上書きしない（is null 条件）。列未整備の環境では握りつぶす。
+  if (stage === "面談" || stage === "合格") {
+    try { await admin.from("proposals").update({ meeting_reached_at: now }).eq("id", id).is("meeting_reached_at", null); }
+    catch { /* meeting_reached_at 列が無い環境はスキップ */ }
+  }
   revalidatePath("/proposals");
   revalidatePath("/analytics");
   bustCounts();

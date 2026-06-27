@@ -13,6 +13,7 @@ import { loadProposalOwners } from "@/lib/proposal-owners";
 import { canManageDept } from "@/lib/roles";
 import { getStageTargets } from "@/lib/stage-targets";
 import { listPersonKgi, monthKey } from "@/lib/person-kgi";
+import { normalizeStage } from "@/lib/proposal-constants";
 
 const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
@@ -139,6 +140,9 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     //   compact な {date, owner} 配列で渡し、KPI推移の期間でクライアントが絞り込む。
     let meetingEvents: { date: string; owner: string }[] = [];
     let procurementEvents: { date: string; owner: string }[] = [];
+    // 面談到達（「面談」フォルダに入ったことのある提案）。提案者ごと・累計（移動/失注で減算せず削除のみ減算）。
+    //   meeting_reached_at をソースに、無ければ現在ステージが面談以降の提案をフォールバック判定。
+    let meetingReachedEvents: { date: string; owner: string }[] = [];
     try {
       const sb = engerAdmin();
       // 企業名の正規化（jobs.client_name ⇔ companies.name の名寄せ）。companies.ts の compKey と同じ規則。
@@ -146,8 +150,17 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
         .replace(/(株式会社|有限会社|合同会社|合資会社|\(株\)|（株）|㈱|inc\.?|co\.?,?\s*ltd\.?|ltd\.?|corp\.?|corporation)/g, "")
         .replace(/[\s　()（）・,，、。.\-－_/／]/g, "");
 
+      // 独立した4クエリ（打合せ/企業/案件/全提案）は並列取得して /proposals の SSR 遅延を抑える。
+      //   Supabase の型が深くなり TS2589 になるため、各クエリを Promise<any> にキャストして推論を切る。
+      const queries: Promise<any>[] = [
+        sb.from("meetings").select("our_owner, meeting_date").not("meeting_date", "is", null).limit(5000) as any,
+        sb.from("companies").select("name, meeting_done, owner_staff").limit(20000) as any,
+        sb.from("jobs").select("client_name, created_at, imported_at").order("imported_at", { ascending: false, nullsFirst: false }).limit(8000) as any,
+        sb.from("proposals").select("proposer, stage, meeting_reached_at, stage_updated_at, updated_at, created_at").order("created_at", { ascending: false }).limit(8000) as any,
+      ];
+      const [mr, cr0, jr0, pr0]: any[] = await Promise.all(queries);
+
       // ① 打ち合わせ：meeting_date が入っている記録を our_owner ごとに1件。
-      const mr: any = await sb.from("meetings").select("our_owner, meeting_date").not("meeting_date", "is", null).limit(5000);
       for (const r of (mr?.data ?? [])) {
         const owner = String(r?.our_owner ?? "").trim();
         const date = r?.meeting_date ? String(r.meeting_date) : "";
@@ -155,14 +168,14 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
 
       // ② 案件の仕入れ：承認済＋自社担当者ありの企業マップを作り、その企業から取り込んだ案件を owner_staff に按分。
-      let cr: any = await sb.from("companies").select("name, meeting_done, owner_staff").limit(20000);
+      let cr: any = cr0;
       if (cr?.error && /meeting_done|owner_staff|column/i.test(cr.error.message ?? "")) cr = { data: [] };
       const compByKey = new Map<string, { meeting_done: boolean; owner_staff: string }>();
       for (const c of (cr?.data ?? [])) {
         const nm = String(c?.name ?? "").trim(); if (!nm) continue;
         compByKey.set(compKey(nm), { meeting_done: !!c?.meeting_done, owner_staff: String(c?.owner_staff ?? "").trim() });
       }
-      let jr: any = await sb.from("jobs").select("client_name, created_at, imported_at").order("imported_at", { ascending: false, nullsFirst: false }).limit(8000);
+      let jr: any = jr0;
       if (jr?.error) jr = await sb.from("jobs").select("client_name, created_at").order("created_at", { ascending: false }).limit(8000);
       for (const j of (jr?.data ?? [])) {
         const nm = String(j?.client_name ?? "").trim(); if (!nm) continue;
@@ -171,9 +184,21 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
         const date = j?.imported_at ? String(j.imported_at) : (j?.created_at ? String(j.created_at) : "");
         if (date) procurementEvents.push({ date, owner: comp.owner_staff });
       }
+
+      // ③ 面談到達：全提案（進行中/失注/稼働を含む）から、面談に入ったことのあるものを提案者に按分。
+      const REACHED_STAGES = new Set(["面談", "合格", "稼働", "稼働決定"]);
+      let pr: any = pr0;
+      if (pr?.error) pr = await sb.from("proposals").select("proposer, stage, stage_updated_at, updated_at, created_at").order("created_at", { ascending: false }).limit(8000);
+      for (const p of (pr?.data ?? [])) {
+        const owner = String(p?.proposer ?? "").trim(); if (!owner) continue;
+        const reached = !!p?.meeting_reached_at || REACHED_STAGES.has(normalizeStage(p?.stage));
+        if (!reached) continue;
+        const date = p?.meeting_reached_at ?? p?.stage_updated_at ?? p?.updated_at ?? p?.created_at;
+        if (date) meetingReachedEvents.push({ date: String(date), owner });
+      }
     } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
 
-    return { kpi, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents };
+    return { kpi, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents, meetingReachedEvents };
   } catch {
     return null;
   }

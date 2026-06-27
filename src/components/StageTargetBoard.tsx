@@ -2,11 +2,13 @@
 
 // 提案ボードのステージ × 担当者の「目標/現在/達成率」ボード。
 //   列とソース：
-//     打ち合わせ   … 打合せ記録(meetings)の自社担当者×打ち合わせ日（currentOverrides で受け取る）
-//     提案中       … 進行中の提案(proposals)の stage=提案中（proposer で突合）
-//     案件の仕入れ … 承認済(打合せ完了)＋自社担当者ありの企業から取り込んだ案件数（currentOverrides）
-//     面談 / 合格  … 進行中の提案(proposals)の各 stage（proposer で突合）
-//   目標は stage_targets に保存。さらに KPI達成率（週次KPI）と KGI達成率（月次稼働化目標）を併記する。
+//     打ち合わせ      … 打合せ記録(meetings)の自社担当者×打ち合わせ日（currentOverrides で受け取る）
+//     提案中          … 進行中の提案(proposals)の stage=提案中（提案者で突合・スナップショット）
+//     案件の仕入れ    … 承認済(打合せ完了)＋自社担当者ありの企業から取り込んだ案件数（currentOverrides）
+//     面談            … 「面談」フォルダに入ったことのある提案の件数（提案者・累計／移動や失注で減算せず、削除のみ減算）。
+//                       meeting_reached_at をソースに currentOverrides で受け取る。
+//     合格（稼働決定）… 進行中の提案で stage=合格（クロージング担当者で突合・スナップショット）。
+//   目標は stage_targets に保存（キーは内部名）。KPI達成率（週次KPI）と KGI達成率（月次稼働化目標）も併記。
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
@@ -14,16 +16,19 @@ import { normalizeStage } from "@/lib/proposal-constants";
 import { ownerMatches } from "@/lib/owner-match";
 import { saveStageTarget } from "@/app/proposals/stage-actions";
 
-// ボードの列定義。source="proposal" は proposals から、"override" は currentOverrides（打合せ/仕入れ）から集計。
-const STAGE_COLUMNS: { key: string; source: "proposal" | "override"; hint: string }[] = [
+// ボードの列定義。
+//   source="proposal" は proposals のスナップショットから、attr で proposer/closer のどちらで突合するか指定。
+//   source="override" は currentOverrides（打合せ/案件の仕入れ/面談到達）から集計。
+//   label は表示名（省略時は key）。key は stage_targets / 集計のキー（変更しない）。
+const STAGE_COLUMNS: { key: string; label?: string; source: "proposal" | "override"; attr?: "proposer" | "closer"; hint: string }[] = [
   { key: "打ち合わせ",   source: "override", hint: "打合せ記録の自社担当者が一致し、打ち合わせ日が入っている件数（メニュー「打合わせ」と連携）" },
-  { key: "提案中",       source: "proposal", hint: "進行中の提案で「提案中」ステージの件数（提案者で集計）" },
+  { key: "提案中",       source: "proposal", attr: "proposer", hint: "進行中の提案で「提案中」ステージの件数（提案者で集計）" },
   { key: "案件の仕入れ", source: "override", hint: "承認済（打合せ完了）かつ自社担当者ありの企業から取り込んだ案件のうち、自社担当者が一致する件数（案件側のみ）" },
-  { key: "面談",         source: "proposal", hint: "進行中の提案で「面談」ステージの件数（提案者で集計）" },
-  { key: "合格",         source: "proposal", hint: "進行中の提案で「合格」ステージの件数（提案者で集計）" },
+  { key: "面談",         source: "override", hint: "「面談」フォルダに入ったことのある提案の件数（提案者・累計）。別フォルダや失注へ移っても減らず、レコード削除でのみ減算します。" },
+  { key: "合格", label: "合格（稼働決定）", source: "proposal", attr: "closer", hint: "「合格」ステージに入った提案の件数（クロージング担当者で集計）。削除・見送りで減算します。" },
 ];
 const STAGE_KEYS = STAGE_COLUMNS.map((c) => c.key);
-const PROPOSAL_STAGE_KEYS = STAGE_COLUMNS.filter((c) => c.source === "proposal").map((c) => c.key);
+const PROPOSAL_COLUMNS = STAGE_COLUMNS.filter((c) => c.source === "proposal");
 
 type Props = {
   proposals: any[];                 // 進行中の提案（proposer / stage を持つ）
@@ -47,12 +52,14 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
   const current = useMemo(() => {
     const m: Record<string, Record<string, number>> = {};
     for (const name of members) m[name] = Object.fromEntries(STAGE_KEYS.map((s) => [s, 0]));
-    // 提案系（提案中/面談/合格）：進行中の提案を proposer で寛容に突合。
-    for (const p of proposals) {
-      const st = normalizeStage(p?.stage);
-      if (!PROPOSAL_STAGE_KEYS.includes(st)) continue;
-      const who = members.find((nm) => ownerMatches(nm, p?.proposer));
-      if (who) m[who][st] = (m[who][st] ?? 0) + 1;
+    // 提案系（提案中＝提案者／合格＝クロージング担当者）：進行中の提案を該当ステージ＋担当で寛容に突合。
+    for (const col of PROPOSAL_COLUMNS) {
+      for (const p of proposals) {
+        if (normalizeStage(p?.stage) !== col.key) continue;
+        const value = col.attr === "closer" ? p?.closer : p?.proposer;
+        const who = members.find((nm) => ownerMatches(nm, value));
+        if (who) m[who][col.key] = (m[who][col.key] ?? 0) + 1;
+      }
     }
     // 打合せ／案件の仕入れ：サーバ集計＋期間絞り済みの currentOverrides を上書き反映。
     for (const [owner, byStage] of Object.entries(currentOverrides)) {
@@ -122,7 +129,7 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
         <thead>
           <tr>
             <th style={{ ...th, textAlign: "left" }}>担当者</th>
-            {STAGE_COLUMNS.map((c) => <th key={c.key} style={th} title={c.hint}>{c.key}<div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>現在/目標</div></th>)}
+            {STAGE_COLUMNS.map((c) => <th key={c.key} style={th} title={c.hint}>{c.label ?? c.key}<div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>現在/目標</div></th>)}
             <th style={th}>KPI達成率</th>
             <th style={th}>KGI達成率<div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>合格/稼働化目標</div></th>
           </tr>
@@ -150,6 +157,8 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
       <div className="muted" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.7 }}>
         <b>打ち合わせ</b>＝打合せ記録（メニュー「打合わせ」）の自社担当者×打ち合わせ日の件数。
         <b>案件の仕入れ</b>＝承認済（打合せ完了）かつ自社担当者ありの企業から取り込んだ案件数（案件側のみ・人材側は対象外）。
+        <b>面談</b>＝「面談」フォルダに入ったことのある提案の件数（提案者・累計／別フォルダや失注へ移っても減らず、削除のみ減算）。
+        <b>合格（稼働決定）</b>＝「合格」ステージの件数（クロージング担当者で集計）。
         いずれも上部の期間に連動します。
         {canEdit && <><br />※ 各列の数値（/の右）が目標。直接入力して変更できます（フォーカスを外すと保存）。KGI達成率＝当月の合格件数 ÷ 稼働化目標（person-kgi）。</>}
       </div>
