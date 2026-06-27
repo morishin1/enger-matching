@@ -15,6 +15,15 @@ function adminOrNull() {
   }
 }
 
+// スレッド作成・削除・タイトル/メモ編集は ENGERdx スタッフ（admin/agent）のみ。
+//   人材(フリーランス)・企業ロールには許可しない（これらの操作は人材側に出さない前提）。
+async function requireStaff(): Promise<{ ok: true; agent: string | null } | { ok: false; error: string }> {
+  const access = await currentAccess();
+  const role = access?.role ?? "";
+  if (role !== "admin" && role !== "agent") return { ok: false, error: "権限がありません（ENGERスタッフのみ）" };
+  return { ok: true, agent: access?.name ?? access?.email ?? null };
+}
+
 /**
  * スカウトを起点にスレッドを用意する（無ければ作成、既にあれば既存を返す）。
  * scout_id に一意制約があるため、二重生成は DB 側でも防がれる。
@@ -118,26 +127,73 @@ async function upsertRead(
   return { ok: true };
 }
 
-/** スレッドのメモ（担当者の手入力）を保存する。 */
+/** スレッドのメモ（担当者の手入力・社内専用）を保存する。
+ *  保存先はスタッフ専用テーブル chat_thread_memos（service roleのみ。人材には grant されない）。 */
 export async function saveThreadMemo(input: { thread_id: string; memo: string }): Promise<Result> {
   const admin = adminOrNull();
   if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
+  const staff = await requireStaff();
+  if (!staff.ok) return staff;
   if (!input.thread_id) return { ok: false, error: "スレッドが未指定です" };
   const memo = (input.memo ?? "").trim() || null;
-  const { error } = await admin.from("chat_threads").update({ memo }).eq("id", input.thread_id);
+  const { error } = await admin.from("chat_thread_memos").upsert(
+    { thread_id: input.thread_id, memo, updated_at: new Date().toISOString() },
+    { onConflict: "thread_id" },
+  );
   if (error) {
-    if (/memo|column/i.test(error.message)) return { ok: false, error: "メモ列が未作成です。supabase/chat-id-text.sql を実行してください。" };
+    if (/chat_thread_memos|relation|does not exist/i.test(error.message)) return { ok: false, error: "メモ用テーブルが未作成です。supabase/chat-thread-memos.sql を実行してください。" };
     return { ok: false, error: error.message };
   }
   revalidatePath("/chat");
   return { ok: true };
 }
 
-/** スレッドを終了/再開する。 */
-export async function setThreadStatus(input: { thread_id: string; status: "open" | "closed" }): Promise<Result> {
+/** スレッドのタイトル（subject）を保存する。subject は人材側からも参照可能（双方に表示）。 */
+export async function updateThreadSubject(input: { thread_id: string; subject: string }): Promise<Result> {
   const admin = adminOrNull();
   if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
-  const { error } = await admin.from("chat_threads").update({ status: input.status }).eq("id", input.thread_id);
+  const staff = await requireStaff();
+  if (!staff.ok) return staff;
+  if (!input.thread_id) return { ok: false, error: "スレッドが未指定です" };
+  const subject = (input.subject ?? "").trim() || null;
+  const { error } = await admin.from("chat_threads").update({ subject }).eq("id", input.thread_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/chat");
+  return { ok: true };
+}
+
+/** 新規スレッドを作成する（ENGERスタッフのみ）。engineer_id は public.profiles.id。 */
+export async function createThread(input: { engineer_id: string; engineer_name?: string | null; subject?: string | null }): Promise<{ ok: boolean; thread_id?: string; error?: string }> {
+  const admin = adminOrNull();
+  if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
+  const staff = await requireStaff();
+  if (!staff.ok) return { ok: false, error: staff.error };
+  if (!input.engineer_id) return { ok: false, error: "対象フリーランスを選択してください" };
+  const { data, error } = await admin
+    .from("chat_threads")
+    .insert({
+      engineer_id: input.engineer_id,
+      engineer_name: input.engineer_name?.trim() || null,
+      agent: staff.agent,
+      subject: input.subject?.trim() || null,
+      status: "open",
+    })
+    .select("id")
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/chat");
+  return { ok: true, thread_id: data?.id };
+}
+
+/** スレッドを削除する（ENGERスタッフのみ）。
+ *  messages / reads / memos は ON DELETE CASCADE で連動削除されるため、人材側からも内容が見えなくなる。 */
+export async function deleteThread(input: { thread_id: string }): Promise<Result> {
+  const admin = adminOrNull();
+  if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
+  const staff = await requireStaff();
+  if (!staff.ok) return staff;
+  if (!input.thread_id) return { ok: false, error: "スレッドが未指定です" };
+  const { error } = await admin.from("chat_threads").delete().eq("id", input.thread_id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/chat");
   return { ok: true };
