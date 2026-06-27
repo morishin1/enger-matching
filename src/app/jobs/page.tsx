@@ -1,11 +1,9 @@
-import { ExportButton, JobImportButton, JobNewButton, JobBulkExtractButton, JobGmailBulkButton } from "@/components/CsvTools";
+import { JobImportButton, JobNewButton } from "@/components/CsvTools";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
-import { currentAccess } from "@/lib/accounts";
 import { JobsTable } from "@/components/JobsTable";
 import { PendingClientJobs, type PendingJob } from "@/components/PendingClientJobs";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
-import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { getEntityDelta } from "@/lib/import-stats";
@@ -16,15 +14,6 @@ import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval
 import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
-
-const JOB_EXPORT_HEADERS = [
-  { key: "job_no", label: "案件番号" }, { key: "title", label: "案件名" }, { key: "client_name", label: "クライアント" },
-  { key: "role_label", label: "職種" }, { key: "skillsCsv", label: "スキル" }, { key: "salary_min", label: "単価下限" },
-  { key: "salary_max", label: "単価上限" }, { key: "remoteLabel", label: "リモート" },
-];
-
-const remoteLabel = (r: string | null) =>
-  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
 const PAGE_SIZE = 20;
 
@@ -150,9 +139,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   // 「提案あり」除外フィルタ：提案実績のある案件（has_proposal）を一覧から除外する。
   const fNoProposal = sp.f_no_proposal === "1";
   const scope = await getViewerScope();
-  // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
-  const access = await currentAccess();
-  const canExportCsv = !access || access.role === "admin" || (access.functions ?? []).includes("バックオフィス");
   let jobs: any[] = [];
   let total = 0;
   let pageCount = 1;
@@ -419,20 +405,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <h1>案件</h1>
           <EntityGrowthLine unit="件" delta={growth} />
         </div>
+        {/* ボタンは「新規登録 / CSV取込 / ゴミ箱」の3つに統一（マッチング系メニュー共通）。 */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで人材を探す" hint="案件×人材のマッチング画面へ" />}
-          {!scope.isTenant && (
-            <a href={showAll ? "/jobs" : "/jobs?show=all"} className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }}
-              title={showAll ? "公開中の案件のみ表示" : "非公開（過去インポートで一覧に出ていない案件）も含めて表示"}>
-              {showAll ? "公開中のみ表示" : "非公開も表示"}
-            </a>
-          )}
-          {!scope.isTenant && canExportCsv && <ExportButton filename="案件一覧.csv" headers={JOB_EXPORT_HEADERS} rows={jobs.map((j) => ({ ...j, skillsCsv: (j.skills ?? []).join(" / "), remoteLabel: remoteLabel(j.remote_type) }))} />}
-          {!scope.isTenant && <a href="/trash?tab=jobs" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した案件の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
           <JobNewButton />
-          {!scope.isTenant && <JobGmailBulkButton />}
-          {!scope.isTenant && <JobBulkExtractButton />}
           {!scope.isTenant && <JobImportButton />}
+          {!scope.isTenant && <a href="/trash?tab=jobs" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した案件の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
         </div>
       </div>
 

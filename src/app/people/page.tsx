@@ -1,10 +1,8 @@
-import { CandidateImportButton, CandidateNewButton, CandidateBulkExtractButton, CandidateGmailBulkButton, ExportButton } from "@/components/CsvTools";
+import { CandidateImportButton, CandidateNewButton } from "@/components/CsvTools";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
-import { currentAccess } from "@/lib/accounts";
 import { PeopleTable } from "@/components/PeopleTable";
 import { EntityGrowthLine } from "@/components/EntityGrowthLine";
-import { NextStepLink } from "@/components/NextStepLink";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getEntityDelta } from "@/lib/import-stats";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
@@ -108,19 +106,10 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-const EXPORT_HEADERS = [
-  { key: "kanriNo", label: "管理NO" }, { key: "name", label: "氏名" }, { key: "title", label: "職種" },
-  { key: "affiliation", label: "所属" }, { key: "skillsCsv", label: "スキル" }, { key: "rate", label: "希望単価" },
-  { key: "avail", label: "稼働開始" }, { key: "location", label: "勤務地" }, { key: "exp", label: "経験" }, { key: "status", label: "ステータス" },
-];
-
 export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string }> }) {
   const sp = await searchParams;
   const { q: initialQuery, focus: focusId } = sp;
   const scope = await getViewerScope();
-  // CSV書き出しは admin もしくはバックオフィス職能のみ許可（情報持ち出し防止）
-  const access = await currentAccess();
-  const canExportCsv = !access || access.role === "admin" || (access.functions ?? []).includes("バックオフィス");
   let people: any[] = [];
   let total = 0;
   let pageCount = 1;
@@ -339,7 +328,6 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
     dbError = "Supabase の環境変数が未設定です";
   }
 
-  const exportRows = people.map((p) => ({ ...p, kanriNo: `P-${String(p.candidate_no ?? 0).padStart(5, "0")}`, skillsCsv: (p.skills ?? []).join(" / ") }));
   const growth = scope.isTenant ? { total: people.length, last7: 0 } as any : await getEntityDelta("candidates");
 
   // PeopleTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
@@ -365,14 +353,11 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           <h1>人材</h1>
           <EntityGrowthLine unit="名" delta={growth} />
         </div>
+        {/* ボタンは「新規登録 / CSV取込 / ゴミ箱」の3つに統一（マッチング系メニュー共通）。 */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          {!scope.isTenant && <NextStepLink href="/matching" label="マッチングで案件を探す" hint="人材×案件のマッチング画面へ" />}
-          {!scope.isTenant && canExportCsv && <ExportButton filename="人材一覧.csv" headers={EXPORT_HEADERS} rows={exportRows} />}
-          {!scope.isTenant && <a href="/trash?tab=candidates" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した人材の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
           <CandidateNewButton />
-          {!scope.isTenant && <CandidateGmailBulkButton />}
-          {!scope.isTenant && <CandidateBulkExtractButton />}
           {!scope.isTenant && <CandidateImportButton />}
+          {!scope.isTenant && <a href="/trash?tab=candidates" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した人材の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
         </div>
       </div>
 
