@@ -24,12 +24,15 @@ export type PeriodType = "day" | "week" | "month" | "quarter" | "custom";
 //   deal      : 成約数。「合格」に到達したら計上。以後「稼働」へ進んでも維持（減算なし）。
 export type Metric = "proposal" | "contact" | "adjusting" | "schedule" | "deal";
 
+// 表示ラベルは営業マニュアル§10（提案/面談/合格/稼働）に準拠。
+//   ・schedule＝「面談」（旧:日程確定）／deal＝「合格」（旧:成約＝稼働決定）。
+//   ・DBの指標キー(proposal/contact/adjusting/schedule/deal)は変更しない（表示のみ統一）。
 export const METRIC_LABELS: Record<Metric, { short: string; long: string; tone: string }> = {
-  proposal:  { short: "提案",       long: "新規提案",   tone: "#0095D9" },
-  contact:   { short: "コンタクト", long: "架電・接触", tone: "#7c3aed" },
-  adjusting: { short: "調整中",     long: "処理着手",   tone: "#0e7490" },
-  schedule:  { short: "日程確定",   long: "面談設定",   tone: "#b45309" },
-  deal:      { short: "成約",       long: "合格・成約", tone: "#067647" },
+  proposal:  { short: "提案",       long: "新規提案",       tone: "#0095D9" },
+  contact:   { short: "コンタクト", long: "架電・接触",     tone: "#7c3aed" },
+  adjusting: { short: "調整中",     long: "処理着手",       tone: "#0e7490" },
+  schedule:  { short: "面談",       long: "日程確定・面談", tone: "#b45309" },
+  deal:      { short: "合格",       long: "合格（稼働決定）", tone: "#067647" },
 };
 
 export const METRIC_ORDER: Metric[] = ["proposal", "contact", "adjusting", "schedule", "deal"];
