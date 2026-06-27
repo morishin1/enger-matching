@@ -29,7 +29,53 @@ export type ChatThread = {
   created_at: string;
 };
 
-// 姓名からイニシャルを作る（例「藤本 太郎」→「藤本」「Taro Yamada」→「T.Y」）。
+// 日本語（ひらがな/カタカナ/漢字）を含むか。Google等のローマ字表示名と区別するために使う。
+const JA_RE = /[぀-ヿ㐀-鿿豈-﫿々〆ヵヶ]/;
+const hasJa = (s?: string | null) => JA_RE.test(String(s ?? ""));
+
+// プロフィールのスキーマ差異を吸収するため、氏名・フリガナ・イニシャルの候補キーを順に探す。
+//   （外部連携で列名が異なる/未登録のケースに対応。select("*") で全列を取得して JS 側で吸収する。）
+const NAME_KEYS = ["name_kanji", "kanji_name", "kanji", "real_name", "full_name", "fullname", "氏名", "name", "display_name"];
+const SEI_KEYS = ["last_name", "family_name", "name_sei", "sei", "lastname", "姓"];
+const MEI_KEYS = ["first_name", "given_name", "name_mei", "mei", "firstname", "名"];
+const KANA_KEYS = ["furigana", "name_kana", "kana", "yomi", "ruby", "kana_name", "フリガナ"];
+const KANA_SEI_KEYS = ["kana_sei", "sei_kana", "furigana_sei", "last_name_kana", "lastname_kana"];
+const KANA_MEI_KEYS = ["kana_mei", "mei_kana", "furigana_mei", "first_name_kana", "firstname_kana"];
+const INITIAL_KEYS = ["initials", "initial", "name_initials", "イニシャル"];
+
+const pick = (row: any, keys: string[]): string => {
+  for (const k of keys) { const v = row?.[k]; if (v != null && String(v).trim()) return String(v).trim(); }
+  return "";
+};
+const joinName = (a: string, b: string) => [a, b].filter(Boolean).join(" ").trim();
+
+// カタカナ/ひらがなの先頭1文字からローマ字イニシャル（例「フジモト」→F・「ハルト」→H）。
+const KANA_INIT: Record<string, string> = {
+  ア: "A", イ: "I", ウ: "U", エ: "E", オ: "O",
+  カ: "K", キ: "K", ク: "K", ケ: "K", コ: "K", ガ: "G", ギ: "G", グ: "G", ゲ: "G", ゴ: "G",
+  サ: "S", シ: "S", ス: "S", セ: "S", ソ: "S", ザ: "Z", ジ: "J", ズ: "Z", ゼ: "Z", ゾ: "Z",
+  タ: "T", チ: "C", ツ: "T", テ: "T", ト: "T", ダ: "D", ヂ: "J", ヅ: "Z", デ: "D", ド: "D",
+  ナ: "N", ニ: "N", ヌ: "N", ネ: "N", ノ: "N",
+  ハ: "H", ヒ: "H", フ: "F", ヘ: "H", ホ: "H", バ: "B", ビ: "B", ブ: "B", ベ: "B", ボ: "B", パ: "P", ピ: "P", プ: "P", ペ: "P", ポ: "P",
+  マ: "M", ミ: "M", ム: "M", メ: "M", モ: "M",
+  ヤ: "Y", ユ: "Y", ヨ: "Y",
+  ラ: "R", リ: "R", ル: "R", レ: "R", ロ: "R",
+  ワ: "W", ヲ: "O", ン: "N",
+};
+const kanaToInitial = (seg: string): string => {
+  let c = (seg || "").trim()[0] ?? "";
+  if (!c) return "";
+  const code = c.charCodeAt(0);
+  if (code >= 0x3041 && code <= 0x3096) c = String.fromCharCode(code + 0x60); // ひらがな→カタカナ
+  return KANA_INIT[c] ?? "";
+};
+const initialsFromKana = (kana: string): string | null => {
+  const parts = String(kana ?? "").split(/[\s　・]+/).filter(Boolean);
+  const letters = parts.map(kanaToInitial).filter(Boolean);
+  return letters.length ? letters.join("") : null;
+};
+
+// 姓名からイニシャルを作る（例「藤本 太郎」→「藤本」「Taro Yamada」→「T.Y」）。フリガナ/明示イニシャルが無い時の最終手段。
 function initialsOf(name: string | null | undefined): string | null {
   const s = String(name ?? "").trim();
   if (!s) return null;
@@ -42,28 +88,66 @@ function initialsOf(name: string | null | undefined): string | null {
   return head.slice(0, 4);
 }
 
-/** engineer_id（profiles.id か email）から ENGERフリーランスの姓名を解決して Map で返す。 */
-async function resolveEngineerNames(ids: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+// プロフィール1行から「氏名（漢字優先）」と「イニシャル（プロフィール自動生成→フリガナ→氏名の順）」を導出。
+function deriveNameInitials(row: any): { name: string; initials: string | null } {
+  // 1) 氏名：姓+名（漢字）を優先。無ければ単一フィールドのうち日本語を含むものを優先し、最後にローマ字表示名へフォールバック。
+  const seiMei = joinName(pick(row, SEI_KEYS), pick(row, MEI_KEYS));
+  const singles = NAME_KEYS.map((k) => String(row?.[k] ?? "").trim()).filter(Boolean);
+  const jaSingle = singles.find(hasJa) ?? "";
+  const name = (hasJa(seiMei) ? seiMei : "") || jaSingle || seiMei || singles[0] || "";
+  // 2) フリガナ（カナ）：姓カナ+名カナ→単一カナ欄。
+  const kana = joinName(pick(row, KANA_SEI_KEYS), pick(row, KANA_MEI_KEYS)) || pick(row, KANA_KEYS);
+  // 3) イニシャル：プロフィールの自動生成値→フリガナから→氏名から。
+  const initials = pick(row, INITIAL_KEYS) || initialsFromKana(kana) || initialsOf(name);
+  return { name, initials: initials || null };
+}
+
+export type ResolvedName = { name: string; initials: string | null };
+
+/** engineer_id（profiles.id か email）から ENGERフリーランスの氏名・イニシャルを解決して Map で返す。
+ *  外部連携（Google等）でフリガナ未登録/ローマ字のケースでも、漢字氏名やプロフィール自動生成イニシャルを
+ *  拾えるよう、profiles の全列を取得して候補キーから吸収する（サーバ専用・対象は表示中スレッドの人材のみ）。 */
+async function resolveEngineerNames(ids: string[]): Promise<Map<string, ResolvedName>> {
+  const out = new Map<string, ResolvedName>();
   const uniq = Array.from(new Set(ids.filter(Boolean)));
   if (uniq.length === 0) return out;
   let pub: ReturnType<typeof publicAdmin>;
   try { pub = publicAdmin(); } catch { return out; }
   const uuidLike = uniq.filter((v) => /^[0-9a-f-]{32,36}$/i.test(v));
   const emailLike = uniq.filter((v) => v.includes("@"));
+  const put = (key: string | null | undefined, row: any) => {
+    if (!key) return;
+    const d = deriveNameInitials(row);
+    if (d.name) out.set(String(key), d);
+  };
   try {
     if (uuidLike.length) {
-      const r: any = await pub.from("profiles").select("id, display_name, name").in("id", uuidLike);
-      for (const p of (r.data ?? []) as any[]) { const nm = (p.display_name || p.name || "").trim(); if (p.id && nm) out.set(String(p.id), nm); }
+      // select("*") で列名差異を吸収（未知のフリガナ/イニシャル列も拾う）。失敗時は最小列にフォールバック。
+      let r: any = await pub.from("profiles").select("*").in("id", uuidLike);
+      if (r.error) r = await pub.from("profiles").select("id, display_name, name").in("id", uuidLike);
+      for (const p of (r.data ?? []) as any[]) put(p.id, p);
     }
   } catch { /* noop */ }
   try {
     if (emailLike.length) {
-      const r: any = await pub.from("profiles").select("email, display_name, name").in("email", emailLike);
-      for (const p of (r.data ?? []) as any[]) { const nm = (p.display_name || p.name || "").trim(); if (p.email && nm) out.set(String(p.email), nm); }
+      let r: any = await pub.from("profiles").select("*").in("email", emailLike);
+      if (r.error) r = await pub.from("profiles").select("email, display_name, name").in("email", emailLike);
+      for (const p of (r.data ?? []) as any[]) put(p.email, p);
     }
   } catch { /* noop */ }
   return out;
+}
+
+/** スレッドのスナップショット名と解決名から、表示すべき氏名を選ぶ（漢字＝日本語を最優先）。
+ *  外部連携で作成時のスナップショットがローマ字(例「M F」)でも、プロフィールの漢字氏名があればそちらを表示する。 */
+function chooseDisplayName(resolved: ResolvedName | undefined, snapshot: string | null | undefined): { name: string | null; initials: string | null } {
+  const r = resolved?.name?.trim() ?? "";
+  const s = String(snapshot ?? "").trim();
+  // 日本語を含む名前を最優先（解決名→スナップショット）。どちらも無ければローマ字を解決名→スナップの順で。
+  const name = (hasJa(r) ? r : "") || (hasJa(s) ? s : "") || r || s || null;
+  // イニシャル：選んだ名前が解決名ならプロフィール由来イニシャルを優先、それ以外は氏名から導出。
+  const initials = (name && name === r ? (resolved?.initials ?? initialsOf(name)) : initialsOf(name));
+  return { name, initials };
 }
 
 export type ChatMessage = {
@@ -152,11 +236,11 @@ export async function listChatThreads(agentId?: string | null): Promise<ChatThre
     }
 
     return (threads as any[]).map((t) => {
-      const name = (t.engineer_name && String(t.engineer_name).trim()) || nameMap.get(String(t.engineer_id ?? "")) || null;
+      const { name, initials } = chooseDisplayName(nameMap.get(String(t.engineer_id ?? "")), t.engineer_name);
       return {
         ...t,
         engineer_name: name,
-        engineer_initials: initialsOf(name),
+        engineer_initials: initials,
         memo: memoMap.get(t.id) ?? t.memo ?? null,
         last_body: last.get(t.id)?.body ?? null,
         last_role: (last.get(t.id)?.sender_role ?? null) as ChatRole | null,
@@ -187,7 +271,7 @@ export async function getChatThread(
       sb.from("chat_reads").select("thread_id, participant_role, participant_id, last_read_at").eq("thread_id", id),
     ]);
     const nameMap = await resolveEngineerNames([String(thread.engineer_id ?? "")]);
-    const name = (thread.engineer_name && String(thread.engineer_name).trim()) || nameMap.get(String(thread.engineer_id ?? "")) || null;
+    const { name, initials } = chooseDisplayName(nameMap.get(String(thread.engineer_id ?? "")), thread.engineer_name);
     // 担当メモはスタッフ専用テーブルから取得（人材には grant されていないため漏れない）。
     let memo = thread.memo ?? null;
     try {
@@ -195,7 +279,7 @@ export async function getChatThread(
       if (!mr.error && mr.data) memo = mr.data.memo ?? null;
     } catch { /* テーブル未作成は無視 */ }
     return {
-      thread: { ...thread, engineer_name: name, engineer_initials: initialsOf(name), memo } as ChatThread,
+      thread: { ...thread, engineer_name: name, engineer_initials: initials, memo } as ChatThread,
       messages: (messages ?? []) as ChatMessage[],
       reads: (reads ?? []) as ChatRead[],
     };
