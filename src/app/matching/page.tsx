@@ -26,6 +26,7 @@ import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNati
 import { attachLatestSourceMail } from "@/lib/source-mail";
 import { listLineworksTargets } from "@/lib/lineworks-targets";
 import { SendToLineButton } from "@/components/SendToLineButton";
+import { QuickAccessButtons } from "@/components/QuickAccessButtons";
 
 export const dynamic = "force-dynamic";
 
@@ -887,8 +888,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <h1>マッチング</h1>
           <div className="sub">案件を選ぶと、スキル一致を主軸（単価・職種・リモートで補正）に候補をランキング表示します。</div>
         </div>
-        {job && sel?.candidate && (
-          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
+          <QuickAccessButtons />
+          {job && sel?.candidate && (
             <SendToLineButton
               targets={lwTargets}
               candidateName={sel.candidate.name ?? "人材"}
@@ -898,8 +900,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               score={sel.score ?? null}
               matchedSkills={sel.matchedSkills ?? []}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <MatchingPeerTabs counts={peerCounts} />

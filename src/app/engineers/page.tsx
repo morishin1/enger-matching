@@ -1,5 +1,6 @@
 import { EngineersClient } from "@/components/EngineersClient";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
+import { QuickAccessButtons } from "@/components/QuickAccessButtons";
 import { FlowSteps } from "@/components/FlowSteps";
 import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
 import { listEngineerChatStatus } from "@/lib/chat";
@@ -15,7 +16,7 @@ export default async function EngineersPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
+      <div className="page-head" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ maxWidth: 820 }}>
           <div className="meta">ENGER · LP登録（各ランディングページ経由）</div>
           <h1>LP登録</h1>
@@ -26,6 +27,7 @@ export default async function EngineersPage() {
             <span className="muted" style={{ fontSize: 11.5 }}>※ 正確な判別には profiles に <code>signup_source</code> / <code>signup_method</code> 列の保存を推奨（未実装でもヒューリスティックで判定）。</span>
           </div>
         </div>
+        <div style={{ flexShrink: 0 }}><QuickAccessButtons /></div>
       </div>
 
       <FlowSteps current="mail" sub="LP経由のエンジニア取込" />

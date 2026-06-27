@@ -9,6 +9,7 @@ import { Icons } from "@/components/icons";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { CandidateNewLineButton, JobNewLineButton } from "@/components/CsvTools";
+import { QuickAccessButtons } from "@/components/QuickAccessButtons";
 import { CopyButton } from "@/components/CopyButton";
 import { LineTabs } from "@/components/LineTabs";
 import { LineConversations } from "@/components/LineConversations";
@@ -122,7 +123,8 @@ export default async function LinePage() {
         <span className="muted" style={{ fontSize: 12.5 }}>
           LINE 経由で接点ができた人材・案件を一覧表示します（フローはメール提案と同じ。提案は提案管理にも入ります）。新規は「LINE/メール貼り付け」で素早く取り込み。
         </span>
-        <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <QuickAccessButtons />
           {/* 人材・案件の新規登録（人材/案件ページと同じフォーム）。LINE登録チェックは初期ON。 */}
           <CandidateNewLineButton />
           <JobNewLineButton />
