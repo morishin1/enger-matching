@@ -148,7 +148,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           ...Object.values(candCompanyById).filter(Boolean) as string[],
         ]));
         const companyRows = allCompNames.length
-          ? await sb.from("companies").select("name, owner, owner_staff, contact_name, meeting_done, is_ng, caution").in("name", allCompNames).limit(2000)
+          ? await sb.from("companies").select("name, owner, owner_staff, contact_name, meeting_done, is_ng, caution, caution_count").in("name", allCompNames).limit(2000)
               .then((r: any) => r.error ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r2: any) => r2.error ? [] : nq(r2.data)) : nq(r.data))
           : [];
         // 会社の「提案適性ランク」用に、各社の成約(稼働)・失注(見送り/失注)実績を集計する。
@@ -167,13 +167,16 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           } catch { /* 集計失敗時はランク無し */ }
         }
         const ngByCompany: Record<string, boolean> = {};
-        const cautionByCompany: Record<string, boolean> = {};
-        for (const c of companyRows as any[]) if (c?.name) { ngByCompany[c.name] = !!c.is_ng; cautionByCompany[c.name] = !!c.caution; }
+        const cautionCountByCompany: Record<string, number> = {};
+        for (const c of companyRows as any[]) if (c?.name) { ngByCompany[c.name] = !!c.is_ng; cautionCountByCompany[c.name] = Number(c.caution_count) || (c.caution ? 1 : 0); }
+        const CAUTION_THRESHOLD = 3; // この回数以上の「取引注意」加点で「要注意会社」。
         // 会社名 → 提案適性ランク（表示用）。
         const rankOf = (name: string | null | undefined): { grade: "NG" | "A" | "B" | "C"; label: string } | null => {
           const nm = String(name ?? "").trim(); if (!nm) return null;
           if (ngByCompany[nm]) return { grade: "NG", label: "取引NG（提案非推奨）" };
-          if (cautionByCompany[nm]) return { grade: "C", label: "取引注意（クローズ理由により設定）" };
+          const cc = cautionCountByCompany[nm] ?? 0;
+          if (cc >= CAUTION_THRESHOLD) return { grade: "NG", label: `要注意会社（取引注意 ${cc}回）` };
+          if (cc >= 1) return { grade: "C", label: `取引注意 ${cc}回（クローズ理由により加点）` };
           const won = wonByCompany[nm] ?? 0, lost = lostByCompany[nm] ?? 0;
           if (won >= 1) return { grade: "A", label: `実績あり（成約${won}・失注${lost}）` };
           if (lost >= 2) return { grade: "C", label: `提案注意（失注${lost}・成約0）` };
