@@ -245,8 +245,15 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="page">
-      {/* 新規登録ボタンは提案ボードのツールバー（AIコーチの隣）へ移動。
-          提案者・クロージング担当の選択肢編集は「設定」へ移動。 */}
+      {/* 統一ヘッダー（他メニューと同じ：カテゴリ→タイトル→説明）。
+          新規登録ボタンは提案ボードのツールバー（AIコーチの隣）、選択肢編集は設定へ。 */}
+      <div className="page-head">
+        <div>
+          <div className="meta">Proposals · 提案管理</div>
+          <h1>提案管理</h1>
+          <div className="sub">提案の進捗（KPI/KGI・承認・ボード・失注分析）をまとめて確認します。</div>
+        </div>
+      </div>
       {dbError &&<div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
       {needSetup && (
