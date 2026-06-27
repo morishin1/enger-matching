@@ -195,27 +195,6 @@ export function ProposalsWorkspace({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* 期間フィルター（提案ボード・失注分析にのみ作用。KPI推移/承認/日報では非表示）。 */}
-      {(tab === "board" || tab === "lost") && (
-      <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", flexWrap: "wrap" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 800 }}>
-          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>filter_alt</span>
-          期間
-        </span>
-        <PeriodChip p="today" />
-        <PeriodChip p="week" />
-        <PeriodChip p="lastweek" />
-        <PeriodChip p="month" />
-        <PeriodChip p="thirty" />
-        <PeriodChip p="all" />
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-          選択中：<b style={{ color: "var(--color-ink)" }}>{PERIOD_LABEL[period]}</b> ／
-          ボード <b>{boardRows.length}</b>件・履歴 <b>{historyRows.length}</b>件
-          {lostRows.length > 0 && <> ・失注 <b>{lostRows.length}</b>件</>}
-        </span>
-      </div>
-      )}
-
       {/* 承認待ちの常時バナー：承認タブ以外を見ているときに承認漏れを防ぐため上部に表示。 */}
       {approvalRows.length > 0 && tab !== "approval" && (
         <button type="button" onClick={() => setTab("approval")}
@@ -230,27 +209,44 @@ export function ProposalsWorkspace({
         </button>
       )}
 
-      {/* タブ */}
-      <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)" }}>
-        {tabsDef.filter((t) => t.show).map((t) => {
-          const active = tab === t.key;
-          return (
-            <button
-              key={t.key} type="button" role="tab" aria-selected={active}
-              title={t.title} onClick={() => setTab(t.key)}
-              style={{
-                padding: "10px 18px", background: "transparent", border: 0,
-                borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent",
-                color: active ? "var(--color-brand-700)" : "var(--color-ink-3)",
-                fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit",
-                display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
-              }}>
-              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
-              <span>{t.label}</span>
-              {counts[t.key] > 0 && <span className="badge" style={{ fontSize: 10, padding: "1px 7px" }}>{counts[t.key]}</span>}
-            </button>
-          );
-        })}
+      {/* タブ＋期間フィルターを1段に揃える（タブを左、期間チップを右）。
+          期間フィルターは提案ボード・失注分析にのみ作用。KPI推移/承認/日報では非表示。 */}
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
+        <div role="tablist" style={{ display: "flex", gap: 2 }}>
+          {tabsDef.filter((t) => t.show).map((t) => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key} type="button" role="tab" aria-selected={active}
+                title={t.title} onClick={() => setTab(t.key)}
+                style={{
+                  padding: "10px 18px", background: "transparent", border: 0,
+                  borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent",
+                  color: active ? "var(--color-brand-700)" : "var(--color-ink-3)",
+                  fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit",
+                  display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
+                }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
+                <span>{t.label}</span>
+                {counts[t.key] > 0 && <span className="badge" style={{ fontSize: 10, padding: "1px 7px" }}>{counts[t.key]}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {(tab === "board" || tab === "lost") && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingBottom: 6 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 800, color: "var(--color-ink-2)" }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 17, color: "var(--color-brand-700)" }}>filter_alt</span>
+              期間
+            </span>
+            <PeriodChip p="today" />
+            <PeriodChip p="week" />
+            <PeriodChip p="lastweek" />
+            <PeriodChip p="month" />
+            <PeriodChip p="thirty" />
+            <PeriodChip p="all" />
+          </div>
+        )}
       </div>
 
       {/* 子コンポーネントは「開いているタブだけ」描画する（条件付きレンダリング）。
