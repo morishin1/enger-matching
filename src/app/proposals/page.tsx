@@ -295,6 +295,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             kgiByMember={kpiData?.kgiByMember}
             meetingEvents={kpiData?.meetingEvents}
             procurementEvents={kpiData?.procurementEvents}
+            meetingReachedEvents={kpiData?.meetingReachedEvents}
             reportsView={reportsView}
             // 編集UI（ProposalOwnersEditor）と提案詳細の割当ドロップダウンで
             // 選択肢が食い違わないよう、同じ ownersInitial（未保存時は members に統一）を渡す。

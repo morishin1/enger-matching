@@ -37,7 +37,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -47,9 +47,10 @@ export function ProposalsWorkspace({
   // ステージ別 担当者目標（{owner:{stage:target}}）と メンバー別KGI（稼働化目標）。
   stageTargets?: Record<string, Record<string, number>>;
   kgiByMember?: Record<string, { placementTarget: number | null }>;
-  // ステージ目標ボード「打ち合わせ／案件の仕入れ」列のソースイベント（{date, owner} の compact 配列）。
+  // ステージ目標ボード「打ち合わせ／案件の仕入れ／面談」列のソースイベント（{date, owner} の compact 配列）。
   meetingEvents?: { date: string; owner: string }[];
   procurementEvents?: { date: string; owner: string }[];
+  meetingReachedEvents?: { date: string; owner: string }[];
   reportsView?: any;
   // history: 全件（進行中＋終了）。期間で絞り込みして ProposalHistory に渡す
   history: any[];
@@ -154,6 +155,7 @@ export function ProposalsWorkspace({
   const stageBoardMembers = useMemo(() => {
     const set = new Set<string>();
     for (const nm of proposers ?? []) { const v = String(nm ?? "").trim(); if (v) set.add(v); }
+    for (const nm of closers ?? []) { const v = String(nm ?? "").trim(); if (v) set.add(v); } // 合格（稼働決定）はクロージング担当で集計するため
     for (const r of (teamActivity?.rows ?? []) as any[]) { const v = String(r?.name ?? "").trim(); if (v) set.add(v); }
     const base = Array.from(set);
     const addOwner = (raw: string) => {
@@ -162,8 +164,9 @@ export function ProposalsWorkspace({
     };
     for (const ev of meetingEvents ?? []) addOwner(ev.owner);
     for (const ev of procurementEvents ?? []) addOwner(ev.owner);
+    for (const ev of meetingReachedEvents ?? []) addOwner(ev.owner);
     return Array.from(set);
-  }, [proposers, teamActivity, meetingEvents, procurementEvents]);
+  }, [proposers, closers, teamActivity, meetingEvents, procurementEvents, meetingReachedEvents]);
 
   // 「打ち合わせ」「案件の仕入れ」列の現在値（KPI推移の期間で絞り、担当者名へ寛容突合して集計）。
   //   ※ 提案系（提案中/面談/合格）は StageTargetBoard 側で proposals から算出する。
@@ -176,8 +179,9 @@ export function ProposalsWorkspace({
     };
     for (const ev of meetingEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "打ち合わせ");
     for (const ev of procurementEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "案件の仕入れ");
+    for (const ev of meetingReachedEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "面談");
     return out;
-  }, [meetingEvents, procurementEvents, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
+  }, [meetingEvents, procurementEvents, meetingReachedEvents, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
 
   const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: analyticsClient.length, report: reportsView?.replyUnread ?? 0 };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
@@ -290,7 +294,7 @@ export function ProposalsWorkspace({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                       <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
                       <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
-                      <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>打ち合わせ → 提案中 → 案件の仕入れ → 面談 → 合格 の目標/現在/達成率</span>
+                      <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>打ち合わせ → 提案中 → 案件の仕入れ → 面談 → 合格（稼働決定） の目標/現在/達成率</span>
                     </div>
                     <StageTargetBoard
                       proposals={proposalsForStage}
