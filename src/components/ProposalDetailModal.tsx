@@ -19,7 +19,7 @@ import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, CONTACT_CHANNELS, type ContactChannel } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, normalizeMemoCategory, CONTACT_CHANNELS, type ContactChannel } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -292,7 +292,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
       } finally { setBusy(null); }
     });
   };
-  const contactMemos = memos.filter((m) => m.category === "連絡記録");
+  const contactMemos = memos.filter((m) => normalizeMemoCategory(m.category) === "連絡記録");
 
   const run = (key: string, fn: () => Promise<any>) => { setBusy(key); start(async () => { try { await fn(); router.refresh(); } finally { setBusy(null); } }); };
   const moveTo = (stage: string) => { if (stage !== effStage) { setEffStage(stage); run("stage", () => updateProposalStage(p.id, stage)); } };
@@ -639,7 +639,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
           </div>
 
           {/* メモ履歴（カテゴリ別の対応ログ）。連絡記録は上の「コンタクト履歴」で扱うのでここでは除外。 */}
-          {(() => { const otherMemos = memos.filter((m) => m.category !== "連絡記録"); return (
+          {(() => { const otherMemos = memos.filter((m) => normalizeMemoCategory(m.category) !== "連絡記録"); return (
           <div className="card" style={{ padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>メモ履歴 {otherMemos.length > 0 && <span style={{ marginLeft: 4 }}>({otherMemos.length})</span>}</div>
@@ -662,7 +662,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   return (
                     <div key={m.id} style={{ borderLeft: `3px solid ${tone.fg}`, paddingLeft: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg }}>{m.category}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg }}>{normalizeMemoCategory(m.category)}</span>
                         {author && <span className="muted" style={{ fontSize: 11 }}>{author}</span>}
                         <button type="button" onClick={() => onDeleteMemo(m.id)} className="btn ghost btn-xs" title="メモを削除" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>削除</button>
                       </div>

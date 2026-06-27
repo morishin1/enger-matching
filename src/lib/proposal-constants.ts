@@ -58,8 +58,22 @@ export const MEETING_MISSES = ["単価が高い", "スピード不足", "人材�
 export const MEETING_NEEDS = ["即戦力が欲しい", "増員したい", "コスト削減", "リモート対応", "特定スキル", "長期安定", "スポット/短期", "若手・育成"];
 export const MEETING_NEXT_ACTIONS = ["人材を提案", "再面談を設定", "条件・見積提示", "資料送付", "定期フォロー", "社内検討待ち", "保留・様子見"];
 
-// 提案メモのカテゴリ。連絡記録/重要事項/内部メモ/クライアント対応/人材対応 の5分類。
-export const PROPOSAL_MEMO_CATEGORIES = ["連絡記録", "重要事項", "内部メモ", "クライアント対応", "人材対応"] as const;
+// 提案メモのカテゴリ。連絡記録＋やり取りの方向（当社⇄案件側／当社⇄人材側）の5分類。
+export const PROPOSAL_MEMO_CATEGORIES = ["連絡記録", "当社→案件側", "案件側→当社", "当社→人材側", "人材側→当社"] as const;
+
+// 旧カテゴリ→新カテゴリの表示変換（DB移行が未適用でも正しく表示できるようコード側でも吸収）。
+//   ・重要事項 / 内部メモ → 連絡記録（過去ぶんは連絡記録に集約）
+//   ・クライアント対応 → 案件側→当社、人材対応 → 人材側→当社
+const LEGACY_MEMO_CATEGORY: Record<string, string> = {
+  "重要事項": "連絡記録",
+  "内部メモ": "連絡記録",
+  "クライアント対応": "案件側→当社",
+  "人材対応": "人材側→当社",
+};
+export function normalizeMemoCategory(c: string | null | undefined): string {
+  const v = (c ?? "").trim();
+  return LEGACY_MEMO_CATEGORY[v] ?? v;
+}
 
 // 共有メールボックス（ITS事業部の共有Gmail）。
 //   ・送信メールの「送信元」表示は常にここ（個人アドレスだと他メンバーから送信内容が見えないため）
