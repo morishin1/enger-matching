@@ -7,6 +7,7 @@ import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { loadKpiClientProps } from "@/lib/kpi-embed";
 import { loadReportsView } from "@/lib/reports-embed";
+import { getCompanyRatings } from "@/lib/company-ratings";
 
 export const dynamic = "force-dynamic";
 
@@ -170,6 +171,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         const cautionCountByCompany: Record<string, number> = {};
         for (const c of companyRows as any[]) if (c?.name) { ngByCompany[c.name] = !!c.is_ng; cautionCountByCompany[c.name] = Number(c.caution_count) || (c.caution ? 1 : 0); }
         const CAUTION_THRESHOLD = 3; // この回数以上の「取引注意」加点で「要注意会社」。
+        // 会社評価★（失注時の案件★の会社平均）。提案詳細で会社の評価を表示する。
+        const companyRatings = await getCompanyRatings().catch(() => ({} as Record<string, { avg: number; count: number }>));
         // 会社名 → 提案適性ランク（表示用）。
         const rankOf = (name: string | null | undefined): { grade: "NG" | "A" | "B" | "C"; label: string } | null => {
           const nm = String(name ?? "").trim(); if (!nm) return null;
@@ -223,6 +226,9 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             //   案件側＝クライアント会社／人材側＝人材の所属会社。連携キーは会社名。
             p.company_owner_staff = (p.company ? ownerStaffByCompany[p.company] : null) ?? null;
             p.cand_company_owner_staff = (candCompany ? ownerStaffByCompany[candCompany] : null) ?? null;
+            // 会社評価★（案件★の会社平均）。提案詳細のランクバッジ横に表示。
+            p.company_star = (p.company ? companyRatings[p.company] : null) ?? null;
+            p.cand_company_star = (candCompany ? companyRatings[candCompany] : null) ?? null;
             // LP（enger.jp）からのエンジニア直接応募は next_action に「エンジニア直接応募（LP）」が入る。
             //   営業起点の提案と区別できるよう lp_direct フラグを派生させ、ボード/リストでバッジ表示する。
             p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));
