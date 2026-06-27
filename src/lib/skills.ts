@@ -125,7 +125,51 @@ const REGISTRY: Entry[] = [
   { canon: "eks",            label: "Amazon EKS", aliases: ["amazoneks", "aws eks"] },
   { canon: "cloudformation", label: "CloudFormation", aliases: ["awscloudformation", "aws cloudformation"] },
   { canon: "reactnative",    label: "React Native", aliases: ["react native"] },
+  // ── ENGER マスタースキルの表記揺れ吸収（LINE/メール貼り付け取込の正規化を強化）──────
+  //   既存 canon に寄せられない頻出スキルを追補。いずれも追加のみ（既存ラベルは変更しない）。
+  { canon: "git",          label: "Git", aliases: ["github", "svn", "subversion", "bitbucket", "sourcetree", "gitbush", "tortoisesvn"] },
+  { canon: "jquery",       label: "jQuery", aliases: ["jquery"] },
+  { canon: "html",         label: "HTML", aliases: ["html5", "html/css", "htmlcss"] },
+  { canon: "css",          label: "CSS", aliases: ["css3"] },
+  { canon: "sass",         label: "Sass", aliases: ["scss"] },
+  { canon: "less",         label: "LESS" },
+  { canon: "bootstrap",    label: "Bootstrap" },
+  { canon: "express",      label: "Express", aliases: ["expressjs", "express.js"] },
+  { canon: "nestjs",       label: "NestJS", aliases: ["nest", "nest.js"] },
+  { canon: "struts",       label: "Struts" },
+  { canon: "jsp",          label: "JSP" },
+  { canon: "tomcat",       label: "Tomcat", aliases: ["apachetomcat", "apache tomcat"] },
+  { canon: "apache",       label: "Apache", aliases: ["apachehttpd", "httpd"] },
+  { canon: "nginx",        label: "Nginx" },
+  { canon: "objectivec",   label: "Objective-C", aliases: ["objc", "objective-c", "objective c"] },
+  { canon: "dart",         label: "Dart" },
+  { canon: "sqlite",       label: "SQLite" },
+  { canon: "unity",        label: "Unity", aliases: ["unity3d", "ユニティ"] },
+  { canon: "uipath",       label: "UiPath" },
+  { canon: "winactor",     label: "WinActor" },
+  { canon: "rpa",          label: "RPA" },
+  { canon: "windows",      label: "Windows", aliases: ["windows10", "windows11", "win10", "win11"] },
+  { canon: "windowsserver", label: "Windows Server", aliases: ["windows server", "winserver"] },
+  { canon: "macos",        label: "macOS", aliases: ["mac", "mac os", "osx", "os x"] },
+  { canon: "redhat",       label: "Red Hat", aliases: ["rhel", "red hat", "red hat enterprise linux"] },
+  { canon: "centos",       label: "CentOS" },
+  { canon: "ubuntu",       label: "Ubuntu" },
+  { canon: "unix",         label: "Unix" },
 ];
+
+// 別名拡充：既存 canon に寄せる表記揺れ（バージョン付き・別表記）。REGISTRY を肥大させず追補する。
+//   例：Vue3→Vue.js / Python3→Python / SpringBatch→Spring。既存の別 canon を奪う表記は入れない。
+const EXTRA_ALIASES: Record<string, string[]> = {
+  vue: ["vue3", "vue.js2", "vue-js"],
+  nuxt: ["nuxt3"],
+  python: ["python3"],
+  spring: ["springbatch", "spring batch", "springmvc", "spring mvc"],
+  postgresql: ["postgressql", "postglesql", "posgresql"],
+  sqlserver: ["sqlsever"],
+  oracle: ["oracle9i", "oracle(pl/sql)"],
+  fortigate: ["forti"],
+  vb: ["vb6", "vb .net"],
+};
 
 /** 比較用の素正規化（小文字・空白/記号の一部除去）。 */
 const norm = (s: string) => String(s ?? "").toLowerCase().replace(/\s+/g, "").replace(/[.．・/／]/g, "");
@@ -139,6 +183,18 @@ for (const e of REGISTRY) {
   SYN[norm(e.label)] = e.canon;
   for (const a of e.aliases ?? []) SYN[norm(a)] = e.canon;
 }
+// 追補別名（既存 canon へ寄せる）。既存の canon/label の norm は上書きしない（別 canon 奪取を防ぐ）。
+for (const [c, aliases] of Object.entries(EXTRA_ALIASES)) {
+  for (const a of aliases) { const n = norm(a); if (!LABEL[n] && !(SYN[n] && SYN[n] !== c)) SYN[n] = c; }
+}
+
+// スキル名末尾の経験年数・括弧補足を除去（例「Java(8年)」→「Java」「Python:5」→「Python」）。
+//   ENGER スキル抽出ルール①に相当。canon 照合の前段で適用する。
+const stripSkillMeta = (s: string) => s
+  .replace(/[（(]\s*\d[^（()）]*[)）]/g, "")          // (8年) (3年以上) (5+)
+  .replace(/[:：]\s*\d+\+?\s*$/, "")                  // :5 / ：3+
+  .replace(/\s*\d+\s*年(以上|程度|弱|半|超)?\s*$/, "") // 末尾「5年」「3年以上」
+  .trim();
 
 /** 比較用の正規トークン（同義語寄せ込み）。 */
 export const canon = (s: string): string => { const n = norm(s); return SYN[n] ?? n; };
@@ -223,7 +279,7 @@ export function normalizeSkills(input: string[] | string | null | undefined): st
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of arr) {
-    const t = String(raw ?? "").trim();
+    const t = stripSkillMeta(String(raw ?? "").trim());
     if (!t) continue;
     const c = canon(t);
     if (seen.has(c)) continue;
