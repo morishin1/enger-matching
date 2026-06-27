@@ -148,7 +148,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           ...Object.values(candCompanyById).filter(Boolean) as string[],
         ]));
         const companyRows = allCompNames.length
-          ? await sb.from("companies").select("name, owner, contact_name, meeting_done, is_ng").in("name", allCompNames).limit(2000)
+          ? await sb.from("companies").select("name, owner, owner_staff, contact_name, meeting_done, is_ng").in("name", allCompNames).limit(2000)
               .then((r: any) => r.error ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r2: any) => r2.error ? [] : nq(r2.data)) : nq(r.data))
           : [];
         // 会社の「提案適性ランク」用に、各社の成約(稼働)・失注(見送り/失注)実績を集計する。
@@ -188,10 +188,13 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
           const contactByCompany: Record<string, string> = {};
+          // 企業マスタの「自社担当（owner_staff）」を会社名で引くマップ（提案詳細の自社担当欄に表示）。
+          const ownerStaffByCompany: Record<string, string> = {};
           const meetingDoneByCompany: Record<string, boolean> = {};
           for (const c of companyRows as any[]) {
             if (c?.owner) ownerByCompany[c.name] = c.owner;
             if (c?.contact_name) contactByCompany[c.name] = c.contact_name;
+            if (c?.owner_staff) ownerStaffByCompany[c.name] = c.owner_staff;
             if (c?.name) meetingDoneByCompany[c.name] = !!c.meeting_done;
           }
           for (const p of all) {
@@ -211,6 +214,10 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             // 企業担当（窓口担当者）は保存値が無ければ企業マスタの contact_name を自動表示。
             p.company_contact = p.company_contact ?? (p.company ? contactByCompany[p.company] : null) ?? null;
             p.cand_company_contact = p.cand_company_contact ?? (candCompany ? contactByCompany[candCompany] : null) ?? null;
+            // 自社担当：企業マスタ（企業メニュー）の owner_staff をそのまま表示（空欄ならそのまま空欄）。
+            //   案件側＝クライアント会社／人材側＝人材の所属会社。連携キーは会社名。
+            p.company_owner_staff = (p.company ? ownerStaffByCompany[p.company] : null) ?? null;
+            p.cand_company_owner_staff = (candCompany ? ownerStaffByCompany[candCompany] : null) ?? null;
             // LP（enger.jp）からのエンジニア直接応募は next_action に「エンジニア直接応募（LP）」が入る。
             //   営業起点の提案と区別できるよう lp_direct フラグを派生させ、ボード/リストでバッジ表示する。
             p.lp_direct = /直接応募/.test(String(p.next_action ?? ""));
