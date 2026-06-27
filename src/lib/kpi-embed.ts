@@ -5,8 +5,10 @@
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import {
   getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets,
-  jstStartOfWeek, jstStartOfDay, addDays, resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
+  jstStartOfWeek, jstStartOfDay, jstStartOfMonth, addDays, addMonths, businessDaysInRange,
+  resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
 } from "@/lib/kpi";
+import { funnelTargetCounts } from "@/lib/kpi-roles";
 import { getTeamActivity } from "@/lib/team-activity";
 import { resolveActivityMembers } from "@/lib/activity-members";
 import { loadProposalOwners } from "@/lib/proposal-owners";
@@ -134,6 +136,30 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* テーブル未整備でもKPIは表示 */ }
 
+    // KGI逆算ファネル（画面トップ常時表示）：当月(累計)のチーム実績 提案→面談→合格→稼働 と目標。
+    //   営業マニュアル §10 準拠。提案=新規提案 / 面談=日程確定(schedule) / 合格=成約(deal=稼働決定) / 稼働=合格と同義。
+    let teamFunnel: any = null;
+    try {
+      const monthStart = jstStartOfMonth(new Date());
+      const now = new Date();
+      const fmembers = await resolveActivityMembers(
+        { role: access.role, teamRole: access.teamRole, department: access.department },
+        { allowMember: true },
+      );
+      const monthRows = fmembers.length ? await getTeamActivity({ start: monthStart, end: now, members: fmembers }) : [];
+      const sum = (k: Metric) => monthRows.reduce((s: number, r: any) => s + (r?.actual?.[k] ?? 0), 0);
+      const ft = await getKpiFunnelTarget();
+      const tc = funnelTargetCounts(ft); // { proposal, meeting, won }
+      teamFunnel = {
+        actual: { proposal: sum("proposal"), meeting: sum("schedule"), pass: sum("deal") },
+        target: { proposal: tc.proposal, meeting: tc.meeting, won: tc.won },
+        rates: { meetingRate: ft.meetingRate, passRate: ft.passRate },
+        bizPassed: businessDaysInRange(monthStart, addDays(jstStartOfDay(now), 1)),
+        bizTotal: businessDaysInRange(monthStart, addMonths(monthStart, 1)),
+        monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
+      };
+    } catch { /* ファネルが組めなくてもボードは表示 */ }
+
     // メンバーの役割（アウトサイド/インサイド/テレアポ）と、チームのファネル目標（面談率/合格率）。
     //   役割別のKGI（外＝合格率 面談→稼働 / 内＝面談率 提案→面談）をボードで表示するために渡す。
     let roleByMember: Record<string, string> = {};
@@ -209,7 +235,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
 
-    return { kpi, teamActivity, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents };
+    return { kpi, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents };
   } catch {
     return null;
   }
