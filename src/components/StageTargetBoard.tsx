@@ -30,6 +30,17 @@ const STAGE_COLUMNS: { key: string; label?: string; source: "proposal" | "overri
 const STAGE_KEYS = STAGE_COLUMNS.map((c) => c.key);
 const PROPOSAL_COLUMNS = STAGE_COLUMNS.filter((c) => c.source === "proposal");
 
+// 役割別KGI（インサイド＝面談率／アウトサイド＝合格率／テレアポ＝独自KGIなし）。
+type RoleKgi =
+  | { role: "outside" | "inside"; label: string; rate: number | null; targetRate: number; numer: number; denom: number; numerLabel: string; denomLabel: string }
+  | { role: "telapo" };
+const ROLE_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
+  outside: { label: "アウトサイド", bg: "#e7f7ee", fg: "#067647" },
+  inside:  { label: "インサイド",   bg: "#e7f0fb", fg: "#0b5cab" },
+  telapo:  { label: "テレアポ",     bg: "#fff1e6", fg: "#b45309" },
+};
+const ROLE_ORDER: Record<string, number> = { outside: 0, inside: 1, telapo: 2 };
+
 type Props = {
   proposals: any[];                 // 進行中の提案（proposer / stage を持つ）
   members: string[];                // 担当者名リスト（提案者）
@@ -37,13 +48,17 @@ type Props = {
   // 打ち合わせ／案件の仕入れ 列の現在値（期間連動済み・担当者名→{列:件数}）。
   currentOverrides?: Record<string, Record<string, number>>;
   kgiByMember: Record<string, { placementTarget: number | null }>;
-  kpiPctByMember: Record<string, number | null>;
+  // メンバー名→役割、役割別KGI（面談率/合格率）。役割未設定は従来KGI（合格/稼働化目標）を表示。
+  roleByMember?: Record<string, string>;
+  roleKgiByMember?: Record<string, RoleKgi>;
+  kpiPctByMember?: Record<string, number | null>;
   canEdit: boolean;
 };
 
 const pctTone = (pct: number | null) => pct == null ? "var(--color-ink-4)" : pct >= 100 ? "#067647" : pct >= 60 ? "#9a7b12" : "#b42318";
+const roleOf = (owner: string, roleKgi: Record<string, RoleKgi>): string | null => roleKgi[owner]?.role ?? null;
 
-export function StageTargetBoard({ proposals, members, stageTargets, currentOverrides = {}, kgiByMember, kpiPctByMember, canEdit }: Props) {
+export function StageTargetBoard({ proposals, members, stageTargets, currentOverrides = {}, kgiByMember, roleByMember = {}, roleKgiByMember = {}, kpiPctByMember = {}, canEdit }: Props) {
   const router = useRouter();
   const [, start] = useTransition();
   const [edits, setEdits] = useState<Record<string, string>>({}); // `${owner}|${stage}` -> 入力中の値
@@ -114,6 +129,11 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
     const hasTg = STAGE_KEYS.some((s) => (tg[s] ?? 0) > 0);
     const hasKpi = kpiPctByMember[nm] != null;
     return hasCur || hasTg || hasKpi;
+  }).sort((a, b) => {
+    // 役割でまとめる（アウトサイド→インサイド→テレアポ→未設定）。同役割内は名前順。
+    const ra = ROLE_ORDER[roleOf(a, roleKgiByMember) ?? ""] ?? 9;
+    const rb = ROLE_ORDER[roleOf(b, roleKgiByMember) ?? ""] ?? 9;
+    return ra !== rb ? ra - rb : a.localeCompare(b, "ja");
   });
 
   if (shownMembers.length === 0) {
@@ -159,7 +179,7 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
             <th style={{ ...th, textAlign: "left" }}>担当者</th>
             {STAGE_COLUMNS.map((c) => <th key={c.key} style={th} title={c.hint}>{c.label ?? c.key}<div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>現在/目標</div></th>)}
             <th style={th}>KPI達成率</th>
-            <th style={th}>KGI達成率<div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>合格/稼働化目標</div></th>
+            <th style={th}>KGI達成率<div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>役割別（外=合格率／内=面談率）</div></th>
           </tr>
         </thead>
         <tbody>
@@ -168,15 +188,41 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
             const kgiTarget = kgiByMember[owner]?.placementTarget ?? null;
             const passed = current[owner]?.["合格"] ?? 0;
             const kgiPct = kgiTarget && kgiTarget > 0 ? Math.round((passed / kgiTarget) * 100) : null;
-            return (
-              <tr key={owner}>
-                <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{owner}</td>
-                {STAGE_COLUMNS.map((c) => cell(owner, c.key))}
-                <td style={{ ...td, fontWeight: 800, color: pctTone(kpiPct) }}>{kpiPct == null ? "—" : `${kpiPct}%`}</td>
+            const role = roleOf(owner, roleKgiByMember);
+            const rk = roleKgiByMember[owner];
+            // KGI達成率セル：役割別（面談率/合格率）を優先。役割未設定は従来（合格/稼働化目標）。
+            let kgiCell: React.ReactNode;
+            if (rk && (rk.role === "outside" || rk.role === "inside")) {
+              const ratePct = rk.rate == null ? null : Math.round(rk.rate * 100);
+              const tgtPct = Math.round(rk.targetRate * 100);
+              const achieve = (rk.rate != null && rk.targetRate > 0) ? Math.round((rk.rate / rk.targetRate) * 100) : null;
+              kgiCell = (
+                <td style={{ ...td, fontWeight: 800, color: pctTone(achieve) }}>
+                  {ratePct == null ? "—" : `${rk.label} ${ratePct}%`}
+                  <div style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-5)" }}>目標{tgtPct}%・{rk.numer}{rk.numerLabel}/{rk.denom}{rk.denomLabel}</div>
+                </td>
+              );
+            } else if (rk && rk.role === "telapo") {
+              kgiCell = <td style={{ ...td, color: "var(--color-ink-4)" }}>—<div style={{ fontSize: 10, color: "var(--color-ink-5)" }}>独自KGIなし</div></td>;
+            } else {
+              kgiCell = (
                 <td style={{ ...td, fontWeight: 800, color: pctTone(kgiPct) }}>
                   {kgiPct == null ? "—" : `${kgiPct}%`}
                   <div style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-5)" }}>{passed}/{kgiTarget ?? "—"}</div>
                 </td>
+              );
+            }
+            return (
+              <tr key={owner}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
+                    <span>{owner}</span>
+                    {role && ROLE_BADGE[role] && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: ROLE_BADGE[role].bg, color: ROLE_BADGE[role].fg }}>{ROLE_BADGE[role].label}</span>}
+                  </div>
+                </td>
+                {STAGE_COLUMNS.map((c) => cell(owner, c.key))}
+                <td style={{ ...td, fontWeight: 800, color: pctTone(kpiPct) }}>{kpiPct == null ? "—" : `${kpiPct}%`}</td>
+                {kgiCell}
               </tr>
             );
           })}
@@ -188,7 +234,8 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
         <b>面談</b>＝「面談」フォルダに入ったことのある提案の件数（提案者・累計／別フォルダや失注へ移っても減らず、削除のみ減算）。
         <b>合格（稼働決定）</b>＝「合格」ステージの件数（クロージング担当者で集計）。
         いずれも上部の期間に連動します。
-        {canEdit && <><br />※ 各列の数値（/の右）が目標。直接入力して変更できます（フォーカスを外すと保存）。KGI達成率＝当月の合格件数 ÷ 稼働化目標（person-kgi）。</>}
+        <br /><b>KGI達成率（役割別）</b>＝<b style={{ color: ROLE_BADGE.outside.fg }}>アウトサイド</b>は合格率（面談→合格/稼働）、<b style={{ color: ROLE_BADGE.inside.fg }}>インサイド</b>は面談率（提案→面談）。テレアポは独自KGIなし。目標率はチームのファネル目標。役割と目標は「KPI＆KGI」ページで割当・設定できます（未設定は従来の合格÷稼働化目標）。
+        {canEdit && <><br />※ 各列の数値（/の右）が目標。直接入力して変更できます（フォーカスを外すと保存）。</>}
       </div>
     </div>
   );

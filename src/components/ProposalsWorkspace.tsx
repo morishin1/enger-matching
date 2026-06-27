@@ -37,7 +37,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -47,6 +47,9 @@ export function ProposalsWorkspace({
   // ステージ別 担当者目標（{owner:{stage:target}}）と メンバー別KGI（稼働化目標）。
   stageTargets?: Record<string, Record<string, number>>;
   kgiByMember?: Record<string, { placementTarget: number | null }>;
+  // 役割別KPI/KGI：メンバー名→役割（outside/inside/telapo）と、チームのファネル目標（面談率/合格率）。
+  roleByMember?: Record<string, string>;
+  funnelRates?: { meetingRate: number; passRate: number; won: number };
   // ステージ目標ボード「打ち合わせ／案件の仕入れ／面談」列のソースイベント（{date, owner} の compact 配列）。
   meetingEvents?: { date: string; owner: string }[];
   procurementEvents?: { date: string; owner: string }[];
@@ -183,6 +186,38 @@ export function ProposalsWorkspace({
     return out;
   }, [meetingEvents, procurementEvents, meetingReachedEvents, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
 
+  // 役割別KGI：インサイド＝面談率（提案→面談）／アウトサイド＝合格率（面談→稼働）。
+  //   ・インサイドは提案者責任：面談到達(面談列) ÷ 提案数(アクティビティの proposal)。
+  //   ・アウトサイドはクロージング責任：合格/稼働(deal) ÷ 面談(schedule)。
+  //   目標率はチームのファネル目標（meetingRate/passRate）。役割未設定は従来KGIにフォールバック。
+  const roleKgiByMember = useMemo(() => {
+    const rByName: Record<string, "outside" | "inside" | "telapo"> = {};
+    for (const [k, v] of Object.entries(roleByMember ?? {})) {
+      const who = stageBoardMembers.find((nm) => ownerMatches(nm, k)) ?? k;
+      if (v === "outside" || v === "inside" || v === "telapo") rByName[who] = v;
+    }
+    const actOf = (nm: string): any => (teamActivity?.rows ?? []).find((r: any) => ownerMatches(nm, r?.name))?.actual ?? {};
+    const mRate = funnelRates?.meetingRate ?? 0.2;
+    const pRate = funnelRates?.passRate ?? 0.33;
+    const out: Record<string, { role: "outside" | "inside" | "telapo"; label: string; rate: number | null; targetRate: number; numer: number; denom: number; numerLabel: string; denomLabel: string } | { role: "telapo" }> = {};
+    for (const nm of stageBoardMembers) {
+      const role = rByName[nm];
+      if (!role) continue;
+      if (role === "telapo") { out[nm] = { role: "telapo" }; continue; }
+      const act = actOf(nm);
+      if (role === "inside") {
+        const denom = Number(act.proposal ?? 0);
+        const numer = Number(stageCurrentOverrides[nm]?.["面談"] ?? 0);
+        out[nm] = { role, label: "面談率", numerLabel: "面談", denomLabel: "提案", numer, denom, rate: denom > 0 ? numer / denom : null, targetRate: mRate };
+      } else {
+        const denom = Number(act.schedule ?? 0);
+        const numer = Number(act.deal ?? 0);
+        out[nm] = { role, label: "合格率", numerLabel: "合格", denomLabel: "面談", numer, denom, rate: denom > 0 ? numer / denom : null, targetRate: pRate };
+      }
+    }
+    return out;
+  }, [roleByMember, funnelRates, teamActivity, stageBoardMembers, stageCurrentOverrides]);
+
   const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: analyticsClient.length, report: reportsView?.replyUnread ?? 0 };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
   //   行を二重に転送していたため。終了した提案は「失注分析」タブで見られる（mode=analytics）。
@@ -307,6 +342,8 @@ export function ProposalsWorkspace({
                       stageTargets={stageTargets ?? {}}
                       currentOverrides={stageCurrentOverrides}
                       kgiByMember={kgiByMember ?? {}}
+                      roleByMember={roleByMember ?? {}}
+                      roleKgiByMember={roleKgiByMember}
                       kpiPctByMember={kpiPctByMember}
                       canEdit={!!privileged}
                     />
