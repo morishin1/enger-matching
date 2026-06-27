@@ -1,18 +1,18 @@
 "use client";
 
-// メモ追加モーダル。カテゴリ（連絡記録/重要事項/内部メモ/クライアント対応/人材対応）と本文を入力。
+// メモ追加モーダル。カテゴリ（連絡記録／当社⇄案件側／当社⇄人材側）と本文を入力。
 import { useEffect, useState, useTransition } from "react";
 import { addProposalMemo } from "@/lib/actions";
-import { PROPOSAL_MEMO_CATEGORIES } from "@/lib/proposal-constants";
+import { PROPOSAL_MEMO_CATEGORIES, normalizeMemoCategory } from "@/lib/proposal-constants";
 
 const CATEGORY_TONE: Record<string, { fg: string; bg: string }> = {
   連絡記録:        { fg: "#0095D9", bg: "#e0f2fe" },
-  重要事項:        { fg: "#b42318", bg: "#fdecef" },
-  内部メモ:        { fg: "#7c3aed", bg: "#ede9fe" },
-  クライアント対応: { fg: "#d98a2b", bg: "#fef3e2" },
-  人材対応:        { fg: "#067647", bg: "#e7f7ee" },
+  "当社→案件側":   { fg: "#b42318", bg: "#fdecef" },
+  "案件側→当社":   { fg: "#d98a2b", bg: "#fef3e2" },
+  "当社→人材側":   { fg: "#7c3aed", bg: "#ede9fe" },
+  "人材側→当社":   { fg: "#067647", bg: "#e7f7ee" },
 };
-export const memoCategoryTone = (c: string) => CATEGORY_TONE[c] ?? { fg: "#6b7280", bg: "#f3f4f6" };
+export const memoCategoryTone = (c: string) => CATEGORY_TONE[normalizeMemoCategory(c)] ?? { fg: "#6b7280", bg: "#f3f4f6" };
 
 export function ProposalMemoModal({ proposalId, onClose, onAdded }: { proposalId: string; onClose: () => void; onAdded?: () => void }) {
   const [category, setCategory] = useState<string>(PROPOSAL_MEMO_CATEGORIES[0]);

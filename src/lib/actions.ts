@@ -362,7 +362,8 @@ export async function closeProposalEntity(input: {
   if (input.proposalId) {
     try {
       const label = input.sideLabel || (input.table === "jobs" ? "案件" : "人材");
-      await addProposalMemo(input.proposalId, "内部メモ", `【自動記録】${label}クローズ：${reasonFull}（担当 ${by ?? "—"}）`);
+      const memoCat = input.table === "jobs" ? "当社→案件側" : "当社→人材側";
+      await addProposalMemo(input.proposalId, memoCat, `【自動記録】${label}クローズ：${reasonFull}（担当 ${by ?? "—"}）`);
     } catch { /* noop */ }
   }
   revalidatePath("/proposals");
@@ -2793,7 +2794,7 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
 }
 
 // ────────────────────────────────────────────────────────
-// 提案メモ（連絡記録/重要事項/内部メモ/クライアント対応/人材対応）
+// 提案メモ（連絡記録/当社→案件側/案件側→当社/当社→人材側/人材側→当社）
 // ────────────────────────────────────────────────────────
 // 注意: PROPOSAL_MEMO_CATEGORIES は値の定数のため proposal-constants.ts に置く。
 //        "use server" の本ファイルは async 関数しか export できない。

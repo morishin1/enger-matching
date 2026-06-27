@@ -3,7 +3,7 @@
 create table if not exists enger.proposal_memos (
   id             uuid primary key default gen_random_uuid(),
   proposal_id    uuid not null references enger.proposals(id) on delete cascade,
-  category       text not null,             -- 連絡記録 / 重要事項 / 内部メモ / クライアント対応 / 人材対応
+  category       text not null,             -- 連絡記録 / 当社→案件側 / 案件側→当社 / 当社→人材側 / 人材側→当社
   body           text not null,
   created_by_email text,
   created_by_name  text,
@@ -17,4 +17,4 @@ grant select on enger.proposal_memos to anon, authenticated;
 grant all    on enger.proposal_memos to service_role;
 
 comment on table enger.proposal_memos is '提案ごとの対応メモ。カテゴリで分類し、対応履歴の可視化に使う。';
-comment on column enger.proposal_memos.category is '連絡記録 / 重要事項 / 内部メモ / クライアント対応 / 人材対応';
+comment on column enger.proposal_memos.category is '連絡記録 / 当社→案件側 / 案件側→当社 / 当社→人材側 / 人材側→当社';
