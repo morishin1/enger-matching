@@ -291,6 +291,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             privileged={canApprove}
             kpiProps={kpiData?.kpi}
             teamActivity={kpiData?.teamActivity}
+            teamFunnel={kpiData?.teamFunnel}
             stageTargets={kpiData?.stageTargets}
             kgiByMember={kpiData?.kgiByMember}
             roleByMember={kpiData?.roleByMember}
