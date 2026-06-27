@@ -314,21 +314,26 @@ export async function bulkSetClosed(
 export async function closeProposalEntity(input: {
   table: "jobs" | "candidates";
   id: number;                 // job_no または candidate_no
-  reason: string;             // 必須
+  reason: string;             // 必須（選択式）
+  note?: string | null;       // 自由記述（任意）
   company?: string | null;    // 取引注意を立てる会社名（任意）
-  caution?: boolean;          // true なら company を取引注意にする
+  caution?: boolean;          // true なら company を取引注意に加点
+  proposalId?: string | null; // メモ履歴に自動追記する対象提案
+  sideLabel?: string;         // 「案件」or「人材」（メモ文言用）
 }): Promise<{ ok: boolean; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!input.id) return { ok: false, error: "対象（案件No/人材No）が未指定です" };
   const reason = (input.reason ?? "").trim();
   if (!reason) return { ok: false, error: "クローズ理由を入力してください" };
+  const note = (input.note ?? "").trim();
+  const reasonFull = note ? `${reason}（${note}）` : reason;
   const access = await currentAccess();
   const by = access?.name ?? access?.email ?? null;
   const idField = input.table === "jobs" ? "job_no" : "candidate_no";
   const nowIso = new Date().toISOString();
   // is_closed + 理由を保存。理由列が無い環境では is_closed のみで再試行。
-  let { error } = await admin.from(input.table).update({ is_closed: true, closed_reason: reason, closed_at: nowIso, closed_by: by }).eq(idField, input.id);
+  let { error } = await admin.from(input.table).update({ is_closed: true, closed_reason: reasonFull, closed_at: nowIso, closed_by: by }).eq(idField, input.id);
   if (error && /closed_reason|closed_at|closed_by|column/i.test(error.message)) {
     ({ error } = await admin.from(input.table).update({ is_closed: true }).eq(idField, input.id));
   }
@@ -336,15 +341,28 @@ export async function closeProposalEntity(input: {
     if (/is_closed|column/i.test(error.message)) return { ok: false, error: "クローズ用カラム未整備です。supabase/closed-flag.sql と close-reason-caution.sql を実行してください。" };
     return { ok: false, error: error.message };
   }
-  // 会社評価（取引注意）に連動。
+  // 会社評価（取引注意）に連動：caution_count を加点（会社/人材会社起因のとき）。
   if (input.caution && input.company && input.company.trim()) {
     try {
-      const r = await admin.from("companies").upsert(
-        { name: input.company.trim(), caution: true, caution_reason: reason, caution_at: nowIso, caution_by: by },
+      const nm = input.company.trim();
+      const cur: any = await admin.from("companies").select("caution_count").eq("name", nm).maybeSingle();
+      const nextCount = (Number(cur?.data?.caution_count) || 0) + 1;
+      let r = await admin.from("companies").upsert(
+        { name: nm, caution: true, caution_count: nextCount, caution_reason: reasonFull, caution_at: nowIso, caution_by: by },
         { onConflict: "name" },
       );
-      // caution 列が無い環境は黙ってスキップ（クローズ自体は成立）。
-      if (r.error && /caution|column/i.test(r.error.message)) { /* noop */ }
+      // caution_count 列が無い環境は count 無しで再試行、それも無ければスキップ。
+      if (r.error && /caution_count/i.test(r.error.message)) {
+        r = await admin.from("companies").upsert({ name: nm, caution: true, caution_reason: reasonFull, caution_at: nowIso, caution_by: by }, { onConflict: "name" });
+      }
+      if (r.error && /caution|column/i.test(r.error.message)) { /* 列未整備はスキップ */ }
+    } catch { /* noop */ }
+  }
+  // メモ履歴に自動追記（例：「【自動記録】案件クローズ：理由◯◯（担当△△）」）。失敗してもクローズは成立。
+  if (input.proposalId) {
+    try {
+      const label = input.sideLabel || (input.table === "jobs" ? "案件" : "人材");
+      await addProposalMemo(input.proposalId, "内部メモ", `【自動記録】${label}クローズ：${reasonFull}（担当 ${by ?? "—"}）`);
     } catch { /* noop */ }
   }
   revalidatePath("/proposals");

@@ -696,8 +696,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。 */}
             <div className="card" style={{ padding: 16, flex: "1 1 220px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>クローズ</div>
-              <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} company={p.company} stage={p.stage} createdAt={p.created_at} />
-              <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} company={p.cand_company} stage={p.stage} createdAt={p.created_at} />
+              <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} company={p.company} stage={p.stage} createdAt={p.created_at} proposalId={p.id} />
+              <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} company={p.cand_company} stage={p.stage} createdAt={p.created_at} proposalId={p.id} />
             </div>
           </div>
 
