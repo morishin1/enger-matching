@@ -7,7 +7,6 @@ import { Sidebar } from "./Sidebar";
 import { Toaster } from "./toast";
 import { OperatorBadge } from "./OperatorBadge";
 import { HelpButton } from "./HelpButton";
-import { MatchingTabs } from "./MatchingTabs";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
 import type { Role } from "@/lib/roles";
@@ -15,10 +14,10 @@ import type { Role } from "@/lib/roles";
 const CRUMBS: Record<string, string[]> = {
   "/": ["ENGER", "ダッシュボード"],
   "/matching": ["ENGER", "マッチング"],
-  "/engineers": ["ENGER", "マッチング", "フリーランス"],
-  "/jobs": ["ENGER", "マッチング", "案件"],
-  "/people": ["ENGER", "マッチング", "人材"],
-  "/line": ["ENGER", "マッチング", "LINE"],
+  "/engineers": ["ENGER", "フリーランス"],
+  "/jobs": ["ENGER", "案件"],
+  "/people": ["ENGER", "人材"],
+  "/line": ["ENGER", "LINE"],
   "/chat": ["ENGER", "チャット"],
   "/companies": ["ENGER", "企業管理"],
   "/proposals": ["ENGER", "提案管理"],
@@ -96,8 +95,9 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
           <button className="nav-toggle" onClick={() => setNavOpen((v) => !v)} aria-label="メニュー">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
           </button>
-          {/* パンくず（常時表示）。 */}
-          {crumbs.length > 1 && (
+          {/* パンくず: 3階層以上の深いページのみトップバーに表示（タブページは本体側で
+              「説明文 → パンくず → タブ」の順に表示する）。 */}
+          {crumbs.length > 2 && (
             <div className="crumbs">
               {crumbs.map((c, i) => (
                 <span key={i} style={{ display: "contents" }}>
@@ -107,8 +107,6 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
               ))}
             </div>
           )}
-          {/* マッチング/案件/人材/フリーランス/LINE のタブはトップバーに統一配置（全ページで同じ位置・上下ブレなし）。 */}
-          <MatchingTabs counts={counts} />
           <form className="search" onSubmit={submit}>
             <span style={{ display: "grid", placeItems: "center" }}><Icons.search /></span>
             <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社（ID/No・名前・スキル）…Enterで検索" />
