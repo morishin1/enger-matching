@@ -23,15 +23,15 @@ const NAV: NavItem[] = [
   { href: "/companies", id: "companies", label: "企業", desc: "取引先・商談の管理", icon: "company", count: "companies" },
   // 「マッチング」クリックはマッチング画面(/matching)に着地（既定タブ＝マッチング）。
   //   子は案件→人材→LP登録の順。
+  // マッチング配下：案件 → 人材 → フリーランス → LINE。
   { href: "/matching", id: "matching", label: "マッチング", desc: "AIで最適な組み合わせを提案", icon: "matching", children: [
-    { href: "/jobs",      id: "jobs",      label: "案件",   desc: "募集中の案件を管理",   count: "jobs",      newCount: "newJobs" },
-    { href: "/people",    id: "people",    label: "人材",   desc: "登録人材を管理",       count: "people",    newCount: "newPeople" },
-    { href: "/engineers", id: "engineers", label: "LP登録", desc: "LP経由の登録者",       count: "engineers", newCount: "newEngineers" },
+    { href: "/jobs",      id: "jobs",      label: "案件",       desc: "募集中の案件を管理",       count: "jobs",      newCount: "newJobs" },
+    { href: "/people",    id: "people",    label: "人材",       desc: "登録人材を管理",           count: "people",    newCount: "newPeople" },
+    { href: "/engineers", id: "engineers", label: "フリーランス", desc: "ENGERフリーランスの登録者", count: "engineers", newCount: "newEngineers" },
+    { href: "/line",      id: "line",      label: "LINE",       desc: "LINE経由の人材・案件とトーク" },
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
   { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg" },
-  // LINE：LINE経由の人材/案件の集約＋LINE WORKSのやりとり（トーク）。
-  { href: "/line", id: "line", label: "LINE", desc: "LINE経由の人材・案件とトーク", icon: "line" },
   // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
   { href: "/progress", id: "progress", label: "稼働管理", desc: "稼働・請求・書類の管理", icon: "progress", count: "progress", children: [
     { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）", desc: "稼働状況と請求" },
