@@ -1,3 +1,15 @@
+// ダッシュボード「お知らせ（News）」用。
+//
+// ■ 定義（やらなければいけないこととの切り分け）
+//   「お知らせ」＝ 起きた出来事の通知・周知。必ずしも即アクションは不要で、読んで把握すれば
+//   よい情報。read_at で既読/未読を管理し、既読は「過去の履歴」へ送る（ログとして残る）。
+//   含めるもの（kind）:
+//     - apply     … 応募がありました（候補者からの応募通知）
+//     - feedback  … 日報への返信
+//     - info      … 周知・お知らせ（一般連絡）
+//     - warning   … 注意喚起
+//   ここに入れない（＝やらなければいけないこと側）: 承認待ち・公開待ち・差戻し対応・要フォロー
+//   など「自分が動かないと進まない締切性のあるタスク」は dashboard-alerts を使う。
 import { engerClient, dbConfigured } from "./supabase";
 
 export type Notification = { id: string; recipient: string; title: string; body: string | null; kind: string; created_at: string; read_at: string | null };
