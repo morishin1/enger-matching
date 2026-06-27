@@ -14,8 +14,10 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
   const isStaff = access?.role === "admin" || access?.role === "agent";
 
   const threads = await listChatThreads(me);
-  const selectedId = sp.t && threads.some((t) => t.id === sp.t) ? sp.t : threads[0]?.id ?? null;
-  const selected = selectedId ? await getChatThread(selectedId) : null;
+  // 指定スレッド(sp.t)を最優先で開く。直近300件の一覧に無くても直接取得できれば開く
+  //   （スカウト→open-thread 直後の新規スレッドへの遷移に対応）。無ければ先頭スレッド。
+  const selected = (sp.t ? await getChatThread(sp.t) : null) ?? (threads[0] ? await getChatThread(threads[0].id) : null);
+  const selectedId = selected?.thread.id ?? null;
 
   // 新規スレッドの相手（フリーランス）選択用の軽量リスト。スタッフのみ取得。
   let engineers: { id: string; name: string }[] = [];

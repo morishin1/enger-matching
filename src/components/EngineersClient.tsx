@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import type { EngineerChatStatus } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread } from "@/app/engineers/actions";
+import { toast } from "@/components/toast";
 import { gmailComposeUrl, reSubject } from "@/lib/gmail";
 import { StageBar } from "./StageBar";
 import { Icons } from "./icons";
@@ -469,6 +470,49 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const [scoutMsg, setScoutMsg] = useState("");
   const [scoutJob, setScoutJob] = useState("");
   const [scoutErr, setScoutErr] = useState<string | null>(null);
+  const [logPage, setLogPage] = useState(0);            // 対応履歴ページャ（5件/ページ）
+  const [chatBusy, setChatBusy] = useState<string | null>(null); // チャット起動中の scout_id
+
+  // 「スカウト送信」の対応履歴行に、対応するスカウト(scouts)を突合（scout_id/job_title を引く）。
+  //   engineer_actions に scout_id が無いため、同一人材・近い作成時刻＋案件名で対応付ける
+  //   （sendScout は scout と action を同時生成するため作成時刻はほぼ一致する）。
+  const actionScout = useMemo(() => {
+    const map = new Map<string, Scout>();
+    const sends = log.filter((a) => a.action === "スカウト送信");
+    const used = new Set<string>();
+    for (const a of sends) {
+      const at = new Date(a.created_at).getTime();
+      const jt = (a.note?.match(/案件[:：]\s*(.+?)\s*$/)?.[1] ?? "").trim();
+      let best: Scout | null = null;
+      let bestDelta = Infinity;
+      for (const s of scoutLog) {
+        if (used.has(s.id)) continue;
+        const sjt = (s.job_title ?? "").trim();
+        if (jt && sjt && jt !== sjt) continue; // 案件名が両方あって不一致なら除外
+        const d = Math.abs(new Date(s.created_at).getTime() - at);
+        if (d < bestDelta) { best = s; bestDelta = d; }
+      }
+      if (best && bestDelta <= 5 * 60000) { map.set(a.id, best); used.add(best.id); } // 5分以内を同一とみなす
+    }
+    return map;
+  }, [log, scoutLog]);
+
+  // ① 5件/ページ。並びは現状（新しい順）を維持。
+  const LOG_PER_PAGE = 5;
+  const logPageCount = Math.max(1, Math.ceil(log.length / LOG_PER_PAGE));
+  const safeLogPage = Math.min(logPage, logPageCount - 1);
+  const pagedLog = log.slice(safeLogPage * LOG_PER_PAGE, safeLogPage * LOG_PER_PAGE + LOG_PER_PAGE);
+
+  // ③ スカウトを起点にチャットスレッドを開いて遷移（サーバ経由で enger-lp open-thread を呼ぶ）。
+  const openChat = (scoutId: string) => {
+    if (!scoutId || chatBusy) return;
+    setChatBusy(scoutId);
+    openScoutChatThread(scoutId).then((r) => {
+      setChatBusy(null);
+      if (r.ok && r.thread_id) router.push(`/chat?t=${r.thread_id}`);
+      else toast(r.error ?? "チャットを開けませんでした", "error");
+    }).catch((e) => { setChatBusy(null); toast(e instanceof Error ? e.message : "チャットを開けませんでした", "error"); });
+  };
 
   const submitScout = () => {
     if (!scoutMsg.trim()) { setScoutErr("スカウト本文を入力してください"); return; }
@@ -661,21 +705,50 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             </div>
           </div>
 
-          {/* 履歴リスト */}
+          {/* 履歴リスト（① 5件/ページ・新しい順を維持） */}
           {log.length === 0 ? (
             <div className="muted" style={{ fontSize: 12 }}>まだ対応履歴はありません。上から記録できます。</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {log.map((a) => (
-                <div key={a.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, padding: "7px 9px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)" }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, flex: "0 0 auto", color: "#fff", background: ACTION_COLOR[a.action] || "#475467" }}>{a.action}</span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    {a.note && <div style={{ color: "var(--color-ink-2)" }}>{a.note}</div>}
-                    <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{fmtDate(a.created_at)}{a.operator ? ` · ${a.operator}` : ""}</div>
+              {pagedLog.map((a) => {
+                const scout = a.action === "スカウト送信" ? actionScout.get(a.id) : undefined;
+                const jobTitle = (scout?.job_title ?? "").trim();
+                return (
+                  <div key={a.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, padding: "7px 9px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)" }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, flex: "0 0 auto", color: "#fff", background: ACTION_COLOR[a.action] || "#475467" }}>{a.action}</span>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      {/* ②「スカウト送信」行のラベル隣に案件名（scouts.job_title）。空なら空欄（ダミー無し）。
+                          ③ 案件名の隣に「チャットで連絡する」ボタン（該当スレッドへ遷移）。 */}
+                      {a.action === "スカウト送信" && (scout || jobTitle) && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 2 }}>
+                          {jobTitle && <span style={{ fontWeight: 700, color: "var(--color-ink)" }}>{jobTitle}</span>}
+                          {scout && (
+                            <button type="button" onClick={() => openChat(scout.id)} disabled={chatBusy === scout.id}
+                              className="btn ghost btn-xs" title="この人材とのチャットを開く"
+                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", color: "var(--color-brand-700)", borderColor: "var(--color-brand-200)" }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>chat</span>
+                              {chatBusy === scout.id ? "開いています…" : "チャットで連絡する"}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {a.note && <div style={{ color: "var(--color-ink-2)" }}>{a.note}</div>}
+                      <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{fmtDate(a.created_at)}{a.operator ? ` · ${a.operator}` : ""}</div>
+                    </div>
+                    <button type="button" onClick={() => remove(a.id)} disabled={pending} title="削除" className="btn ghost btn-xs" style={{ flex: "0 0 auto", padding: "2px 7px", color: "#b42318" }}>×</button>
                   </div>
-                  <button type="button" onClick={() => remove(a.id)} disabled={pending} title="削除" className="btn ghost btn-xs" style={{ flex: "0 0 auto", padding: "2px 7px", color: "#b42318" }}>×</button>
+                );
+              })}
+              {/* ① ページャ（6件目以降を2,3ページ…でめくる） */}
+              {logPageCount > 1 && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 4 }}>
+                  <button type="button" className="pg-btn" disabled={safeLogPage <= 0} onClick={() => setLogPage(safeLogPage - 1)} aria-label="前へ">‹</button>
+                  {Array.from({ length: logPageCount }, (_, i) => i).map((p) => (
+                    <button key={p} type="button" className={"pg-btn" + (p === safeLogPage ? " active" : "")} onClick={() => setLogPage(p)}>{p + 1}</button>
+                  ))}
+                  <button type="button" className="pg-btn" disabled={safeLogPage >= logPageCount - 1} onClick={() => setLogPage(safeLogPage + 1)} aria-label="次へ">›</button>
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
