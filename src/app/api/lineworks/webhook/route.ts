@@ -20,10 +20,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { extractEntityFields, upsertCandidateManual, upsertJobManual, type CandidateInput, type JobInput } from "@/lib/actions";
 import { rankCandidates, rankJobs } from "@/lib/match";
-import { relatedSearchLabels, normalizeSkills } from "@/lib/skills";
+import { relatedSearchLabels, normalizeSkills, isKnownSkill } from "@/lib/skills";
 import { lineworksConfigured, verifyWebhookSignature, sendBotMessage, textMessage, matchCarousel, diagnoseAuth, type LwTarget, type MatchColumn } from "@/lib/lineworks";
 import { recordLineworksTarget } from "@/lib/lineworks-targets";
 import { recordLineworksMessage } from "@/lib/lineworks-messages";
+import { savePendingDraft, getPendingDraft, clearPendingDraft } from "@/lib/lineworks-pending";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,15 @@ const MIN_BODY_CHARS = 15;
 const TPL_JOB = "【案件】\n役割：\n必須スキル：\n単価：\n稼働開始：\nリモート：\n商流：";
 const TPL_CAND = "【人材】\nイニシャル：\nスキル：\n経験年数：\n単価：\n稼働可能日：";
 const tplFor = (kind: "jobs" | "candidates") => (kind === "jobs" ? TPL_JOB : TPL_CAND);
+
+/** スキル回答メッセージをトークン分割（「スキル：」等のラベルを除去。区切りはカンマ/読点/改行/中黒/スラッシュ/縦棒。
+ *  区切りが無く空白区切りだけのときは空白でも分割する）。正規化は normalizeSkills 側で実施。 */
+function parseSkillTokens(text: string): string[] {
+  const cleaned = String(text ?? "").replace(/^[\s　]*(?:必須|保有)?スキル[\s　]*[:：]?/i, "").trim();
+  let toks = cleaned.split(/[,，、\n\/／・|｜]+/).map((s) => s.trim()).filter(Boolean);
+  if (toks.length <= 1 && /[\s　]/.test(cleaned)) toks = cleaned.split(/[\s　]+/).filter(Boolean);
+  return toks;
+}
 
 /** 先頭プレフィックスで案件/人材を判定（例:「#案件 …」「#人材 …」）。無ければ null。
  *  タグ必須運用のため、ここが null＝取り込み対象外（AIは呼ばない）。 */
@@ -92,8 +102,8 @@ async function topCandidatesForJob(admin: ReturnType<typeof engerAdmin>, jobNo: 
   return { job, cols };
 }
 
-/** 1メッセージを処理（分類→抽出→登録→マッチング→返信）。 */
-async function handleMessage(text: string, target: LwTarget): Promise<void> {
+/** 1メッセージを処理（分類→抽出→登録→マッチング→返信。スキル不足は対話で聞き返して補完）。 */
+async function handleMessage(text: string, target: LwTarget, senderKey: string | null): Promise<void> {
   // テキスト返信：送信しつつ ENGER の会話履歴(outbound)にも保存する。
   const reply = async (content: any) => {
     await sendBotMessage(target, content);
@@ -107,10 +117,67 @@ async function handleMessage(text: string, target: LwTarget): Promise<void> {
     await recordLineworksMessage({ target, direction: "outbound", msg_type: "cards", cards: cols, sender_name: "Enger_bot" });
   };
 
-  // ② タグ必須：先頭プレフィックス（#案件/#人材）が無ければ取り込まない（AIを呼ばない）。
+  // 抽出済みフィールド f を登録 → マッチング結果を返信（即時登録・対話補完の両方から呼ぶ）。
+  const registerAndMatch = async (kind: "candidates" | "jobs", f: Record<string, string>) => {
+    const admin = engerAdmin();
+    if (kind === "candidates") {
+      const input: CandidateInput = {
+        name: (f.name && f.name.trim()) || "（LINE WORKS取込）",
+        title: f.title ?? null, company: f.company ?? null, affiliation: f.affiliation ?? null,
+        skills: splitSkills(f.skills), rate: f.rate ?? null, exp: f.exp ?? null, avail: f.avail ?? null,
+        location: f.location ?? null, remote_pref: f.remote_pref ?? null, status: f.status ?? null,
+        age_band: f.age_band ?? null, nationality: f.nationality ?? null, rank: f.rank ?? null,
+        contact_name: f.contact_name ?? null, contact_email: f.contact_email ?? null, note: f.note ?? null,
+        signup_source: "line_works",
+      };
+      const res = await upsertCandidateManual(input);
+      if (!res.ok || res.candidate_no == null) { await reply(textMessage(`登録に失敗しました：${(res as any).error ?? "不明なエラー"}`)); return; }
+      const { cand, cols } = await topJobsForCandidate(admin, res.candidate_no);
+      await reply(textMessage(`✅ 人材「${cand?.name ?? input.name}」を登録しました（P-${String(res.candidate_no).padStart(5, "0")}）。${cols.length ? `合う案件 上位${cols.length}件：` : ""}`));
+      if (cols.length) await replyCards(cols);
+      else await reply(textMessage(`合う案件が見つかりませんでした。スキル情報が少ない可能性があります。\n${BASE}/matching?person=${res.candidate_no} で確認できます。`));
+    } else {
+      const input: JobInput = {
+        title: (f.title && f.title.trim()) || "（LINE WORKS取込案件）",
+        client_name: f.client_name ?? null, role_label: f.role_label ?? null, skills: splitSkills(f.skills),
+        salary_min: f.salary_min ? Number(f.salary_min) : null, salary_max: f.salary_max ? Number(f.salary_max) : null,
+        remote_type: (["full_remote", "partial_remote", "onsite"].includes(f.remote_type) ? f.remote_type : null) as JobInput["remote_type"],
+        flow_note: f.flow_note ?? null, work_location: f.work_location ?? null, start_date: f.start_date ?? null,
+        detail: f.detail ?? null, status: f.status ?? null, contact_name: f.contact_name ?? null, contact_email: f.contact_email ?? null,
+        signup_source: "line_works",
+      };
+      const res = await upsertJobManual(input);
+      if (!res.ok || res.job_no == null) { await reply(textMessage(`登録に失敗しました：${(res as any).error ?? "不明なエラー"}`)); return; }
+      const { job, cols } = await topCandidatesForJob(admin, res.job_no);
+      await reply(textMessage(`✅ 案件「${job?.title ?? input.title}」を登録しました（No.${String(res.job_no).padStart(5, "0")}）。${cols.length ? `合う人材 上位${cols.length}名：` : ""}`));
+      if (cols.length) await replyCards(cols);
+      else await reply(textMessage(`合う人材が見つかりませんでした。スキル情報が少ない可能性があります。\n${BASE}/matching?job=${res.job_no} で確認できます。`));
+    }
+  };
+
   const pre = detectKindByPrefix(text);
+  // この送信者のスキル待ち保留ドラフト（直前に「スキルを送って」と聞き返したもの）。
+  const pending = senderKey ? await getPendingDraft(senderKey) : null;
+
+  // ② タグ必須：先頭プレフィックス（#案件/#人材）が無ければ通常は取り込まない。
+  //    ただし保留ドラフトがある送信者の返信は「スキルの追記」とみなして登録を完了する。
   if (!pre) {
-    // グループはノイズ防止のため無反応。1:1 のときだけ使い方を案内する。
+    if (pending) {
+      // 直前の聞き返しへの返信：スキルとして解釈できれば、保留ドラフトに合成して登録。
+      const labeled = /^[\s　]*(?:必須|保有)?スキル[\s　]*[:：]/.test(text);
+      const skills = normalizeSkills(parseSkillTokens(text));
+      if (skills.length > 0 && (skills.some(isKnownSkill) || labeled)) {
+        if (senderKey) await clearPendingDraft(senderKey);
+        await registerAndMatch(pending.kind, { ...pending.fields, skills: skills.join(", ") });
+        return;
+      }
+      // スキルとして解釈できない返信 → 1:1 のみ再依頼（グループはノイズ抑制で無反応・保留は維持）。
+      if (!target.channelId) {
+        await reply(textMessage(`スキルが読み取れませんでした。スキルだけを送ってください（例：Java, AWS, React）。`));
+      }
+      return;
+    }
+    // 保留なし：従来どおり（グループ無反応 / 1:1 案内）。
     if (!target.channelId) {
       await reply(textMessage(`登録は先頭に「#案件」または「#人材」を付けて、テンプレに沿って送ってください。\n\n${TPL_JOB}\n\n${TPL_CAND}`));
     }
@@ -130,47 +197,24 @@ async function handleMessage(text: string, target: LwTarget): Promise<void> {
   if (!ext.ok) { await reply(textMessage(`読み取りに失敗しました：${ext.error}`)); return; }
   const f = ext.fields;
 
-  // ③ 事後ゲート：マッチングに必須の「スキル」が無ければ登録もマッチングもせず追記を依頼。
-  //    （スキルが無いとマッチングできず、低品質データでDBを汚すだけのため取り込まない）
+  // ③ 事後ゲート：マッチング必須の「スキル」が無ければ、破棄せず保留して対話で聞き返す。
+  //    送信者はフォーム全体を再送せず、スキルだけを返信すれば登録が完了する（対話補完）。
   if (splitSkills(f.skills).length === 0) {
-    await reply(textMessage(`スキルが読み取れませんでした（マッチングに必須です）。スキルを追記して再送してください。\n\n${tplFor(kind)}`));
+    const saved = senderKey ? await savePendingDraft(senderKey, kind, f, target) : false;
+    const nm = kind === "jobs" ? (f.title || "案件") : (f.name || "人材");
+    if (saved) {
+      // 対話補完が使える：フォーム再送は不要、スキルだけ返信すれば登録完了。
+      await reply(textMessage(`「${nm}」を受け取りました。マッチングには【スキル】が必須です。\nこの返信にスキルだけ送ってください（例：Java, AWS, React）。\n※約1時間以内にご返信ください。`));
+    } else {
+      // 保存先が無い場合は従来導線（テンプレ再送）にフォールバック。
+      await reply(textMessage(`スキルが読み取れませんでした（マッチングに必須です）。スキルを追記して再送してください。\n\n${tplFor(kind)}`));
+    }
     return;
   }
 
-  const admin = engerAdmin();
-  if (kind === "candidates") {
-    const input: CandidateInput = {
-      name: (f.name && f.name.trim()) || "（LINE WORKS取込）",
-      title: f.title ?? null, company: f.company ?? null, affiliation: f.affiliation ?? null,
-      skills: splitSkills(f.skills), rate: f.rate ?? null, exp: f.exp ?? null, avail: f.avail ?? null,
-      location: f.location ?? null, remote_pref: f.remote_pref ?? null, status: f.status ?? null,
-      age_band: f.age_band ?? null, nationality: f.nationality ?? null, rank: f.rank ?? null,
-      contact_name: f.contact_name ?? null, contact_email: f.contact_email ?? null, note: f.note ?? null,
-      signup_source: "line_works",
-    };
-    const res = await upsertCandidateManual(input);
-    if (!res.ok || res.candidate_no == null) { await reply(textMessage(`登録に失敗しました：${(res as any).error ?? "不明なエラー"}`)); return; }
-    const { cand, cols } = await topJobsForCandidate(admin, res.candidate_no);
-    await reply(textMessage(`✅ 人材「${cand?.name ?? input.name}」を登録しました（P-${String(res.candidate_no).padStart(5, "0")}）。${cols.length ? `合う案件 上位${cols.length}件：` : ""}`));
-    if (cols.length) await replyCards(cols);
-    else await reply(textMessage(`合う案件が見つかりませんでした。スキル情報が少ない可能性があります。\n${BASE}/matching?person=${res.candidate_no} で確認できます。`));
-  } else {
-    const input: JobInput = {
-      title: (f.title && f.title.trim()) || "（LINE WORKS取込案件）",
-      client_name: f.client_name ?? null, role_label: f.role_label ?? null, skills: splitSkills(f.skills),
-      salary_min: f.salary_min ? Number(f.salary_min) : null, salary_max: f.salary_max ? Number(f.salary_max) : null,
-      remote_type: (["full_remote", "partial_remote", "onsite"].includes(f.remote_type) ? f.remote_type : null) as JobInput["remote_type"],
-      flow_note: f.flow_note ?? null, work_location: f.work_location ?? null, start_date: f.start_date ?? null,
-      detail: f.detail ?? null, status: f.status ?? null, contact_name: f.contact_name ?? null, contact_email: f.contact_email ?? null,
-      signup_source: "line_works",
-    };
-    const res = await upsertJobManual(input);
-    if (!res.ok || res.job_no == null) { await reply(textMessage(`登録に失敗しました：${(res as any).error ?? "不明なエラー"}`)); return; }
-    const { job, cols } = await topCandidatesForJob(admin, res.job_no);
-    await reply(textMessage(`✅ 案件「${job?.title ?? input.title}」を登録しました（No.${String(res.job_no).padStart(5, "0")}）。${cols.length ? `合う人材 上位${cols.length}名：` : ""}`));
-    if (cols.length) await replyCards(cols);
-    else await reply(textMessage(`合う人材が見つかりませんでした。スキル情報が少ない可能性があります。\n${BASE}/matching?job=${res.job_no} で確認できます。`));
-  }
+  // スキルあり：即登録（保留があればクリア）。
+  if (senderKey) await clearPendingDraft(senderKey);
+  await registerAndMatch(kind, f);
 }
 
 /** ヘルスチェック（Webhook URL 登録時の疎通確認用）。
@@ -201,12 +245,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ignored: true });
   }
   const target: LwTarget = { channelId: body.source?.channelId ?? null, userId: body.source?.userId ?? null };
+  // 対話補完（スキル待ち）の宛先キー：投稿者(userId)優先。グループでも投稿者本人の返信だけで完了させる。
+  const senderKey: string | null = body.source?.userId ?? target.channelId ?? null;
   // ENGER→LINE 共有の宛先候補として、このトークを記憶（fail-soft）。
   await recordLineworksTarget(target, String(body.content.text));
   // 受信メッセージを会話履歴(inbound)に保存（fail-soft）。
   await recordLineworksMessage({ target, direction: "inbound", msg_type: "text", body: String(body.content.text), sender_name: body.source?.userId ?? null });
   try {
-    await handleMessage(String(body.content.text), target);
+    await handleMessage(String(body.content.text), target, senderKey);
   } catch (e) {
     // 失敗してもトークに簡易通知（fail-soft）。
     try { await sendBotMessage(target, textMessage("処理中にエラーが発生しました。お手数ですが内容を確認のうえ再送してください。")); } catch { /* noop */ }

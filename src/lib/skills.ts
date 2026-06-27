@@ -205,6 +205,9 @@ export const skillLabel = (s: string): string => {
   return LABEL[c] ?? String(s ?? "").trim();
 };
 
+/** 辞書に登録済みのスキルか（＝正式名に解決できるか）。会話文とスキル回答の判別に使う。 */
+export const isKnownSkill = (s: string): boolean => !!LABEL[canon(s)];
+
 export { norm as normToken };
 
 // ── スキルの内包関係（取りこぼし低減）──────────────────────────────────
