@@ -5,10 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import type { EngineerChatStatus } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, updateApplicationStage, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
-import { gmailComposeUrl, reSubject } from "@/lib/gmail";
-import { StageBar } from "./StageBar";
 import { Icons } from "./icons";
 
 // ---------- 一覧表示用ヘルパ（人材一覧 EntityTable と同じ rule） ----------
@@ -58,31 +56,6 @@ function SourceBadge({ source }: { source: EngineerSource }) {
       {source.method && <span style={{ opacity: .8, fontWeight: 600 }}>· {source.method}</span>}
     </span>
   );
-}
-
-/** #14: 応募エンジニアを案件側へ紹介する人材紹介メールの Gmail 下書きを開く */
-function openIntroMail(e: Engineer, jobTitle: string) {
-  const skills = (e.skills ?? []).map((s) => s.name).join(" / ") || "—";
-  const payLabel = e.estimated_pay_low && e.estimated_pay_high ? `¥${e.estimated_pay_low}〜${e.estimated_pay_high}万` : (e.estimated_pay_mid ? `¥${e.estimated_pay_mid}万` : "応相談");
-  const name = e.display_name || e.github_login || "ご紹介人材";
-  const body = [
-    `ご担当者 様`, ``,
-    `お世話になっております。エンジャー事務局でございます。`,
-    `ご案内の「${jobTitle}」につきまして、ご応募いただいた人材をご紹介申し上げます。`, ``,
-    `■ サマリ`,
-    `${name}／${e.primary_language ?? "—"}／想定単価 ${payLabel}`, ``,
-    `── ご紹介人材 ────────────`,
-    `氏名：${name}`,
-    `主要言語：${e.primary_language ?? "—"}`,
-    `スキル：${skills}`,
-    e.skill_sheet_url ? `スキルシート：${e.skill_sheet_url}` : "",
-    e.portfolio_url ? `ポートフォリオ：${e.portfolio_url}` : "",
-    e.github_login ? `GitHub：https://github.com/${e.github_login}` : "",
-    `────────────────────`, ``,
-    `ご面談のご希望などございましたらご返信ください。`,
-    `何卒よろしくお願いいたします。`,
-  ].filter((l) => l !== "").join("\n");
-  window.open(gmailComposeUrl({ to: null, subject: reSubject(jobTitle), body }), "_blank", "noopener");
 }
 
 const pay = (e: Engineer) => {
@@ -471,6 +444,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const [scoutJob, setScoutJob] = useState("");
   const [scoutErr, setScoutErr] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(0);            // 対応履歴ページャ（5件/ページ）
+  const [appPage, setAppPage] = useState(0);            // 応募した案件ページャ（5件/ページ）
   const [chatBusy, setChatBusy] = useState<string | null>(null); // チャット起動中の scout_id
 
   // 「スカウト送信」の対応履歴行に、対応するスカウト(scouts)を突合（scout_id/job_title を引く）。
@@ -502,6 +476,12 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const logPageCount = Math.max(1, Math.ceil(log.length / LOG_PER_PAGE));
   const safeLogPage = Math.min(logPage, logPageCount - 1);
   const pagedLog = log.slice(safeLogPage * LOG_PER_PAGE, safeLogPage * LOG_PER_PAGE + LOG_PER_PAGE);
+
+  // ④ 応募した案件も 5件/ページ。6件目以降は 2,3ページ…でめくる。
+  const APP_PER_PAGE = 5;
+  const appPageCount = Math.max(1, Math.ceil(appLog.length / APP_PER_PAGE));
+  const safeAppPage = Math.min(appPage, appPageCount - 1);
+  const pagedApp = appLog.slice(safeAppPage * APP_PER_PAGE, safeAppPage * APP_PER_PAGE + APP_PER_PAGE);
 
   // ③ スカウトを起点にチャットスレッドを開いて遷移（サーバ経由で enger-lp open-thread を呼ぶ）。
   const openChat = (scoutId: string) => {
@@ -537,9 +517,6 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   };
   const remove = (id: string) => {
     start(async () => { await deleteEngineerAction(id); router.refresh(); });
-  };
-  const changeStage = (id: string, stage: string) => {
-    start(async () => { await updateApplicationStage(id, stage); router.refresh(); });
   };
 
   return (
@@ -623,8 +600,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
           <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>応募した案件 <span className="muted" style={{ fontWeight: 400 }}>（{appLog.length}件）</span></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {appLog.map((a) => {
-                const stg = a.stage || "応募";
+              {pagedApp.map((a) => {
                 return (
                   <div key={a.id} style={{ fontSize: 12, padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)", display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -632,8 +608,9 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                       {a.job_no ? (
                         <Link href={`/jobs/${a.job_no}`} target="_blank" rel="noopener noreferrer" title="案件詳細を開く"
                           style={{ color: "var(--color-brand-700,#0b5cab)", fontWeight: 600, minWidth: 0, flex: 1, textDecoration: "none" }}>
-                          {a.job_title || `No.${a.job_no}`}
-                          <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 400, marginLeft: 6 }}>No.{a.job_no}</span>
+                          {a.job_title || `案件ID ${a.job_no}`}
+                          {/* ③ № → 案件ID 表記 */}
+                          <span className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 400, marginLeft: 6 }}>案件ID {a.job_no}</span>
                         </Link>
                       ) : (
                         <span style={{ color: "var(--color-ink-2)", fontWeight: 600, minWidth: 0, flex: 1 }}>{a.job_title || "案件"}</span>
@@ -642,13 +619,21 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                         <a href={a.source_mail_url} target="_blank" rel="noopener noreferrer" title="案件の元メール（Gmail）を開く"
                           style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, textDecoration: "none" }}>↗ 元メール</a>
                       )}
-                      <button type="button" onClick={() => openIntroMail(detail, a.job_title || a.job_no || "ご案件")} title="案件側へ人材紹介メールをGmailで作成" style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--color-border)", background: "var(--color-surface)", color: "var(--color-brand-700,#0b5cab)", fontWeight: 700, cursor: "pointer" }}>📧 紹介メール</button>
                       <span className="muted" style={{ fontSize: 10.5 }}>{fmtDate(a.created_at)}</span>
                     </div>
-                    <StageBar current={stg} disabled={pending} onChange={(next) => changeStage(a.id, next)} />
                   </div>
                 );
               })}
+              {/* ④ ページャ（6件目以降を2,3ページ…でめくる） */}
+              {appPageCount > 1 && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 4 }}>
+                  <button type="button" className="pg-btn" disabled={safeAppPage <= 0} onClick={() => setAppPage(safeAppPage - 1)} aria-label="前へ">‹</button>
+                  {Array.from({ length: appPageCount }, (_, i) => i).map((p) => (
+                    <button key={p} type="button" className={"pg-btn" + (p === safeAppPage ? " active" : "")} onClick={() => setAppPage(p)}>{p + 1}</button>
+                  ))}
+                  <button type="button" className="pg-btn" disabled={safeAppPage >= appPageCount - 1} onClick={() => setAppPage(safeAppPage + 1)} aria-label="次へ">›</button>
+                </div>
+              )}
             </div>
           </div>
         )}
