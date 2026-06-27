@@ -307,6 +307,51 @@ export async function bulkSetClosed(
   return { ok: true, updated: idValues.length };
 }
 
+/** 提案詳細からの「案件/人材クローズ」。理由は必須。会社評価（取引注意）に連動できる。
+ *   ・is_closed=true（一覧の初期表示から外し、マッチング対象外に）＋ closed_reason 等を保存。
+ *   ・caution=true かつ company 指定があれば、その会社を「取引注意」にして理由を記録。
+ *   ・追加列が未整備の環境では is_closed のみ更新（fail-soft）。 */
+export async function closeProposalEntity(input: {
+  table: "jobs" | "candidates";
+  id: number;                 // job_no または candidate_no
+  reason: string;             // 必須
+  company?: string | null;    // 取引注意を立てる会社名（任意）
+  caution?: boolean;          // true なら company を取引注意にする
+}): Promise<{ ok: boolean; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!input.id) return { ok: false, error: "対象（案件No/人材No）が未指定です" };
+  const reason = (input.reason ?? "").trim();
+  if (!reason) return { ok: false, error: "クローズ理由を入力してください" };
+  const access = await currentAccess();
+  const by = access?.name ?? access?.email ?? null;
+  const idField = input.table === "jobs" ? "job_no" : "candidate_no";
+  const nowIso = new Date().toISOString();
+  // is_closed + 理由を保存。理由列が無い環境では is_closed のみで再試行。
+  let { error } = await admin.from(input.table).update({ is_closed: true, closed_reason: reason, closed_at: nowIso, closed_by: by }).eq(idField, input.id);
+  if (error && /closed_reason|closed_at|closed_by|column/i.test(error.message)) {
+    ({ error } = await admin.from(input.table).update({ is_closed: true }).eq(idField, input.id));
+  }
+  if (error) {
+    if (/is_closed|column/i.test(error.message)) return { ok: false, error: "クローズ用カラム未整備です。supabase/closed-flag.sql と close-reason-caution.sql を実行してください。" };
+    return { ok: false, error: error.message };
+  }
+  // 会社評価（取引注意）に連動。
+  if (input.caution && input.company && input.company.trim()) {
+    try {
+      const r = await admin.from("companies").upsert(
+        { name: input.company.trim(), caution: true, caution_reason: reason, caution_at: nowIso, caution_by: by },
+        { onConflict: "name" },
+      );
+      // caution 列が無い環境は黙ってスキップ（クローズ自体は成立）。
+      if (r.error && /caution|column/i.test(r.error.message)) { /* noop */ }
+    } catch { /* noop */ }
+  }
+  revalidatePath("/proposals");
+  bustCounts();
+  return { ok: true };
+}
+
 /** 案件を一括削除（job_no の配列で指定）。 */
 export async function bulkDeleteJobs(jobNos: number[]) {
   // 既存の「削除」呼び出しは互換のためそのまま動かしつつ、実体はゴミ箱（ソフトデリート）に変更。

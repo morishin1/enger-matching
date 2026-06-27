@@ -14,6 +14,7 @@ import { updateProposalStage, convertToEngagement, updateProposalFields, deleteP
 import { StarsInput } from "./Stars";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
+import { ProposalCloseControls } from "./ProposalCloseControls";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
@@ -673,22 +674,31 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
           </div>
           ); })()}
 
-          {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
-          <div className="card" style={{ padding: 16 }}>
-            <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>通知ステータス</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>案件</span>
-                <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={14} />
-                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.job_notify_status === "in_progress" || p.job_notify_status === "done") ? p.job_notify_status : "pending") as NotifyStatus]}</span>
+          {/* 通知ステータス（幅を狭め）＋ 案件/人材クローズボタンを隣に配置 */}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch" }}>
+            {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
+            <div className="card" style={{ padding: 16, flex: "1 1 360px", minWidth: 300 }}>
+              <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>通知ステータス</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>案件</span>
+                  <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={14} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.job_notify_status === "in_progress" || p.job_notify_status === "done") ? p.job_notify_status : "pending") as NotifyStatus]}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>人材</span>
+                  <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={14} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.cand_notify_status === "in_progress" || p.cand_notify_status === "done") ? p.cand_notify_status : "pending") as NotifyStatus]}</span>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>人材</span>
-                <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={14} />
-                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.cand_notify_status === "in_progress" || p.cand_notify_status === "done") ? p.cand_notify_status : "pending") as NotifyStatus]}</span>
-              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>
             </div>
-            <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>
+            {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。 */}
+            <div className="card" style={{ padding: 16, flex: "1 1 220px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="muted" style={{ fontSize: 11.5 }}>クローズ</div>
+              <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} company={p.company} stage={p.stage} createdAt={p.created_at} />
+              <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} company={p.cand_company} stage={p.stage} createdAt={p.created_at} />
+            </div>
           </div>
 
           {/* 編集 */}
