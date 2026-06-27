@@ -21,6 +21,7 @@ import { saveStageTarget } from "@/app/proposals/stage-actions";
 //   source="override" は currentOverrides（打合せ/案件の仕入れ/面談到達）から集計。
 //   label は表示名（省略時は key）。key は stage_targets / 集計のキー（変更しない）。
 const STAGE_COLUMNS: { key: string; label?: string; source: "proposal" | "override"; attr?: "proposer" | "closer"; hint: string }[] = [
+  { key: "架電",         source: "override", hint: "テレアポの架電・接触数（コンタクト）。月1,200件目安（40〜80件/日×20営業日）。" },
   { key: "打ち合わせ",   source: "override", hint: "打合せ記録の自社担当者が一致し、打ち合わせ日が入っている件数（メニュー「打合わせ」と連携）" },
   { key: "提案中",       source: "proposal", attr: "proposer", hint: "進行中の提案で「提案中」ステージの件数（提案者で集計）" },
   { key: "案件の仕入れ", source: "override", hint: "承認済（打合せ完了）かつ自社担当者ありの企業から取り込んだ案件のうち、自社担当者が一致する件数（案件側のみ）" },
@@ -34,6 +35,7 @@ const PROPOSAL_COLUMNS = STAGE_COLUMNS.filter((c) => c.source === "proposal");
 //   打ち合わせ/案件の仕入れ＝アウトサイド、提案中＝インサイド、面談＝両者、合格＝アウトサイド。
 //   テレアポは本ボードの列に該当なし（架電は別途）。
 const COLUMN_ROLES: Record<string, ("outside" | "inside" | "telapo")[]> = {
+  "架電": ["telapo"],
   "打ち合わせ": ["outside"],
   "提案中": ["inside"],
   "案件の仕入れ": ["outside"],
