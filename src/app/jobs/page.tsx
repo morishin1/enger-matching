@@ -431,6 +431,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
   return (
     <div className="page">
+      {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。
+          絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
+      {!scope.isTenant && (() => {
+        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll || periodFiltering);
+        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/jobs" counts={periodCounts} />} />;
+      })()}
+
       {/* page-head: ボタンが多いため、タイトル列に flex:1 / minWidth:0 を与えてつぶれないようにし、
           ボタン列は flex-wrap で必要に応じて折り返す（狭幅で h1 が縦に潰れるレイアウト崩れの対策）。 */}
       <div className="page-head" style={{ flexWrap: "wrap" }}>
@@ -445,13 +452,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           {!scope.isTenant && <a href="/trash?tab=jobs" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した案件の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
         </div>
       </div>
-
-      {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。
-          検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
-      {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll || periodFiltering);
-        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/jobs" counts={periodCounts} />} />;
-      })()}
 
       {scope.isTenant && (
         <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>

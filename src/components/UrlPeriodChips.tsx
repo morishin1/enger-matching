@@ -1,7 +1,7 @@
 "use client";
 
 // 一覧ページ（案件・人材など）用の期間セレクタ（統一デザイン・URL駆動）。
-//   ?period=today|week|lastweek|month|thirty|all を切り替え、サーバー側で
+//   ?period=today|week|lastweek|month|all を切り替え、サーバー側で
 //   登録日(created_at)により一覧を絞り込む。各チップに件数を表示できる。
 import { useRouter, useSearchParams } from "next/navigation";
 import { PeriodChips } from "./PeriodChips";

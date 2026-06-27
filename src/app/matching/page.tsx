@@ -268,6 +268,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     const data = await getRanking100();
     return (
       <div className="page">
+        <MatchingPeerTabs counts={peerCounts} />
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
             <div className="meta">Matching · ランキング100</div>
@@ -275,7 +276,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub">全案件 × 全人材から<b>必須スキル一致率 75%以上</b>のペアを抽出し、一致率順に上位100件を表示します。</div>
           </div>
         </div>
-        <MatchingPeerTabs counts={peerCounts} />
         <MatchingModeTabs />
         <Ranking100View rows={data.rows} meta={{ jobsScanned: data.jobsScanned, candsScanned: data.candsScanned, pairsHit: data.pairsHit }} />
       </div>
@@ -695,6 +695,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
     return (
       <div className="page">
+        <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
+
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
             <div className="meta">Matching · 人材 → 案件（AI分析）</div>
@@ -717,8 +719,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 人材一覧へ</Link>
           </div>
         </div>
-
-        <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
 
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
@@ -859,6 +859,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   if (tab === "focus" && !drillDown) {
     return (
       <div className="page">
+        <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
         <div className="page-head">
           <div style={{ maxWidth: 760 }}>
             <div className="meta">Matching · 注力（優先対応）</div>
@@ -866,7 +867,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
-        <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
         <MatchingModeTabs />
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
         {opennessBanner}
@@ -910,6 +910,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="page">
+      {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。 */}
+      <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
+
       <div className="page-head" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Matching · 案件 × 人材（自動スコアリング）</div>
@@ -931,8 +934,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           )}
         </div>
       </div>
-
-      <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
 
       <MatchingModeTabs />
 
