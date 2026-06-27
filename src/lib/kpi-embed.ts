@@ -132,7 +132,48 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* テーブル未整備でもKPIは表示 */ }
 
-    return { kpi, teamActivity, stageTargets, kgiByMember };
+    // ステージ目標ボードの「打ち合わせ」「案件の仕入れ」列のソースイベント（期間連動はクライアント側）。
+    //   ・打ち合わせ：打合せ記録(meetings)の自社担当者(our_owner)×打ち合わせ日(meeting_date) を1件として集計。
+    //   ・案件の仕入れ：承認済（companies.meeting_done=true）かつ自社担当者(owner_staff)記入済の企業から
+    //     取り込んだ案件(jobs)を、その企業の owner_staff の実績として集計（案件側のみ・人材側は対象外）。
+    //   compact な {date, owner} 配列で渡し、KPI推移の期間でクライアントが絞り込む。
+    let meetingEvents: { date: string; owner: string }[] = [];
+    let procurementEvents: { date: string; owner: string }[] = [];
+    try {
+      const sb = engerAdmin();
+      // 企業名の正規化（jobs.client_name ⇔ companies.name の名寄せ）。companies.ts の compKey と同じ規則。
+      const compKey = (s: string) => String(s || "").toLowerCase()
+        .replace(/(株式会社|有限会社|合同会社|合資会社|\(株\)|（株）|㈱|inc\.?|co\.?,?\s*ltd\.?|ltd\.?|corp\.?|corporation)/g, "")
+        .replace(/[\s　()（）・,，、。.\-－_/／]/g, "");
+
+      // ① 打ち合わせ：meeting_date が入っている記録を our_owner ごとに1件。
+      const mr: any = await sb.from("meetings").select("our_owner, meeting_date").not("meeting_date", "is", null).limit(5000);
+      for (const r of (mr?.data ?? [])) {
+        const owner = String(r?.our_owner ?? "").trim();
+        const date = r?.meeting_date ? String(r.meeting_date) : "";
+        if (owner && date) meetingEvents.push({ date, owner });
+      }
+
+      // ② 案件の仕入れ：承認済＋自社担当者ありの企業マップを作り、その企業から取り込んだ案件を owner_staff に按分。
+      let cr: any = await sb.from("companies").select("name, meeting_done, owner_staff").limit(20000);
+      if (cr?.error && /meeting_done|owner_staff|column/i.test(cr.error.message ?? "")) cr = { data: [] };
+      const compByKey = new Map<string, { meeting_done: boolean; owner_staff: string }>();
+      for (const c of (cr?.data ?? [])) {
+        const nm = String(c?.name ?? "").trim(); if (!nm) continue;
+        compByKey.set(compKey(nm), { meeting_done: !!c?.meeting_done, owner_staff: String(c?.owner_staff ?? "").trim() });
+      }
+      let jr: any = await sb.from("jobs").select("client_name, created_at, imported_at").order("imported_at", { ascending: false, nullsFirst: false }).limit(8000);
+      if (jr?.error) jr = await sb.from("jobs").select("client_name, created_at").order("created_at", { ascending: false }).limit(8000);
+      for (const j of (jr?.data ?? [])) {
+        const nm = String(j?.client_name ?? "").trim(); if (!nm) continue;
+        const comp = compByKey.get(compKey(nm));
+        if (!comp || !comp.meeting_done || !comp.owner_staff) continue; // 承認済＋自社担当者ありのみ
+        const date = j?.imported_at ? String(j.imported_at) : (j?.created_at ? String(j.created_at) : "");
+        if (date) procurementEvents.push({ date, owner: comp.owner_staff });
+      }
+    } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
+
+    return { kpi, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents };
   } catch {
     return null;
   }

@@ -1,7 +1,9 @@
 import { engerClient, dbConfigured } from "@/lib/supabase";
 
-// 提案ボードのステージ（承認待ち・終了系を除く運用ステージ）。
-export const STAGE_TARGET_STAGES = ["所属確認", "提案中", "確認中", "面談", "合格"] as const;
+// メンバー別ステージ目標ボードの列キー（表示順）。
+//   打ち合わせ・案件の仕入れは proposals 以外（打合せ記録／企業×案件取込）から集計する特殊列。
+//   ※ 現在値の算出ロジックは StageTargetBoard 側の STAGE_COLUMNS を参照。
+export const STAGE_TARGET_STAGES = ["打ち合わせ", "提案中", "案件の仕入れ", "面談", "合格"] as const;
 export type StageTargetStage = typeof STAGE_TARGET_STAGES[number];
 
 /** 担当者×ステージの目標件数。{ ownerName: { stage: target } }。 */
