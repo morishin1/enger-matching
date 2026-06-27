@@ -10,14 +10,15 @@ import { usePathname } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";
 
-// タブ順は「マッチング → 案件 → 人材 → LP」。中核であるマッチングを先頭に置き、サイドバーの
-// 「マッチング」クリックもこのマッチング画面に着地・初期表示する。
-//   ※ LINE登録タブは廃止し、案件/人材一覧の「登録元」フィルタ（?f_signup_source=line）に統合した。
+// タブ順は「マッチング → 案件 → 人材 → フリーランス → LINE」。アイコンは Material Symbols Outlined。
+//   ・フリーランス＝ENGERフリーランス（LP登録/engineers）の登録者一覧。
+//   ・LINE＝LINE経由の人材・案件＋LINE WORKSのやりとり（/line）。
 const TABS = [
-  { key: "matching", href: "/matching", label: "マッチング" },
-  { key: "jobs", href: "/jobs", label: "案件" },
-  { key: "people", href: "/people", label: "人材" },
-  { key: "engineers", href: "/engineers", label: "LP登録" },
+  { key: "matching", href: "/matching", label: "マッチング", icon: "compare_arrows" },
+  { key: "jobs", href: "/jobs", label: "案件", icon: "work" },
+  { key: "people", href: "/people", label: "人材", icon: "groups" },
+  { key: "engineers", href: "/engineers", label: "フリーランス", icon: "badge" },
+  { key: "line", href: "/line", label: "LINE", icon: "chat" },
 ] as const;
 
 type TabKey = typeof TABS[number]["key"];
@@ -27,6 +28,7 @@ function activeFromPath(path: string): TabKey | null {
   if (path.startsWith("/jobs")) return "jobs";
   if (path.startsWith("/people")) return "people";
   if (path.startsWith("/engineers")) return "engineers";
+  if (path.startsWith("/line")) return "line";
   return null;
 }
 
@@ -53,12 +55,14 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
     jobs: counts?.jobs,
     people: counts?.people,
     engineers: counts?.engineers,
+    line: undefined,
   };
   const newOf: Record<TabKey, number | undefined> = {
     matching: undefined,
     jobs: counts?.newJobs,
     people: counts?.newPeople,
     engineers: counts?.newEngineers,
+    line: undefined,
   };
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
@@ -91,7 +95,8 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
               whiteSpace: "nowrap",
             }}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, lineHeight: 1 }}>{t.icon}</span>
               {t.label}
             </span>
             {total != null && (
