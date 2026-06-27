@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { sendChatMessage, markThreadRead, setThreadStatus, saveThreadMemo } from "@/app/chat/actions";
+import { sendChatMessage, markThreadRead, saveThreadMemo, updateThreadSubject, createThread, deleteThread } from "@/app/chat/actions";
 import type { ChatThreadListItem, ChatThread, ChatMessage, ChatRead, ChatRole } from "@/lib/chat";
 
 const dt = (d: string) => {
@@ -20,17 +20,31 @@ export function ChatClient({
   selected,
   me,
   meName,
+  isStaff = true,
+  engineers = [],
 }: {
   threads: ChatThreadListItem[];
   selected: Selected;
   me: string;
   meName: string;
+  /** ENGERスタッフ(admin/agent)か。新規作成・削除・タイトル/メモ編集を出すかの判定。 */
+  isStaff?: boolean;
+  /** 新規スレッドの相手（フリーランス）候補。 */
+  engineers?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [draft, setDraft] = useState("");
   const [sendAs, setSendAs] = useState<ChatRole>("agent");
   const endRef = useRef<HTMLDivElement>(null);
+  // 新規スレッド作成モーダル。
+  const [showNew, setShowNew] = useState(false);
+  const [newEng, setNewEng] = useState("");
+  const [newSubject, setNewSubject] = useState("");
+  // スレッドタイトル（subject）の編集状態。スレッド切替時に同期。
+  const [subject, setSubject] = useState(selected?.thread.subject ?? "");
+  const [subjectSaved, setSubjectSaved] = useState(false);
+  useEffect(() => { setSubject(selected?.thread.subject ?? ""); setSubjectSaved(false); }, [selected?.thread.id, selected?.thread.subject]);
   // スレッドごとのメモ（左一覧で手入力・保存）。初期値は各スレッドの memo。
   const [memos, setMemos] = useState<Record<string, string>>(() => Object.fromEntries(threads.map((t) => [t.id, t.memo ?? ""])));
   const [memoSavedId, setMemoSavedId] = useState<string | null>(null);
@@ -74,12 +88,35 @@ export function ChatClient({
     });
   };
 
-  const toggleStatus = () => {
+  // タイトル（subject）保存。人材側にも同期表示される（chat_threads.subject）。
+  const saveSubject = () => {
     if (!selected) return;
-    const next = selected.thread.status === "closed" ? "open" : "closed";
     start(async () => {
-      await setThreadStatus({ thread_id: selected.thread.id, status: next });
-      router.refresh();
+      const r = await updateThreadSubject({ thread_id: selected.thread.id, subject });
+      if (r.ok) { setSubjectSaved(true); setTimeout(() => setSubjectSaved(false), 1500); router.refresh(); }
+      else alert(r.error ?? "タイトルの保存に失敗しました");
+    });
+  };
+
+  // 新規スレッド作成（スタッフのみ）。
+  const submitNew = () => {
+    if (!newEng) { alert("相手（フリーランス）を選択してください"); return; }
+    const eng = engineers.find((e) => e.id === newEng);
+    start(async () => {
+      const r = await createThread({ engineer_id: newEng, engineer_name: eng?.name ?? null, subject: newSubject });
+      if (r.ok && r.thread_id) { setShowNew(false); setNewEng(""); setNewSubject(""); router.push(`/chat?t=${r.thread_id}`); }
+      else alert(r.error ?? "スレッドの作成に失敗しました");
+    });
+  };
+
+  // スレッド削除（スタッフのみ）。削除すると人材側も含めて内容が見えなくなる。
+  const removeThread = () => {
+    if (!selected) return;
+    if (!confirm("このスレッドを削除します。やり取り（メッセージ）も完全に削除され、人材側からも見えなくなります。よろしいですか？")) return;
+    start(async () => {
+      const r = await deleteThread({ thread_id: selected.thread.id });
+      if (r.ok) router.push("/chat");
+      else alert(r.error ?? "削除に失敗しました");
     });
   };
 
@@ -91,16 +128,29 @@ export function ChatClient({
 
   if (threads.length === 0) {
     return (
-      <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
-        まだチャットはありません。エンジニアへスカウトを送ると、ここにスレッドが作成されます。
-      </div>
+      <>
+        <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+          まだチャットはありません。エンジニアへスカウトを送るか、新規スレッドを作成してください。
+          {isStaff && <button type="button" className="btn" onClick={() => setShowNew(true)}><span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-3px", marginRight: 4 }}>add</span>新規スレッドを作成</button>}
+        </div>
+        {isStaff && showNew && <NewThreadModal engineers={engineers} value={newEng} onValue={setNewEng} subject={newSubject} onSubject={setNewSubject} onClose={() => setShowNew(false)} onSubmit={submitNew} pending={pending} />}
+      </>
     );
   }
 
   return (
+    <>
     <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
       {/* 左：スレッド一覧 */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "72vh", overflowY: "auto" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+        {/* ＋新規スレッド（ENGERスタッフのみ・人材側には出さない） */}
+        {isStaff && (
+          <button type="button" className="btn ghost" onClick={() => setShowNew(true)}
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>add</span>新規スレッド
+          </button>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "68vh", overflowY: "auto" }}>
         {threads.map((t) => {
           const active = t.id === threadId;
           return (
@@ -124,29 +174,37 @@ export function ChatClient({
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: "var(--color-brand-600)", borderRadius: 99, padding: "1px 7px" }}>{t.unread}</span>
                 )}
               </button>
-              {/* メモ（手入力・保存）。企業名/メッセージ抜粋/終了表示は廃止。 */}
-              <textarea
-                value={memos[t.id] ?? ""}
-                onChange={(e) => setMemos((p) => ({ ...p, [t.id]: e.target.value }))}
-                placeholder="メモ（この人材についての覚書）"
-                rows={2}
-                style={{ resize: "vertical", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--color-border)", fontSize: 11.5, fontFamily: "inherit", width: "100%", boxSizing: "border-box" }}
-              />
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button type="button" className="btn ghost btn-xs" disabled={pending} onClick={() => saveMemo(t.id)}>メモを保存</button>
-                {memoSavedId === t.id && <span style={{ fontSize: 10.5, color: "#067647" }}>✓ 保存しました</span>}
-              </div>
+              {/* 社内メモ（手入力・保存）。スタッフ専用＝人材側には絶対に表示しない（完全非表示）。
+                  ・UIは isStaff のときのみ描画。
+                  ・保存先は service role 限定の chat_thread_memos（人材ロールに grant されないため漏れない）。 */}
+              {isStaff && (
+                <>
+                  <textarea
+                    value={memos[t.id] ?? ""}
+                    onChange={(e) => setMemos((p) => ({ ...p, [t.id]: e.target.value }))}
+                    placeholder="社内メモ（人材には表示されません）"
+                    rows={2}
+                    style={{ resize: "vertical", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--color-border)", fontSize: 11.5, fontFamily: "inherit", width: "100%", boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button type="button" className="btn ghost btn-xs" disabled={pending} onClick={() => saveMemo(t.id)}>メモを保存</button>
+                    {memoSavedId === t.id && <span style={{ fontSize: 10.5, color: "#067647" }}>✓ 保存しました</span>}
+                    <span className="muted" style={{ fontSize: 9.5, marginLeft: "auto" }}>社内専用</span>
+                  </div>
+                </>
+              )}
             </div>
           );
         })}
+        </div>
       </div>
 
       {/* 右：会話 */}
       {selected ? (
         <div className="card" style={{ display: "flex", flexDirection: "column", minWidth: 0, padding: 0, overflow: "hidden" }}>
-          {/* ヘッダ */}
-          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div>
+          {/* ヘッダ：人材名の隣にスレッドタイトル入力（横長）。右端に削除（スタッフのみ）。 */}
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flexShrink: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>{nameWithInitials(selected.thread.engineer_name, selected.thread.engineer_initials)}</div>
               {selected.thread.job_title && (
                 <div className="muted" style={{ fontSize: 11.5 }}>
@@ -154,9 +212,28 @@ export function ChatClient({
                 </div>
               )}
             </div>
-            <button className="btn ghost btn-xs" disabled={pending} onClick={toggleStatus}>
-              {selected.thread.status === "closed" ? "再開する" : "スレッドを終了"}
-            </button>
+            {/* スレッドタイトル（双方に表示）。スタッフは入力・保存、人材側は表示のみ。 */}
+            {isStaff ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveSubject(); }}
+                  placeholder="スレッドのタイトル（例：【案件A】Java開発の件 / 2026年7月定期面談）"
+                  style={{ flex: 1, minWidth: 0, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }}
+                />
+                <button type="button" className="btn ghost btn-xs" disabled={pending || subject === (selected.thread.subject ?? "")} onClick={saveSubject}>保存</button>
+                {subjectSaved && <span style={{ fontSize: 10.5, color: "#067647", whiteSpace: "nowrap" }}>✓ 保存</span>}
+              </div>
+            ) : (
+              <div style={{ flex: 1, minWidth: 120, fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>{selected.thread.subject || ""}</div>
+            )}
+            {isStaff && (
+              <button className="btn ghost btn-xs" disabled={pending} onClick={removeThread} title="このスレッドを削除（メッセージも完全削除）"
+                style={{ flexShrink: 0, color: "#b42318", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, lineHeight: 1 }}>delete</span>スレッドを削除
+              </button>
+            )}
           </div>
 
           {/* メッセージ */}
@@ -233,6 +310,49 @@ export function ChatClient({
       ) : (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>スレッドを選択してください。</div>
       )}
+    </div>
+    {isStaff && showNew && <NewThreadModal engineers={engineers} value={newEng} onValue={setNewEng} subject={newSubject} onSubject={setNewSubject} onClose={() => setShowNew(false)} onSubmit={submitNew} pending={pending} />}
+    </>
+  );
+}
+
+// 新規スレッド作成モーダル（スタッフ専用）。相手（フリーランス）を選び、任意でタイトルを入力。
+function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose, onSubmit, pending }: {
+  engineers: { id: string; name: string }[];
+  value: string; onValue: (v: string) => void;
+  subject: string; onSubject: (v: string) => void;
+  onClose: () => void; onSubmit: () => void; pending: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const filtered = q.trim() ? engineers.filter((e) => e.name.toLowerCase().includes(q.trim().toLowerCase())) : engineers;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>新規スレッドを作成</h3>
+          <button type="button" className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+        </div>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>
+          相手（フリーランス）
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="名前で絞り込み…"
+            style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }} />
+          <select value={value} onChange={(e) => onValue(e.target.value)} size={6}
+            style={{ padding: "6px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }}>
+            {filtered.length === 0 && <option value="" disabled>該当なし</option>}
+            {filtered.slice(0, 200).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+          {engineers.length === 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>フリーランスの一覧を取得できませんでした。</span>}
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>
+          スレッドのタイトル（任意・後から変更可）
+          <input value={subject} onChange={(e) => onSubject(e.target.value)} placeholder="例：【案件A】Java開発の件"
+            style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }} />
+        </label>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button type="button" className="btn ghost btn-xs" onClick={onClose}>キャンセル</button>
+          <button type="button" className="btn" disabled={pending || !value} onClick={onSubmit}>作成</button>
+        </div>
+      </div>
     </div>
   );
 }

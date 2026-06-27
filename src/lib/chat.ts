@@ -130,6 +130,14 @@ export async function listChatThreads(agentId?: string | null): Promise<ChatThre
     const readAt = new Map<string, string>();
     for (const r of (reads ?? []) as any[]) readAt.set(r.thread_id, r.last_read_at);
 
+    // 担当メモはスタッフ専用テーブル(chat_thread_memos・service roleのみ)から取得。
+    //   人材(enger.jp/anon)には grant されていないため漏れない。未作成環境は t.memo にフォールバック。
+    const memoMap = new Map<string, string>();
+    try {
+      const mr: any = await sb.from("chat_thread_memos").select("thread_id, memo").in("thread_id", ids);
+      for (const r of (mr.data ?? []) as any[]) if (r.memo != null) memoMap.set(r.thread_id, r.memo);
+    } catch { /* テーブル未作成は無視 */ }
+
     const last = new Map<string, any>();
     const count = new Map<string, number>();
     const unread = new Map<string, number>();
@@ -149,7 +157,7 @@ export async function listChatThreads(agentId?: string | null): Promise<ChatThre
         ...t,
         engineer_name: name,
         engineer_initials: initialsOf(name),
-        memo: t.memo ?? null,
+        memo: memoMap.get(t.id) ?? t.memo ?? null,
         last_body: last.get(t.id)?.body ?? null,
         last_role: (last.get(t.id)?.sender_role ?? null) as ChatRole | null,
         message_count: count.get(t.id) ?? 0,
@@ -180,8 +188,14 @@ export async function getChatThread(
     ]);
     const nameMap = await resolveEngineerNames([String(thread.engineer_id ?? "")]);
     const name = (thread.engineer_name && String(thread.engineer_name).trim()) || nameMap.get(String(thread.engineer_id ?? "")) || null;
+    // 担当メモはスタッフ専用テーブルから取得（人材には grant されていないため漏れない）。
+    let memo = thread.memo ?? null;
+    try {
+      const mr: any = await sb.from("chat_thread_memos").select("memo").eq("thread_id", id).maybeSingle();
+      if (!mr.error && mr.data) memo = mr.data.memo ?? null;
+    } catch { /* テーブル未作成は無視 */ }
     return {
-      thread: { ...thread, engineer_name: name, engineer_initials: initialsOf(name), memo: thread.memo ?? null } as ChatThread,
+      thread: { ...thread, engineer_name: name, engineer_initials: initialsOf(name), memo } as ChatThread,
       messages: (messages ?? []) as ChatMessage[],
       reads: (reads ?? []) as ChatRead[],
     };
