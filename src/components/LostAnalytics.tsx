@@ -139,6 +139,22 @@ function periodRange(period: PeriodKey, fromStr: string, toStr: string, span: Sp
   }
 }
 
+// 失注理由コード（A/B/C/D/E）から責任所在を分類。自社（D）か外部（A/B/C）かを切り分ける。
+//   D=自社起因（提案遅れ/ヒアリング不足/フォロー漏れ/商流ミス） … 自社営業のボトルネック
+//   A=人材起因 / B=案件・条件起因 / C=他社競合 … 外部要因
+//   その他/未入力 … other
+type Attribution = "self" | "candidate" | "job" | "competitor" | "other";
+function reasonAttribution(reason: string): Attribution {
+  const code = (String(reason).match(/^([A-Z])/) || [])[1];
+  switch (code) {
+    case "D": return "self";
+    case "A": return "candidate";
+    case "B": return "job";
+    case "C": return "competitor";
+    default: return "other";
+  }
+}
+
 type Aggregated = {
   totals: { lost: number; won: number; winRate: number };
   phases: Record<string, number>;
@@ -146,6 +162,8 @@ type Aggregated = {
   reasons: Record<string, number>;
   topReasons: string[];
   topPhase: string;
+  // 失注の責任所在（件数）。self=自社起因 / external=外部(人材A/案件B/競合C) / other=その他。
+  attributions: { self: number; external: number; other: number; byKind: Record<Attribution, number> };
   companies: Array<{
     name: string;
     won: number; lost: number; total: number;
@@ -296,6 +314,10 @@ function analyze(items: HItem[]): Aggregated {
 
   const topReasons = Object.entries(reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 8).map(([r]) => r);
   const topPhase = Object.entries(phases).sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0] ?? "—";
+  // 失注の責任所在（自社 vs 外部）を集計。
+  const byKind: Record<Attribution, number> = { self: 0, candidate: 0, job: 0, competitor: 0, other: 0 };
+  for (const [r, n] of Object.entries(reasons)) byKind[reasonAttribution(r)] += n as number;
+  const attributions = { self: byKind.self, external: byKind.candidate + byKind.job + byKind.competitor, other: byKind.other, byKind };
   const total = lost + won;
   const winRate = total === 0 ? 0 : Math.round((won / total) * 100);
 
@@ -324,7 +346,7 @@ function analyze(items: HItem[]): Aggregated {
 
   return {
     totals: { lost, won, winRate },
-    phases, phaseReasons, reasons, topReasons, topPhase,
+    phases, phaseReasons, reasons, topReasons, topPhase, attributions,
     companies: companyList,
     byProposer: Object.values(byProposer).map((p: any) => p) as Aggregated["byProposer"],
     byCloser: Object.values(byCloser).map((c: any) => c) as Aggregated["byCloser"],
@@ -488,6 +510,11 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
         <KPI label="勝率" value={`${data.totals.winRate}%`} tone="#0b5cab" />
         <KPI label="主要失注フェーズ" value={data.topPhase} tone="#b45309" small />
       </div>
+
+      {/* 失注の責任所在（自社 vs 他社）＝ボトルネック特定。失注理由コードで自社起因(D)/外部(A/B/C)を切り分け。 */}
+      {data.totals.lost > 0 && (
+        <BottleneckCard attributions={data.attributions} byProposer={data.byProposer} byCloser={data.byCloser} />
+      )}
 
       {/* 失注フェーズ分布（失注理由ごとに色分けした積み上げ） */}
       {Object.keys(data.phases).length > 0 && (
@@ -774,6 +801,73 @@ function PhaseReasonChart({ phases, phaseReasons }: { phases: Record<string, num
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// 失注の責任所在（自社 vs 他社）＝ボトルネック特定カード。
+//   ・上段：失注全体を「自社起因 / 外部要因 / その他」に色分けした横棒＋内訳（人材A/案件B/競合C）。
+//   ・下段：自社営業（提案者・クロージング）別の「自社起因(D)失注」ランキング＝どの担当がボトルネックか。
+function BottleneckCard({ attributions, byProposer, byCloser }: {
+  attributions: { self: number; external: number; other: number; byKind: Record<string, number> };
+  byProposer: { name: string; won: number; lost: number; reasons: Record<string, number> }[];
+  byCloser: { name: string; won: number; lost: number; reasons: Record<string, number> }[];
+}) {
+  const total = attributions.self + attributions.external + attributions.other;
+  if (total === 0) return null;
+  const pct = (n: number) => Math.round((n / total) * 100);
+  const SELF = "#dc2626", EXT = "#0b5cab", OTHER = "#94a3b8";
+  // 自社起因(D)の件数を担当者ごとに集計（reasons の D コードを合算）。
+  const selfLostByOwner = (rows: { name: string; reasons: Record<string, number> }[]) =>
+    rows.map((r) => ({ name: r.name, n: Object.entries(r.reasons).reduce((s, [k, v]) => s + (reasonAttribution(k) === "self" ? v : 0), 0) }))
+        .filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+  const proposerSelf = selfLostByOwner(byProposer);
+  const closerSelf = selfLostByOwner(byCloser);
+  const Seg = ({ n, bg, label }: { n: number; bg: string; label: string }) => {
+    const w = pct(n); if (w <= 0) return null;
+    return <div title={`${label} ${n}件（${w}%）`} style={{ width: `${w}%`, background: bg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", padding: "0 4px" }}>{w >= 14 ? `${label} ${w}%` : `${w}%`}</div>;
+  };
+  const RankList = ({ title, rows }: { title: string; rows: { name: string; n: number }[] }) => (
+    <div style={{ flex: "1 1 220px", minWidth: 200 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6, color: "var(--color-ink-2)" }}>{title}</div>
+      {rows.length === 0 ? <div className="muted" style={{ fontSize: 11.5 }}>自社起因の失注はありません。</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {rows.slice(0, 6).map((r) => {
+            const max = rows[0].n || 1;
+            return (
+              <div key={r.name} style={{ display: "grid", gridTemplateColumns: "minmax(64px,110px) 1fr 36px", gap: 8, alignItems: "center", fontSize: 11.5 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{r.name}</span>
+                <div style={{ height: 10, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{ width: `${(r.n / max) * 100}%`, height: "100%", background: SELF, borderRadius: 99 }} />
+                </div>
+                <span className="mono" style={{ textAlign: "right", color: SELF, fontWeight: 700 }}>{r.n}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <Header title="🧭 失注の責任所在（自社 vs 他社）" hint="失注理由コードで分類：D=自社起因（提案遅れ/ヒアリング不足/フォロー漏れ/商流ミス）＝自社営業のボトルネック。A=人材起因 / B=案件・条件 / C=他社競合＝外部要因。自社起因の比率が高い・特定の担当に偏るなら、そこが改善ポイントです。" />
+      {/* 自社/外部/その他 の横棒 */}
+      <div style={{ display: "flex", height: 24, borderRadius: 6, overflow: "hidden", background: "var(--color-surface-inset)", marginBottom: 8 }}>
+        <Seg n={attributions.self} bg={SELF} label="自社起因" />
+        <Seg n={attributions.external} bg={EXT} label="外部要因" />
+        <Seg n={attributions.other} bg={OTHER} label="その他" />
+      </div>
+      <div style={{ display: "flex", gap: "5px 14px", flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-3)", marginBottom: 12 }}>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: SELF, marginRight: 4 }} /><b>自社起因</b> {attributions.self}件（{pct(attributions.self)}%）</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: EXT, marginRight: 4 }} /><b>外部要因</b> {attributions.external}件（{pct(attributions.external)}%）</span>
+        <span className="muted">内訳：人材 {attributions.byKind.candidate ?? 0} / 案件 {attributions.byKind.job ?? 0} / 競合 {attributions.byKind.competitor ?? 0}</span>
+        <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: OTHER, marginRight: 4 }} />その他 {attributions.other}件（{pct(attributions.other)}%）</span>
+      </div>
+      {/* 自社起因が誰に偏るか（提案者 / クロージング） */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", paddingTop: 10, borderTop: "1px dashed var(--color-border)" }}>
+        <RankList title="📝 提案者別 自社起因の失注" rows={proposerSelf} />
+        <RankList title="🎯 クロージング別 自社起因の失注" rows={closerSelf} />
+      </div>
     </div>
   );
 }

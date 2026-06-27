@@ -11,7 +11,7 @@ import Link from "@/components/AppLink";
 import { toast } from "@/components/toast";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions } from "@/lib/actions";
-import { StarsInput } from "./Stars";
+import { StarsInput, StarsView } from "./Stars";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { ProposalCloseControls } from "./ProposalCloseControls";
@@ -452,6 +452,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
                   <CompanyRankBadge rank={p.company_rank} />
+                  {p.company_star?.avg >= 1 && <span title={`会社評価（失注時の案件★平均）${p.company_star.avg} / ${p.company_star.count}件`}><StarsView value={p.company_star.avg} size={12} showNumber count={p.company_star.count} /></span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -475,6 +476,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
                   <CompanyRankBadge rank={p.cand_company_rank} />
+                  {p.cand_company_star?.avg >= 1 && <span title={`会社評価（失注時の案件★平均）${p.cand_company_star.avg} / ${p.cand_company_star.count}件`}><StarsView value={p.cand_company_star.avg} size={12} showNumber count={p.cand_company_star.count} /></span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.cand_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
