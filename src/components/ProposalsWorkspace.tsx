@@ -124,9 +124,6 @@ export function ProposalsWorkspace({
   // 承認タブの表示も期間連動（ただし banner/タブ起動は approvalRows=全期間で判定）。
   const approvalRowsInPeriod = useMemo(() => approvalRows.filter(inPeriod), [approvalRows, period, customFrom, customTo]);
   const historyRows = useMemo(() => historyClient.filter(inPeriod), [historyClient, period, customFrom, customTo]);
-  const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period, customFrom, customTo]);
-  // LINE経由グラフ（失注分析内）の「提案数」算出用に、進行中の提案も期間で絞って渡す。
-  const activeInPeriod = useMemo(() => proposals.filter(inPeriod), [proposals, period, customFrom, customTo]);
 
   // 日報タブ：report_date で期間連動。スコアカード（本日）はそのまま、一覧/カレンダーのみ絞る。
   const reportsViewInPeriod = useMemo(() => {
@@ -155,7 +152,7 @@ export function ProposalsWorkspace({
     return Array.from(set);
   }, [proposers, teamActivity]);
 
-  const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: lostRows.length, report: reportsView?.replyUnread ?? 0 };
+  const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: analyticsClient.length, report: reportsView?.replyUnread ?? 0 };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
   //   行を二重に転送していたため。終了した提案は「失注分析」タブで見られる（mode=analytics）。
   //   ※ コンポーネント(ProposalHistory)は残してあるので、必要なら show: true に戻せば復活可能。
@@ -220,7 +217,8 @@ export function ProposalsWorkspace({
             );
           })}
         </div>
-        {(tab === "board" || tab === "lost" || tab === "approval" || tab === "report") && (
+        {/* 失注分析は専用の集計期間フィルタを持つため、上部の期間チップ対象から除外（二重絞り防止）。 */}
+        {(tab === "board" || tab === "approval" || tab === "report") && (
           <div style={{ paddingBottom: 6 }}>
             <PeriodChips value={period} onChange={setPeriod} options={periodOptions}
               calendar={{ calendarKey: "all", from: customFrom, to: customTo,
@@ -319,12 +317,14 @@ export function ProposalsWorkspace({
       {tab === "lost" && (
         analyticsLoading && !analyticsLoaded ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>読み込み中…</div>
-        ) : lostRows.length === 0 ? (
+        ) : analyticsClient.length === 0 ? (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
-            この期間に見送り/失注はありません。
+            見送り/失注はまだありません。
           </div>
         ) : (
-          <LostAnalytics history={lostRows} activeRows={activeInPeriod} />
+          // 失注分析は専用の期間フィルタを持つため、上部の期間チップでは二重に絞らず全件を渡す
+          //   （①LINE等の集計が過少にならないよう、内側の期間フィルタを唯一の集計期間にする）。
+          <LostAnalytics history={analyticsClient} activeRows={proposals} />
         )
       )}
       {tab === "report" && (

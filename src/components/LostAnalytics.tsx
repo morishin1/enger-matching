@@ -48,6 +48,16 @@ type HItem = {
 const LOST_STAGES = new Set(["見送り", "失注"]);
 const WON_STAGES = new Set(["稼働", "稼働決定"]);
 
+// 「確認中以降に進んだ」判定：現ステージが確認中/面談/合格/稼働 のいずれか、または
+//   見送り/失注でも lost_phase が確認中以降だった場合は true（提案止まりは false）。
+const PROGRESSED_STAGES = new Set(["確認中", "面談", "合格", "稼働", "稼働決定"]);
+function reachedKakuninIjou(stage: string, lostPhase?: string | null): boolean {
+  const st = (stage ?? "").trim();
+  if (PROGRESSED_STAGES.has(st)) return true;
+  if (LOST_STAGES.has(st)) return /確認|面談|合格/.test(String(lostPhase ?? ""));
+  return false; // 提案中（提案止まり）
+}
+
 const PERIOD_PRESETS = [
   { key: "30d",   label: "直近30日" },
   { key: "90d",   label: "直近90日" },
@@ -356,7 +366,7 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
       if (!p?.id || seen.has(p.id)) continue;
       seen.set(p.id, p);
     }
-    let proposed = 0, lost = 0;
+    let proposed = 0, lost = 0, progressed = 0;
     for (const p of seen.values()) {
       if (!inRange(p)) continue;
       const isLine = !!p.line_origin || String(p.source ?? "") === "line";
@@ -365,9 +375,10 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
       const reachedProposal = stage !== "" && !NOT_PROPOSED.has(stage);
       if (!reachedProposal) continue;       // 提案前（承認待ち/所属確認）は加算しない
       proposed++;
+      if (reachedKakuninIjou(stage, p.lost_phase)) progressed++; // 確認中以降に進んだ
       if (LOST_STAGES.has(stage)) lost++;    // 提案済みのうち見送り/失注
     }
-    return { proposed, lost };
+    return { proposed, lost, progressed };
   }, [activeRows, history, from, to]);
 
   // 承認済（企業マスタ「打ち合わせ済」ON）／未承認 企業の「提案フォルダ以降への移行数」と、
@@ -381,13 +392,16 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
       seen.set(p.id, p);
     }
     let approvedProposed = 0, unapprovedProposed = 0, approvedLost = 0;
+    let approvedProgressed = 0, unapprovedProgressed = 0; // うち確認中以降に進んだ数
     const approvedLostReasons: Record<string, number> = {};
     for (const p of seen.values()) {
       if (!inRange(p)) continue;
       const stage = String(p.stage ?? "").trim();
       if (stage === "" || NOT_PROPOSED.has(stage)) continue; // 提案前は除外
+      const progressed = reachedKakuninIjou(stage, p.lost_phase);
       if (p.company_approved) {
         approvedProposed++;
+        if (progressed) approvedProgressed++;
         if (LOST_STAGES.has(stage)) {
           approvedLost++;
           const r = p.lost_reason || "（理由未入力）";
@@ -395,9 +409,10 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
         }
       } else {
         unapprovedProposed++;
+        if (progressed) unapprovedProgressed++;
       }
     }
-    return { approvedProposed, unapprovedProposed, approvedLost, approvedLostReasons };
+    return { approvedProposed, unapprovedProposed, approvedProgressed, unapprovedProgressed, approvedLost, approvedLostReasons };
   }, [activeRows, history, from, to]);
 
   // 履歴から登場する年を抽出（降順）
@@ -494,11 +509,12 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
 
       {/* LINE経由（案件 or 人材が「LINE登録」）の提案・失注グラフ */}
       <div className="card" style={{ padding: 14 }}>
-        <Header title="🟩 LINE経由の提案・失注" hint="案件または人材が「LINE登録（LINE経由で受け取った）」の提案を集計。提案数のうち失注になった件数と失注率を表示。" />
+        <Header title="🟩 LINE経由の提案・失注" hint="案件または人材が「LINE登録（LINE経由で受け取った）」の提案を集計。提案数のうち確認中以降に進んだ割合と、失注になった件数・失注率を表示。" />
         {(() => {
-          const { proposed, lost } = lineStats;
+          const { proposed, lost, progressed } = lineStats;
           const rate = proposed > 0 ? Math.round((lost / proposed) * 100) : 0;
-          const bar = (label: string, value: number, color: string) => (
+          // 失注バー（提案を分母にスケール）。提案バーは確認中以降の割合つき（ProgressSplitBar）。
+          const lostBar = (label: string, value: number, color: string) => (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ width: 64, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", flexShrink: 0 }}>{label}</span>
               <div style={{ flex: 1, height: 22, background: "var(--color-surface-inset)", borderRadius: 6, overflow: "hidden", minWidth: 0 }}>
@@ -512,8 +528,13 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
           }
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {bar("提案", proposed, "#06c755")}
-              {bar("失注", lost, "#dc2626")}
+              {/* 提案：横棒の中に「確認中以降に進んだ割合／提案止まり」を表示（④） */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ width: 64, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", flexShrink: 0 }}>提案</span>
+                <ProgressSplitBar total={proposed} progressed={progressed} />
+                <span style={{ width: 48, textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--color-ink)", flexShrink: 0 }}>{proposed}<span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+              </div>
+              {lostBar("失注", lost, "#dc2626")}
               <div style={{ display: "flex", gap: 14, marginTop: 2, fontSize: 11.5, color: "var(--color-ink-3)" }}>
                 <span>失注率 <b style={{ color: lost > 0 ? "#b42318" : "var(--color-ink-2)", fontSize: 13 }}>{rate}%</b></span>
                 <span>成約・継続 <b style={{ color: "#067647", fontSize: 13 }}>{proposed - lost}</b>件</span>
@@ -525,28 +546,6 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
 
       {/* 承認済／未承認 企業の提案移行・失注（②＝提案移行数の比較、③＝承認済起因の失注理由） */}
       <ApprovalStatsCard stats={approvalStats} />
-
-      {/* 会社ランキング */}
-      {data.companies.length > 0 && (
-        <div className="card" style={{ padding: 14 }}>
-          <Header title="📉 会社別 失注件数ランキング（上位）" hint="勝率と最終接触日もあわせて表示" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {[...data.companies].sort((a, b) => b.lost - a.lost).slice(0, 10).map((c) => {
-              const max = Math.max(...data.companies.map((x) => x.lost));
-              const w = max === 0 ? 0 : (c.lost / max) * 100;
-              return (
-                <div key={c.name} style={{ display: "grid", gridTemplateColumns: "minmax(140px, 220px) 1fr 220px", gap: 10, alignItems: "center", fontSize: 11.5 }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{c.name}</span>
-                  <div style={{ height: 12, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden", position: "relative" }}>
-                    <div style={{ width: `${w}%`, height: "100%", background: "#b42318", borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 6, color: "#fff", fontSize: 10.5, fontWeight: 700 }}>{c.lost}</div>
-                  </div>
-                  <span className="muted" style={{ fontSize: 11 }}>成約 {c.won} ／ 勝率 {Math.round(c.winRate * 100)}% ／ {c.daysSinceLastContact != null ? `${c.daysSinceLastContact}日前` : "—"}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* 会社×失注理由ヒートマップ */}
       {data.companies.length > 0 && data.topReasons.length > 0 && (() => {
@@ -665,34 +664,58 @@ function reasonColor(reason: string): string {
   return "#9ca3af"; // 架電できていない/未入力 等 → グレー
 }
 
-// 承認済／未承認 企業の「提案移行数」比較（②）と、承認済企業 起因の失注理由内訳（③）。
-function ApprovalStatsCard({ stats }: { stats: { approvedProposed: number; unapprovedProposed: number; approvedLost: number; approvedLostReasons: Record<string, number> } }) {
-  const { approvedProposed, unapprovedProposed, approvedLost, approvedLostReasons } = stats;
-  const maxProp = Math.max(1, approvedProposed, unapprovedProposed);
+// 「確認中以降に進んだ割合／提案止まり」を横棒の中に凡例つきで表示する共通バー。
+//   total=提案数、progressed=うち確認中以降に進んだ数。狭いセグメントは「〇%」のみ表示。
+function ProgressSplitBar({ total, progressed, height = 24 }: { total: number; progressed: number; height?: number }) {
+  const pProg = total > 0 ? Math.round((progressed / total) * 100) : 0;
+  const pStall = total > 0 ? 100 - pProg : 0;
+  const PROG = "#0b8a4f", STALL = "#cbd5e1";
+  const Seg = ({ w, bg, fg, text }: { w: number; bg: string; fg: string; text: string }) => {
+    if (w <= 0) return null;
+    return (
+      <div title={text} style={{ width: `${w}%`, background: bg, color: fg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", padding: "0 4px" }}>
+        {w >= 20 ? text : `${w}%`}
+      </div>
+    );
+  };
+  return (
+    <div style={{ flex: 1, minWidth: 0, height, display: "flex", borderRadius: 6, overflow: "hidden", background: "var(--color-surface-inset)" }}>
+      {total > 0 && (
+        <>
+          <Seg w={pProg} bg={PROG} fg="#fff" text={`確認中以降に進んだ ${pProg}%`} />
+          <Seg w={pStall} bg={STALL} fg="#334155" text={`提案止まり ${pStall}%`} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// 承認済／未承認 企業の「提案数」比較（②）＋確認中以降に進んだ割合（③）と、承認済企業 起因の失注理由内訳。
+function ApprovalStatsCard({ stats }: { stats: { approvedProposed: number; unapprovedProposed: number; approvedProgressed: number; unapprovedProgressed: number; approvedLost: number; approvedLostReasons: Record<string, number> } }) {
+  const { approvedProposed, unapprovedProposed, approvedProgressed, unapprovedProgressed, approvedLost, approvedLostReasons } = stats;
   const reasons = Object.entries(approvedLostReasons).sort((a, b) => b[1] - a[1]);
   const lostRate = approvedProposed > 0 ? Math.round((approvedLost / approvedProposed) * 100) : 0;
-  const bar = (label: string, value: number, color: string) => (
+  // ② ラベル＋③ 確認中以降の割合を横棒の中に表示。件数は右に。
+  const bar = (label: string, total: number, progressed: number) => (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ width: 120, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", flexShrink: 0 }}>{label}</span>
-      <div style={{ flex: 1, height: 22, background: "var(--color-surface-inset)", borderRadius: 6, overflow: "hidden", minWidth: 0 }}>
-        <div style={{ width: `${Math.max(value > 0 ? 6 : 0, (value / maxProp) * 100)}%`, height: "100%", background: color, borderRadius: 6, transition: "width .3s ease" }} />
-      </div>
-      <span style={{ width: 48, textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--color-ink)", flexShrink: 0 }}>{value}<span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+      <span style={{ width: 130, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", flexShrink: 0 }}>{label}</span>
+      <ProgressSplitBar total={total} progressed={progressed} />
+      <span style={{ width: 48, textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--color-ink)", flexShrink: 0 }}>{total}<span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
     </div>
   );
   return (
     <div className="card" style={{ padding: 14 }}>
-      <Header title="🏢 承認済／未承認 企業の提案移行・失注" hint="承認済＝企業マスタ「打ち合わせ済」ON。案件 or 人材いずれかの会社が打合せ済なら承認済。提案フォルダ以降（提案中/確認中/面談/合格/見送り/失注 等）に到達した件数を集計（承認待ち/所属確認は除外。所属確認に戻す/削除で減算）。" />
-      {/* ② 提案移行数の比較（承認済 vs 未承認） */}
+      <Header title="🏢 承認済／未承認 企業の提案数・失注" hint="承認済＝企業マスタ「打ち合わせ済」ON。案件 or 人材いずれかの会社が打合せ済なら承認済。提案フォルダ以降（提案中/確認中/面談/合格/見送り/失注 等）に到達した件数を集計（承認待ち/所属確認は除外。所属確認に戻す/削除で減算）。横棒内は、そのうち1度でも確認中/面談/合格に進んだ割合。" />
+      {/* ② 提案数の比較（承認済 vs 未承認）＋ ③ 確認中以降に進んだ割合 */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {bar("承認済 提案移行", approvedProposed, "#067647")}
-        {bar("未承認 提案移行", unapprovedProposed, "#94a3b8")}
+        {bar("承認済への提案数", approvedProposed, approvedProgressed)}
+        {bar("未承認への提案数", unapprovedProposed, unapprovedProgressed)}
       </div>
-      {/* ③ 承認済企業 起因の失注（理由内訳） */}
+      {/* 承認済企業 起因の失注（理由内訳） */}
       <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--color-border)" }}>
         <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
           承認済企業 起因の失注 <b style={{ color: "#b42318", fontSize: 14 }}>{approvedLost}</b>件
-          <span className="muted" style={{ fontWeight: 500 }}> ／ 承認済 提案移行 {approvedProposed}件（失注率 {lostRate}%）</span>
+          <span className="muted" style={{ fontWeight: 500 }}> ／ 承認済への提案数 {approvedProposed}件（失注率 {lostRate}%）</span>
         </div>
         {approvedLost === 0 ? (
           <div className="muted" style={{ fontSize: 12 }}>承認済企業 起因の失注はありません。</div>
@@ -711,7 +734,6 @@ function ApprovalStatsCard({ stats }: { stats: { approvedProposed: number; unapp
           </>
         )}
       </div>
-      <div className="muted" style={{ fontSize: 10.5, marginTop: 8 }}>※ ②承認済/未承認の提案移行数と、③そのうち承認済企業が要因の失注を比較できます。</div>
     </div>
   );
 }
