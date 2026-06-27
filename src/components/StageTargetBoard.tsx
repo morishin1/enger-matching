@@ -9,7 +9,7 @@
 //                       meeting_reached_at をソースに currentOverrides で受け取る。
 //     合格（稼働決定）… 進行中の提案で stage=合格（クロージング担当者で突合・スナップショット）。
 //   目標は stage_targets に保存（キーは内部名）。KPI達成率（週次KPI）と KGI達成率（月次稼働化目標）も併記。
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
 import { normalizeStage } from "@/lib/proposal-constants";
@@ -69,12 +69,31 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
     return m;
   }, [proposals, members, currentOverrides]);
 
+  // 保存後、サーバ値(stageTargets)が編集値に追いついたら入力中の値(edits)を解消する。
+  //   こうすると「入力→0に戻る→また入力値」というチラつき（保存往復のタイムラグ）が出ない。
+  useEffect(() => {
+    setEdits((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(prev)) {
+        const i = k.indexOf("|");
+        const owner = k.slice(0, i), stage = k.slice(i + 1);
+        const serverTg = stageTargets[owner]?.[stage] ?? 0;
+        if (Number(v || 0) === serverTg) { delete next[k]; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [stageTargets]);
+
   const save = (owner: string, stage: string, raw: string) => {
     const target = Math.max(0, Math.floor(Number(raw) || 0));
     start(async () => {
       const r = await saveStageTarget({ owner_name: owner, stage, target });
-      if (!r.ok) toast(r.error ?? "目標の保存に失敗しました", "error");
-      else router.refresh();
+      if (!r.ok) {
+        // 失敗時は楽観表示を取り消し（元の目標値に戻す）。
+        setEdits((p) => { const n = { ...p }; delete n[`${owner}|${stage}`]; return n; });
+        toast(r.error ?? "目標の保存に失敗しました", "error");
+      } else router.refresh();
     });
   };
 
@@ -114,7 +133,16 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
           {canEdit ? (
             <input type="number" min={0} value={edits[key] ?? String(tg)} onClick={(e) => e.stopPropagation()}
               onChange={(e) => setEdits((p) => ({ ...p, [key]: e.target.value }))}
-              onBlur={(e) => { const v = e.target.value; setEdits((p) => { const n = { ...p }; delete n[key]; return n; }); if (Number(v || 0) !== tg) save(owner, stage, v); }}
+              onBlur={(e) => {
+                const target = Math.max(0, Math.floor(Number(e.target.value || 0)));
+                if (target !== tg) {
+                  // 楽観的に新しい値を表示し続ける（保存往復で 0 に戻るチラつきを防ぐ）。サーバ反映後に effect が解消。
+                  setEdits((p) => ({ ...p, [key]: String(target) }));
+                  save(owner, stage, String(target));
+                } else {
+                  setEdits((p) => { const n = { ...p }; delete n[key]; return n; });
+                }
+              }}
               style={{ width: 40, fontSize: 12, padding: "2px 4px", borderRadius: 6, border: "1px solid var(--color-border-strong)", textAlign: "center", background: "var(--color-surface)" }} />
           ) : <span>{tg}</span>}
         </div>

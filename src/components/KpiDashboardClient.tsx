@@ -325,15 +325,18 @@ function EditTargetModal(props: {
         <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
           {props.ownerName} ／ 週開始 {props.weekStart}（月曜）
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+        {/* ラベルを入力欄の上に積む（長いラベルでも横にはみ出さずモーダル枠内に収める）。 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14 }}>
           {METRIC_ORDER.map((m) => (
-            <label key={m} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-              <span style={{ width: 90, color: METRIC_LABELS[m].tone, fontWeight: 700 }}>
+            <label key={m} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, minWidth: 0 }}>
+              <span style={{ color: METRIC_LABELS[m].tone, fontWeight: 700, lineHeight: 1.3 }}>
                 {METRIC_LABELS[m].short} <span style={{ color: "var(--color-ink-4)", fontWeight: 400, fontSize: 11 }}>({METRIC_LABELS[m].long})</span>
               </span>
-              <input type="number" min={0} value={vals[m]} onChange={(e) => setVals((v) => ({ ...v, [m]: e.target.value }))}
-                style={{ flex: 1, fontSize: 13, padding: "6px 9px", borderRadius: 6, border: "1px solid var(--color-border-strong)", textAlign: "right", fontFamily: "monospace" }} />
-              <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>件/週</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <input type="number" min={0} value={vals[m]} onChange={(e) => setVals((v) => ({ ...v, [m]: e.target.value }))}
+                  style={{ flex: 1, minWidth: 0, fontSize: 13, padding: "6px 9px", borderRadius: 6, border: "1px solid var(--color-border-strong)", textAlign: "right", fontFamily: "monospace" }} />
+                <span style={{ fontSize: 11, color: "var(--color-ink-4)", whiteSpace: "nowrap" }}>件/週</span>
+              </span>
             </label>
           ))}
         </div>
