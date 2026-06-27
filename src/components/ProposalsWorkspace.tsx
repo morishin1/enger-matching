@@ -185,8 +185,15 @@ export function ProposalsWorkspace({
     for (const ev of meetingEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "打ち合わせ");
     for (const ev of procurementEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "案件の仕入れ");
     for (const ev of meetingReachedEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "面談");
+    // 架電（テレアポ）＝アクティビティの contact（期間はサーバ集計済み）。担当者名で按分。
+    for (const r of (teamActivity?.rows ?? []) as any[]) {
+      const c = Number(r?.actual?.contact ?? 0);
+      if (c <= 0) continue;
+      const who = stageBoardMembers.find((nm) => ownerMatches(nm, r?.name));
+      if (who) (out[who] ??= {})["架電"] = c;
+    }
     return out;
-  }, [meetingEvents, procurementEvents, meetingReachedEvents, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
+  }, [meetingEvents, procurementEvents, meetingReachedEvents, teamActivity, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
 
   // 役割別KGI：インサイド＝面談率（提案→面談）／アウトサイド＝合格率（面談→稼働）。
   //   ・インサイドは提案者責任：面談到達(面談列) ÷ 提案数(アクティビティの proposal)。
