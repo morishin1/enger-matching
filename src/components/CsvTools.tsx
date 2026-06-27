@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, bulkPreviewFromGmail, bulkRegisterFromGmail, parseEntityText, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate, type BulkPreviewItem } from "@/lib/actions";
+import { normalizeSkills } from "@/lib/skills";
 import { Icons } from "./icons";
 
 const salaryShort = (lo: number | null, hi: number | null) => lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -830,6 +831,11 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
   };
 
   const toggle = (i: number) => setPicked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  // 抽出後に各レコードを編集可能にする（特にマッチング必須の「スキル」を、AIが取り切れない会話調の
+  //   LINE/メールでも担当が補完してから登録できるようにする）。
+  const updateRecord = (i: number, patch: Record<string, any>) => setRecords((rs) => rs.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const skillsOf = (r: any): string[] => Array.isArray(r.skills) ? r.skills : splitSkills(r.skills ?? "");
+  const noSkillCount = records.filter((r) => skillsOf(r).length === 0).length;
 
   const register = () => {
     const chosen = records.filter((_, i) => picked.has(i));
@@ -843,7 +849,7 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
             title: String(j.title ?? "").trim(),
             client_name: j.client_name?.trim() || null,
             role_label: j.role_label?.trim() || null,
-            skills: Array.isArray(j.skills) ? j.skills.map(cleanSkill).filter(Boolean) : splitSkills(j.skills ?? ""),
+            skills: normalizeSkills(j.skills ?? ""),
             salary_min: j.salary_min != null ? Number(j.salary_min) : null,
             salary_max: j.salary_max != null ? Number(j.salary_max) : null,
             remote_type: j.remote_type || null,
@@ -861,7 +867,7 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
               title: c.title?.trim() || null,
               company: c.company?.trim() || null,
               affiliation: c.affiliation?.trim() || null,
-              skills: Array.isArray(c.skills) ? c.skills.map(cleanSkill).filter(Boolean) : splitSkills(c.skills ?? ""),
+              skills: normalizeSkills(c.skills ?? ""),
               rate,
               rate_num: rate ? numOf(rate) : null,
               exp: c.exp?.trim() || null,
@@ -916,26 +922,47 @@ function BulkExtractButton({ kind }: { kind: "candidates" | "jobs" }) {
                   <button className="btn ghost btn-xs" onClick={() => setPicked(new Set(records.map((_, i) => i)))}>全選択</button>
                   <button className="btn ghost btn-xs" onClick={() => setPicked(new Set())}>全解除</button>
                 </div>
+                {/* スキル未取得の件数を明示：会話調のLINE/メールはスキルが書かれていないことが多く、
+                    このままだとマッチングされない。各行のスキル欄で補完してから登録する運用にする。 */}
+                {noSkillCount > 0 && (
+                  <div style={{ fontSize: 11.5, color: "#9a3412", background: "#fff7ed", border: "1px solid #f5b97f", borderRadius: 8, padding: "8px 11px", lineHeight: 1.6 }}>
+                    ⚠ スキル未取得が <b>{noSkillCount} 件</b> あります。スキルは<b>マッチングに必須</b>です（無いと相手が見つかりません）。各行の「スキル」欄に追記してから登録してください。
+                  </div>
+                )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {records.map((r, i) => {
                     const on = picked.has(i);
-                    const skills = Array.isArray(r.skills) ? r.skills : splitSkills(r.skills ?? "");
+                    const skills = skillsOf(r);
+                    const noSkill = skills.length === 0;
                     return (
-                      <label key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", border: `1px solid ${on ? "var(--color-brand-200)" : "var(--color-border)"}`, borderRadius: 10, background: on ? "var(--color-brand-25)" : "var(--color-surface)", cursor: "pointer" }}>
-                        <input type="checkbox" checked={on} onChange={() => toggle(i)} style={{ marginTop: 3 }} />
+                      <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", border: `1px solid ${noSkill ? "#f5b97f" : on ? "var(--color-brand-200)" : "var(--color-border)"}`, borderRadius: 10, background: on ? "var(--color-brand-25)" : "var(--color-surface)" }}>
+                        <input type="checkbox" checked={on} onChange={() => toggle(i)} style={{ marginTop: 3, cursor: "pointer" }} />
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700 }}>{isJob ? r.title : r.name}
-                            {isJob ? (r.client_name ? <span className="muted" style={{ fontWeight: 400 }}> ・ {r.client_name}</span> : null)
-                                   : (r.company ? <span className="muted" style={{ fontWeight: 400 }}> ・ {r.company}</span> : null)}
+                          <div onClick={() => toggle(i)} style={{ cursor: "pointer" }}>
+                            <div style={{ fontSize: 13, fontWeight: 700 }}>{isJob ? r.title : r.name}
+                              {isJob ? (r.client_name ? <span className="muted" style={{ fontWeight: 400 }}> ・ {r.client_name}</span> : null)
+                                     : (r.company ? <span className="muted" style={{ fontWeight: 400 }}> ・ {r.company}</span> : null)}
+                            </div>
+                            <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                              {isJob
+                                ? [r.role_label, (r.salary_min || r.salary_max) ? `¥${r.salary_min ?? ""}〜${r.salary_max ?? ""}万` : null, r.work_location].filter(Boolean).join(" / ") || "—"
+                                : [r.title, r.rate, r.exp, r.affiliation].filter(Boolean).join(" / ") || "—"}
+                            </div>
                           </div>
-                          <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
-                            {isJob
-                              ? [r.role_label, (r.salary_min || r.salary_max) ? `¥${r.salary_min ?? ""}〜${r.salary_max ?? ""}万` : null, r.work_location].filter(Boolean).join(" / ") || "—"
-                              : [r.title, r.rate, r.exp, r.affiliation].filter(Boolean).join(" / ") || "—"}
+                          {/* スキルは編集可能（マッチング必須）。AIが取り切れない会話調テキストでも担当が補完できる。 */}
+                          <div style={{ marginTop: 6 }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 600, color: noSkill ? "#b42318" : "var(--color-ink-4)", marginBottom: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{noSkill ? "warning" : "bolt"}</span>
+                              {isJob ? "必要スキル" : "保有スキル"}（カンマ区切り・マッチング必須）{noSkill && " — 未取得。入力してください"}
+                            </div>
+                            <input
+                              value={skills.join(", ")}
+                              onChange={(e) => updateRecord(i, { skills: e.target.value.split(/[,、\/／・]+/).map((s) => s.trim()).filter(Boolean) })}
+                              placeholder="例：Java, AWS, React, TypeScript"
+                              style={{ width: "100%", boxSizing: "border-box", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${noSkill ? "#f5b97f" : "var(--color-border-strong)"}`, background: noSkill ? "#fff7ed" : "var(--color-surface)", fontFamily: "var(--font-sans)" }} />
                           </div>
-                          {skills.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>{skills.slice(0, 8).map((s: string) => <span key={s} className="tag" style={{ fontSize: 10 }}>{s}</span>)}</div>}
                         </div>
-                      </label>
+                      </div>
                     );
                   })}
                 </div>
