@@ -1,10 +1,18 @@
 // ============================================================
-// LINE WORKS Bot Webhook（Phase 1 MVP）
+// LINE WORKS Bot Webhook（品質ゲート版）
 //   トークに届いた人材/案件メッセージを受信 → AIで構造化 → ENGERに自動登録(signup_source='line_works')
 //   → スキル一致で自動マッチング → 上位候補をカルーセルでトークに返信。
 //
+//   ■ 品質ゲート（グループ運用の混乱とAIコストを抑えるための取り込みルール）
+//     ② タグ必須：先頭に「#案件」/「#人材」が付いた投稿だけを取り込む（AIで自動分類しない）。
+//        ・タグ無しの投稿（雑談・相談）は完全に無視 → AI課金もbot返信も発生しない。
+//        ・グループ(channelId)では無反応、1:1(userId)では使い方を案内。
+//     ③ テンプレ品質ゲート：
+//        ・事前ゲート（AI不使用）：本文が短すぎる（情報不足）ものは抽出前に弾く。
+//        ・事後ゲート：抽出後に「スキル」が無ければ登録もマッチングもせず追記を依頼。
+//          → マッチング不能な低品質データでDBを汚さない／無駄な処理を走らせない。
+//
 //   ・署名検証（X-WORKS-Signature / Bot Secret）。未設定なら検証スキップ（開発用）。
-//   ・「案件 / 人材」は先頭プレフィックス（例:「案件 …」「人材 …」）で判定。無ければAIで分類。
 //   ・登録は name×company / title×client の既存突合（upsert*Manual）で重複を防止。
 //   ・LINE WORKS 未設定時（env無し）は no-op で 200 を返す。
 // ============================================================
@@ -23,7 +31,15 @@ export const dynamic = "force-dynamic";
 const BASE = (process.env.NEXT_PUBLIC_SITE_URL || "https://dx.enger.jp").replace(/\/$/, "");
 const splitSkills = (s?: string) => (s ? s.split(/[,、\/／]+/).map((x) => x.trim()).filter(Boolean) : []);
 
-/** 先頭プレフィックスで案件/人材を判定（例:「案件 …」「#人材 …」）。無ければ null。 */
+// 事前ゲート：タグを除いた本文がこの文字数（空白除く）未満なら情報不足として抽出しない。
+const MIN_BODY_CHARS = 15;
+// 各社に配る記入テンプレ（案内文に使用）。必須は「スキル」。
+const TPL_JOB = "【案件】\n役割：\n必須スキル：\n単価：\n稼働開始：\nリモート：\n商流：";
+const TPL_CAND = "【人材】\nイニシャル：\nスキル：\n経験年数：\n単価：\n稼働可能日：";
+const tplFor = (kind: "jobs" | "candidates") => (kind === "jobs" ? TPL_JOB : TPL_CAND);
+
+/** 先頭プレフィックスで案件/人材を判定（例:「#案件 …」「#人材 …」）。無ければ null。
+ *  タグ必須運用のため、ここが null＝取り込み対象外（AIは呼ばない）。 */
 function detectKindByPrefix(text: string): { kind: "jobs" | "candidates"; body: string } | null {
   const m = text.match(/^[\s　]*#?\s*(案件|求人|募集|人材|エンジニア|候補者?|job|cand(?:idate)?)\s*[:：>＞　-]*\s*/i);
   if (!m) return null;
@@ -31,28 +47,6 @@ function detectKindByPrefix(text: string): { kind: "jobs" | "candidates"; body: 
   const kind: "jobs" | "candidates" = /案件|求人|募集|job/.test(kw) ? "jobs" : "candidates";
   const body = text.slice(m[0].length).trim();
   return { kind, body: body || text };
-}
-
-/** プレフィックスが無いときに AI で案件/人材を分類。曖昧なら null。 */
-async function classifyKind(text: string): Promise<"jobs" | "candidates" | null> {
-  try {
-    const { callLLM } = await import("@/lib/llm");
-    const prev = process.env.LLM_MODEL;
-    if (!prev || !/haiku/i.test(prev)) process.env.LLM_MODEL = "claude-haiku-4-5";
-    const r = await callLLM({
-      system: "あなたは分類器です。出力は job か candidate の1語のみ。",
-      prompt: `次の文章は「案件(求人)」と「人材(エンジニア)」のどちらの情報ですか。job か candidate のどちらか1語だけ出力してください。判別できなければ unknown と出力。\n\n${text.slice(0, 2000)}`,
-      maxTokens: 5,
-      temperature: 0,
-    });
-    if (prev) process.env.LLM_MODEL = prev; else delete process.env.LLM_MODEL;
-    if (!r.ok) return null;
-    if (/cand/i.test(r.text)) return "candidates";
-    if (/job/i.test(r.text)) return "jobs";
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 /** 登録した人材に合う案件 上位3件。 */
@@ -112,20 +106,35 @@ async function handleMessage(text: string, target: LwTarget): Promise<void> {
     await recordLineworksMessage({ target, direction: "outbound", msg_type: "cards", cards: cols, sender_name: "Enger_bot" });
   };
 
-  // 1) 案件/人材の判定
+  // ② タグ必須：先頭プレフィックス（#案件/#人材）が無ければ取り込まない（AIを呼ばない）。
   const pre = detectKindByPrefix(text);
-  let kind = pre?.kind ?? null;
-  const body = pre?.body ?? text;
-  if (!kind) kind = await classifyKind(text);
-  if (!kind) {
-    await reply(textMessage("案件か人材かを判別できませんでした。先頭に「案件」または「人材」と付けて送ってください（例：『人材 …』『案件 …』）。"));
+  if (!pre) {
+    // グループはノイズ防止のため無反応。1:1 のときだけ使い方を案内する。
+    if (!target.channelId) {
+      await reply(textMessage(`登録は先頭に「#案件」または「#人材」を付けて、テンプレに沿って送ってください。\n\n${TPL_JOB}\n\n${TPL_CAND}`));
+    }
+    return;
+  }
+  const kind = pre.kind;
+  const body = pre.body;
+
+  // ③ 事前ゲート（AI不使用）：本文が短すぎる（情報不足）なら抽出せず追記を依頼。
+  if (body.replace(/\s|　/g, "").length < MIN_BODY_CHARS) {
+    await reply(textMessage(`情報が不足しています。テンプレに沿って記入のうえ再送してください。\n\n${tplFor(kind)}`));
     return;
   }
 
-  // 2) AI 抽出
+  // 2) AI 抽出（タグ付き・最低限の分量があるものだけ）。
   const ext = await extractEntityFields(kind, body);
   if (!ext.ok) { await reply(textMessage(`読み取りに失敗しました：${ext.error}`)); return; }
   const f = ext.fields;
+
+  // ③ 事後ゲート：マッチングに必須の「スキル」が無ければ登録もマッチングもせず追記を依頼。
+  //    （スキルが無いとマッチングできず、低品質データでDBを汚すだけのため取り込まない）
+  if (splitSkills(f.skills).length === 0) {
+    await reply(textMessage(`スキルが読み取れませんでした（マッチングに必須です）。スキルを追記して再送してください。\n\n${tplFor(kind)}`));
+    return;
+  }
 
   const admin = engerAdmin();
   if (kind === "candidates") {
