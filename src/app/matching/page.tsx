@@ -718,9 +718,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
 
-        <MatchingPeerTabs counts={peerCounts} />
-
-        <MatchingPeriodChips />
+        <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
 
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
 
@@ -868,8 +866,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <div className="sub"><b>注力</b>＝<span style={{ color: "#e0567f" }}>♥</span>お気に入り（手動）。ハートを押すと注力に入り、外すと件数が減ります。<b>自動おすすめ</b>＝プロパー・新着で決まりやすい候補（♥を押すと注力に固定）。</div>
           </div>
         </div>
-        <MatchingPeerTabs counts={peerCounts} />
-        <MatchingModeTabs rightSlot={<MatchingPeriodChips />} />
+        <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
+        <MatchingModeTabs />
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
         {opennessBanner}
 
@@ -934,9 +932,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
-      <MatchingPeerTabs counts={peerCounts} />
+      <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
 
-      <MatchingModeTabs rightSlot={<MatchingPeriodChips />} />
+      <MatchingModeTabs />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {opennessBanner}
