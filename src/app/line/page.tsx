@@ -10,6 +10,8 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
 import { CandidateNewLineButton, JobNewLineButton } from "@/components/CsvTools";
 import { QuickAccessButtons } from "@/components/QuickAccessButtons";
+import { UrlPeriodChips } from "@/components/UrlPeriodChips";
+import { asClientPeriod, hasCustomRange, inClientPeriod, inCustomRange, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
 import { CopyButton } from "@/components/CopyButton";
 import { LineTabs } from "@/components/LineTabs";
 import { LineConversations } from "@/components/LineConversations";
@@ -54,7 +56,8 @@ const fmtDate = (d?: string | null) => {
   return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
 };
 
-export default async function LinePage() {
+export default async function LinePage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string }> }) {
+  const sp = await searchParams;
   const counts = await getSidebarCounts();
   let needSetup = false;
 
@@ -107,13 +110,29 @@ export default async function LinePage() {
     } catch { /* ignore: 表示は空で続行 */ }
   }
 
+  // 期間セレクタ（統一デザイン）。登録日(created_at)で LINE経由の人材・案件を絞り込む。既定=全期間。
+  const mPeriod = asClientPeriod(sp.period, "all");
+  const mCustom = hasCustomRange(sp.from, sp.to);
+  const inPeriod = (d: string | null | undefined) =>
+    mCustom ? inCustomRange(d, sp.from, sp.to) : inClientPeriod(d, mPeriod);
+  const periodCounts = Object.fromEntries(
+    CLIENT_PERIOD_KEYS.map((k) => {
+      const cnt = (arr: any[]) => k === "all" ? arr.length : arr.filter((r) => inClientPeriod(r.created_at, k)).length;
+      return [k, cnt(candidates) + cnt(jobs)];
+    }),
+  ) as Partial<Record<ClientPeriod, number | null>>;
+  if (mCustom || mPeriod !== "all") {
+    candidates = candidates.filter((c) => inPeriod(c.created_at));
+    jobs = jobs.filter((j) => inPeriod(j.created_at));
+  }
+
   const activeCount = jobs.length + candidates.length;
   // LINE のやりとり（トークビュー）用：Bot が参加するトーク一覧。
   const lwTargets = await listLineworksTargets();
 
   return (
     <div className="page" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <MatchingPeerTabs counts={counts} activeCount={activeCount} />
+      <MatchingPeerTabs counts={counts} activeCount={activeCount} rightSlot={<UrlPeriodChips basePath="/line" counts={periodCounts} />} />
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 8 }}>

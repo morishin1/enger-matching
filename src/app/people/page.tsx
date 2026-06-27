@@ -380,8 +380,6 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <div className="meta">People · 人材マスタ（実データ）</div>
           <h1>人材</h1>
-          {/* 旧「累計/新規サマリ」を期間チップに置換。期間を選ぶと登録日で一覧を絞り込み、各期間の件数を表示。 */}
-          {!scope.isTenant && <div style={{ marginTop: 6 }}><UrlPeriodChips basePath="/people" counts={periodCounts} /></div>}
         </div>
         {/* ボタンは「新規登録 / CSV取込 / ゴミ箱」の3つに統一（マッチング系メニュー共通）。 */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -394,7 +392,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
         const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource || fNoProposal || periodFiltering);
-        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
+        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/people" counts={periodCounts} />} />;
       })()}
 
       {scope.isTenant && (
