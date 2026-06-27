@@ -10,6 +10,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { METRIC_LABELS, METRIC_ORDER, type Metric, type PeriodType } from "@/lib/kpi";
 import { saveKpiTargets } from "@/lib/actions";
+import { KpiPeriodBar } from "./KpiPeriodBar";
 
 type Snapshot = Record<Metric, { target: number; actual: number; pct: number }>;
 type HistoryPoint = { label: string; pct: number; actual: number; target: number };
@@ -66,19 +67,10 @@ export function KpiDashboardClient(props: {
   const isManager = !!props.access.isManager;
   const isTeam = props.scope === "team";
   const [showEdit, setShowEdit] = useState(false);
-  const [from, setFrom] = useState(props.custom?.from ?? "");
-  const [to, setTo]     = useState(props.custom?.to   ?? "");
 
   const setParam = (k: string, v: string | null) => {
     const u = new URL(window.location.href);
     if (v == null || v === "") u.searchParams.delete(k); else u.searchParams.set(k, v);
-    router.push(u.pathname + "?" + u.searchParams.toString());
-  };
-
-  const switchPeriod = (p: UiPeriod) => {
-    const u = new URL(window.location.href);
-    u.searchParams.set("period", p);
-    if (p !== "custom") { u.searchParams.delete("from"); u.searchParams.delete("to"); }
     router.push(u.pathname + "?" + u.searchParams.toString());
   };
 
@@ -94,7 +86,7 @@ export function KpiDashboardClient(props: {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
           <span className="material-symbols-outlined" style={{ verticalAlign: "-5px", marginRight: 6, color: "var(--color-brand-600)" }}>insights</span>
-          KPI ダッシュボード
+          KPI &amp; KGI
         </h1>
         <span className="muted" style={{ fontSize: 13 }}>
           {props.target.name || "(担当未設定)"} ／ {fmtRange(props.range.start, props.range.end)}
@@ -117,11 +109,11 @@ export function KpiDashboardClient(props: {
         </div>
       </div>
 
-      {/* 個人 / チーム タブ（全員が切替可能） */}
+      {/* チーム / 個人 タブ（全員が切替可能・既定はチーム） */}
       <div style={{ display: "inline-flex", gap: 4, padding: 4, background: "var(--color-surface-soft)", borderRadius: 10, alignSelf: "flex-start" }}>
         {([
+          { key: "team", label: "チーム", icon: "groups" },
           { key: "person", label: "個人", icon: "person" },
-          { key: "team", label: "チーム全体", icon: "groups" },
         ] as const).map((t) => {
           const on = t.key === "team" ? isTeam : !isTeam;
           return (
@@ -140,34 +132,10 @@ export function KpiDashboardClient(props: {
         })}
       </div>
 
-      {/* 期間タブ（hidePeriodTabs のときは非表示。ただし custom の日付入力は残す）。 */}
-      {(!props.hidePeriodTabs || props.period === "custom") && (
-      <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--color-border)" }}>
-        {!props.hidePeriodTabs && PERIODS.map((p) => {
-          const on = props.period === p.key;
-          return (
-            <button key={p.key} type="button" onClick={() => switchPeriod(p.key)} style={{
-              padding: "9px 14px", border: "none", background: "transparent", cursor: "pointer",
-              borderBottom: on ? "2px solid var(--color-brand-600)" : "2px solid transparent",
-              color: on ? "var(--color-brand-700)" : "var(--color-ink-3)",
-              fontWeight: on ? 700 : 600, fontSize: 13,
-            }}>{p.label}</button>
-          );
-        })}
-        {props.period === "custom" && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
-              style={{ fontSize: 12, padding: "5px 7px", borderRadius: 6, border: "1px solid var(--color-border-strong)" }} />
-            <span style={{ fontSize: 12, color: "var(--color-ink-4)" }}>〜</span>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
-              style={{ fontSize: 12, padding: "5px 7px", borderRadius: 6, border: "1px solid var(--color-border-strong)" }} />
-            <button type="button" className="btn brand" disabled={!from || !to}
-              onClick={() => { const u = new URL(window.location.href); u.searchParams.set("period", "custom"); u.searchParams.set("from", from); u.searchParams.set("to", to); router.push(u.pathname + "?" + u.searchParams.toString()); }}
-              style={{ padding: "5px 10px" }}>適用</button>
-          </span>
-        )}
-      </div>
-      )}
+      {/* 期間バー（統一デザインの6チップ＋全期間カレンダー）。
+          ダッシュボード(/)でのみ表示。提案管理のKPI推移は上位(ProposalsWorkspace)が
+          KpiPeriodBar を別途出すため hidePeriodTabs=true で非表示にする。 */}
+      {!props.hidePeriodTabs && <KpiPeriodBar current={props.period} basePath="/" card={false} />}
 
       {/* 総合達成率 */}
       <div className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 16 }}>

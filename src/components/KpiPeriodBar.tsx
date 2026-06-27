@@ -44,7 +44,7 @@ function mapServerToChip(p?: string | null): ClientPeriod {
   return "all"; // custom 等はカレンダー（全期間）扱い
 }
 
-export function KpiPeriodBar({ current }: { current?: string | null }) {
+export function KpiPeriodBar({ current, basePath = "/proposals", card = true }: { current?: string | null; basePath?: string; card?: boolean }) {
   const router = useRouter();
   const sp = useSearchParams();
   const kp = sp?.get("kp") ?? "";
@@ -64,7 +64,7 @@ export function KpiPeriodBar({ current }: { current?: string | null }) {
     if (f) u.set("from", f); else u.delete("from");
     if (t) u.set("to", t); else u.delete("to");
     if (chip) u.set("kp", chip); else u.delete("kp");
-    router.push(`/proposals?${u.toString()}`);
+    router.push(`${basePath}?${u.toString()}`);
   };
   const go = (key: string) => { const r = rangeFor(key as ClientPeriod); push(r.period, r.from, r.to, key); };
   const onRange = (f: string, t: string) => {
@@ -76,7 +76,7 @@ export function KpiPeriodBar({ current }: { current?: string | null }) {
   const options = CLIENT_PERIOD_KEYS.map((k) => ({ key: k, label: CLIENT_PERIOD_LABEL[k] }));
   return (
     <PeriodChips
-      card
+      card={card}
       value={active}
       onChange={go}
       options={options}
