@@ -1996,7 +1996,7 @@ export type MeetingInput = {
   title?: string; company_name?: string; meeting_date?: string | null; meeting_time?: string | null;
   their_contact?: string; our_owner?: string; new_or_existing?: string;
   relation_status?: string; fb_sentiment?: string; ai_summary?: string;
-  enger_fb?: string; hit_points?: string; miss_points?: string; needs?: string;
+  enger_fb?: string; hit_points?: string; company_type?: string; miss_points?: string; needs?: string;
   strategy?: string; next_action_us?: string; next_action_them?: string;
   competitors?: string[]; competitor_detail?: string; tags?: string[];
   transcript_url?: string; publishable?: string; follow_up_date?: string | null;
@@ -2019,6 +2019,7 @@ export async function createMeeting(input: MeetingInput) {
     ai_summary: input.ai_summary?.trim() || null,
     enger_fb: input.enger_fb?.trim() || null,
     hit_points: input.hit_points?.trim() || null,
+    company_type: input.company_type?.trim() || null,
     miss_points: input.miss_points?.trim() || null,
     needs: input.needs?.trim() || null,
     strategy: input.strategy?.trim() || null,
@@ -2032,9 +2033,9 @@ export async function createMeeting(input: MeetingInput) {
     follow_up_date: input.follow_up_date || null,
   };
   let { error } = await admin.from("meetings").insert(row);
-  // meeting_time / follow_up_date 列未追加でも落ちないようフォールバック
-  if (error && /meeting_time|follow_up_date|column/i.test(error.message)) {
-    const r2: any = { ...row }; delete r2.meeting_time; delete r2.follow_up_date;
+  // meeting_time / follow_up_date / company_type 列未追加でも落ちないようフォールバック
+  if (error && /meeting_time|follow_up_date|company_type|column/i.test(error.message)) {
+    const r2: any = { ...row }; delete r2.meeting_time; delete r2.follow_up_date; delete r2.company_type;
     ({ error } = await admin.from("meetings").insert(r2));
   }
   if (error) return { ok: false, error: error.message };
@@ -2053,15 +2054,15 @@ export async function updateMeeting(id: string, input: MeetingInput) {
   setStr("title"); setStr("company_name"); setStr("meeting_date"); setStr("meeting_time");
   setStr("their_contact"); setStr("our_owner"); setStr("new_or_existing");
   setStr("relation_status"); setStr("fb_sentiment"); setStr("ai_summary");
-  setStr("enger_fb"); setStr("hit_points"); setStr("miss_points"); setStr("needs");
+  setStr("enger_fb"); setStr("hit_points"); setStr("company_type"); setStr("miss_points"); setStr("needs");
   setStr("strategy"); setStr("next_action_us"); setStr("next_action_them");
   if (input.competitors !== undefined) patch.competitors = input.competitors;
   setStr("competitor_detail");
   if (input.tags !== undefined) patch.tags = input.tags;
   setStr("transcript_url"); setStr("publishable"); setStr("follow_up_date");
   let { error } = await admin.from("meetings").update(patch).eq("id", id);
-  if (error && /meeting_time|follow_up_date|column/i.test(error.message)) {
-    const p2: any = { ...patch }; delete p2.meeting_time; delete p2.follow_up_date;
+  if (error && /meeting_time|follow_up_date|company_type|column/i.test(error.message)) {
+    const p2: any = { ...patch }; delete p2.meeting_time; delete p2.follow_up_date; delete p2.company_type;
     ({ error } = await admin.from("meetings").update(p2).eq("id", id));
   }
   if (error) return { ok: false, error: error.message };

@@ -1,4 +1,3 @@
-import { Icons } from "@/components/icons";
 import { MeetingsClient } from "@/components/MeetingsClient";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getCompanyOverview } from "@/lib/companies";
@@ -12,8 +11,8 @@ export default async function MeetingsPage() {
 
   // 提案管理の面談予定（meeting_date のある提案）をカレンダーに連動表示する
   let interviews: any[] = [];
-  // 企業マスタ（窓口担当者プリフィル・類似企業検出用）。
-  let companyDir: { name: string; contact_name: string | null }[] = [];
+  // 企業マスタ（窓口担当者プリフィル・類似企業検出・打合せ完了フラグ連携用）。
+  let companyDir: { name: string; contact_name: string | null; meeting_done: boolean }[] = [];
 
   if (dbConfigured) {
     try {
@@ -26,10 +25,13 @@ export default async function MeetingsPage() {
       if (error) needSetup = true;
       else meetings = data ?? [];
 
-      // 企業マスタの窓口担当者（contact_name）を取得。打合せフォームの窓口担当者プリフィルに使う。
+      // 企業マスタの窓口担当者（contact_name）と打合せ完了フラグ（meeting_done）を取得。
+      //   ・窓口担当者：打合せフォームの窓口担当者プリフィルに使う。
+      //   ・meeting_done：「打ち合わせ記録完了にする」チェックの初期値（企業データと連携）。
       try {
-        const cr: any = await sb.from("companies").select("name, contact_name").limit(5000);
-        companyDir = (cr.data ?? []).filter((c: any) => c?.name).map((c: any) => ({ name: String(c.name), contact_name: c.contact_name ?? null }));
+        let cr: any = await sb.from("companies").select("name, contact_name, meeting_done").limit(5000);
+        if (cr.error && /meeting_done|column/i.test(cr.error.message)) cr = await sb.from("companies").select("name, contact_name").limit(5000);
+        companyDir = (cr.data ?? []).filter((c: any) => c?.name).map((c: any) => ({ name: String(c.name), contact_name: c.contact_name ?? null, meeting_done: !!c.meeting_done }));
       } catch { /* companies 未整備でも続行 */ }
 
       // 面談予定（提案）: 失注・稼働済みを除く、面談日が入った提案
@@ -52,11 +54,6 @@ export default async function MeetingsPage() {
   const overviewNames = ((await getCompanyOverview()) ?? []).map((c) => c.name);
   const companies = Array.from(new Set([...overviewNames, ...companyDir.map((c) => c.name)].filter(Boolean)));
 
-  const total = meetings.length;
-  const positive = meetings.filter((m) => m.fb_sentiment === "👍ポジティブ").length;
-  const negative = meetings.filter((m) => m.fb_sentiment === "👎ネガティブ").length;
-  const withCompetitor = meetings.filter((m) => (m.competitors ?? []).some((c: string) => c && c !== "言及なし")).length;
-
   return (
     <div className="page">
       <div className="page-head">
@@ -73,25 +70,6 @@ export default async function MeetingsPage() {
           <b>打ち合わせ記録テーブルが未作成です。</b> SQL Editor で <span className="mono">supabase/meetings.sql</span> を実行してください。
         </div>
       )}
-
-      <div className="kpi-grid">
-        <div className="kpi brand">
-          <div className="top"><div className="ico-box"><Icons.inbox /></div><div className="chip flat">記録</div></div>
-          <div><div className="val tnum">{total}<span className="unit">件</span></div><div className="label">打ち合わせ記録</div><div className="note">直近300件</div></div>
-        </div>
-        <div className="kpi accent">
-          <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">👍</div></div>
-          <div><div className="val tnum">{positive}<span className="unit">件</span></div><div className="label">ポジティブ</div><div className="note">{total ? Math.round((positive / total) * 100) : 0}%</div></div>
-        </div>
-        <div className="kpi warn">
-          <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip">👎</div></div>
-          <div><div className="val tnum">{negative}<span className="unit">件</span></div><div className="label">ネガティブ</div><div className="note">要フォロー</div></div>
-        </div>
-        <div className="kpi">
-          <div className="top"><div className="ico-box"><Icons.matching /></div><div className="chip flat">競合</div></div>
-          <div><div className="val tnum">{withCompetitor}<span className="unit">件</span></div><div className="label">競合言及あり</div><div className="note">他社比較</div></div>
-        </div>
-      </div>
 
       {!needSetup && <MeetingsClient meetings={meetings} companies={companies} companyDir={companyDir} interviews={interviews} />}
     </div>
