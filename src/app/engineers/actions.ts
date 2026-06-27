@@ -9,6 +9,35 @@ import { notifySlack, appUrl } from "@/lib/slack";
 
 type Result = { ok: boolean; error?: string };
 
+/** スカウトを起点に、その人材とのチャットスレッドを開く（enger-lp の staff API を必ずサーバ経由で呼ぶ）。
+ *  ・POST {ENGER_LP_BASE_URL}/api/staff/chat/open-thread（Bearer STAFF_API_TOKEN）。
+ *  ・既存スレッドがあれば API が既存を返す（created=false・タイトル据え置き）。DX 側は新規作成せず、
+ *    返ってきた thread_id のチャット（/chat?t=...）へ遷移するだけ。トークンはクライアントへ露出しない。 */
+export async function openScoutChatThread(scoutId: string): Promise<{ ok: boolean; thread_id?: string; title?: string | null; created?: boolean; error?: string }> {
+  const id = (scoutId ?? "").trim();
+  if (!id) return { ok: false, error: "scout_id がありません" };
+  const base = (process.env.ENGER_LP_BASE_URL ?? "").replace(/\/$/, "");
+  const token = process.env.STAFF_API_TOKEN ?? "";
+  if (!base || !token) return { ok: false, error: "連携設定が未完了です（ENGER_LP_BASE_URL / STAFF_API_TOKEN を設定してください）" };
+  // 操作スタッフの auth.users.id（任意）。取得できなければ null。
+  let staffUserId: string | null = null;
+  try { staffUserId = ((await currentAccess()) as any)?.userId ?? null; } catch { /* 任意のためなくてもよい */ }
+  try {
+    const res = await fetch(`${base}/api/staff/chat/open-thread`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ scout_id: id, staff_user_id: staffUserId }),
+      cache: "no-store",
+    });
+    const data = await res.json().catch(() => ({} as any));
+    if (!res.ok || !data?.ok) return { ok: false, error: data?.error || `open-thread failed (${res.status})` };
+    revalidatePath("/chat");
+    return { ok: true, thread_id: data.thread_id, title: data.title ?? null, created: !!data.created };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "連携に失敗しました" };
+  }
+}
+
 /** エンジニアへの対応を1件記録（誰が・いつ・何をしたか）。 */
 export async function addEngineerAction(input: { engineer_id: string; engineer_name?: string | null; action: string; note?: string | null }): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
