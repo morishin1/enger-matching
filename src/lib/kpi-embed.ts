@@ -30,7 +30,8 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     // 集計の基準日（前日のみ昨日、それ以外は今日）。
     const base = isYesterday ? addDays(jstStartOfDay(new Date()), -1) : new Date();
 
-    const isTeam = sp.owner === "__team__";
+    // 既定はチーム表示（owner 未指定）。個人タブを押すと owner=email が付く。
+    const isTeam = sp.owner === "__team__" || !sp.owner;
     let targetEmail: string | null = access.email.toLowerCase();
     let targetName = access.name ?? "";
     if (isTeam) { targetEmail = null; targetName = "チーム全体"; }
