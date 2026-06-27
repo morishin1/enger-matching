@@ -29,12 +29,14 @@ export type RankedPair = {
     skills: string[]; salary_min: number | null; salary_max: number | null;
     role_label: string | null; remote_type: string | null; work_location: string | null;
     start_date: string | null; flow_note: string | null; detail: string | null;
+    created_at: string | null;
   };
   cand: {
     candidate_no: number; id: string | null; name: string; initials: string | null; title: string | null;
     rate: string | null; company: string | null; affiliation: string | null;
     skills: string[]; exp: string | null; avail: string | null; location: string | null;
     remote_pref: string | null; age_band: string | null; nationality: string | null; note: string | null;
+    created_at: string | null;
   };
   proposed: boolean;          // 既に提案済みのペアか
 };
@@ -131,6 +133,7 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
       role_label: h.job.role_label ?? null, remote_type: h.job.remote_type ?? null,
       work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
       flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
+      created_at: h.job.created_at ?? null,
     },
     cand: {
       candidate_no: h.cand.candidate_no, id: h.cand.id ?? null, name: h.cand.name ?? "",
@@ -140,6 +143,7 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
       exp: h.cand.exp ?? null, avail: h.cand.avail ?? null, location: h.cand.location ?? null,
       remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
       nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
+      created_at: h.cand.created_at ?? null,
     },
     proposed: !!(h.job.id && h.cand.id && proposedPairs.has(`${h.job.id}|${h.cand.id}`)),
   }));
@@ -262,6 +266,7 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
       role_label: h.job.role_label ?? null, remote_type: h.job.remote_type ?? null,
       work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
       flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
+      created_at: h.job.created_at ?? null,
     },
     cand: {
       candidate_no: h.cand.candidate_no, id: h.cand.id ?? null, name: h.cand.name ?? "",
@@ -271,6 +276,7 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
       exp: h.cand.exp ?? null, avail: h.cand.avail ?? null, location: h.cand.location ?? null,
       remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
       nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
+      created_at: h.cand.created_at ?? null,
     },
     proposed: !!(h.job.id && h.cand.id && proposedPairs.has(`${h.job.id}|${h.cand.id}`)),
   }));

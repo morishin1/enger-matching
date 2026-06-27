@@ -5,14 +5,18 @@
 //   URL の ?period を切り替えて再取得する（サーバ側 loadKpiClientProps が期間で集計）。
 //   既定は「本日」。前日/今週/今月/四半期/任意（カレンダー）に切替可能。
 import { useRouter, useSearchParams } from "next/navigation";
+import { PeriodChips } from "./PeriodChips";
 
-const PERIODS: { key: string; label: string }[] = [
+// KPI推移は「推移グラフ」のため期間＝集計の粒度（本日=日次/今週=週次/今月=月次/四半期）。
+//   提案ボード等の“日付レンジ絞り込み”とは意味が違うので、ここは専用キーを保つ。
+//   見た目だけ共通の PeriodChips（統一デザイン）に揃える。
+const PERIODS = [
   { key: "day", label: "本日" },
   { key: "yesterday", label: "前日" },
   { key: "week", label: "今週" },
   { key: "month", label: "今月" },
   { key: "quarter", label: "四半期" },
-  { key: "custom", label: "任意（カレンダー）" },
+  { key: "custom", label: "任意" },
 ];
 
 export function KpiPeriodBar({ current }: { current?: string | null }) {
@@ -29,30 +33,12 @@ export function KpiPeriodBar({ current }: { current?: string | null }) {
   };
 
   return (
-    <div className="card" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", flexWrap: "wrap" }}>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 800 }}>
-        <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>calendar_month</span>
-        期間
-      </span>
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {PERIODS.map((p) => {
-          const on = active === p.key;
-          return (
-            <button key={p.key} type="button" onClick={() => go(p.key)}
-              style={{
-                fontFamily: "inherit", fontSize: 12.5, fontWeight: on ? 800 : 600, cursor: "pointer",
-                padding: "6px 14px", borderRadius: 99,
-                border: `1px solid ${on ? "var(--color-brand-600)" : "var(--color-border)"}`,
-                background: on ? "var(--color-brand-600)" : "#fff", color: on ? "#fff" : "var(--color-ink-2)",
-              }}>
-              {p.label}
-            </button>
-          );
-        })}
-      </div>
-      {active === "custom" && (
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>※「任意」は下のKPIダッシュボードの日付欄で範囲を指定してください。</span>
-      )}
-    </div>
+    <PeriodChips
+      card
+      value={active}
+      onChange={go}
+      options={PERIODS}
+      note={active === "custom" ? "※「任意」は下のKPIダッシュボードの日付欄で範囲を指定してください。" : undefined}
+    />
   );
 }
