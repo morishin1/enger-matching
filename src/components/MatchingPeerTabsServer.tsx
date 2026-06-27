@@ -4,7 +4,7 @@
 import { getSidebarCounts } from "@/lib/counts";
 import { MatchingPeerTabs } from "./MatchingTabs";
 
-export async function MatchingPeerTabsServer({ activeCount }: { activeCount?: number } = {}) {
+export async function MatchingPeerTabsServer({ activeCount, rightSlot }: { activeCount?: number; rightSlot?: React.ReactNode } = {}) {
   const counts = await getSidebarCounts();
-  return <MatchingPeerTabs counts={counts} activeCount={activeCount} />;
+  return <MatchingPeerTabs counts={counts} activeCount={activeCount} rightSlot={rightSlot} />;
 }

@@ -437,8 +437,6 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         <div style={{ flex: "1 1 240px", minWidth: 0 }}>
           <div className="meta">Jobs · 案件マスタ（実データ）</div>
           <h1>案件</h1>
-          {/* 旧「累計/新規サマリ」を期間チップに置換。期間を選ぶと登録日で一覧を絞り込み、各期間の件数を表示。 */}
-          {!scope.isTenant && <div style={{ marginTop: 6 }}><UrlPeriodChips basePath="/jobs" counts={periodCounts} /></div>}
         </div>
         {/* ボタンは「新規登録 / CSV取込 / ゴミ箱」の3つに統一（マッチング系メニュー共通）。 */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -452,7 +450,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           検索・各フィルタのいずれかが効いている時だけ activeCount を渡す。 */}
       {!scope.isTenant && (() => {
         const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll || periodFiltering);
-        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
+        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/jobs" counts={periodCounts} />} />;
       })()}
 
       {scope.isTenant && (

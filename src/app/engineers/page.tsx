@@ -1,18 +1,31 @@
 import { EngineersClient } from "@/components/EngineersClient";
 import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { QuickAccessButtons } from "@/components/QuickAccessButtons";
+import { UrlPeriodChips } from "@/components/UrlPeriodChips";
 import { FlowSteps } from "@/components/FlowSteps";
 import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
 import { listEngineerChatStatus } from "@/lib/chat";
 import { currentAccess } from "@/lib/accounts";
+import { asClientPeriod, hasCustomRange, inClientPeriod, inCustomRange, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
 
-export default async function EngineersPage() {
+export default async function EngineersPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string }> }) {
+  const sp = await searchParams;
   const access = await currentAccess();
   const [{ rows, available }, actions, scouts, applications, chatStatus] = await Promise.all([
     listEngineers(), listEngineerActions(), listScouts(), listApplications(), listEngineerChatStatus(access?.email),
   ]);
+
+  // 期間セレクタ（統一デザイン）。登録日(created_at)で一覧を絞り込む。既定=全期間。
+  const mPeriod = asClientPeriod(sp.period, "all");
+  const mCustom = hasCustomRange(sp.from, sp.to);
+  const inPeriod = (d: string | null | undefined) =>
+    mCustom ? inCustomRange(d, sp.from, sp.to) : inClientPeriod(d, mPeriod);
+  const periodCounts = Object.fromEntries(
+    CLIENT_PERIOD_KEYS.map((k) => [k, k === "all" ? rows.length : rows.filter((r) => inClientPeriod(r.created_at, k)).length]),
+  ) as Partial<Record<ClientPeriod, number | null>>;
+  const shownRows = (mCustom || mPeriod !== "all") ? rows.filter((r) => inPeriod(r.created_at)) : rows;
 
   return (
     <div className="page">
@@ -32,7 +45,7 @@ export default async function EngineersPage() {
 
       <FlowSteps current="mail" sub="LP経由のエンジニア取込" />
 
-      <MatchingPeerTabsServer />
+      <MatchingPeerTabsServer rightSlot={<UrlPeriodChips basePath="/engineers" counts={periodCounts} />} />
 
       {!available && (
         <div className="card" style={{ borderColor: "var(--color-warn, #e0a317)", color: "var(--color-ink-2)", fontSize: 13 }}>
@@ -40,7 +53,7 @@ export default async function EngineersPage() {
         </div>
       )}
 
-      <EngineersClient engineers={rows} actions={actions} scouts={scouts} applications={applications} chatStatus={chatStatus} />
+      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} chatStatus={chatStatus} />
     </div>
   );
 }
