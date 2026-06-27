@@ -155,10 +155,12 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       if (!r.error) { data = r.data ?? []; break; }
     }
     if (data == null) return { rows: [], available: false };
-    // 外部システム由来（LMS 等）と無限道場の混入行を除外する。
-    //   signup_source/source 列が無い既存データでも、classifySource のヒューリスティック
-    //   （role=student → dojo 等）で無限道場と判定された行は LP登録一覧に出さない。
-    data = data.filter((r: any) => !isExcludedProfile(r) && classifySource(r).key !== "dojo");
+    // LP登録一覧は ENGERフリーランス（enger.jp 登録）のみを表示する（要望）。
+    //   ・無限道場（role=student / signup_source=dojo 等）と外部システム由来（LMS）は取り込まない。
+    //   ・許可リスト方式：classifySource が "enger" と判定した行だけを残す（dojo・その他は除外）。
+    //   ・signup_source が NULL の既存データはヒューリスティック（GitHub/表示名/メール→enger、
+    //     role=student→dojo）でフォールバック判定。確実な分離には profiles.signup_source の保存を推奨。
+    data = data.filter((r: any) => !isExcludedProfile(r) && classifySource(r).key === "enger");
     // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
     const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
     const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;
