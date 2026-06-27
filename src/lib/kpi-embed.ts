@@ -14,6 +14,7 @@ import { canManageDept } from "@/lib/roles";
 import { getStageTargets } from "@/lib/stage-targets";
 import { listPersonKgi, monthKey } from "@/lib/person-kgi";
 import { normalizeStage } from "@/lib/proposal-constants";
+import { getMemberKpiRoles, getKpiFunnelTarget } from "@/lib/kpi-funnel";
 
 const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
@@ -133,6 +134,16 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* テーブル未整備でもKPIは表示 */ }
 
+    // メンバーの役割（アウトサイド/インサイド/テレアポ）と、チームのファネル目標（面談率/合格率）。
+    //   役割別のKGI（外＝合格率 面談→稼働 / 内＝面談率 提案→面談）をボードで表示するために渡す。
+    let roleByMember: Record<string, string> = {};
+    let funnelRates: { meetingRate: number; passRate: number; won: number } = { meetingRate: 0.2, passRate: 0.33, won: 4 };
+    try {
+      roleByMember = await getMemberKpiRoles();
+      const ft = await getKpiFunnelTarget();
+      funnelRates = { meetingRate: ft.meetingRate, passRate: ft.passRate, won: ft.won };
+    } catch { /* 役割/目標が未整備でもボードは表示 */ }
+
     // ステージ目標ボードの「打ち合わせ」「案件の仕入れ」列のソースイベント（期間連動はクライアント側）。
     //   ・打ち合わせ：打合せ記録(meetings)の自社担当者(our_owner)×打ち合わせ日(meeting_date) を1件として集計。
     //   ・案件の仕入れ：承認済（companies.meeting_done=true）かつ自社担当者(owner_staff)記入済の企業から
@@ -198,7 +209,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
 
-    return { kpi, teamActivity, stageTargets, kgiByMember, meetingEvents, procurementEvents, meetingReachedEvents };
+    return { kpi, teamActivity, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents };
   } catch {
     return null;
   }
