@@ -256,6 +256,12 @@ export function ProposalsWorkspace({
                 onRange: (f, t) => { setPeriod("all"); setCustomFrom(f); setCustomTo(t); } }} />
           </div>
         )}
+        {/* KPI推移も他タブと同じ位置（タブ右）に期間を置く（2段にせず1段に揃える）。 */}
+        {tab === "kpi" && (
+          <div style={{ paddingBottom: 6 }}>
+            <KpiPeriodBar current={kpiProps?.period} card={false} note="" />
+          </div>
+        )}
       </div>
 
       {/* 子コンポーネントは「開いているタブだけ」描画する（条件付きレンダリング）。
@@ -265,8 +271,7 @@ export function ProposalsWorkspace({
       {tab === "kpi" && (
         kpiProps ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {/* 期間切替は1つに統合（このバーがダッシュボード・各表すべてに連動）。 */}
-            <KpiPeriodBar current={kpiProps.period} />
+            {/* 期間切替はタブ右に移動（他タブと同じ位置・1段）。このバーがダッシュボード・各表すべてに連動。 */}
             {/* ① KPIダッシュボードを一番上に（期間タブは内蔵せず上の1バーに統一）。 */}
             <div className="card flush" style={{ overflow: "hidden" }}>
               <KpiDashboardClient {...kpiProps} hidePeriodTabs />
