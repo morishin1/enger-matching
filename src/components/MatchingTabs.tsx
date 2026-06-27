@@ -42,8 +42,9 @@ export function MatchingTabs({ counts, hideOnMatching = false, compact = true }:
   return <PeerTabsInternal counts={counts} active={active} compact={compact} />;
 }
 
-/** ページ本体用。説明文（各ページの page-head）の下に「パンくず → タブ」を縦に並べる。 */
-export function MatchingPeerTabs({ counts, activeCount }: { counts?: SidebarCounts; activeCount?: number }) {
+/** ページ本体用。説明文（各ページの page-head）の下に「パンくず → タブ」を縦に並べる。
+ *  rightSlot を渡すと、タブ行の右側に並べて表示する（例：期間セレクタを全タブ共通の位置に置く）。 */
+export function MatchingPeerTabs({ counts, activeCount, rightSlot }: { counts?: SidebarCounts; activeCount?: number; rightSlot?: React.ReactNode }) {
   const path = usePathname() ?? "";
   const active = activeFromPath(path) ?? "matching";
   const sectionLabel = TABS.find((t) => t.key === active)?.label ?? "";
@@ -59,7 +60,11 @@ export function MatchingPeerTabs({ counts, activeCount }: { counts?: SidebarCoun
           </span>
         ))}
       </div>
-      <PeerTabsInternal counts={counts} active={active} activeCount={activeCount} />
+      {/* タブ（左）＋期間など（右）を1段に。狭幅では右側が下へ折り返す。 */}
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <PeerTabsInternal counts={counts} active={active} activeCount={activeCount} />
+        {rightSlot && <div style={{ flexShrink: 0, paddingBottom: 4 }}>{rightSlot}</div>}
+      </div>
     </div>
   );
 }
