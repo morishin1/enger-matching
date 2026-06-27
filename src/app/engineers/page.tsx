@@ -29,6 +29,9 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="page">
+      {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。 */}
+      <MatchingPeerTabsServer rightSlot={<UrlPeriodChips basePath="/engineers" counts={periodCounts} />} />
+
       <div className="page-head" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ maxWidth: 820 }}>
           <div className="meta">ENGER · LP登録（各ランディングページ経由）</div>
@@ -44,8 +47,6 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
       </div>
 
       <FlowSteps current="mail" sub="LP経由のエンジニア取込" />
-
-      <MatchingPeerTabsServer rightSlot={<UrlPeriodChips basePath="/engineers" counts={periodCounts} />} />
 
       {!available && (
         <div className="card" style={{ borderColor: "var(--color-warn, #e0a317)", color: "var(--color-ink-2)", fontSize: 13 }}>

@@ -1,7 +1,7 @@
 "use client";
 
 // マッチング画面の期間セレクタ（統一デザイン・URL駆動）。
-//   ?period=today|week|lastweek|month|thirty|all と、全期間チップのカレンダー(?from/?to)で
+//   ?period=today|week|lastweek|month|all と、全期間チップのカレンダー(?from/?to)で
 //   候補ランキング・おすすめTOP10・案件リストを登録日(created_at)で絞り込む。
 //   既定は「全期間」。モードタブと同じ1段に置けるよう card=false（素の行）で描画する。
 import { useRouter, useSearchParams } from "next/navigation";

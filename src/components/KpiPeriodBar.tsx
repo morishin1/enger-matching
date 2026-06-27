@@ -1,7 +1,7 @@
 "use client";
 
 // 提案管理「KPI推移」タブ上部の期間切り替えバー。
-//   他メニューと同じ統一デザインの6チップ（本日/今週/先週/今月/30日/全期間）に揃える。
+//   他メニューと同じ統一デザインの6チップ（本日/今週/先週/今月/全期間）に揃える。
 //   各チップを、KPIダッシュボードのサーバー集計（?period/?from/?to）にマッピングして再取得し、
 //   その期間の KPI・KGI（提案/接触/調整/日程/成約）の達成率を表示する。
 //   ・本日→day / 今週→week / 今月→month（サーバー既定の粒度）
@@ -29,10 +29,6 @@ function rangeFor(key: ClientPeriod): { period: string; from?: string; to?: stri
     const lm = mondayThisWeek(); lm.setDate(lm.getDate() - 7);
     const ls = mondayThisWeek(); ls.setDate(ls.getDate() - 1);
     return { period: "custom", from: ymd(lm), to: ymd(ls) };
-  }
-  if (key === "thirty") {
-    const f = new Date(today); f.setDate(f.getDate() - 29);
-    return { period: "custom", from: ymd(f), to: ymd(today) };
   }
   return { period: "custom", from: "2000-01-01", to: ymd(today) }; // all
 }

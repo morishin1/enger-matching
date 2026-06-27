@@ -375,6 +375,13 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="page">
+      {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。
+          絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
+      {!scope.isTenant && (() => {
+        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource || fNoProposal || periodFiltering);
+        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/people" counts={periodCounts} />} />;
+      })()}
+
       {/* page-head: ボタンが多いため、タイトル列に flex:1 / minWidth:0 を与えてつぶれないようにする。 */}
       <div className="page-head" style={{ flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 240px", minWidth: 0 }}>
@@ -388,12 +395,6 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           {!scope.isTenant && <a href="/trash?tab=candidates" className="btn ghost" style={{ textDecoration: "none", fontSize: 12 }} title="削除した人材の復元 / 6/1以前を一括ゴミ箱へ"><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> ゴミ箱</a>}
         </div>
       </div>
-
-      {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
-      {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource || fNoProposal || periodFiltering);
-        return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/people" counts={periodCounts} />} />;
-      })()}
 
       {scope.isTenant && (
         <div className="card" style={{ background: "#eef2ff", borderColor: "#c7d2fe", fontSize: 12.5, color: "var(--color-ink-2)" }}>
