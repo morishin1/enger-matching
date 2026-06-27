@@ -38,3 +38,25 @@ export function inClientPeriod(createdAt: string | number | null | undefined, p:
   const t = typeof createdAt === "number" ? createdAt : new Date(createdAt ?? 0).getTime();
   return !!t && t >= periodStartMs(p) && t < periodEndMs(p);
 }
+
+// ===== 任意期間（カレンダー指定）=====
+//   from/to は "YYYY-MM-DD"（端は両端含む）。空なら無制限（= 全期間）。
+//   どちらか一方でも指定があれば「カスタム範囲」とみなす。
+export function hasCustomRange(from?: string | null, to?: string | null): boolean {
+  return !!(from && from.trim()) || !!(to && to.trim());
+}
+export function customStartMs(from?: string | null): number {
+  if (!from || !from.trim()) return 0;
+  const d = new Date(`${from}T00:00:00`);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+export function customEndMs(to?: string | null): number {
+  if (!to || !to.trim()) return Number.POSITIVE_INFINITY;
+  const d = new Date(`${to}T00:00:00`);
+  return isNaN(d.getTime()) ? Number.POSITIVE_INFINITY : d.getTime() + 86400000; // 終了日を含む（翌0時未満）
+}
+export function inCustomRange(createdAt: string | number | null | undefined, from?: string | null, to?: string | null): boolean {
+  if (!hasCustomRange(from, to)) return true;
+  const t = typeof createdAt === "number" ? createdAt : new Date(createdAt ?? 0).getTime();
+  return !!t && t >= customStartMs(from) && t < customEndMs(to);
+}

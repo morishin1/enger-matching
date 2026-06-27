@@ -14,7 +14,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 type Mode = "auto" | "focus" | "ranking";
 
-export function MatchingModeTabs() {
+export function MatchingModeTabs({ rightSlot }: { rightSlot?: React.ReactNode } = {}) {
   const router = useRouter();
   const sp = useSearchParams();
   // URL の tab からアクティブを判定。既定は自動（auto）。番号ジャンプ(job/person)後も自動扱い。
@@ -51,7 +51,8 @@ export function MatchingModeTabs() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 0, marginBottom: 12 }}>
-      {/* タブ */}
+      {/* モードタブ（左）＋期間セレクタ（右）を1段に揃える。 */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
       <div role="tablist" style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99, alignSelf: "flex-start" }}>
         {TABS.map((t) => {
           const on = mode === t.key;
@@ -83,6 +84,8 @@ export function MatchingModeTabs() {
             </button>
           );
         })}
+      </div>
+        {rightSlot && <div style={{ flexShrink: 1, minWidth: 0 }}>{rightSlot}</div>}
       </div>
 
       {/* 番号で直接マッチング（注力ビュー内に統合。旧「番号マッチング」タブの代替）。 */}
