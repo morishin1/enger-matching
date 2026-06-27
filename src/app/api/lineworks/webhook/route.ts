@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import { extractEntityFields, upsertCandidateManual, upsertJobManual, type CandidateInput, type JobInput } from "@/lib/actions";
 import { rankCandidates, rankJobs } from "@/lib/match";
-import { relatedSearchLabels } from "@/lib/skills";
+import { relatedSearchLabels, normalizeSkills } from "@/lib/skills";
 import { lineworksConfigured, verifyWebhookSignature, sendBotMessage, textMessage, matchCarousel, diagnoseAuth, type LwTarget, type MatchColumn } from "@/lib/lineworks";
 import { recordLineworksTarget } from "@/lib/lineworks-targets";
 import { recordLineworksMessage } from "@/lib/lineworks-messages";
@@ -29,7 +29,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BASE = (process.env.NEXT_PUBLIC_SITE_URL || "https://dx.enger.jp").replace(/\/$/, "");
-const splitSkills = (s?: string) => (s ? s.split(/[,、\/／]+/).map((x) => x.trim()).filter(Boolean) : []);
+// スキルは ENGER 正規辞書で正規化（表記揺れ→正式名・重複排除）。品質ゲート・登録・マッチングの基準を揃える。
+const splitSkills = (s?: string) => normalizeSkills(s ?? "");
 
 // 事前ゲート：タグを除いた本文がこの文字数（空白除く）未満なら情報不足として抽出しない。
 const MIN_BODY_CHARS = 15;

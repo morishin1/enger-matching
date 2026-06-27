@@ -4,6 +4,7 @@
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { logUsage } from "@/lib/ai-usage";
 import { getAiCache, setAiCache } from "@/lib/ai-cache";
+import { normalizeSkills } from "@/lib/skills";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,7 +53,8 @@ export async function POST(req: Request) {
 
   // 同じメール本文の再抽出は課金しない（純関数なので共有キャッシュ。kind 別にキー化。30日TTL）。
   const ckey = kind + "|" + text;
-  const cached = await getAiCache<any[]>("extract-bulk", ckey, 30 * 86400);
+  // 名前空間に v2 を付与：スキル正規化を導入したため、旧キャッシュ（未正規化）を引かせない。
+  const cached = await getAiCache<any[]>("extract-bulk-v2", ckey, 30 * 86400);
   if (cached) return Response.json({ ok: true, kind, records: cached, cached: true });
 
   const schema = kind === "jobs" ? JOB_SCHEMA : CAND_SCHEMA;
@@ -60,6 +62,7 @@ export async function POST(req: Request) {
 1通のメール/書面に **複数の${kind === "jobs" ? "案件" : "要員"}** がまとめて書かれていることがあります。
 それぞれを取り違えずに分離し、**JSON配列のみ** を返してください（説明・前置き・コードフェンス不要）。
 分からない項目は null、スキルが無ければ空配列。氏名や案件名が読み取れない要素は含めないでください。
+スキルは略称や経験年数（例「Java(8年)」）を含めず、一般的な技術名で抽出してください（正規名への変換は後段で実施します）。
 
 ${schema}`;
 
@@ -79,7 +82,10 @@ ${schema}`;
 
   // 必須キー（人材=name / 案件=title）が無い要素は除外
   const keyField = kind === "jobs" ? "title" : "name";
-  const records = parsed.filter((x) => x && typeof x === "object" && typeof x[keyField] === "string" && x[keyField].trim());
-  await setAiCache("extract-bulk", ckey, records);
+  const records = parsed
+    .filter((x) => x && typeof x === "object" && typeof x[keyField] === "string" && x[keyField].trim())
+    // スキルを ENGER 正規辞書で正規化（表記揺れ→正式名・重複排除）。貼り付け取込のフォーム反映を揃える。
+    .map((x) => ({ ...x, skills: normalizeSkills(x.skills) }));
+  await setAiCache("extract-bulk-v2", ckey, records);
   return Response.json({ ok: true, kind, records });
 }
