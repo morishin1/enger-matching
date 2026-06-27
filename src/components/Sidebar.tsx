@@ -19,7 +19,6 @@ type NavItem = { href: string; id: string; label: string; desc?: string; icon: k
 // 上部の統一タブ（MatchingPeerTabs）と意味的にも一致させる。
 const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", desc: "新着ニュースと売上KPI", icon: "dashboard" },
-  { href: "/mail", id: "mail", label: "メール取込", desc: "案件・人材メールを取り込み", icon: "mail" },
   { href: "/companies", id: "companies", label: "企業", desc: "取引先・商談の管理", icon: "company", count: "companies" },
   // 「マッチング」クリックはマッチング画面(/matching)に着地（既定タブ＝マッチング）。
   //   子は案件→人材→LP登録の順。
@@ -44,14 +43,15 @@ const NAV: NavItem[] = [
 //   復活させたい場合は ANALYSIS 配列を定義し、下の analysis0 にセットする。
 const ANALYSIS: NavItem[] = [];
 
-// その他（補助ツール）。ユーザー管理・各種設定は /settings 内のタブに統合済み。
-//   サイドバーは「設定」1行のみ（承認待ち件数は親バッジで通知）。
+// その他（補助ツール）。メール取込・日報は「設定」の配下にまとめ、AIアシスタントは非表示。
+//   設定 …（親＝/settings）／ メール取込（/mail）／ 日報（/reports）。
 const TOOLS: NavItem[] = [
   { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・フィードバック", icon: "inbox" },
-  { href: "/reports", id: "reports", label: "日報", desc: "気づき・改善の記録", icon: "msg" },
   { href: "/pr", id: "pr", label: "PR・X集客", desc: "発信・集客", icon: "bolt" },
-  { href: "/ai", id: "ai", label: "AIアシスタント", desc: "AIに相談", icon: "ai" },
-  { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending" },
+  { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending", children: [
+    { href: "/mail",    id: "mail",    label: "メール取込", desc: "案件・人材メールを取り込み" },
+    { href: "/reports", id: "reports", label: "日報",       desc: "気づき・改善の記録" },
+  ] },
 ];
 
 // テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
@@ -119,9 +119,14 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   const analysis0 = (isClient || isTenant) ? []
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;
+  // 設定（ユーザー管理含む）は admin のみ。メール取込・日報は admin では設定配下にまとめるが、
+  //   agent は設定を持たないため、access を失わないよう agent には単独メニューとして見せる
+  //   （menuPerms で別途絞り込み）。
+  const AGENT_MAIL: NavItem = { href: "/mail", id: "mail", label: "メール取込", desc: "案件・人材メールを取り込み", icon: "mail" };
+  const AGENT_REPORTS: NavItem = { href: "/reports", id: "reports", label: "日報", desc: "気づき・改善の記録", icon: "msg" };
   const tools0base = (isClient || isTenant) ? []
-    : role === "agent" ? TOOLS.filter((n) => n.href !== "/settings") // 設定（ユーザー管理含む）は admin のみ
-    : TOOLS; // admin は設定・ユーザー管理含む全部
+    : role === "agent" ? [...TOOLS.filter((n) => n.href !== "/settings"), AGENT_MAIL, AGENT_REPORTS]
+    : TOOLS; // admin は設定（配下にメール取込・日報）含む全部
   // タイムカード（バイト/副業）。本人入力対象 or 承認者のみに表示（menuPerms の対象外＝常に出す）。
   const TIMECARD_ITEM: NavItem = { href: "/timecard", id: "timecard", label: "タイムカード", icon: "cal" };
   const tools0 = showTimecard ? [TIMECARD_ITEM, ...tools0base] : tools0base;
