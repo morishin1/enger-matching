@@ -42,11 +42,26 @@ export function MatchingTabs({ counts, hideOnMatching = false, compact = true }:
   return <PeerTabsInternal counts={counts} active={active} compact={compact} />;
 }
 
-/** ページ本体用（後方互換のため残置）。タブはトップバー(MatchingTabs)へ統一したため、
- *  本体側では何も描画しない（全ページで同じ位置＝上下ブレなし／上に詰められる）。 */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function MatchingPeerTabs(_props: { counts?: SidebarCounts; activeCount?: number }) {
-  return null;
+/** ページ本体用。説明文（各ページの page-head）の下に「パンくず → タブ」を縦に並べる。 */
+export function MatchingPeerTabs({ counts, activeCount }: { counts?: SidebarCounts; activeCount?: number }) {
+  const path = usePathname() ?? "";
+  const active = activeFromPath(path) ?? "matching";
+  const sectionLabel = TABS.find((t) => t.key === active)?.label ?? "";
+  // パンくず：ENGER / マッチング（/ セクション）。最後の項目を太字。
+  const crumbs = active === "matching" ? ["ENGER", "マッチング"] : ["ENGER", "マッチング", sectionLabel];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="crumbs">
+        {crumbs.map((c, i) => (
+          <span key={i} style={{ display: "contents" }}>
+            {i > 0 && <span className="sep">/</span>}
+            {i === crumbs.length - 1 ? <b>{c}</b> : <span>{c}</span>}
+          </span>
+        ))}
+      </div>
+      <PeerTabsInternal counts={counts} active={active} activeCount={activeCount} />
+    </div>
+  );
 }
 
 function PeerTabsInternal({ counts, active, activeCount, compact = false }: { counts?: SidebarCounts; active: TabKey; activeCount?: number; compact?: boolean }) {
