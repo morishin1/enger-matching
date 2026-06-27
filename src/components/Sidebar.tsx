@@ -10,32 +10,32 @@ import { type Role, hasSalesFunction } from "@/lib/roles";
 import { isMenuAllowed } from "@/lib/menu-permissions";
 import { ThemeToggle } from "./ThemeToggle";
 
-type NavChild = { href: string; id: string; label: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
-type NavItem = { href: string; id: string; label: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
+type NavChild = { href: string; id: string; label: string; desc?: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
+type NavItem = { href: string; id: string; label: string; desc?: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
 
 // 営業フローに沿った並び（ダッシュボード→取込→マスタ→マッチング→提案→稼働の順）。
 // ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
 // マッチングは「案件×人材」の中核。案件/人材/LP登録は子としてぶら下げ、
 // 上部の統一タブ（MatchingPeerTabs）と意味的にも一致させる。
 const NAV: NavItem[] = [
-  { href: "/", id: "dashboard", label: "ダッシュボード", icon: "dashboard" },
-  { href: "/mail", id: "mail", label: "メール取込", icon: "mail" },
-  { href: "/companies", id: "companies", label: "企業", icon: "company", count: "companies" },
+  { href: "/", id: "dashboard", label: "ダッシュボード", desc: "新着ニュースと売上KPI", icon: "dashboard" },
+  { href: "/mail", id: "mail", label: "メール取込", desc: "案件・人材メールを取り込み", icon: "mail" },
+  { href: "/companies", id: "companies", label: "企業", desc: "取引先・商談の管理", icon: "company", count: "companies" },
   // 「マッチング」クリックはマッチング画面(/matching)に着地（既定タブ＝マッチング）。
   //   子は案件→人材→LP登録の順。
-  { href: "/matching", id: "matching", label: "マッチング", icon: "matching", children: [
-    { href: "/jobs",      id: "jobs",      label: "案件",   count: "jobs",      newCount: "newJobs" },
-    { href: "/people",    id: "people",    label: "人材",   count: "people",    newCount: "newPeople" },
-    { href: "/engineers", id: "engineers", label: "LP登録", count: "engineers", newCount: "newEngineers" },
+  { href: "/matching", id: "matching", label: "マッチング", desc: "AIで最適な組み合わせを提案", icon: "matching", children: [
+    { href: "/jobs",      id: "jobs",      label: "案件",   desc: "募集中の案件を管理",   count: "jobs",      newCount: "newJobs" },
+    { href: "/people",    id: "people",    label: "人材",   desc: "登録人材を管理",       count: "people",    newCount: "newPeople" },
+    { href: "/engineers", id: "engineers", label: "LP登録", desc: "LP経由の登録者",       count: "engineers", newCount: "newEngineers" },
   ] },
-  { href: "/proposals", id: "proposals", label: "提案管理", icon: "proposals", count: "proposals" },
-  { href: "/chat", id: "chat", label: "チャット", icon: "msg" },
+  { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
+  { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg" },
   // LINE：LINE経由の人材/案件の集約＋LINE WORKSのやりとり（トーク）。
-  { href: "/line", id: "line", label: "LINE", icon: "line" },
+  { href: "/line", id: "line", label: "LINE", desc: "LINE経由の人材・案件とトーク", icon: "line" },
   // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
-  { href: "/progress", id: "progress", label: "稼働管理", icon: "progress", count: "progress", children: [
-    { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）" },
-    { href: "/documents", id: "documents",    label: "書類送付" },
+  { href: "/progress", id: "progress", label: "稼働管理", desc: "稼働・請求・書類の管理", icon: "progress", count: "progress", children: [
+    { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）", desc: "稼働状況と請求" },
+    { href: "/documents", id: "documents",    label: "書類送付", desc: "契約書類の送付" },
   ] },
 ];
 
@@ -47,11 +47,11 @@ const ANALYSIS: NavItem[] = [];
 // その他（補助ツール）。ユーザー管理・各種設定は /settings 内のタブに統合済み。
 //   サイドバーは「設定」1行のみ（承認待ち件数は親バッジで通知）。
 const TOOLS: NavItem[] = [
-  { href: "/meetings", id: "meetings", label: "打合せ記録", icon: "inbox" },
-  { href: "/reports", id: "reports", label: "日報", icon: "msg" },
-  { href: "/pr", id: "pr", label: "PR・X集客", icon: "bolt" },
-  { href: "/ai", id: "ai", label: "AIアシスタント", icon: "ai" },
-  { href: "/settings", id: "settings", label: "設定", icon: "settings", count: "approvalsPending" },
+  { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・フィードバック", icon: "inbox" },
+  { href: "/reports", id: "reports", label: "日報", desc: "気づき・改善の記録", icon: "msg" },
+  { href: "/pr", id: "pr", label: "PR・X集客", desc: "発信・集客", icon: "bolt" },
+  { href: "/ai", id: "ai", label: "AIアシスタント", desc: "AIに相談", icon: "ai" },
+  { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending" },
 ];
 
 // テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
@@ -209,7 +209,10 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                   <Link href={n.href} prefetch={false} className={"nav-item " + (parentActive ? "active" : "")}
                     style={{ flex: 1, minWidth: 0, paddingRight: hasChildren ? 6 : undefined }}>
                     <span className="ico">{Ico && <Ico />}</span>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label}</span>
+                    <span className="nav-text">
+                      <span className="nav-label">{n.label}</span>
+                      {n.desc && <span className="nav-desc">{n.desc}</span>}
+                    </span>
                     <NavPending />
                     {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
                   </Link>
@@ -236,7 +239,10 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                   return (
                     <Link key={c.id} href={c.href} prefetch={false} className={"nav-item nav-sub " + (subActive ? "active" : "")}
                       style={{ paddingLeft: 38, fontSize: 12.5 }}>
-                      <span style={{ color: "var(--color-ink-3)", fontWeight: 500 }}>{c.label}</span>
+                      <span className="nav-text">
+                        <span className="nav-label">{c.label}</span>
+                        {c.desc && <span className="nav-desc">{c.desc}</span>}
+                      </span>
                       <NavPending />
                       {total != null && <span className="badge" style={{ fontSize: 10 }}>{total}</span>}
                       {newN != null && newN > 0 && (
