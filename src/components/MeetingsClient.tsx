@@ -4,8 +4,11 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
-import { createMeeting, updateMeeting, deleteMeeting, setMeetingFollowDone, upsertMeetingCompany } from "@/lib/actions";
-import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_OWNERS, MEETING_COMPETITORS, MEETING_TAGS, MEETING_HITS, MEETING_MISSES, MEETING_NEEDS, MEETING_NEXT_ACTIONS } from "@/lib/proposal-constants";
+import { createMeeting, updateMeeting, deleteMeeting, setMeetingFollowDone, upsertMeetingCompany, setCompanyMeetingDone } from "@/lib/actions";
+import { MEETING_SENTIMENTS, MEETING_RELATIONS, MEETING_OWNERS, MEETING_COMPETITORS, MEETING_TAGS, MEETING_MISSES, MEETING_NEEDS, MEETING_NEXT_ACTIONS } from "@/lib/proposal-constants";
+
+// 企業タイプ（単一選択＋その他自由入力）。「刺さった点」から置き換え。
+const COMPANY_TYPES = ["SES（案件紹介のみ）", "SES（人材紹介のみ）", "SES（両方）", "エンド", "受託会社"];
 
 const TODAY = new Date().toISOString().slice(0, 10);
 /** 要フォロー：未完了 かつ（期限到来 or ネガティブ反応）。 */
@@ -20,7 +23,8 @@ const dateLabel = (d: string | null) => { if (!d) return "—"; const t = new Da
 
 const empty = {
   company_name: "", meeting_date: "", meeting_time: "", their_contact: "", our_owner: "", new_or_existing: "新規",
-  relation_status: "🆕新規", fb_sentiment: "😐中立", ai_summary: "", enger_fb: "", hit_points: "",
+  meeting_done: false, company_type: "",
+  relation_status: "🆕新規", fb_sentiment: "😐中立", ai_summary: "", enger_fb: "",
   miss_points: "", needs: "", strategy: "", next_action_us: "", next_action_them: "",
   competitors: [] as string[], competitor_detail: "", tags: [] as string[], transcript_url: "", publishable: "配信可能", follow_up_date: "",
 };
@@ -69,16 +73,49 @@ function SegButtons({ options, value, onChange }: { options: string[]; value: st
   );
 }
 
+const segStyle = (on: boolean) => ({ cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", padding: "6px 12px", borderRadius: 99, border: `1px solid ${on ? "var(--color-brand-600)" : "var(--color-border)"}`, background: on ? "var(--color-brand-50)" : "var(--color-surface)", color: on ? "var(--color-brand-700)" : "var(--color-ink-3)" } as const);
+/** 企業タイプ：単一選択（プリセット）＋「その他」を選ぶと自由入力欄を表示。 */
+function CompanyTypePicker({ value, onChange, inputStyle }: { value: string; onChange: (v: string) => void; inputStyle: React.CSSProperties }) {
+  const isPreset = COMPANY_TYPES.includes(value);
+  const [otherMode, setOtherMode] = useState(!isPreset && !!value);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {COMPANY_TYPES.map((o) => (
+          <button key={o} type="button" onClick={() => { setOtherMode(false); onChange(o); }} style={segStyle(!otherMode && value === o)}>{o}</button>
+        ))}
+        <button type="button" onClick={() => { setOtherMode(true); onChange(""); }} style={segStyle(otherMode)}>その他</button>
+      </div>
+      {otherMode && (
+        <input autoFocus value={value} onChange={(e) => onChange(e.target.value)} placeholder="企業タイプを入力（例：制作会社）" style={{ ...inputStyle, maxWidth: 280 }} />
+      )}
+    </div>
+  );
+}
+
 // 企業名の正規化（類似企業検出・窓口担当者プリフィルの突合用）。法人格・記号・空白を除去。
 const normCo = (s: string) => String(s ?? "").toLowerCase()
   .replace(/株式会社|（株）|\(株\)|有限会社|（有）|\(有\)|合同会社|合資会社/g, "")
   .replace(/[\s　・，,.。\-―ー_]/g, "").trim();
 
-function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDeleted }: { companies: string[]; companyDir?: { name: string; contact_name: string | null }[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
+function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDeleted }: { companies: string[]; companyDir?: { name: string; contact_name: string | null; meeting_done?: boolean }[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
   const router = useRouter();
-  const [f, setF] = useState({ ...empty, ...(initial ?? {}) });
-  // 窓口担当者を手入力で変えたら、企業切替時の自動プリフィルで上書きしない。
+  // 企業マスタ（正規化名→企業）。窓口担当者プリフィル・類似検出・打合せ完了フラグ連携に使う。
+  const dirByNorm = useMemo(() => {
+    const m = new Map<string, { name: string; contact_name: string | null; meeting_done?: boolean }>();
+    for (const c of companyDir) { const k = normCo(c.name); if (k && !m.has(k)) m.set(k, c); }
+    return m;
+  }, [companyDir]);
+  // 初期値：既存企業なら「打ち合わせ記録完了」チェックを企業マスタの meeting_done で初期化（企業データと連携）。
+  const [f, setF] = useState(() => {
+    const base = { ...empty, ...(initial ?? {}) };
+    const hit = dirByNorm.get(normCo(base.company_name));
+    if (hit) base.meeting_done = !!hit.meeting_done;
+    return base;
+  });
+  // 窓口担当者・打合せ完了を手入力で変えたら、企業切替時の自動プリフィルで上書きしない。
   const [contactTouched, setContactTouched] = useState(false);
+  const [mdTouched, setMdTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
@@ -89,19 +126,13 @@ function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDe
   const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
   const toggle = (k: "competitors" | "tags", v: string) => setF((p) => ({ ...p, [k]: p[k].includes(v) ? p[k].filter((x) => x !== v) : [...p[k], v] }));
 
-  // 企業マスタ（正規化名→企業）。窓口担当者プリフィル・類似検出に使う。
-  const dirByNorm = useMemo(() => {
-    const m = new Map<string, { name: string; contact_name: string | null }>();
-    for (const c of companyDir) { const k = normCo(c.name); if (k && !m.has(k)) m.set(k, c); }
-    return m;
-  }, [companyDir]);
-
-  // 相手企業の入力に連動して窓口担当者を自動プリフィル（既存企業に記録があり、手入力していない場合のみ）。
+  // 相手企業の入力に連動して窓口担当者・打合せ完了フラグを自動プリフィル（既存企業・未手入力のときのみ）。
   const onCompanyName = (v: string) => {
     setF((p) => {
       const hit = dirByNorm.get(normCo(v));
       const next: typeof p = { ...p, company_name: v };
       if (hit && !contactTouched && !p.their_contact?.trim() && hit.contact_name) next.their_contact = hit.contact_name;
+      if (!mdTouched) next.meeting_done = hit ? !!hit.meeting_done : false; // 企業マスタの打合せ完了に追従
       return next;
     });
   };
@@ -134,7 +165,6 @@ function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDe
         fb_sentiment: r.fb_sentiment || p.fb_sentiment,
         relation_status: r.relation_status || p.relation_status,
         new_or_existing: r.new_or_existing || p.new_or_existing,
-        hit_points: r.hit_points || p.hit_points,
         miss_points: r.miss_points || p.miss_points,
         needs: r.needs || p.needs,
         strategy: r.strategy || p.strategy,
@@ -158,6 +188,8 @@ function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDe
     if (res.ok) {
       // 企業マスタへ反映：既存企業は窓口担当者を同期、新規企業は窓口担当者＋自社担当者で新規登録。
       try { await upsertMeetingCompany({ name: f.company_name, contact_name: f.their_contact, our_owner: f.our_owner }); } catch { /* 企業反映失敗でも打合せ保存は成立 */ }
+      // 「打ち合わせ記録完了にする」を企業マスタの meeting_done と同期（企業データと連携）。
+      try { await setCompanyMeetingDone(f.company_name, !!f.meeting_done); } catch { /* 連携失敗でも打合せ保存は成立 */ }
     }
     setSaving(false);
     if (res.ok) { router.refresh(); onDone(); } else setErr(res.error || "保存に失敗しました");
@@ -191,10 +223,17 @@ function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDe
         <div><L>温度感（FB感情）</L><SegButtons options={MEETING_SENTIMENTS} value={f.fb_sentiment} onChange={(v) => set("fb_sentiment", v)} /></div>
         <div><L>関係性</L><SegButtons options={MEETING_RELATIONS} value={f.relation_status} onChange={(v) => set("relation_status", v)} /></div>
         <div><L>新規 / 既存</L><SegButtons options={["新規", "既存"]} value={f.new_or_existing} onChange={(v) => set("new_or_existing", v)} /></div>
+        {/* 打ち合わせ記録完了：企業マスタの meeting_done と連携（既存企業はチェック状態を初期表示）。 */}
+        <div><L>打ち合わせ記録{isExistingCompany ? "（企業マスタと連携）" : ""}</L>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 600, color: "var(--color-ink-2)", cursor: "pointer", padding: "6px 0" }}>
+            <input type="checkbox" checked={!!f.meeting_done} onChange={(e) => { setMdTouched(true); set("meeting_done", e.target.checked); }} style={{ width: 16, height: 16, accentColor: "var(--color-brand-600)", cursor: "pointer" }} />
+            打ち合わせ記録完了にする
+          </label>
+        </div>
         <div><L>次回フォロー予定日</L><input style={{ ...inp, maxWidth: 200 }} type="date" value={f.follow_up_date} onChange={(e) => set("follow_up_date", e.target.value)} /></div>
       </div>
 
-      <div><L>刺さった点（タップ）</L><TextChips presets={MEETING_HITS} value={f.hit_points} onChange={(v) => set("hit_points", v)} /></div>
+      <div><L>企業タイプ</L><CompanyTypePicker value={f.company_type} onChange={(v) => set("company_type", v)} inputStyle={inp} /></div>
       <div><L>響かなかった点（タップ）</L><TextChips presets={MEETING_MISSES} value={f.miss_points} onChange={(v) => set("miss_points", v)} color="#d23f57" /></div>
       <div><L>顧客の課題・ニーズ（タップ）</L><TextChips presets={MEETING_NEEDS} value={f.needs} onChange={(v) => set("needs", v)} /></div>
       <div><L>競合・他社言及（タップ）</L><Chips all={MEETING_COMPETITORS} sel={f.competitors} onToggle={(v) => toggle("competitors", v)} /></div>
@@ -256,8 +295,8 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 const ymd = (y: number, mo: number, d: number) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
 /** 月カレンダー：打ち合わせ記録（meeting_date）・面談予定（提案）・フォロー予定（follow_up_date）を可視化。 */
-function MonthCalendar({ meetings, interviews, onPick, onInterview, onPickDay }: { meetings: any[]; interviews: any[]; onPick: (company: string) => void; onInterview: (iv: any) => void; onPickDay?: (dateStr: string) => void }) {
-  const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
+function MonthCalendar({ meetings, interviews, onPick, onInterview, onPickDay, cursor, onCursorChange }: { meetings: any[]; interviews: any[]; onPick: (company: string) => void; onInterview: (iv: any) => void; onPickDay?: (dateStr: string) => void; cursor: Date; onCursorChange: (d: Date) => void }) {
+  const setCursor = onCursorChange;
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -346,20 +385,35 @@ function MonthCalendar({ meetings, interviews, onPick, onInterview, onPickDay }:
   );
 }
 
-export function MeetingsClient({ meetings, companies, companyDir = [], interviews = [] }: { meetings: any[]; companies: string[]; companyDir?: { name: string; contact_name: string | null }[]; interviews?: any[] }) {
+export function MeetingsClient({ meetings, companies, companyDir = [], interviews = [] }: { meetings: any[]; companies: string[]; companyDir?: { name: string; contact_name: string | null; meeting_done?: boolean }[]; interviews?: any[] }) {
   const router = useRouter();
   const [show, setShow] = useState(false);
   const [formInitial, setFormInitial] = useState<Partial<typeof empty> | undefined>(undefined);
   const [editId, setEditId] = useState<string | null>(null);
   // カレンダー日付クリック時のドロワー（その日の打合せ一覧）
   const [dayDrawer, setDayDrawer] = useState<string | null>(null);
+  // カレンダーの表示月（KPI集計をこの月に連動させる）。既定＝今月。
+  const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; });
+  // 表示月の統計（削除済みは meetings に含まれないため自動で除外）。FB感情/検索フィルタには非連動の「その月の実数」。
+  const monthStats = useMemo(() => {
+    const ym = `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, "0")}`;
+    const inMonth = meetings.filter((m) => m.meeting_date && String(m.meeting_date).slice(0, 7) === ym);
+    return {
+      ym,
+      label: `${monthCursor.getFullYear()}年${monthCursor.getMonth() + 1}月`,
+      total: inMonth.length,
+      positive: inMonth.filter((m) => m.fb_sentiment === "👍ポジティブ").length,
+      negative: inMonth.filter((m) => m.fb_sentiment === "👎ネガティブ").length,
+      withCompetitor: inMonth.filter((m) => (m.competitors ?? []).some((c: string) => c && c !== "言及なし")).length,
+    };
+  }, [meetings, monthCursor]);
   const openEdit = (m: any) => {
     setEditId(m.id);
     setFormInitial({
       company_name: m.company_name ?? "", meeting_date: m.meeting_date ? String(m.meeting_date).slice(0, 10) : "", meeting_time: m.meeting_time ? String(m.meeting_time).slice(0, 5) : "",
       their_contact: m.their_contact ?? "", our_owner: m.our_owner ?? "", new_or_existing: m.new_or_existing ?? "新規",
       relation_status: m.relation_status ?? "", fb_sentiment: m.fb_sentiment ?? "", ai_summary: m.ai_summary ?? "",
-      enger_fb: m.enger_fb ?? "", hit_points: m.hit_points ?? "", miss_points: m.miss_points ?? "",
+      enger_fb: m.enger_fb ?? "", company_type: m.company_type ?? "", miss_points: m.miss_points ?? "",
       needs: m.needs ?? "", strategy: m.strategy ?? "", next_action_us: m.next_action_us ?? "", next_action_them: m.next_action_them ?? "",
       competitors: m.competitors ?? [], competitor_detail: m.competitor_detail ?? "", tags: m.tags ?? [],
       transcript_url: m.transcript_url ?? "", publishable: m.publishable ?? "", follow_up_date: m.follow_up_date ? String(m.follow_up_date).slice(0, 10) : "",
@@ -397,6 +451,26 @@ export function MeetingsClient({ meetings, companies, companyDir = [], interview
 
   return (
     <>
+      {/* KPI：カレンダーで開いている月に連動（月を切り替えると集計も切り替わる）。 */}
+      <div className="kpi-grid">
+        <div className="kpi brand">
+          <div className="top"><div className="ico-box"><Icons.inbox /></div><div className="chip flat">記録</div></div>
+          <div><div className="val tnum">{monthStats.total}<span className="unit">件</span></div><div className="label">打ち合わせ記録</div><div className="note">{monthStats.label}</div></div>
+        </div>
+        <div className="kpi accent">
+          <div className="top"><div className="ico-box"><Icons.check /></div><div className="chip">👍</div></div>
+          <div><div className="val tnum">{monthStats.positive}<span className="unit">件</span></div><div className="label">ポジティブ</div><div className="note">{monthStats.total ? Math.round((monthStats.positive / monthStats.total) * 100) : 0}%</div></div>
+        </div>
+        <div className="kpi warn">
+          <div className="top"><div className="ico-box"><Icons.bolt /></div><div className="chip">👎</div></div>
+          <div><div className="val tnum">{monthStats.negative}<span className="unit">件</span></div><div className="label">ネガティブ</div><div className="note">要フォロー</div></div>
+        </div>
+        <div className="kpi">
+          <div className="top"><div className="ico-box"><Icons.matching /></div><div className="chip flat">競合</div></div>
+          <div><div className="val tnum">{monthStats.withCompetitor}<span className="unit">件</span></div><div className="label">競合言及あり</div><div className="note">他社比較</div></div>
+        </div>
+      </div>
+
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn brand" onClick={() => { setEditId(null); setFormInitial(undefined); setShow((v) => !v); }} title="打合せ記録を新規に追加">
           <Icons.plus /><span>{show ? "フォームを閉じる" : "新規記録"}</span>
@@ -415,7 +489,7 @@ export function MeetingsClient({ meetings, companies, companyDir = [], interview
       {show && <MeetingForm key={editId ?? JSON.stringify(formInitial ?? {})} companies={companies} companyDir={companyDir} initial={formInitial} editId={editId} onDone={() => { setShow(false); setFormInitial(undefined); setEditId(null); }} onDeleted={() => { /* refresh after deletion handled in form */ }} />}
 
       {view === "calendar" ? (
-        <MonthCalendar meetings={filtered} interviews={interviews} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} onPickDay={(ds) => setDayDrawer(ds)} />
+        <MonthCalendar meetings={filtered} interviews={interviews} cursor={monthCursor} onCursorChange={setMonthCursor} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} onPickDay={(ds) => setDayDrawer(ds)} />
       ) : filtered.length === 0 ? (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>記録がありません。上の「新規記録」ボタンから追加してください。</div>
       ) : (
@@ -435,7 +509,7 @@ export function MeetingsClient({ meetings, companies, companyDir = [], interview
                   </div>
                 </div>
                 {m.ai_summary && <div style={{ fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.6 }}>{m.ai_summary}</div>}
-                {m.hit_points && <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>✅ 刺さった：{m.hit_points}</div>}
+                {m.company_type && <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>🏷 企業タイプ：{m.company_type}</div>}
                 {m.miss_points && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>⚠️ 響かず：{m.miss_points}</div>}
                 {m.enger_fb && <div style={{ fontSize: 11.5, color: "var(--color-brand-700)" }}>📣 ENGER FB：{m.enger_fb}</div>}
                 {m.next_action_us && <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>▶ 次(自社)：{m.next_action_us}</div>}
