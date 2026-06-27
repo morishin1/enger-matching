@@ -40,7 +40,7 @@ function mapServerToChip(p?: string | null): ClientPeriod {
   return "all"; // custom 等はカレンダー（全期間）扱い
 }
 
-export function KpiPeriodBar({ current, basePath = "/proposals", card = true }: { current?: string | null; basePath?: string; card?: boolean }) {
+export function KpiPeriodBar({ current, basePath = "/proposals", card = true, note = "選択した期間の KPI・KGI 達成率を表示します" }: { current?: string | null; basePath?: string; card?: boolean; note?: string }) {
   const router = useRouter();
   const sp = useSearchParams();
   const kp = sp?.get("kp") ?? "";
@@ -77,7 +77,7 @@ export function KpiPeriodBar({ current, basePath = "/proposals", card = true }: 
       onChange={go}
       options={options}
       calendar={{ calendarKey: "all", from, to, onRange }}
-      note="選択した期間の KPI・KGI 達成率を表示します"
+      note={note}
     />
   );
 }
