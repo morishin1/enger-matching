@@ -32,24 +32,24 @@ function activeFromPath(path: string): TabKey | null {
   return null;
 }
 
-/** ヘッダー用。/matching のときは本体側に描画を委譲して非表示にする（ヘッダースリム化）。 */
-export function MatchingTabs({ counts, hideOnMatching = true }: { counts?: SidebarCounts; hideOnMatching?: boolean }) {
+/** ヘッダー（トップバー）用。タブ対象ページ(マッチング/案件/人材/フリーランス/LINE)で常に表示。
+ *  compact=true でトップバーに収まるコンパクト表示にする。 */
+export function MatchingTabs({ counts, hideOnMatching = false, compact = true }: { counts?: SidebarCounts; hideOnMatching?: boolean; compact?: boolean }) {
   const path = usePathname() ?? "";
   const active = activeFromPath(path);
   if (!active) return null;
   if (hideOnMatching && active === "matching") return null;
-  return <PeerTabsInternal counts={counts} active={active} />;
+  return <PeerTabsInternal counts={counts} active={active} compact={compact} />;
 }
 
-/** マッチングページ本体用。ヘッダーから移動してきたタブ群をここに描画する。
- *  activeCount: 現在のページで絞り込み後の件数。アクティブタブのバッジを総数と連動表示する。 */
-export function MatchingPeerTabs({ counts, activeCount }: { counts?: SidebarCounts; activeCount?: number }) {
-  const path = usePathname() ?? "";
-  const active = activeFromPath(path) ?? "matching";
-  return <PeerTabsInternal counts={counts} active={active} activeCount={activeCount} />;
+/** ページ本体用（後方互換のため残置）。タブはトップバー(MatchingTabs)へ統一したため、
+ *  本体側では何も描画しない（全ページで同じ位置＝上下ブレなし／上に詰められる）。 */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function MatchingPeerTabs(_props: { counts?: SidebarCounts; activeCount?: number }) {
+  return null;
 }
 
-function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCounts; active: TabKey; activeCount?: number }) {
+function PeerTabsInternal({ counts, active, activeCount, compact = false }: { counts?: SidebarCounts; active: TabKey; activeCount?: number; compact?: boolean }) {
   const totalOf: Record<TabKey, number | undefined> = {
     matching: undefined,
     jobs: counts?.jobs,
@@ -67,7 +67,7 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
   return (
-    <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "center", overflowX: "auto", minWidth: 0, borderBottom: "1px solid var(--color-border)", marginBottom: 14 }}>
+    <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "stretch", overflowX: "auto", minWidth: 0, ...(compact ? {} : { borderBottom: "1px solid var(--color-border)", marginBottom: 14 }) }}>
       {TABS.map((t) => {
         const isActive = t.key === active;
         const globalTotal = totalOf[t.key];
@@ -83,11 +83,11 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
             role="tab"
             aria-selected={isActive}
             style={{
-              padding: "10px 18px",
-              borderBottom: isActive ? "3px solid var(--color-brand-600)" : "3px solid transparent",
+              padding: compact ? "8px 12px" : "10px 18px",
+              borderBottom: `${compact ? 2 : 3}px solid ${isActive ? "var(--color-brand-600)" : "transparent"}`,
               color: isActive ? "var(--color-brand-700)" : "var(--color-ink-2)",
               fontWeight: isActive ? 800 : 600,
-              fontSize: 17,
+              fontSize: compact ? 13.5 : 17,
               textDecoration: "none",
               display: "inline-flex",
               alignItems: "center",
@@ -95,8 +95,11 @@ function PeerTabsInternal({ counts, active, activeCount }: { counts?: SidebarCou
               whiteSpace: "nowrap",
             }}
           >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, lineHeight: 1 }}>{t.icon}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              {/* LINE はブランドロゴ（Icons.line）、他は Material Symbols Outlined。 */}
+              {t.key === "line"
+                ? <span style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={compact ? 17 : 20} /></span>
+                : <span className="material-symbols-outlined" aria-hidden style={{ fontSize: compact ? 18 : 20, lineHeight: 1 }}>{t.icon}</span>}
               {t.label}
             </span>
             {total != null && (
