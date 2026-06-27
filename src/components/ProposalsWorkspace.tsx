@@ -9,6 +9,7 @@
 //   メリット：マネージャー/担当が『今日の提案だけ』『今週の動きだけ』を即時に切り替えられる。
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { ProposalBoardSwitcher } from "./ProposalBoardSwitcher";
 import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
@@ -70,6 +71,19 @@ export function ProposalsWorkspace({
   const [tab, setTab] = useState<TabKey>("kpi");
   // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
   const [kpiSubTab, setKpiSubTab] = useState<"activity" | "stage">("activity");
+
+  // KPI推移の期間（KpiPeriodBar が設定する URL の kp / from / to）。メンバー別ステージ目標ボードを
+  //   この期間で絞り込むための判定。アクティビティ表はサーバー集計で既に期間連動済み。
+  const kpiSp = useSearchParams();
+  const kpiKp = kpiSp?.get("kp") || "today"; // 既定は本日（サーバー既定 day と一致）
+  const kpiFrom = kpiSp?.get("from") || "";
+  const kpiTo = kpiSp?.get("to") || "";
+  const inKpiPeriod = (createdAt: string | null | undefined): boolean => {
+    if (kpiFrom || kpiTo) return inCustomRange(createdAt, kpiFrom, kpiTo); // 先週/30日/全期間/任意
+    const k: ClientPeriod | null = kpiKp === "week" ? "week" : kpiKp === "month" ? "month" : kpiKp === "today" ? "today" : null;
+    return k ? inClientPeriod(new Date(createdAt ?? 0).getTime(), k) : true;
+  };
+  const proposalsForStage = useMemo(() => proposals.filter((p) => inKpiPeriod(p?.created_at)), [proposals, kpiKp, kpiFrom, kpiTo]);
 
   // 履歴・失注は「タブを開いた時」に /api/proposals/list で取得する（遅延ロード）。
   //   従来は親 props で初期描画時にブラウザへ大量転送（履歴326+失注258件＋全列）していたが、
@@ -231,7 +245,7 @@ export function ProposalsWorkspace({
             {/* ② メンバー別：アクティビティ と ステージ目標・達成率 をサブタブで分離。 */}
             <div className="card" style={{ padding: 0, overflow: "hidden" }}>
               <div role="tablist" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)", padding: "0 8px", overflowX: "auto" }}>
-                {([["activity", "メンバー別アクティビティ（本日）"], ["stage", "メンバー別 ステージ目標・KPI/KGI達成率"]] as const).map(([k, label]) => {
+                {([["activity", `メンバー別アクティビティ（${teamActivity?.periodLabel ?? "本日"}）`], ["stage", "メンバー別 ステージ目標・KPI/KGI達成率"]] as const).map(([k, label]) => {
                   const on = kpiSubTab === k;
                   return (
                     <button key={k} type="button" onClick={() => setKpiSubTab(k)} style={{
@@ -254,7 +268,7 @@ export function ProposalsWorkspace({
                       <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>所属確認 → 提案中 → 確認中 → 面談 → 合格 の目標/現在/達成率</span>
                     </div>
                     <StageTargetBoard
-                      proposals={proposals}
+                      proposals={proposalsForStage}
                       members={stageBoardMembers}
                       stageTargets={stageTargets ?? {}}
                       kgiByMember={kgiByMember ?? {}}

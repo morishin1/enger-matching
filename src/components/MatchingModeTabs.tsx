@@ -37,11 +37,11 @@ export function MatchingModeTabs() {
 
   // 自動を先頭（既定）に。番号マッチングはタブ廃止し注力ビュー内の入力欄へ統合。
   //   注力は note の ★（ゴールド）・♡（赤）を着色して目立たせ、ランキングは先頭に👑を付ける。
+  // ランキング100は運用で使わないため非表示（/matching?tab=ranking のページ自体は残置）。
   const TABS: { key: Mode; label: React.ReactNode; note: React.ReactNode; href?: string }[] = [
     { key: "auto",    label: "自動マッチング", note: "全案件・全人材",     href: "/matching?tab=auto" },
     { key: "focus",   label: "注力マッチング", href: "/matching?tab=focus",
       note: <><span style={{ color: "#f0a92b" }}>★</span> <span style={{ color: "#e0245e" }}>♡</span>・プロパー・新着</> },
-    { key: "ranking", label: <>👑 ランキング100</>, note: "必須スキル75%以上", href: "/matching?tab=ranking" },
   ];
 
   const inputStyle: React.CSSProperties = {
