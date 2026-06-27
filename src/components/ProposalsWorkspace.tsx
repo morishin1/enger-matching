@@ -19,7 +19,8 @@ import { KpiPeriodBar } from "./KpiPeriodBar";
 import { StageTargetBoard } from "./StageTargetBoard";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
-import { PeriodChips, CLIENT_PERIOD_LABEL, CLIENT_PERIOD_KEYS, inClientPeriod, type ClientPeriod } from "./PeriodChips";
+import { PeriodChips } from "./PeriodChips";
+import { CLIENT_PERIOD_LABEL, CLIENT_PERIOD_KEYS, inClientPeriod, inCustomRange, hasCustomRange, type ClientPeriod } from "@/lib/period";
 
 type Period = ClientPeriod;
 const PERIOD_LABEL = CLIENT_PERIOD_LABEL;
@@ -62,6 +63,9 @@ export function ProposalsWorkspace({
   //   ・承認タブの表示は下の approvalRowsInPeriod で期間連動させる。
   const approvalRows = useMemo(() => proposals.filter(isAwaitingApproval), [proposals]);
   const [period, setPeriod] = useState<Period>("week");
+  // 「全期間」チップのカレンダー（任意期間）。from/to 指定時はその範囲で絞り込む。
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   // 既定は「KPI推移」タブ（KPI/KGI→提案→結果→日報 の流れの起点）。
   const [tab, setTab] = useState<TabKey>("kpi");
   // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
@@ -94,21 +98,29 @@ export function ProposalsWorkspace({
     }
   }, [tab, historyLoaded, analyticsLoaded, historyLoading, analyticsLoading]);
 
-  // 期間で created_at を絞り込み（all のときは全件）
-  const inPeriod = (row: any): boolean => {
-    if (period === "all") return true;
-    const t = new Date(row?.created_at ?? 0).getTime();
+  // 期間で created_at を絞り込み。period==="all" のときはカレンダー指定があればその範囲、無ければ全件。
+  const inPeriodTime = (t: number): boolean => {
+    if (period === "all") return hasCustomRange(customFrom, customTo) ? inCustomRange(t, customFrom, customTo) : true;
     return inRangeMs(t, period);
   };
+  const inPeriod = (row: any): boolean => inPeriodTime(new Date(row?.created_at ?? 0).getTime());
 
   // 承認待ち・差戻しは「承認」タブに集約し、ボードからは除外（重複表示を防ぐ）。
-  const boardRows = useMemo(() => proposals.filter((p) => inPeriod(p) && !isAwaitingApproval(p)), [proposals, period]);
+  const boardRows = useMemo(() => proposals.filter((p) => inPeriod(p) && !isAwaitingApproval(p)), [proposals, period, customFrom, customTo]);
   // 承認タブの表示も期間連動（ただし banner/タブ起動は approvalRows=全期間で判定）。
-  const approvalRowsInPeriod = useMemo(() => approvalRows.filter(inPeriod), [approvalRows, period]);
-  const historyRows = useMemo(() => historyClient.filter(inPeriod), [historyClient, period]);
-  const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period]);
+  const approvalRowsInPeriod = useMemo(() => approvalRows.filter(inPeriod), [approvalRows, period, customFrom, customTo]);
+  const historyRows = useMemo(() => historyClient.filter(inPeriod), [historyClient, period, customFrom, customTo]);
+  const lostRows = useMemo(() => analyticsClient.filter(inPeriod), [analyticsClient, period, customFrom, customTo]);
   // LINE経由グラフ（失注分析内）の「提案数」算出用に、進行中の提案も期間で絞って渡す。
-  const activeInPeriod = useMemo(() => proposals.filter(inPeriod), [proposals, period]);
+  const activeInPeriod = useMemo(() => proposals.filter(inPeriod), [proposals, period, customFrom, customTo]);
+
+  // 日報タブ：report_date で期間連動。スコアカード（本日）はそのまま、一覧/カレンダーのみ絞る。
+  const reportsViewInPeriod = useMemo(() => {
+    const rc = reportsView?.reportsClient;
+    if (!rc?.reports) return reportsView;
+    const reports = (rc.reports as any[]).filter((r) => inPeriodTime(new Date(r?.report_date ?? 0).getTime()));
+    return { ...reportsView, reportsClient: { ...rc, reports } };
+  }, [reportsView, period, customFrom, customTo]);
 
   // メンバー別 KPI達成率（メンバー別アクティビティの 実績合計 ÷ 目標合計）。
   const kpiPctByMember = useMemo(() => {
@@ -135,7 +147,7 @@ export function ProposalsWorkspace({
   //   ※ コンポーネント(ProposalHistory)は残してあるので、必要なら show: true に戻せば復活可能。
   const tabsDef: { key: TabKey; label: string; icon: string; show: boolean; title?: string }[] = [
     { key: "kpi",      label: "KPI推移",    icon: "insights",    show: true, title: "自分／チームの KPI・KGI 推移。ここを起点に、提案 → 結果（失注分析）→ 改善（日報）の流れで振り返ります。" },
-    { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（承認依頼が無くても常に表示・期間フィルタ対象外）。" },
+    { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（期間で絞り込み可。承認漏れ防止のため上部バナーは全期間で判定）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
     { key: "history", label: "提案履歴",   icon: "history",     show: false, title: "提案履歴。期間フィルタで絞り込み。" },
     // 失注分析タブは件数 0 でも常に表示する（運用上、確認できる場所を固定したいため）。
@@ -152,7 +164,7 @@ export function ProposalsWorkspace({
       return f(proposals) + f(analyticsClient);
     };
     return CLIENT_PERIOD_KEYS.map((k) => ({ key: k, label: PERIOD_LABEL[k], count: countFor(k) }));
-  }, [tab, proposals, analyticsClient, approvalRows, period]);
+  }, [tab, proposals, analyticsClient, approvalRows, period, customFrom, customTo]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -194,9 +206,11 @@ export function ProposalsWorkspace({
             );
           })}
         </div>
-        {(tab === "board" || tab === "lost" || tab === "approval") && (
+        {(tab === "board" || tab === "lost" || tab === "approval" || tab === "report") && (
           <div style={{ paddingBottom: 6 }}>
-            <PeriodChips value={period} onChange={setPeriod} options={periodOptions} />
+            <PeriodChips value={period} onChange={setPeriod} options={periodOptions}
+              calendar={{ calendarKey: "all", from: customFrom, to: customTo,
+                onRange: (f, t) => { setPeriod("all"); setCustomFrom(f); setCustomTo(t); } }} />
           </div>
         )}
       </div>
@@ -303,7 +317,7 @@ export function ProposalsWorkspace({
         reportsView ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {reportsView.scorecard && <MyDailyScorecard s={reportsView.scorecard} />}
-            <ReportsClient {...reportsView.reportsClient} />
+            <ReportsClient {...reportsViewInPeriod.reportsClient} />
           </div>
         ) : (
           <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>

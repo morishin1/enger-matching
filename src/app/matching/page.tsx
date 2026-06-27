@@ -22,7 +22,7 @@ import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
-import { asClientPeriod, inClientPeriod } from "@/lib/period";
+import { asClientPeriod, inClientPeriod, inCustomRange, hasCustomRange } from "@/lib/period";
 import { MatchingPeriodChips } from "@/components/MatchingPeriodChips";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
@@ -212,13 +212,17 @@ async function loadTenantData(company: string, meetingDone: boolean = true) {
   return { jobs: jobs ? maskJobs(jobs, company, meetingDone) : null, cands: cands ? maskCandidates(cands, company, meetingDone) : null };
 }
 
-export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string; stale?: string; period?: string }> }) {
+export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string; stale?: string; period?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
   // 古い案件（配信から JOB_STALE_DAYS 超）/ 期間外を含めて表示するか。既定は false（隠す）。
   const showStale = sp.stale === "1";
   // 期間セレクタ（統一デザイン）。登録日(created_at)でマッチング対象を絞り込む。既定は全期間（no-op）。
+  //   全期間チップのカレンダー（from/to）が指定されていれば、その任意期間で絞り込む。
   const mPeriod = asClientPeriod(sp.period, "all");
-  const inMPeriod = (createdAt: string | null | undefined) => inClientPeriod(createdAt, mPeriod);
+  const mCustom = hasCustomRange(sp.from, sp.to);
+  const periodActive = mCustom || mPeriod !== "all";
+  const inMPeriod = (createdAt: string | null | undefined) =>
+    mCustom ? inCustomRange(createdAt, sp.from, sp.to) : inClientPeriod(createdAt, mPeriod);
   // 特定の人材/案件を明示選択したドリルダウン（一覧の「マッチング」ボタンからの遷移）。
   //   この場合は相手側を鮮度ウィンドウ・注力フラグで絞らず、全件から上位をランキング表示する。
   //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP10・注力ボード・一覧に限定する。
@@ -596,7 +600,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   // 期間セレクタ（統一デザイン）で、登録日(created_at)によりマッチング対象を絞り込む。
   //   既定 all は no-op。選択中の案件/人材は誤って消えないよう常に残す（carve-out）。
-  if (mPeriod !== "all") {
+  if (periodActive) {
     const keepJob = (j: any) => inMPeriod(j?.created_at) || (job && j?.job_no === job.job_no);
     const keepCand = (c: any) => inMPeriod(c?.created_at) || (sp.cand && String(c?.candidate_no) === sp.cand);
     // 案件→人材：候補ランキング（cand.created_at）
@@ -865,8 +869,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
         <MatchingPeerTabs counts={peerCounts} />
-        <MatchingModeTabs />
-        <MatchingPeriodChips />
+        <MatchingModeTabs rightSlot={<MatchingPeriodChips />} />
         {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
         {opennessBanner}
 
@@ -933,9 +936,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
       <MatchingPeerTabs counts={peerCounts} />
 
-      <MatchingModeTabs />
-
-      <MatchingPeriodChips />
+      <MatchingModeTabs rightSlot={<MatchingPeriodChips />} />
 
       {dbError && <div className="card" style={{ borderColor: "var(--color-danger)", color: "var(--color-danger)" }}><b>DB:</b> {dbError}</div>}
       {opennessBanner}

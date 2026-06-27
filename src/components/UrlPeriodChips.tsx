@@ -16,15 +16,28 @@ export function UrlPeriodChips({ basePath, counts, note, card = false }: {
   const router = useRouter();
   const sp = useSearchParams();
   const value = asClientPeriod(sp?.get("period"), "all");
+  const from = sp?.get("from") ?? "";
+  const to = sp?.get("to") ?? "";
 
   const go = (key: string) => {
     const u = new URLSearchParams(sp?.toString() ?? "");
     if (key === "all") u.delete("period"); else u.set("period", key);
+    if (key !== "all") { u.delete("from"); u.delete("to"); } // 全期間以外はカレンダー指定をクリア
     u.delete("page"); // 期間を変えたら1ページ目へ
+    const qs = u.toString();
+    router.push(`${basePath}${qs ? `?${qs}` : ""}`);
+  };
+  const onRange = (f: string, t: string) => {
+    const u = new URLSearchParams(sp?.toString() ?? "");
+    u.delete("period");
+    if (f) u.set("from", f); else u.delete("from");
+    if (t) u.set("to", t); else u.delete("to");
+    u.delete("page");
     const qs = u.toString();
     router.push(`${basePath}${qs ? `?${qs}` : ""}`);
   };
 
   const options = CLIENT_PERIOD_KEYS.map((k) => ({ key: k, label: CLIENT_PERIOD_LABEL[k], count: counts?.[k] ?? null }));
-  return <PeriodChips card={card} value={value} onChange={go} options={options} note={note} />;
+  return <PeriodChips card={card} value={value} onChange={go} options={options} note={note}
+    calendar={{ calendarKey: "all", from, to, onRange }} />;
 }

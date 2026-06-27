@@ -3,7 +3,7 @@ import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { EntityTable } from "@/components/EntityTable";
 import { PeopleTable } from "@/components/PeopleTable";
 import { UrlPeriodChips } from "@/components/UrlPeriodChips";
-import { asClientPeriod, periodStartMs, periodEndMs, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
+import { asClientPeriod, periodStartMs, periodEndMs, hasCustomRange, customStartMs, customEndMs, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getViewerScope, maskCandidates } from "@/lib/tenant";
 import { CAND_FLOW_OPTIONS } from "@/lib/flow";
@@ -106,7 +106,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string; period?: string }> }) {
+export default async function PeoplePage({ searchParams }: { searchParams: Promise<{ q?: string; page?: string; f_status?: string; f_title?: string; f_remote?: string; f_skill_sheet?: string; f_affiliation?: string; f_nationality?: string; f_rank?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string; period?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
   const { q: initialQuery, focus: focusId } = sp;
   const scope = await getViewerScope();
@@ -132,9 +132,12 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
   // 「提案あり」除外フィルタ：提案実績のある人材（has_proposal）を一覧から除外する。
   const fNoProposal = sp.f_no_proposal === "1";
   // 期間セレクタ（統一デザイン）。登録日(created_at)で一覧を絞り込む。既定=全期間。
+  //   全期間チップのカレンダー（from/to）指定があれば、その任意期間で絞り込む。
   const mPeriod = asClientPeriod(sp.period, "all");
-  const periodGte = mPeriod === "all" ? null : new Date(periodStartMs(mPeriod)).toISOString();
-  const periodLt = mPeriod === "all" || periodEndMs(mPeriod) === Number.POSITIVE_INFINITY ? null : new Date(periodEndMs(mPeriod)).toISOString();
+  const mCustom = hasCustomRange(sp.from, sp.to);
+  const periodGte = mCustom ? (sp.from ? new Date(customStartMs(sp.from)).toISOString() : null) : (mPeriod === "all" ? null : new Date(periodStartMs(mPeriod)).toISOString());
+  const periodLt = mCustom ? (sp.to ? new Date(customEndMs(sp.to)).toISOString() : null) : (mPeriod === "all" || periodEndMs(mPeriod) === Number.POSITIVE_INFINITY ? null : new Date(periodEndMs(mPeriod)).toISOString());
+  const periodFiltering = mCustom || mPeriod !== "all";
   let periodCounts: Partial<Record<ClientPeriod, number | null>> = {};
   // パートナー企業：自社(owner_company)＋共有(shared)のみ。他社は匿名化。列が無ければ何も見せない(fail-closed)。
   if (scope.isTenant) {
@@ -390,7 +393,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       {/* 絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource || fNoProposal || mPeriod !== "all");
+        const filtered = !!(needle || fStatus || fTitle || fRemote || fSkillSheet || fAffiliation || fNationality || fRank || fApproved || fSignupSource || fNoProposal || periodFiltering);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} />;
       })()}
 
