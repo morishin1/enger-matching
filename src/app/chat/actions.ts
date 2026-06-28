@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import type { ChatRole } from "@/lib/chat";
@@ -65,37 +65,51 @@ export async function ensureThreadForScout(input: {
   return { ok: true, thread_id: data?.id };
 }
 
-/** メッセージを投稿する。dx からは既定で agent（営業）として送る。 */
+/** メッセージを投稿する。dx からは既定で agent（営業）として送る。
+ *  抜本対応：例外を投げず必ず Result を返す／sender_id 列型の差異を吸収／
+ *  権限(RLS/grant)エラーは原因が分かるメッセージにして supabase/chat-fix.sql の実行を促す。 */
 export async function sendChatMessage(input: {
   thread_id: string;
   body: string;
   role?: ChatRole;
 }): Promise<Result> {
-  const admin = adminOrNull();
-  if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
-  if (!input.thread_id) return { ok: false, error: "スレッドが未指定です" };
-  const body = input.body?.trim();
-  if (!body) return { ok: false, error: "本文が空です" };
+  try {
+    const admin = adminOrNull();
+    if (!admin) return { ok: false, error: "送信用のサーバ設定が未完了です（SUPABASE_SERVICE_ROLE_KEY 未設定）。" };
+    if (!input.thread_id) return { ok: false, error: "スレッドが未指定です" };
+    const body = input.body?.trim();
+    if (!body) return { ok: false, error: "本文が空です" };
 
-  const access = await currentAccess();
-  const role: ChatRole = input.role ?? "agent";
-  const sender_id = access?.email ?? null;
-  const sender_name = access?.name ?? access?.email ?? "担当";
+    // セッション解決に失敗しても送信は続行（送信者名は既定値）。
+    let access: Awaited<ReturnType<typeof currentAccess>> = null;
+    try { access = await currentAccess(); } catch { /* noop */ }
+    const role: ChatRole = input.role ?? "agent";
+    const sender_id = access?.email ?? null;
+    const sender_name = access?.name ?? access?.email ?? "担当";
 
-  const baseRow = { thread_id: input.thread_id, sender_role: role, sender_id, sender_name, body };
-  let { error } = await admin.from("chat_messages").insert(baseRow);
-  // 旧スキーマで sender_id 列が uuid 型だと email を入れられず
-  //   「invalid input syntax for type uuid」になる。その場合は sender_id=null で再送（表示名は sender_name に残る）。
-  //   ※ 恒久対応は supabase/chat-id-text.sql（id列を text 化）。未実行でも送信できるようにするフォールバック。
-  if (error && /uuid/i.test(error.message)) {
-    ({ error } = await admin.from("chat_messages").insert({ ...baseRow, sender_id: null }));
+    // sender_id 列が uuid 型(旧スキーマ)だと email を入れられないため、まず email 入りで挿入し、
+    //   uuid/構文/sender_id 系のエラーなら sender_id=null で再挿入する（表示名は sender_name に残る）。
+    const baseRow = { thread_id: input.thread_id, sender_role: role, sender_name, body };
+    let { error } = await admin.from("chat_messages").insert({ ...baseRow, sender_id });
+    if (error && /uuid|invalid input syntax|sender_id/i.test(error.message ?? "")) {
+      ({ error } = await admin.from("chat_messages").insert({ ...baseRow, sender_id: null }));
+    }
+    if (error) {
+      // 権限(RLS/grant)・制約エラーは、本番スキーマ未適用が原因のことが多い。対処を明示して返す。
+      if (/row-level security|permission denied|violates|relation .* does not exist/i.test(error.message ?? "")) {
+        return { ok: false, error: `チャットの送信に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/ポリシー未適用の可能性）。` };
+      }
+      return { ok: false, error: error.message };
+    }
+
+    // 送った本人(agent)は読んだ扱いにする（既読列が uuid 型だと email で失敗するため、失敗は無視）。
+    if (sender_id) { try { await upsertRead(admin, input.thread_id, "agent", sender_id); } catch { /* noop */ } }
+    revalidatePath("/chat");
+    revalidateTag("sidebar-counts", "max"); // 送信＝自分は既読化。未読ドットの状態を更新。
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "送信に失敗しました（不明なエラー）" };
   }
-  if (error) return { ok: false, error: error.message };
-
-  // 送った本人(agent)は読んだ扱いにする（既読列が uuid 型だと email で失敗するため、失敗は無視）。
-  if (sender_id) { try { await upsertRead(admin, input.thread_id, "agent", sender_id); } catch { /* noop */ } }
-  revalidatePath("/chat");
-  return { ok: true };
 }
 
 /** 担当(agent)の既読を更新する。 */
@@ -108,6 +122,7 @@ export async function markThreadRead(input: { thread_id: string }): Promise<Resu
   const r = await upsertRead(admin, input.thread_id, "agent", id);
   if (!r.ok) return r;
   revalidatePath("/chat");
+  revalidateTag("sidebar-counts", "max"); // 既読化したらサイドバーの未読ドットを即時更新。
   return { ok: true };
 }
 

@@ -3,7 +3,8 @@ import { engerClient, publicAdmin, dbConfigured } from "./supabase";
 
 export type SidebarCounts = Partial<Record<
   "jobs" | "people" | "companies" | "proposals" | "progress" | "matching" | "engineers" | "line"
-  | "newJobs" | "newPeople" | "newEngineers" | "newLine" | "approvalsPending", number>>;
+  | "newJobs" | "newPeople" | "newEngineers" | "newLine" | "approvalsPending"
+  | "chatUnread" /* 担当の未読チャット有無（ドット表示用・0/1） */, number>>;
 
 async function fetchCounts(): Promise<SidebarCounts> {
   if (!dbConfigured) return {};

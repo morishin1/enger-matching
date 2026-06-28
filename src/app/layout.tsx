@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
-import { getSidebarCounts } from "@/lib/counts";
+import { getSidebarCounts, type SidebarCounts } from "@/lib/counts";
+import { agentHasUnreadCached } from "@/lib/chat";
 import { getStaff } from "@/lib/staff";
 import { getSessionEmail, resolveAccess, type Role } from "@/lib/accounts";
 import { canManageDept, isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
@@ -85,6 +86,14 @@ export default async function RootLayout({
   }
   // タイムカードのメニューは、本人入力対象 or 承認者（マネージャー/リーダー/admin）のみ表示。
   const showTimecard = isTimecardUser || role === "admin" || canManageDept(teamRole);
+
+  // 担当(admin/agent)に未読の受信チャットがあれば、サイドバー「チャット」にドットを出す（④）。
+  //   未読有無のみ（0/1）。フリーランス/企業ロールには出さない。失敗しても表示は止めない。
+  let chatUnread = 0;
+  if (userEmail && (role === "admin" || role === "agent")) {
+    try { chatUnread = (await agentHasUnreadCached(userEmail)) ? 1 : 0; } catch { chatUnread = 0; }
+  }
+  const countsWithChat: SidebarCounts = { ...counts, chatUnread };
   return (
     <html lang="ja" data-density="regular">
       <head>
@@ -100,7 +109,7 @@ export default async function RootLayout({
         />
       </head>
       <body suppressHydrationWarning>
-        <AppShell counts={counts} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard}>{children}</AppShell>
+        <AppShell counts={countsWithChat} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard}>{children}</AppShell>
       </body>
     </html>
   );

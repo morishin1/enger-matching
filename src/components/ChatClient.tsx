@@ -73,10 +73,21 @@ export function ChatClient({
     });
   };
   // 表示名（姓名＋イニシャル）。
-  const nameWithInitials = (name: string | null, initials: string | null) =>
-    name ? (initials ? `${name}（${initials}）` : name) : "（人材）";
+  //   カッコ内は「ローマ字イニシャル」のみ表示（フリガナ/明示イニシャル由来）。
+  //   漢字氏名から作った擬似イニシャル（名字）などローマ字でない値は“イニシャル未登録”とみなし、
+  //   カッコを出さず氏名のみ表示する（フリガナ未登録なら空欄でOK、という要望に対応）。
+  const nameWithInitials = (name: string | null, initials: string | null) => {
+    if (!name) return "（人材）";
+    const ini = (initials ?? "").trim();
+    const romaji = /[A-Za-z]/.test(ini) ? ini.toUpperCase() : ""; // ローマ字を含む時のみ採用
+    return romaji ? `${name}（${romaji}）` : name;
+  };
 
   const threadId = selected?.thread.id ?? null;
+  // スレッド名(subject)の保存状態：dirty=編集中(未保存) / saved=保存済み(かつ非空)。外枠色の出し分けに使う。
+  const savedSubject = selected?.thread.subject ?? "";
+  const subjectDirty = subject !== savedSubject;
+  const subjectIsSaved = !subjectDirty && subject.trim().length > 0;
 
   // スレッドを開いたら担当(agent)の既読を更新。
   useEffect(() => {
@@ -95,12 +106,17 @@ export function ChatClient({
   const send = () => {
     if (!threadId || !draft.trim()) return;
     start(async () => {
-      const r = await sendChatMessage({ thread_id: threadId, body: draft, role: sendAs });
-      if (r.ok) {
-        setDraft("");
-        router.refresh();
-      } else {
-        alert(r.error ?? "送信に失敗しました");
+      try {
+        const r = await sendChatMessage({ thread_id: threadId, body: draft, role: sendAs });
+        if (r.ok) {
+          setDraft("");
+          router.refresh();
+        } else {
+          alert(r.error ?? "送信に失敗しました");
+        }
+      } catch (e) {
+        // サーバアクションが例外を投げても無反応にならないようにする。
+        alert(e instanceof Error ? e.message : "送信に失敗しました（通信エラー）");
       }
     });
   };
@@ -229,18 +245,32 @@ export function ChatClient({
                 </div>
               )}
             </div>
-            {/* スレッドタイトル（双方に表示）。スタッフは入力・保存、人材側は表示のみ。 */}
+            {/* スレッド名（双方に表示）。スタッフは入力・保存、人材側は表示のみ。
+                外枠を見やすくし、編集中(未保存)は白(中立)枠／保存済みは色付き枠で状態が一目で分かるようにする。 */}
             {isStaff ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
-                <input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveSubject(); }}
-                  placeholder="スレッドのタイトル（例：【案件A】Java開発の件 / 2026年7月定期面談）"
-                  style={{ flex: 1, minWidth: 0, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }}
-                />
-                <button type="button" className="btn ghost btn-xs" disabled={pending || subject === (selected.thread.subject ?? "")} onClick={saveSubject}>保存</button>
-                {subjectSaved && <span style={{ fontSize: 10.5, color: "#067647", whiteSpace: "nowrap" }}>✓ 保存</span>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 220 }}>
+                <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", color: subjectIsSaved ? "var(--color-brand-700,#1d4ed8)" : "var(--color-ink-4)" }}>
+                  スレッド名{subjectDirty ? "（未保存）" : subjectIsSaved ? "（保存済み）" : ""}
+                </span>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  border: `2px solid ${subjectIsSaved ? "var(--color-brand-500,#2563eb)" : "var(--color-border-strong)"}`,
+                  background: subjectIsSaved ? "var(--color-brand-25,#eff6ff)" : "var(--color-surface)",
+                  borderRadius: 10, padding: "2px 4px 2px 8px", transition: "border-color .2s, background .2s",
+                }}>
+                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, color: subjectIsSaved ? "var(--color-brand-600,#2563eb)" : "var(--color-ink-5)" }}>
+                    {subjectIsSaved ? "label" : "edit"}
+                  </span>
+                  <input
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveSubject(); }}
+                    placeholder="スレッド名を入力（例：【案件A】Java開発の件 / 2026年7月定期面談）"
+                    style={{ flex: 1, minWidth: 0, padding: "6px 4px", border: 0, background: "transparent", outline: "none", fontSize: 13, fontFamily: "inherit", color: "var(--color-ink)" }}
+                  />
+                  <button type="button" className="btn btn-xs" disabled={pending || !subjectDirty} onClick={saveSubject} style={{ flexShrink: 0 }}>保存</button>
+                  {subjectSaved && <span style={{ fontSize: 10.5, color: "#067647", whiteSpace: "nowrap", paddingRight: 2 }}>✓</span>}
+                </div>
               </div>
             ) : (
               <div style={{ flex: 1, minWidth: 120, fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>{selected.thread.subject || ""}</div>

@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { engerClient, engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 
 export type ChatRole = "company" | "freelance" | "agent";
@@ -319,6 +320,45 @@ export async function getChatThread(
 export async function agentUnreadTotal(agentId?: string | null): Promise<number> {
   const list = await listChatThreads(agentId);
   return list.reduce((n, t) => n + t.unread, 0);
+}
+
+/** 担当(agent)に「未読の受信（フリーランス/企業）メッセージ」が1件でもあるか。
+ *  サイドバーのドット表示用。一覧生成より軽量に（直近の非agentメッセージのみを既読時刻と突合）。 */
+export async function agentHasUnread(agentId?: string | null): Promise<boolean> {
+  const id = String(agentId ?? "").trim();
+  if (!dbConfigured || !id) return false;
+  try {
+    const sb = chatReader();
+    // 担当の既読（thread_id → last_read_at）。
+    const rr: any = await sb.from("chat_reads")
+      .select("thread_id, last_read_at").eq("participant_role", "agent").eq("participant_id", id);
+    const readAt = new Map<string, string>();
+    for (const r of (rr.data ?? []) as any[]) readAt.set(r.thread_id, r.last_read_at);
+    // 直近の非agentメッセージ（受信）を新しい順に取得し、既読より新しいものが1件でもあれば未読あり。
+    const mr: any = await sb.from("chat_messages")
+      .select("thread_id, created_at, sender_role")
+      .neq("sender_role", "agent")
+      .order("created_at", { ascending: false })
+      .limit(800);
+    for (const m of (mr.data ?? []) as any[]) {
+      const ra = readAt.get(m.thread_id);
+      if (!ra || m.created_at > ra) return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
+// 未読有無を 30秒キャッシュ（email 別）。全ページのレイアウトから呼ばれるため、毎遷移での再集計を避ける。
+const _cachedAgentHasUnread = unstable_cache(
+  async (email: string) => agentHasUnread(email),
+  ["agent-chat-unread"],
+  { revalidate: 30, tags: ["sidebar-counts"] },
+);
+/** サイドバーのドット用：担当(email)に未読の受信チャットがあるか（30秒キャッシュ）。 */
+export function agentHasUnreadCached(email?: string | null): Promise<boolean> {
+  const key = String(email ?? "").toLowerCase().trim();
+  if (!key) return Promise.resolve(false);
+  return _cachedAgentHasUnread(key);
 }
 
 /** LP登録一覧（エンジニア）向け：engineer_id ごとのチャット状態。
