@@ -222,10 +222,11 @@ function SendBothModal({ jobSide, candSide, onClose, onSent }: {
           {err && <span style={{ color: "var(--color-danger)", fontSize: 11 }}>{err}</span>}
         </label>
         <label style={lbl}>CC（任意）<input value={st.cc} onChange={(e) => setSt((p) => ({ ...p, cc: e.target.value }))} placeholder="cc@example.com" style={inp} disabled={res?.ok} /></label>
-        <label style={lbl}>件名<input value={st.subject} onChange={(e) => { onSubjectEdited(); setSt((p) => ({ ...p, subject: e.target.value })); }} style={inp} disabled={res?.ok} /></label>
+        {/* 件名は確認画面に表示しない（自動算出した件名「Re: <元件名>」をそのまま送信）。
+            空いたスペースは本文プレビューの表示領域に充てる。subject は st.subject として送信に使用。 */}
         <div style={lbl}>
           <span>本文</span>
-          <div style={{ border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface-soft)", padding: "10px 12px", fontSize: 12.5, lineHeight: 1.7, overflowY: "auto", maxHeight: 240 }}>
+          <div style={{ border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface-soft)", padding: "10px 12px", fontSize: 12.5, lineHeight: 1.7, overflowY: "auto", maxHeight: 320 }}>
             {(() => {
               const preStyle: CSSProperties = { margin: 0, whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.7, color: "var(--color-ink-2)" };
               const parts = side.body.split(BUTTON_PLACEHOLDER);
