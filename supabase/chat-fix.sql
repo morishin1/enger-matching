@@ -102,6 +102,27 @@ begin
   end if;
 end $$;
 
+-- 1.6) 【抜本対応】dx が値を入れない NOT NULL 列で insert(新規スレッド作成・送信)が落ちるのを一般化して防ぐ。
+--   chat_threads / chat_messages のうち「NOT NULL かつ default 無し」で、dx が必ず入れる構造的必須列
+--   （id/thread_id/engineer_id/sender_role/body）以外の列を NULL 許容にする。
+--   enger-lp 側は自身の insert で各列に値を入れるため影響は無い（NULL は CHECK も通過する）。
+--   これにより enger-lp 由来の未知の必須列（例：sender_kind 等）にも将来含めて対応できる。
+do $$
+declare r record;
+begin
+  for r in
+    select table_name, column_name from information_schema.columns
+    where table_schema = 'enger' and table_name in ('chat_threads','chat_messages')
+      and is_nullable = 'NO' and column_default is null
+      and column_name not in ('id','thread_id','engineer_id','sender_role','body')
+  loop
+    begin
+      execute format('alter table enger.%I alter column %I drop not null', r.table_name, r.column_name);
+    exception when others then null;
+    end;
+  end loop;
+end $$;
+
 -- 2) RLS 有効化。
 alter table enger.chat_threads  enable row level security;
 alter table enger.chat_messages enable row level security;
