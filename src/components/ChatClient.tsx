@@ -136,9 +136,20 @@ export function ChatClient({
     if (!newEng) { alert("相手（フリーランス）を選択してください"); return; }
     const eng = engineers.find((e) => e.id === newEng);
     start(async () => {
-      const r = await createThread({ engineer_id: newEng, engineer_name: eng?.name ?? null, subject: newSubject });
-      if (r.ok && r.thread_id) { setShowNew(false); setNewEng(""); setNewSubject(""); router.push(`/chat?t=${r.thread_id}`); }
-      else alert(r.error ?? "スレッドの作成に失敗しました");
+      try {
+        const r = await createThread({ engineer_id: newEng, engineer_name: eng?.name ?? null, subject: newSubject });
+        if (r.ok && r.thread_id) {
+          // 自動付与されたスレッドIDを明示（②）。遷移先ヘッダでも T-XXXXXX を表示。
+          setShowNew(false); setNewEng(""); setNewSubject("");
+          alert(`新規スレッドを作成しました（スレッドID：${threadShortId(r.thread_id)}）`);
+          router.push(`/chat?t=${r.thread_id}`);
+        } else {
+          alert(r.error ?? "スレッドの作成に失敗しました");
+        }
+      } catch (e) {
+        // サーバアクションが例外を投げても無反応にならないようにする。
+        alert(e instanceof Error ? e.message : "スレッドの作成に失敗しました（通信エラー）");
+      }
     });
   };
 
@@ -199,12 +210,15 @@ export function ChatClient({
                 gap: 6,
               }}
             >
-              {/* 人材名（姓名＋イニシャル）。クリックでスレッドを開く。 */}
+              {/* 人材名（姓名＋イニシャル）＋スレッドID。クリックでスレッドを開く。 */}
               <button type="button" onClick={() => open(t.id)}
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, background: "transparent", border: 0, padding: 0, cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
-                <b style={{ fontSize: 13, color: "var(--color-ink)" }}>{nameWithInitials(t.engineer_name, t.engineer_initials)}</b>
+                <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
+                  <b style={{ fontSize: 13, color: "var(--color-ink)" }}>{nameWithInitials(t.engineer_name, t.engineer_initials)}</b>
+                  {t.id && <span className="mono" title={`スレッドID: ${t.id}`} style={{ fontSize: 9.5, color: "var(--color-ink-5)", letterSpacing: ".02em", flexShrink: 0 }}>{threadShortId(t.id)}</span>}
+                </span>
                 {t.unread > 0 && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: "var(--color-brand-600)", borderRadius: 99, padding: "1px 7px" }}>{t.unread}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: "var(--color-brand-600)", borderRadius: 99, padding: "1px 7px", flexShrink: 0 }}>{t.unread}</span>
                 )}
               </button>
               {/* 社内メモ（手入力・保存）。スタッフ専用＝人材側には絶対に表示しない（完全非表示）。

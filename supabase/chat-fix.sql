@@ -31,6 +31,27 @@ create table if not exists enger.chat_reads (
   primary key (thread_id, participant_role, participant_id)
 );
 
+-- 0.5) 既存テーブルが列欠落で存在しても自己修復（冪等）。新規スレッド作成/送信が使う列を必ず用意する。
+--      （CREATE TABLE IF NOT EXISTS は既存テーブルには列を足さないため、ここで個別に補完する。）
+alter table enger.chat_threads  add column if not exists scout_id        uuid;
+alter table enger.chat_threads  add column if not exists engineer_id     text;
+alter table enger.chat_threads  add column if not exists engineer_name   text;
+alter table enger.chat_threads  add column if not exists company         text;
+alter table enger.chat_threads  add column if not exists company_email   text;
+alter table enger.chat_threads  add column if not exists agent           text;
+alter table enger.chat_threads  add column if not exists job_no          integer;
+alter table enger.chat_threads  add column if not exists job_title       text;
+alter table enger.chat_threads  add column if not exists subject         text;
+alter table enger.chat_threads  add column if not exists memo            text;
+alter table enger.chat_threads  add column if not exists status          text not null default 'open';
+alter table enger.chat_threads  add column if not exists last_message_at timestamptz not null default now();
+alter table enger.chat_threads  add column if not exists created_at      timestamptz not null default now();
+alter table enger.chat_messages add column if not exists sender_role     text;
+alter table enger.chat_messages add column if not exists sender_id       text;
+alter table enger.chat_messages add column if not exists sender_name     text;
+alter table enger.chat_messages add column if not exists body            text;
+alter table enger.chat_messages add column if not exists created_at      timestamptz not null default now();
+
 -- 1) email/識別子を入れる列は text に統一（uuid 型だと email を入れられず送信が落ちる）。
 --    依存する RLSポリシー と 外部キー制約 を先に外す（外さないと uuid→text の ALTER が失敗し、
 --    旧環境では型が uuid のまま残って送信不具合が直らない）。型変換後にポリシーを作り直す。
