@@ -158,24 +158,10 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
     operator: agent,
   });
 
-  // 提案管理(返信待ち)にも反映：スカウト後の動きを営業が追えるように（best-effort）
-  try {
-    if (engineer_name) {
-      const cInit = engineer_name.slice(0, 2);
-      const { data: dup } = await admin.from("proposals")
-        .select("id").eq("candidate_name", engineer_name).eq("job_title", job_title ?? "").is("candidate_id", null).maybeSingle();
-      if (!dup?.id) {
-        await admin.from("proposals").insert({
-          job_id: null, candidate_id: null, stage: "所属確認",
-          job_title: job_title ?? "（スカウト）", candidate_name: engineer_name, c_init: cInit,
-          proposer: agent, ai: false, next_action: "スカウト送信（返信待ち）",
-        });
-      }
-    }
-  } catch { /* proposals 未整備でもスカウトは成功 */ }
+  // ※ スカウト/チャットはフリーランスとのやり取りのみ。提案ボード（提案管理）へは記録しない。
+  //   （提案ボードへの記録はフリーランスが「応募」した時だけ＝createApplication / 応募トリガで行う。）
 
   revalidatePath("/engineers");
-  revalidatePath("/proposals");
   revalidatePath("/chat");
   return { ok: true };
 }
@@ -204,6 +190,32 @@ export async function createApplication(input: { engineer_id: string; engineer_n
       stage: "応募",
     }).select("id").maybeSingle();
     if (ins.error) return { ok: false, error: ins.error.message };
+    // ② 応募時のみ提案ボードへ記録：所属確認フォルダに「対象案件＋人材名」を表示する（best-effort）。
+    //   LP（enger.jp）からの応募は DBトリガ（applications-to-proposals.sql）が同等の提案を作るため、
+    //   ここでは「既に同一応募の提案があればスキップ」して二重作成を防ぐ。トリガ未適用環境でも
+    //   この dx 側経路で確実に提案ボードへ載せる。next_action に「直接応募」を含め LP直接応募バッジを点ける。
+    try {
+      const engName = input.engineer_name?.trim() || null;
+      if (engName) {
+        const jobTitle = input.job_title?.trim() || null;
+        const { data: dupP } = await admin.from("proposals")
+          .select("id").eq("candidate_name", engName).eq("job_title", jobTitle ?? "")
+          .like("next_action", "%直接応募%").maybeSingle();
+        if (!dupP?.id) {
+          // 案件先の会社名を補完（任意）。
+          let company: string | null = null;
+          if (input.job_id) {
+            const jr: any = await admin.from("jobs").select("client_name").eq("id", input.job_id).maybeSingle();
+            company = jr?.data?.client_name ?? null;
+          }
+          await admin.from("proposals").insert({
+            job_id: input.job_id ?? null, candidate_id: null, stage: "所属確認",
+            job_title: jobTitle ?? "（応募）", company, candidate_name: engName, c_init: engName.slice(0, 2),
+            proposer: null, ai: false, next_action: "エンジニア直接応募（LP）",
+          });
+        }
+      }
+    } catch { /* proposals 未整備でも応募は成立させる */ }
     // 通知（DBトリガーが入っていない環境向け・冗長で安全）
     try {
       await admin.from("notifications").insert({
@@ -229,6 +241,7 @@ export async function createApplication(input: { engineer_id: string; engineer_n
       });
     } catch { /* Slack 失敗は無視 */ }
     revalidatePath("/notifications");
+    revalidatePath("/proposals");
     return { ok: true, existed: false, id: ins.data?.id };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
