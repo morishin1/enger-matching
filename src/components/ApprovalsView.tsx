@@ -9,6 +9,8 @@ import { approveAccount, bulkDeleteAccounts, setAccountStatus, setAccountRole, s
 import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 import { detectSuspicion } from "@/lib/account-suspicion";
 import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
+import { setMemberKpiRole } from "@/lib/kpi-roles-actions";
+import type { KpiRoleKey } from "@/lib/kpi-roles";
 
 type TabKey = "candidate" | "client" | "partner" | "freelance" | "agent" | "backoffice" | "admin";
 type GroupKey = "proper" | "partner";
@@ -711,6 +713,20 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
                                 style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 11.5 }}>
                                 <option value="">役職なし</option>
                                 {TEAM_ROLES.map((r) => <option key={r} value={r}>{TEAM_ROLE_LABEL[r]}</option>)}
+                              </select>
+                              {/* KPI/KGI のチーム振り分け（アウトサイド/インサイド）。kpi_role に保存し、
+                                  KPI推移のファネル・ボードがこの区分で集計される。 */}
+                              <span className="muted" style={{ fontSize: 10.5 }}>KPIチーム：</span>
+                              {/* 表示初期値は実効値（kpi_role 未設定なら position を流用）。ファネルの集計と一致させる。
+                                  ※ defaultValue は初期表示のみ。実書込みは onChange（実際に選択を変えた時）だけ。 */}
+                              <select defaultValue={(a.kpi_role ?? a.position) ?? ""} disabled={busy}
+                                title="KPI/KGI のチーム（アウトサイド/インサイド）。KPI推移がこの区分で集計されます。"
+                                onChange={(e) => run(a.id, () => setMemberKpiRole(a.email, e.target.value as KpiRoleKey | ""), "KPIチームを変更しました")}
+                                style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 11.5 }}>
+                                <option value="">未設定</option>
+                                <option value="outside">アウトサイド</option>
+                                <option value="inside">インサイド</option>
+                                {a.kpi_role === "telapo" && <option value="telapo">テレアポ</option>}
                               </select>
                               <label title="バイト/副業向けのタイムカード（本人打刻）を有効化" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--color-ink-3)", cursor: "pointer" }}>
                                 <input type="checkbox" defaultChecked={!!(a as any).is_timecard_user} disabled={busy}

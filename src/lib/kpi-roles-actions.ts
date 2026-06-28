@@ -32,7 +32,10 @@ export async function setMemberKpiRole(email: string, role: KpiRoleKey | ""): Pr
     if (/kpi_role|column/i.test(error.message)) return { ok: false, error: "supabase/kpi-roles-funnel.sql の適用が必要です（kpi_role 列が未追加）" };
     return { ok: false, error: error.message };
   }
+  // 設定（ユーザー管理）・KPI推移（/proposals 埋め込み）・/kpi のいずれにも反映させる。
   revalidatePath("/kpi");
+  revalidatePath("/proposals");
+  revalidatePath("/settings");
   return { ok: true };
 }
 

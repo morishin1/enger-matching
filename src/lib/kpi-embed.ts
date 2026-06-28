@@ -17,6 +17,7 @@ import { getStageTargets } from "@/lib/stage-targets";
 import { listPersonKgi, monthKey } from "@/lib/person-kgi";
 import { normalizeStage } from "@/lib/proposal-constants";
 import { getMemberKpiRoles, getKpiFunnelTarget } from "@/lib/kpi-funnel";
+import { ownerMatches } from "@/lib/owner-match";
 
 const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週", month: "今月", quarter: "今四半期", custom: "指定期間" };
 
@@ -136,9 +137,17 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* テーブル未整備でもKPIは表示 */ }
 
-    // KGI逆算ファネル（画面トップ常時表示）：当月(累計)のチーム実績 提案→面談→合格→稼働 と目標。
+    // メンバーの役割（アウトサイド/インサイド/テレアポ）を先に解決（ファネルのチーム別出し分けに使う）。
+    //   役割別のKGI（外＝合格率 面談→稼働 / 内＝面談率 提案→面談）をボードで表示するためにも渡す。
+    let roleByMember: Record<string, string> = {};
+    try { roleByMember = await getMemberKpiRoles(); } catch { /* 役割が未整備でも続行 */ }
+
+    // KGI逆算ファネル（画面トップ常時表示）：当月(累計)の 提案→面談→合格→稼働 と目標。
     //   営業マニュアル §10 準拠。提案=新規提案 / 面談=日程確定(schedule) / 合格=成約(deal=稼働決定) / 稼働=合格と同義。
+    //   ・teamFunnel    = チーム全体。
+    //   ・funnelsByRole = 全体/アウトサイド/インサイド の出し分け（実績のみ kpi_role で絞り、目標・率はチーム共通）。
     let teamFunnel: any = null;
+    let funnelsByRole: { all: any; outside: any; inside: any } | null = null;
     try {
       const monthStart = jstStartOfMonth(new Date());
       const now = new Date();
@@ -147,28 +156,44 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
         { allowMember: true },
       );
       const monthRows = fmembers.length ? await getTeamActivity({ start: monthStart, end: now, members: fmembers }) : [];
-      const sum = (k: Metric) => monthRows.reduce((s: number, r: any) => s + (r?.actual?.[k] ?? 0), 0);
       const ft = await getKpiFunnelTarget();
       const tc = funnelTargetCounts(ft); // { proposal, meeting, won }
-      teamFunnel = {
-        actual: { proposal: sum("proposal"), meeting: sum("schedule"), pass: sum("deal") },
-        target: { proposal: tc.proposal, meeting: tc.meeting, won: tc.won },
-        rates: { meetingRate: ft.meetingRate, passRate: ft.passRate },
-        bizPassed: businessDaysInRange(monthStart, addDays(jstStartOfDay(now), 1)),
-        bizTotal: businessDaysInRange(monthStart, addMonths(monthStart, 1)),
-        monthLabel: `${now.getFullYear()}年${now.getMonth() + 1}月`,
+      const bizPassed = businessDaysInRange(monthStart, addDays(jstStartOfDay(now), 1));
+      const bizTotal = businessDaysInRange(monthStart, addMonths(monthStart, 1));
+      const monthLabel = `${now.getFullYear()}年${now.getMonth() + 1}月`;
+      // 行(担当者名)→役割。app_users.name と集計行名の表記差を吸収するため ownerMatches で突合
+      //   （完全一致を優先し、無ければファジー一致）。同姓などで複数の異なるチームに当たる
+      //   曖昧なケースは推測せず空＝チーム未分類とし、全体のみで数える（誤って別チームへ振らない）。
+      const roleByMemberKeys = Object.keys(roleByMember);
+      const roleOfRow = (rowName: any): string => {
+        const nm = String(rowName ?? "").trim();
+        if (!nm) return "";
+        if (roleByMember[nm]) return roleByMember[nm];
+        const matched = new Set<string>();
+        for (const k of roleByMemberKeys) { if (ownerMatches(k, nm)) matched.add(roleByMember[k]); }
+        return matched.size === 1 ? [...matched][0] : "";
       };
+      // role=null は全員、それ以外は kpi_role 一致メンバーのみで実績を集計。目標(tc)・率は共通。
+      const buildFunnel = (role: string | null) => {
+        const rows = role ? monthRows.filter((r: any) => roleOfRow(r?.name) === role) : monthRows;
+        const sum = (k: Metric) => rows.reduce((s: number, r: any) => s + (r?.actual?.[k] ?? 0), 0);
+        return {
+          actual: { proposal: sum("proposal"), meeting: sum("schedule"), pass: sum("deal") },
+          target: { proposal: tc.proposal, meeting: tc.meeting, won: tc.won },
+          rates: { meetingRate: ft.meetingRate, passRate: ft.passRate },
+          bizPassed, bizTotal, monthLabel,
+        };
+      };
+      teamFunnel = buildFunnel(null);
+      funnelsByRole = { all: teamFunnel, outside: buildFunnel("outside"), inside: buildFunnel("inside") };
     } catch { /* ファネルが組めなくてもボードは表示 */ }
 
-    // メンバーの役割（アウトサイド/インサイド/テレアポ）と、チームのファネル目標（面談率/合格率）。
-    //   役割別のKGI（外＝合格率 面談→稼働 / 内＝面談率 提案→面談）をボードで表示するために渡す。
-    let roleByMember: Record<string, string> = {};
+    // チームのファネル目標（面談率/合格率/稼働）。役割別KGIのボード表示に渡す。
     let funnelRates: { meetingRate: number; passRate: number; won: number } = { meetingRate: 0.2, passRate: 0.33, won: 4 };
     try {
-      roleByMember = await getMemberKpiRoles();
       const ft = await getKpiFunnelTarget();
       funnelRates = { meetingRate: ft.meetingRate, passRate: ft.passRate, won: ft.won };
-    } catch { /* 役割/目標が未整備でもボードは表示 */ }
+    } catch { /* 目標が未整備でもボードは表示 */ }
 
     // ステージ目標ボードの「打ち合わせ」「案件の仕入れ」列のソースイベント（期間連動はクライアント側）。
     //   ・打ち合わせ：打合せ記録(meetings)の自社担当者(our_owner)×打ち合わせ日(meeting_date) を1件として集計。
@@ -235,7 +260,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
 
-    return { kpi, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents };
+    return { kpi, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents };
   } catch {
     return null;
   }

@@ -38,7 +38,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -46,6 +46,8 @@ export function ProposalsWorkspace({
   kpiProps?: any;
   teamActivity?: any;
   teamFunnel?: any;
+  // KGIファネルのチーム別（全体/アウトサイド/インサイド）出し分け。
+  funnelsByRole?: { all: any; outside: any; inside: any } | null;
   // ステージ別 担当者目標（{owner:{stage:target}}）と メンバー別KGI（稼働化目標）。
   stageTargets?: Record<string, Record<string, number>>;
   kgiByMember?: Record<string, { placementTarget: number | null }>;
@@ -316,7 +318,7 @@ export function ProposalsWorkspace({
         kpiProps ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {/* KGI逆算ファネル（営業マニュアル§10）：当月の 提案→面談→合格→稼働 を常時トップ表示。 */}
-            <KgiFunnelBanner funnel={teamFunnel} />
+            <KgiFunnelBanner funnel={teamFunnel} funnelsByRole={funnelsByRole} />
             {/* 期間切替はタブ右に移動（他タブと同じ位置・1段）。このバーがダッシュボード・各表すべてに連動。 */}
             {/* ① KPIダッシュボードを一番上に（期間タブは内蔵せず上の1バーに統一）。 */}
             <div className="card flush" style={{ overflow: "hidden" }}>
