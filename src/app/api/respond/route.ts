@@ -20,12 +20,13 @@ async function logRespondError(method: "GET" | "POST", reason: string, ctx: { to
   } catch { /* 監視ログ失敗は本処理を止めない */ }
 }
 
-/** 承認時に先方が提示した面談希望日時を、提案レコードの「メモ履歴」(proposal_memos) へ自動追記する。
+/** 承認時に提示された面談希望日時を、提案レコードの「メモ履歴」(proposal_memos) へ自動追記する。
+ *  どちら側（案件側／人材側）から届いたかが分かるよう、送信元の側ラベルを本文に明記する。
  *  日時が1件も無ければ呼び出し側でスキップする。本処理（承認通知）は止めない fail-soft。 */
-async function recordMeetingMemo(admin: ReturnType<typeof engerAdmin>, proposalId: string, candidates: string[]) {
+async function recordMeetingMemo(admin: ReturnType<typeof engerAdmin>, proposalId: string, candidates: string[], sideLabel: string) {
     try {
         const lines = candidates.map((c, i) => `・候補${i + 1}：${c}`).join("\n");
-        const body = `【自動記録】承認時に先方より面談希望日時の提示がありました。\n${lines}`;
+        const body = `【自動記録】承認時に${sideLabel}より面談希望日時の提示がありました。\n${lines}`;
         await admin.from("proposal_memos").insert({
             proposal_id: proposalId,
             category: "連絡記録",
@@ -67,7 +68,8 @@ export async function POST(req: NextRequest) {
             .update({ job_action_type: action as ActionType, updated_at: new Date().toISOString() })
             .eq("id", jobRes.data.id);
         if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-        if (action === "話を進める" && meetingCandidates.length) await recordMeetingMemo(admin, jobRes.data.id, meetingCandidates);
+        // 案件側(job_action_token)からの送信 → メモには「案件側」と明記。
+        if (action === "話を進める" && meetingCandidates.length) await recordMeetingMemo(admin, jobRes.data.id, meetingCandidates, "案件側");
         return NextResponse.json({ ok: true, side: "job", action });
     }
 
@@ -84,7 +86,8 @@ export async function POST(req: NextRequest) {
             .update({ cand_action_type: action as ActionType, updated_at: new Date().toISOString() })
             .eq("id", candRes.data.id);
         if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-        if (action === "話を進める" && meetingCandidates.length) await recordMeetingMemo(admin, candRes.data.id, meetingCandidates);
+        // 人材側(cand_action_token)からの送信 → メモには「人材側」と明記。
+        if (action === "話を進める" && meetingCandidates.length) await recordMeetingMemo(admin, candRes.data.id, meetingCandidates, "人材側");
         return NextResponse.json({ ok: true, side: "cand", action });
     }
 

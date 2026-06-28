@@ -165,21 +165,6 @@ export function RespondClient({ token, action }: { token: string; action: string
                     {isProceed ? "面談ご希望をご選択後、送信してください" : "以下の内容でよろしいですか？"}
                 </div>
 
-                {/* 案件情報（見送りのみ表示。話を進める場合は希望日時フォームに置き換え） */}
-                {!isProceed && (
-                    <div style={{ background: "#f8fafc", borderRadius: 10, padding: "16px 20px", marginBottom: 24, textAlign: "left" }}>
-                        <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginBottom: 4 }}>案件</div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b" }}>{info?.job_title ?? "—"}</div>
-                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{info?.company ?? ""}</div>
-                        {info?.c_init && (
-                            <>
-                                <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600, marginTop: 12, marginBottom: 4 }}>候補者</div>
-                                <div style={{ fontWeight: 700, fontSize: 14 }}>{info.c_init}</div>
-                            </>
-                        )}
-                    </div>
-                )}
-
                 {/* 面談希望日時フォーム（任意・最大4件。当日/翌日は選択不可） */}
                 {isProceed && (
                     <div style={{ marginBottom: 24, textAlign: "left" }}>
