@@ -87,17 +87,28 @@ export async function sendChatMessage(input: {
     const sender_id = access?.email ?? null;
     const sender_name = access?.name ?? access?.email ?? "担当";
 
-    // sender_id 列が uuid 型(旧スキーマ)だと email を入れられないため、まず email 入りで挿入し、
-    //   uuid/構文/sender_id 系のエラーなら sender_id=null で再挿入する（表示名は sender_name に残る）。
+    // 本番(enger-lp 由来)の chat_messages には sender_kind(NOT NULL) 列があることがある。
+    //   ・sender_kind には sender_role と同義の値(agent/company/freelance)を入れる。
+    //   ・列が無い/別CHECKで弾かれる環境では sender_kind を外して再挿入（NULL は CHECK を通過）。
+    //   ・sender_id は uuid 型の旧環境では email を入れられないため null フォールバック。
     const baseRow = { thread_id: input.thread_id, sender_role: role, sender_name, body };
-    let { error } = await admin.from("chat_messages").insert({ ...baseRow, sender_id });
-    if (error && /uuid|invalid input syntax|sender_id/i.test(error.message ?? "")) {
-      ({ error } = await admin.from("chat_messages").insert({ ...baseRow, sender_id: null }));
+    const attempts: Array<Record<string, any>> = [
+      { sender_id, sender_kind: role },
+      { sender_id: null, sender_kind: role },
+      { sender_id },
+      { sender_id: null },
+    ];
+    let error: any = null;
+    for (const extra of attempts) {
+      ({ error } = await admin.from("chat_messages").insert({ ...baseRow, ...extra }));
+      if (!error) break;
+      // フォールバックで解消しうるエラー(sender_id 型 / sender_kind 列)以外は即中断して報告。
+      if (!/uuid|invalid input syntax|sender_id|sender_kind|column .* does not exist/i.test(error.message ?? "")) break;
     }
     if (error) {
-      // 権限(RLS/grant)・制約エラーは、本番スキーマ未適用が原因のことが多い。対処を明示して返す。
-      if (/row-level security|permission denied|violates|relation .* does not exist/i.test(error.message ?? "")) {
-        return { ok: false, error: `チャットの送信に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/ポリシー未適用の可能性）。` };
+      // 権限(RLS/grant)・制約・列欠落エラーは、本番スキーマ未適用が原因のことが多い。対処を明示して返す。
+      if (/row-level security|permission denied|violates|relation .* does not exist|column .* does not exist/i.test(error.message ?? "")) {
+        return { ok: false, error: `チャットの送信に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/列/ポリシー未適用の可能性）。` };
       }
       return { ok: false, error: error.message };
     }
