@@ -61,13 +61,14 @@ function TextChips({ presets, value, onChange, color = "var(--color-brand-600)" 
   );
 }
 
-/** 単一選択のタップボタン群（プルダウン代替で素早く選ぶ）。 */
+/** 単一選択のタップボタン群（プルダウン代替で素早く選ぶ）。
+ *  選択済みの項目をもう一度クリックすると選択解除（空に戻す）。 */
 function SegButtons({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
       {options.map((o) => {
         const on = value === o;
-        return <button key={o} type="button" onClick={() => onChange(o)} style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", padding: "6px 12px", borderRadius: 99, border: `1px solid ${on ? "var(--color-brand-600)" : "var(--color-border)"}`, background: on ? "var(--color-brand-50)" : "var(--color-surface)", color: on ? "var(--color-brand-700)" : "var(--color-ink-3)" }}>{o}</button>;
+        return <button key={o} type="button" onClick={() => onChange(on ? "" : o)} style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: "inherit", padding: "6px 12px", borderRadius: 99, border: `1px solid ${on ? "var(--color-brand-600)" : "var(--color-border)"}`, background: on ? "var(--color-brand-50)" : "var(--color-surface)", color: on ? "var(--color-brand-700)" : "var(--color-ink-3)" }}>{o}</button>;
       })}
     </div>
   );
@@ -81,9 +82,11 @@ function CompanyTypePicker({ value, onChange, inputStyle }: { value: string; onC
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {COMPANY_TYPES.map((o) => (
-          <button key={o} type="button" onClick={() => { setOtherMode(false); onChange(o); }} style={segStyle(!otherMode && value === o)}>{o}</button>
-        ))}
+        {COMPANY_TYPES.map((o) => {
+          const on = !otherMode && value === o;
+          // 選択済みをもう一度クリックで解除（空に戻す）。
+          return <button key={o} type="button" onClick={() => { setOtherMode(false); onChange(on ? "" : o); }} style={segStyle(on)}>{o}</button>;
+        })}
         <button type="button" onClick={() => { setOtherMode(true); onChange(""); }} style={segStyle(otherMode)}>その他</button>
       </div>
       {otherMode && (
