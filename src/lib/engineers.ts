@@ -3,6 +3,13 @@ import { publicAdmin, engerClient, engerAdmin, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
 
+/** スキルシート1件（LP=enger.jp がアップロードし public.profiles.skill_sheets に保存）。
+ *  ・url  : 公開URL（公開バケット skillsheets。そのままブラウザで開ける）
+ *  ・name : 表示用ファイル名（本名回避のためイニシャル運用）
+ *  ・path : バケット内パス（将来、署名URL方式へ切り替える場合に使用）
+ *  1人につき最大3件。 */
+export type SkillSheet = { url: string; name?: string | null; path?: string | null; uploaded_at?: string | null };
+
 /**
  * 登録元の判別ルール（将来のLP追加に備え、ラベル文字列で持つ）。
  * 順に評価して最初に一致したものを採用。
@@ -75,8 +82,10 @@ export type Engineer = {
   estimated_pay_mid: number | null;
   estimated_pay_high: number | null;
   portfolio_url: string | null;
-  skill_sheet_url: string | null;
-  skill_sheet_name: string | null;
+  skill_sheet_url: string | null;        // 旧・単一カラム（後方互換。skill_sheets の先頭1件と同期）
+  skill_sheet_name: string | null;       // 旧・単一カラム（後方互換）
+  skill_sheets: SkillSheet[];            // 新・複数スキルシート（最大3件）。未提出は []
+
   headline: string | null;
   bio: string | null;
   qiita_id: string | null;
@@ -130,7 +139,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // 退会関連列（withdrawal_requested_at / withdrawal_reason / withdrawal_completed_at）は
     //   supabase/profiles-withdrawal.sql で追加。未マイグレ環境では列無しフォールバックに落ちる。
     const wd = "withdrawal_requested_at, withdrawal_reason, withdrawal_completed_at";
-    const richVariants = [
+    const baseVariants = [
       // source 列がある環境ではそれも取得して LMS 等の除外に使う（無ければ下のフォールバックへ）。
       `${base}, signup_source, signup_method, source, phone, contact_line, ${wd}`,
       `${base}, signup_source, signup_method, source, ${wd}`,
@@ -145,6 +154,12 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       `${base}, signup_source, signup_method, tel, messenger`,
       `${base}, signup_source, signup_method`,
       base,
+    ];
+    // まず skill_sheets（複数スキルシート）込みで取得を試し、列が無い環境では列なしにフォールバック。
+    //   skillsheets-multi.sql 適用済み環境では先頭の variant が成功し skill_sheets を取得できる。
+    const richVariants = [
+      ...baseVariants.map((v) => `${v}, skill_sheets`),
+      ...baseVariants,
     ];
     // 無限道場（role=student）は DX の LP登録一覧に出さないため、student のみで拾う条件は外す。
     // ※ ENGERフリーランス登録者は github_login / display_name / email のいずれかを持つため取りこぼさない。
@@ -164,9 +179,23 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
     const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
     const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;
+    // skill_sheets（jsonb 配列）を正規化。url を持つ要素のみ・最大3件。
+    //   未マイグレ環境（skill_sheets 列なし）や未提出時は、旧・単一カラム skill_sheet_url から1件を合成して後方互換。
+    const sheetsOf = (r: any): SkillSheet[] => {
+      const raw = Array.isArray(r.skill_sheets) ? r.skill_sheets : [];
+      const list = raw
+        .filter((s: any) => s && typeof s.url === "string" && s.url)
+        .slice(0, 3)
+        .map((s: any) => ({ url: String(s.url), name: s.name ?? null, path: s.path ?? null, uploaded_at: s.uploaded_at ?? null }));
+      if (list.length === 0 && r.skill_sheet_url) {
+        return [{ url: String(r.skill_sheet_url), name: r.skill_sheet_name ?? null, path: null, uploaded_at: null }];
+      }
+      return list;
+    };
     const rows = (data ?? []).map((r: any) => ({
       ...r,
       skills: Array.isArray(r.skills) ? r.skills : [],
+      skill_sheets: sheetsOf(r),
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
       phone: phoneOf(r),

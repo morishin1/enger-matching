@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
-import type { Engineer, EngineerAction, EngineerSource, Scout, Application, JobFavorite } from "@/lib/engineers";
+import type { Engineer, EngineerAction, EngineerSource, Scout, Application, JobFavorite, SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
@@ -116,6 +116,41 @@ function ContactIcons({ e, chat }: { e: { email?: string | null; phone?: string 
   );
 }
 
+// スキルシートのファイルマーク。拡張子で色を出し分け（pdf=赤 / xls=緑 / doc=青 / 既定=ブランド）。
+const sheetColor = (s: SkillSheet): string => {
+  const ext = (s.name || s.url || "").toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/)?.[1] ?? "";
+  if (ext === "pdf") return "#d23f57";
+  if (ext === "xls" || ext === "xlsx" || ext === "csv") return "#067647";
+  if (ext === "doc" || ext === "docx") return "#0b5cab";
+  return "var(--color-brand-700,#0b5cab)";
+};
+const sheetIcon = (s: SkillSheet): string => {
+  const ext = (s.name || s.url || "").toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/)?.[1] ?? "";
+  if (ext === "pdf") return "picture_as_pdf";
+  if (ext === "xls" || ext === "xlsx" || ext === "csv") return "table_view";
+  return "description";
+};
+
+/** フリーランス一覧「スキルシート」列：アップロード件数ぶんファイルマークを点灯（最大3）。
+ *  各マークをクリックで該当ファイルを新規タブで開く（即閲覧）。ホバーでファイル名を表示。 */
+function SkillSheetMarks({ sheets }: { sheets: SkillSheet[] | null | undefined }) {
+  const list = (Array.isArray(sheets) ? sheets : []).filter((s) => s && s.url).slice(0, 3);
+  if (list.length === 0) return <span className="muted" title="未提出" style={{ fontSize: 12 }}>—</span>;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+      {list.map((s, i) => (
+        <a key={i} href={s.url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()}
+          title={s.name || `スキルシート${i + 1}`}
+          className="material-symbols-outlined"
+          style={{ fontSize: 18, lineHeight: 1, color: sheetColor(s), textDecoration: "none" }}>
+          {sheetIcon(s)}
+        </a>
+      ))}
+      <span className="muted" style={{ fontSize: 10, marginLeft: 2 }}>{list.length}/3</span>
+    </span>
+  );
+}
+
 export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -165,8 +200,9 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
       if (filters.lang && (e.primary_language || "") !== filters.lang) return false;
       if (filters.meeting === "done" && !meetingDoneIds.has(e.id)) return false;
-      if (filters.sheet === "あり" && !e.skill_sheet_url) return false;
-      if (filters.sheet === "なし" && e.skill_sheet_url) return false;
+      const hasSheets = (e.skill_sheets?.length ?? 0) > 0 || !!e.skill_sheet_url;
+      if (filters.sheet === "あり" && !hasSheets) return false;
+      if (filters.sheet === "なし" && hasSheets) return false;
       // 退会フィルタ：
       //   既定（""）  → 退会処理済みは除外、それ以外（通常 + 退会希望中）を表示
       //   "wish"      → 退会希望中（申請あり・処理未済）のみ
@@ -342,11 +378,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td><span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{e.primary_language ?? "—"}</span></td>
                     <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
                     <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
-                    <td>
-                      {e.skill_sheet_url
-                        ? <a href={e.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
-                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
-                    </td>
+                    <td><SkillSheetMarks sheets={e.skill_sheets} /></td>
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
                     <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
@@ -648,18 +680,21 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
         <WithdrawalSection engineer={detail} />
 
 
-        {(detail.portfolio_url || detail.skill_sheet_url) && (
+        {(detail.portfolio_url || (detail.skill_sheets?.length ?? 0) > 0 || detail.qiita_id) && (
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
             {detail.portfolio_url && (
               <a href={detail.portfolio_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>link</span>ポートフォリオ
               </a>
             )}
-            {detail.skill_sheet_url && (
-              <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>スキルシート{detail.skill_sheet_name ? `（${detail.skill_sheet_name}）` : ""}
+            {/* スキルシートは複数（最大3件）。各ファイルを個別リンクで開ける。 */}
+            {(detail.skill_sheets ?? []).map((s, i) => (
+              <a key={i} href={s.url} target="_blank" rel="noreferrer" title={s.name || `スキルシート${i + 1}`}
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, color: sheetColor(s), fontWeight: 600 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{sheetIcon(s)}</span>
+                {s.name || `スキルシート${i + 1}`}
               </a>
-            )}
+            ))}
             {detail.qiita_id && (
               <a href={`https://qiita.com/${detail.qiita_id}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>article</span>Qiita
