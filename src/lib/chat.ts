@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { engerClient, engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
+import { engerClient, engerAdmin, publicAdmin, authAdmin, dbConfigured } from "@/lib/supabase";
 
 export type ChatRole = "company" | "freelance" | "agent";
 
@@ -139,6 +139,33 @@ async function resolveEngineerNames(ids: string[]): Promise<Map<string, Resolved
   return out;
 }
 
+/** 【①の別アプローチ】public.profiles に登録名が無い（Google表示名しか入っていない）人材向けに、
+ *  auth.users の user_metadata から「姓＋名（漢字）」を補完する。
+ *  ・フリーランス側のプロフィール編集で 姓名/フリガナ/イニシャル を user_metadata に保存しているケースを拾う。
+ *  ・Google の full_name（アカウント名）に倒れないよう、明示の「姓＋名」(SEI/MEI)が日本語の時だけ採用する。
+ *  ・admin API は id 単位の取得のため、profiles 解決で日本語氏名が取れなかった id だけを対象に上限付きで照会する。 */
+async function augmentNamesFromAuth(map: Map<string, ResolvedName>, ids: string[]): Promise<void> {
+  const need = Array.from(new Set(ids.filter((v) => /^[0-9a-f-]{32,36}$/i.test(String(v ?? "")))))
+    .filter((id) => !hasJa(map.get(id)?.name ?? "")); // profiles で日本語氏名が取れた人は対象外
+  if (need.length === 0) return;
+  let auth: ReturnType<typeof authAdmin>;
+  try { auth = authAdmin(); } catch { return; }
+  const targets = need.slice(0, 60); // 照会上限（一覧で多すぎる往復を避ける）
+  await Promise.all(targets.map(async (id) => {
+    try {
+      const r: any = await auth.auth.admin.getUserById(id);
+      const meta = r?.data?.user?.user_metadata ?? null;
+      if (!meta) return;
+      // 明示の「姓＋名」が日本語の時だけ採用（Google の full_name/name には倒さない）。
+      const seiMei = joinName(pick(meta, SEI_KEYS), pick(meta, MEI_KEYS));
+      if (!hasJa(seiMei)) return;
+      const kana = joinName(pick(meta, KANA_SEI_KEYS), pick(meta, KANA_MEI_KEYS)) || pick(meta, KANA_KEYS);
+      const initials = pick(meta, INITIAL_KEYS) || initialsFromKana(kana) || initialsOf(seiMei);
+      map.set(id, { name: seiMei, initials: initials || null });
+    } catch { /* 個別の照会失敗は無視 */ }
+  }));
+}
+
 export type EngineerSearchName = { name: string; kana: string; initials: string | null };
 
 /** 新規スレッドの相手（フリーランス）検索用に、氏名(漢字)・フリガナ(カナ)・イニシャルを id 別に解決。
@@ -253,7 +280,10 @@ export async function listChatThreads(agentId?: string | null): Promise<ChatThre
     if (tr.error || !threads?.length) return [];
     const ids = threads.map((t: any) => t.id);
     // ENGERフリーランスの姓名を解決（スナップショットが空でも表示できるように）。
-    const nameMap = await resolveEngineerNames(threads.map((t: any) => String(t.engineer_id ?? "")));
+    const engIds = threads.map((t: any) => String(t.engineer_id ?? ""));
+    const nameMap = await resolveEngineerNames(engIds);
+    // ①別アプローチ：profiles に登録名が無い人は auth.users の user_metadata から姓名を補完。
+    await augmentNamesFromAuth(nameMap, engIds);
 
     // 対象スレッドのメッセージをまとめて取得し、JS で最新＆未読を集計する。
     const { data: msgs } = await sb
@@ -329,6 +359,8 @@ export async function getChatThread(
       sb.from("chat_reads").select("thread_id, participant_role, participant_id, last_read_at").eq("thread_id", id),
     ]);
     const nameMap = await resolveEngineerNames([String(thread.engineer_id ?? "")]);
+    // ①別アプローチ：profiles に登録名が無い人は auth.users の user_metadata から姓名を補完。
+    await augmentNamesFromAuth(nameMap, [String(thread.engineer_id ?? "")]);
     const { name, initials } = chooseDisplayName(nameMap.get(String(thread.engineer_id ?? "")), thread.engineer_name);
     // 担当メモはスタッフ専用テーブルから取得（人材には grant されていないため漏れない）。
     let memo = thread.memo ?? null;
