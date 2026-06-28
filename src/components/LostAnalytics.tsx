@@ -43,6 +43,10 @@ type HItem = {
   line_origin?: boolean;
   // 承認済企業（企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら true。
   company_approved?: boolean;
+  // 提案メールの応答（案件側＝企業 / 人材側＝パートナー）：未回答 / 話を進める / 見送り。
+  //   リアクション件数グラフ（話を進める/見送りボタンが押された件数）の集計に使う。
+  job_action_type?: string | null;
+  cand_action_type?: string | null;
 };
 
 const LOST_STAGES = new Set(["見送り", "失注"]);
@@ -437,6 +441,28 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
     return { approvedProposed, unapprovedProposed, approvedProgressed, unapprovedProgressed, approvedLost, approvedLostReasons };
   }, [activeRows, history, from, to]);
 
+  // リアクション件数：提案ボードのレコードに対し「話を進める／見送り」ボタンが押された件数。
+  //   ・案件側(job_action_type) と 人材側(cand_action_type) を別々に集計（横棒の内訳色分け用）。
+  //   ・最終的に「見送り」になったものも含む（ステージ非依存。アクション応答の有無で数える）。
+  //   ・削除済みレコードはデータセット（activeRows/history）に含まれないため自然に除外。
+  //   ・期間は他グラフと同じく提案の更新日時(inRange)で判定。
+  const reactionStats = useMemo(() => {
+    const seen = new Map<string, HItem>();
+    for (const p of [...activeRows, ...history]) {
+      if (!p?.id || seen.has(p.id)) continue;
+      seen.set(p.id, p);
+    }
+    let proceedJob = 0, declineJob = 0, proceedCand = 0, declineCand = 0;
+    for (const p of seen.values()) {
+      if (!inRange(p)) continue;
+      const ja = String(p.job_action_type ?? "").trim();
+      const ca = String(p.cand_action_type ?? "").trim();
+      if (ja === "話を進める") proceedJob++; else if (ja === "見送り") declineJob++;
+      if (ca === "話を進める") proceedCand++; else if (ca === "見送り") declineCand++;
+    }
+    return { proceedJob, declineJob, proceedCand, declineCand };
+  }, [activeRows, history, from, to]);
+
   // 履歴から登場する年を抽出（降順）
   const availableYears = useMemo(() => {
     const ys = new Set<number>();
@@ -573,6 +599,9 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
 
       {/* 承認済／未承認 企業の提案移行・失注（②＝提案移行数の比較、③＝承認済起因の失注理由） */}
       <ApprovalStatsCard stats={approvalStats} />
+
+      {/* 👍 リアクション件数（話を進める／見送りボタンが押された件数）。承認済企業 起因の失注のすぐ下。 */}
+      <ReactionStatsCard stats={reactionStats} />
 
       {/* 会社×失注理由ヒートマップ */}
       {data.companies.length > 0 && data.topReasons.length > 0 && (() => {
@@ -761,6 +790,67 @@ function ApprovalStatsCard({ stats }: { stats: { approvedProposed: number; unapp
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// 👍 リアクション件数（話を進める／見送りボタンが押された件数）。
+//   案件側(青)・人材側(橙) の内訳を色分けした横棒で、ボタン種別（話を進める/見送り）ごとに表示。
+//   2本の横棒は共通スケール（大きい方の合計）で並べ、件数の多寡を比較できるようにする。
+function ReactionStatsCard({ stats }: { stats: { proceedJob: number; declineJob: number; proceedCand: number; declineCand: number } }) {
+  const { proceedJob, declineJob, proceedCand, declineCand } = stats;
+  const proceedTotal = proceedJob + proceedCand;
+  const declineTotal = declineJob + declineCand;
+  const jobTotal = proceedJob + declineJob;     // 案件（企業）側が押した合計
+  const candTotal = proceedCand + declineCand;  // 人材（パートナー）側が押した合計
+  const grand = proceedTotal + declineTotal;
+  const max = Math.max(1, proceedTotal, declineTotal);
+  const JOB = "#0b5cab", CAND = "#b45309";
+
+  // 1行＝1ボタン種別の横棒。中を 案件側(青)→人材側(橙) のセグメントに分割。
+  const Bar = ({ dotColor, label, jobN, candN, total }: { dotColor: string; label: string; jobN: number; candN: number; total: number }) => {
+    const seg = (n: number, bg: string, sideLabel: string) => {
+      if (n <= 0) return null;
+      const w = Math.max(3, (n / max) * 100); // 0件以外は最小3%で必ず視認できるように
+      return (
+        <div title={`${sideLabel} ${n}件`} style={{ width: `${w}%`, background: bg, height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10.5, fontWeight: 700, overflow: "hidden", whiteSpace: "nowrap" }}>
+          {w >= 9 ? n : ""}
+        </div>
+      );
+    };
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 96, flexShrink: 0, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />{label}
+        </span>
+        <div style={{ flex: 1, minWidth: 0, height: 22, background: "var(--color-surface-inset)", borderRadius: 6, overflow: "hidden", display: "flex" }}>
+          {seg(jobN, JOB, "案件（企業）側")}
+          {seg(candN, CAND, "人材（パートナー）側")}
+        </div>
+        <span style={{ width: 48, textAlign: "right", fontSize: 13, fontWeight: 800, color: "var(--color-ink)", flexShrink: 0 }}>{total}<span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--color-ink-4)" }}>件</span></span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <Header title="👍 リアクション件数（話を進める／見送り）" hint="提案ボードのレコードに対し、案件側（企業）・人材側（パートナー）が『話を進める／見送り』ボタンを押した件数。横棒の内訳は 案件（企業）側＝青／人材（パートナー）側＝橙 で色分け。最終的に見送りになったものも含みます（削除済みは除外）。期間は提案の更新日時で判定。" />
+      {grand === 0 ? (
+        <div className="muted" style={{ fontSize: 12 }}>この期間に「話を進める／見送り」のリアクションはありません。</div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Bar dotColor="#16a34a" label="話を進める" jobN={proceedJob} candN={proceedCand} total={proceedTotal} />
+            <Bar dotColor="#dc2626" label="見送り" jobN={declineJob} candN={declineCand} total={declineTotal} />
+          </div>
+          {/* 凡例（側の色分け）＋側別合計＋総数 */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 14px", marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--color-border)", fontSize: 11, color: "var(--color-ink-3)" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: JOB, flexShrink: 0 }} />案件（企業）側 <b style={{ color: "var(--color-ink-2)" }}>{jobTotal}</b>件</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: CAND, flexShrink: 0 }} />人材（パートナー）側 <b style={{ color: "var(--color-ink-2)" }}>{candTotal}</b>件</span>
+            <span style={{ marginLeft: "auto" }}>合計リアクション <b style={{ color: "var(--color-ink)", fontSize: 13 }}>{grand}</b>件</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
