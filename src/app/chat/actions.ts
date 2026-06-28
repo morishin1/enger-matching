@@ -198,21 +198,30 @@ export async function createThread(input: { engineer_id: string; engineer_name?:
     const staff = await requireStaff();
     if (!staff.ok) return { ok: false, error: staff.error };
     if (!input.engineer_id) return { ok: false, error: "対象フリーランスを選択してください" };
-    const { data, error } = await admin
-      .from("chat_threads")
-      .insert({
-        engineer_id: input.engineer_id,
-        engineer_name: input.engineer_name?.trim() || null,
-        agent: staff.agent,
-        subject: input.subject?.trim() || null,
-        status: "open",
-      })
-      .select("id")
-      .maybeSingle();
+    // enger-lp 由来の chat_threads には dx が値を入れていない NOT NULL 列があることがあり、
+    //   「null value in column "X" violates not-null constraint」で作成に失敗する（新規スレッド作成の真因）。
+    //   どの列が必須かはアプリ側で分からないため、エラーが指す列を空文字で順次補って再試行する
+    //   （text 列はこれで通る。enum/数値等で通らない場合は下の診断メッセージへ）。
+    const row: Record<string, any> = {
+      engineer_id: input.engineer_id,
+      engineer_name: input.engineer_name?.trim() || null,
+      agent: staff.agent,
+      subject: input.subject?.trim() || null,
+      status: "open",
+    };
+    let data: any = null, error: any = null;
+    for (let i = 0; i < 8; i++) {
+      const r = await admin.from("chat_threads").insert(row).select("id").maybeSingle();
+      data = r.data; error = r.error;
+      if (!error) break;
+      const m = /null value in column "([^"]+)"/i.exec(error.message ?? "");
+      if (m && m[1] && !(m[1] in row)) { row[m[1]] = ""; continue; } // 未設定の NOT NULL 列を空文字で補完して再試行
+      break;
+    }
     if (error) {
-      // 権限(RLS/grant)・列欠落・制約エラーは本番スキーマ未適用が原因のことが多い。対処を明示。
+      // 権限(RLS/grant)・列欠落・NOT NULL/CHECK 制約エラーは本番スキーマ未適用が原因のことが多い。対処を明示。
       if (/row-level security|permission denied|violates|relation .* does not exist|column .* does not exist/i.test(error.message ?? "")) {
-        return { ok: false, error: `新規スレッドの作成に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/列 未適用の可能性）。` };
+        return { ok: false, error: `新規スレッドの作成に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/列/NOT NULL制約の可能性）。` };
       }
       return { ok: false, error: error.message };
     }
