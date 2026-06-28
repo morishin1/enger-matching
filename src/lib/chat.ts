@@ -166,6 +166,36 @@ export async function resolveEngineerSearch(ids: string[]): Promise<Map<string, 
   return out;
 }
 
+export type EngineerProfileName = { kanji: string; kana: string; initials: string };
+
+/** フリーランス詳細モーダル用：プロフィール登録の「姓名(漢字)」「フリガナ」「イニシャル」を id 別に解決。
+ *  ・未入力の項目は空文字（モーダルでは空欄表示）。display_name/ローマ字へはフォールバックしない。
+ *  ・列名差異を吸収するため profiles を select("*") で取得し候補キーから導出（サーバ専用・渡された id のみ）。 */
+export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<string, EngineerProfileName>> {
+  const out = new Map<string, EngineerProfileName>();
+  const uuidLike = Array.from(new Set(ids.filter((v) => /^[0-9a-f-]{32,36}$/i.test(String(v ?? "")))));
+  if (uuidLike.length === 0) return out;
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return out; }
+  for (let i = 0; i < uuidLike.length; i += 200) {
+    const chunk = uuidLike.slice(i, i + 200);
+    try {
+      const r: any = await pub.from("profiles").select("*").in("id", chunk);
+      if (r.error) continue;
+      for (const p of (r.data ?? []) as any[]) {
+        // 漢字氏名：姓+名（漢字）優先。無ければ単一氏名欄のうち日本語を含むものだけ採用（ローマ字 display_name は除外）。
+        const kanji = joinName(pick(p, SEI_KEYS), pick(p, MEI_KEYS))
+          || (NAME_KEYS.map((k) => String(p?.[k] ?? "").trim()).find(hasJa) ?? "");
+        const kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
+        // イニシャル：プロフィール登録値→フリガナから導出。氏名からは生成しない（未登録は空欄のまま）。
+        const initials = pick(p, INITIAL_KEYS) || initialsFromKana(kana) || "";
+        if (p?.id) out.set(String(p.id), { kanji, kana, initials });
+      }
+    } catch { /* 取得失敗チャンクはスキップ */ }
+  }
+  return out;
+}
+
 /** スレッドのスナップショット名と解決名から、表示すべき氏名を選ぶ（漢字＝日本語を最優先）。
  *  外部連携で作成時のスナップショットがローマ字(例「M F」)でも、プロフィールの漢字氏名があればそちらを表示する。 */
 function chooseDisplayName(resolved: ResolvedName | undefined, snapshot: string | null | undefined): { name: string | null; initials: string | null } {

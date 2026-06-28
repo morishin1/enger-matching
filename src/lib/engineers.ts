@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { publicAdmin, engerClient, dbConfigured } from "./supabase";
+import { publicAdmin, engerClient, engerAdmin, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
 
@@ -312,6 +312,54 @@ export async function listApplications(): Promise<Record<string, Application[]>>
         r.source_mail_url = hit.source_mail_url;
       }
       (map[r.engineer_id] ??= []).push(r);
+    }
+    return map;
+  } catch { return {}; }
+}
+
+export type JobFavorite = {
+  job_id: string;
+  job_no: string | null;
+  job_title: string | null;
+  is_published: boolean;
+  created_at: string;
+};
+
+/** 全エンジニアのお気に入り案件（enger.job_favorites）。engineer_id でグルーピングして使う。
+ *  ・案件名/番号/公開状態は enger.jobs を引いて補完（お気に入り一覧の表示用）。
+ *  ・job_favorites の RLS は本人のみ閲覧のため、dx(営業)からは service role(engerAdmin) で取得する。 */
+export async function listJobFavorites(): Promise<Record<string, JobFavorite[]>> {
+  if (!dbConfigured) return {};
+  try {
+    const sb = engerAdmin();
+    const { data, error } = await sb
+      .from("job_favorites")
+      .select("engineer_id, job_id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) return {};
+    const favs = (data ?? []) as { engineer_id: string; job_id: string; created_at: string }[];
+    // 案件マスタ（jobs）から案件名・番号・公開状態を補完。
+    const jobIds = Array.from(new Set(favs.map((f) => f.job_id).filter(Boolean)));
+    const jobMap = new Map<string, { job_no: string | null; title: string | null; is_published: boolean }>();
+    if (jobIds.length > 0) {
+      try {
+        const jr: any = await sb.from("jobs").select("id, job_no, title, is_published").in("id", jobIds).limit(5000);
+        for (const j of (jr.data ?? [])) {
+          jobMap.set(String(j.id), { job_no: j.job_no != null ? String(j.job_no) : null, title: j.title ?? null, is_published: !!j.is_published });
+        }
+      } catch { /* jobs 取得失敗でもお気に入り件数は出す */ }
+    }
+    const map: Record<string, JobFavorite[]> = {};
+    for (const f of favs) {
+      const j = jobMap.get(String(f.job_id));
+      (map[String(f.engineer_id)] ??= []).push({
+        job_id: f.job_id,
+        job_no: j?.job_no ?? null,
+        job_title: j?.title ?? null,
+        is_published: j?.is_published ?? false,
+        created_at: f.created_at,
+      });
     }
     return map;
   } catch { return {}; }
