@@ -335,7 +335,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     // ★評価（人材／案件）。案件★は企業評価に連動。
     cand_rating: candRating || null, job_rating: jobRating || null,
   }));
-  // 提案削除：管理者は理由入力で即削除、それ以外は理由を書いて「削除申請」（管理者の承認待ち）。
+  // 提案削除：承認制は廃止。admin / agent とも理由を入力して即削除（操作ログに記録される）。
   const removeProposal = () => {
     const reason = window.prompt(
       delPerm.canApprove

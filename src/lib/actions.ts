@@ -9,6 +9,7 @@ import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
 import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
 import { gmailMessageUrl } from "./gmail";
+import { logActivity, logProposalActivity } from "./activity-logs";
 import {
   bustCounts, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
   listApproverNames, initialsOf, normKey,
@@ -595,6 +596,8 @@ export async function updateProposalFields(id: string, fields: Record<string, an
   revalidatePath("/proposals");
   revalidatePath("/analytics");
   bustCounts();
+  const changedKeys = allowed.filter((k) => k in fields);
+  await logProposalActivity(id, "提案を編集", changedKeys.length ? `変更項目：${changedKeys.join(", ")}` : null);
   return { ok: true };
 }
 
@@ -1166,6 +1169,7 @@ export async function updateProposalStage(id: string, stage: string) {
   revalidatePath("/proposals");
   revalidatePath("/analytics");
   bustCounts();
+  await logProposalActivity(id, "ステージ変更", `→ ${stage}`);
   return { ok: true };
 }
 
@@ -1185,21 +1189,29 @@ async function hardDeleteProposal(id: string) {
 export async function deleteProposal(id: string) {
   const me = await currentAccess();
   if (!me || me.role !== "admin") return { ok: false, error: "提案の削除は管理者のみ可能です" };
-  return hardDeleteProposal(id);
+  let label: string | null = null;
+  try {
+    const admin = engerAdmin();
+    const r: any = await admin.from("proposals").select("candidate_name, job_title").eq("id", id).maybeSingle();
+    if (r.data) label = `${r.data.candidate_name ?? "—"} × ${r.data.job_title ?? "—"}`;
+  } catch { /* noop */ }
+  const del = await hardDeleteProposal(id);
+  if (del.ok) await logActivity({ action: "提案を削除", targetType: "proposal", targetId: id, targetLabel: label });
+  return del;
 }
 
-/** 提案削除の権限（クライアントUIで申請/承認ボタンの出し分けに使う）。 */
+/** 提案削除の権限（クライアントUIのボタン出し分け用）。
+ *  承認制は廃止。admin / agent（社内メンバー）は承認なしで即削除できる。 */
 export async function getProposalDeletePermissions(): Promise<{ canRequest: boolean; canApprove: boolean }> {
   const me = await currentAccess();
-  const isAdmin = me?.role === "admin";
-  // 申請は admin / agent（社内メンバー）が可能。承認(=実削除)は admin のみ（基本管理者のみ）。
-  return { canRequest: !!me && (isAdmin || me.role === "agent"), canApprove: isAdmin };
+  const canDelete = !!me && (me.role === "admin" || me.role === "agent");
+  // canApprove=即削除可。承認制を廃止したので canRequest と同値（社内メンバーは即削除）。
+  return { canRequest: canDelete, canApprove: canDelete };
 }
 
 /**
- * 提案削除の申請。理由必須。
- *   ・管理者：申請＝即承認とみなして即削除（deleted:true を返す）。
- *   ・管理者以外（agent）：削除申請(pending)として記録し、管理者の承認を待つ（deleted:false）。
+ * 提案削除。理由必須。承認制は廃止し、admin / agent とも**承認なしで即削除**する。
+ *   ・追跡性は操作ログ(activity_logs)に「誰が・いつ・何を・理由」を記録して担保する。
  */
 export async function requestProposalDeletion(id: string, reason: string): Promise<{ ok: boolean; deleted?: boolean; error?: string }> {
   const me = await currentAccess();
@@ -1208,37 +1220,34 @@ export async function requestProposalDeletion(id: string, reason: string): Promi
   const rsn = String(reason ?? "").trim();
   if (!rsn) return { ok: false, error: "削除理由を入力してください" };
 
-  // 管理者は申請＝即承認（即削除）。
-  if (me.role === "admin") {
-    const r = await hardDeleteProposal(id);
-    return r.ok ? { ok: true, deleted: true } : r;
-  }
+  // 削除前に対象ラベル（候補者 × 案件）を取得（削除後は引けないため）。
+  let label: string | null = null;
+  try {
+    const admin = engerAdmin();
+    const r: any = await admin.from("proposals").select("candidate_name, job_title").eq("id", id).maybeSingle();
+    if (r.data) label = `${r.data.candidate_name ?? "—"} × ${r.data.job_title ?? "—"}`;
+  } catch { /* ラベル取得失敗は無視 */ }
 
-  // agent は pending として記録（管理者の承認待ち）。
-  let admin: ReturnType<typeof engerAdmin>;
-  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  const by = me.name?.trim() || me.email || null;
-  const { error } = await admin.from("proposals").update({
-    delete_requested_at: new Date().toISOString(),
-    delete_reason: rsn,
-    delete_requested_by: by,
-  }).eq("id", id);
-  if (error) {
-    if (/delete_requested_at|delete_reason|delete_requested_by|column/i.test(error.message)) {
-      return { ok: false, error: "supabase/proposals-lost-rating-delete.sql の適用が必要です（削除申請列が未追加）" };
-    }
-    return { ok: false, error: error.message };
-  }
-  revalidatePath("/proposals");
-  return { ok: true, deleted: false };
+  const del = await hardDeleteProposal(id);
+  if (!del.ok) return del;
+  await logActivity({ action: "提案を削除", targetType: "proposal", targetId: id, targetLabel: label, detail: `理由：${rsn}` });
+  return { ok: true, deleted: true };
 }
 
-/** 削除申請を承認して実削除（管理者のみ）。 */
+/** 削除申請を承認して実削除（管理者のみ。承認制廃止後は既存の申請済みレコードの救済用に残置）。 */
 export async function approveProposalDeletion(id: string): Promise<{ ok: boolean; error?: string }> {
   const me = await currentAccess();
   if (!me || me.role !== "admin") return { ok: false, error: "削除の承認は管理者のみ可能です" };
   if (!id) return { ok: false, error: "id がありません" };
-  return hardDeleteProposal(id);
+  let label: string | null = null;
+  try {
+    const admin = engerAdmin();
+    const r: any = await admin.from("proposals").select("candidate_name, job_title").eq("id", id).maybeSingle();
+    if (r.data) label = `${r.data.candidate_name ?? "—"} × ${r.data.job_title ?? "—"}`;
+  } catch { /* noop */ }
+  const del = await hardDeleteProposal(id);
+  if (del.ok) await logActivity({ action: "提案を削除（申請を承認）", targetType: "proposal", targetId: id, targetLabel: label });
+  return del;
 }
 
 /** 削除申請を却下（管理者のみ）。pending を解除して提案は残す。 */
@@ -1268,6 +1277,7 @@ export async function bulkDeleteProposals(ids: string[]) {
   const { error } = await admin.from("proposals").delete().in("id", clean);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals"); bustCounts(); revalidatePath("/progress");
+  await logActivity({ action: "提案を一括削除", targetType: "proposal", detail: `${clean.length}件` });
   return { ok: true, count: clean.length };
 }
 

@@ -14,6 +14,8 @@ import { getUsageStats, featureLabel, YEN_PER_USD } from "@/lib/ai-usage";
 import { loadFocusCriteria } from "@/lib/focus";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { ApprovalsView } from "@/components/ApprovalsView";
+import { ActivityLogView } from "@/components/ActivityLogView";
+import { listActivityLogs } from "@/lib/activity-logs";
 import { currentAccess, listAccounts, listLpPendingCandidates } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,7 @@ const TABS_ALL = [
   { key: "matching", label: "マッチング",     icon: "target",          desc: "マッチング対象期間と「注力」の閾値" },
   { key: "menus",    label: "メニュー権限",   icon: "lock",            desc: "メニュー・日報閲覧・提案担当者の表示制御" },
   { key: "users",    label: "ユーザー管理",   icon: "manage_accounts", desc: "アカウントの承認・削除・担当者割当・無効化",     adminOnly: true },
+  { key: "logs",     label: "ログ",           icon: "history",         desc: "削除・修正の操作ログ（担当者・日時・内容）" },
   { key: "other",    label: "その他",         icon: "more_horiz",      desc: "AI 使用量と品質ルール（滅多に触らない設定）" },
 ] as const;
 type TabKey = typeof TABS_ALL[number]["key"];
@@ -62,6 +65,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const focusCriteria = tab === "matching" ? await loadFocusCriteria() : null;
   const matchWindow = tab === "matching" ? await loadMatchWindow() : null;
   const quality = tab === "other" ? await getQuality() : null;
+  const activityLogs = tab === "logs" ? await listActivityLogs({ limit: 500 }) : null;
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
   const reportScopes = tab === "menus" ? await loadReportScopes() : null;
   const proposalOwnersData = tab === "menus" ? await Promise.all([loadProposalOwners(), getStaff()]).then(([po, staff]) => ({ initial: po ?? { proposers: staff.members, closers: staff.members }, suggestions: staff.members })) : null;
@@ -145,6 +149,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             登録ユーザーを <b>企業 / 人材 / 営業</b> 等のタブで切り分け、<b>承認待ち / 承認済み</b> を分けて表示。承認・削除・担当者割当・無効化などをまとめて行えます。
           </div>
           <ApprovalsView accounts={usersData.accounts} agents={usersData.agentOptions} />
+        </div>
+      )}
+
+      {/* === ログ（削除・修正の操作ログ：担当者・日時・内容） === */}
+      {tab === "logs" && activityLogs && (
+        <div id="logs" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            提案（マッチングレコード）の<b>削除・編集・ステージ変更</b>などの操作を、<b>担当者・日時・内容</b>で記録します。削除は承認なしで行えますが、ここで誰がいつ何をしたかを確認できます。
+          </div>
+          <ActivityLogView logs={activityLogs.rows} available={activityLogs.available} />
         </div>
       )}
 
