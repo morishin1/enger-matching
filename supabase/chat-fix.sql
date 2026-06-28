@@ -88,6 +88,20 @@ alter table enger.chat_threads  alter column engineer_id    type text using engi
 alter table enger.chat_messages alter column sender_id drop not null;
 alter table enger.chat_threads add column if not exists memo text;
 
+-- enger-lp 由来の chat_messages に sender_kind(NOT NULL) 列があると、dx の送信(sender_kind 未指定)が
+--   「null value in column sender_kind violates not-null constraint」で失敗する。
+--   dx は sender_role を持つため sender_kind は必須にしない（NULL 許容化。NULL は CHECK も通過する）。
+--   列が無い環境では何もしない。
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'enger' and table_name = 'chat_messages' and column_name = 'sender_kind'
+  ) then
+    begin alter table enger.chat_messages alter column sender_kind drop not null; exception when others then null; end;
+  end if;
+end $$;
+
 -- 2) RLS 有効化。
 alter table enger.chat_threads  enable row level security;
 alter table enger.chat_messages enable row level security;

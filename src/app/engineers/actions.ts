@@ -138,9 +138,13 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
         th = await admin.from("chat_threads").insert(threadBase).select("id").maybeSingle();
       }
       if (th.data?.id) {
-        await admin.from("chat_messages").insert({
-          thread_id: th.data.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody,
-        });
+        // sender_kind(本番=NOT NULL のことがある) は sender_role と同義の値を入れる。
+        //   列が無い/弾かれる環境では sender_kind を外して再挿入（best-effort）。
+        const msgBase = { thread_id: th.data.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody };
+        let mr: any = await admin.from("chat_messages").insert({ ...msgBase, sender_kind: "agent" });
+        if (mr.error && /sender_kind|column .* does not exist/i.test(mr.error.message ?? "")) {
+          await admin.from("chat_messages").insert(msgBase);
+        }
       }
     }
   } catch { /* chat_* 未整備でもスカウトは成功 */ }
