@@ -38,6 +38,64 @@ export async function openScoutChatThread(scoutId: string): Promise<{ ok: boolea
   }
 }
 
+/** スカウトに紐づくチャットスレッドを開く（DB優先・③対応）。
+ *  ・まず chat_threads.scout_id で既存スレッドを探し、あればその thread_id を返す
+ *    （= 既にやり取りがある場合は該当スレッドへ遷移）。
+ *  ・無ければスカウト情報から新規スレッドを作成し、スカウトのタイトル（案件名）を
+ *    スレッド名(subject)にする。スカウト本文も初回メッセージとして残す。
+ *  ・外部(enger-lp)staff API には依存しない（未設定/失敗でも DX 内で完結する）。
+ *    DB に該当スカウトが無い特殊ケースのみ、最後に従来の staff API を試す。 */
+export async function openScoutThread(scoutId: string): Promise<{ ok: boolean; thread_id?: string; error?: string }> {
+  const id = (scoutId ?? "").trim();
+  if (!id) return { ok: false, error: "scout_id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+
+  // 1) 既存スレッド（scout_id 紐付け）を最優先で返す。
+  try {
+    const ex: any = await admin.from("chat_threads").select("id").eq("scout_id", id).maybeSingle();
+    if (ex.data?.id) { revalidatePath("/chat"); return { ok: true, thread_id: ex.data.id }; }
+  } catch { /* スレッド未整備でも続行（作成にトライ） */ }
+
+  // 2) スカウト情報から新規スレッドを作成（スカウトのタイトル＝案件名をスレッド名に）。
+  const sc: any = await admin.from("scouts")
+    .select("id, engineer_id, engineer_name, agent, job_no, job_id, job_title, message")
+    .eq("id", id).maybeSingle();
+  if (sc.error || !sc.data) {
+    // DB に無い（LP 由来など）→ 従来の staff API にフォールバック。
+    return openScoutChatThread(id);
+  }
+  const s = sc.data;
+  const subject = (s.job_title?.trim())
+    || (s.message ? String(s.message).split(/\r?\n/)[0].trim().slice(0, 40) : "")
+    || "スカウト";
+  const jobNoInt = s.job_no && /^\d+$/.test(String(s.job_no)) && Number(s.job_no) <= 2147483647 ? Number(s.job_no) : null;
+  const threadBase: Record<string, any> = {
+    scout_id: s.id, engineer_id: s.engineer_id, engineer_name: s.engineer_name, agent: s.agent,
+    job_no: jobNoInt, job_title: s.job_title ?? null, subject,
+  };
+  let th: any = await admin.from("chat_threads").insert({ ...threadBase, job_id: s.job_id ?? null }).select("id").maybeSingle();
+  if (th.error && /job_id|column/i.test(th.error.message ?? "")) {
+    th = await admin.from("chat_threads").insert(threadBase).select("id").maybeSingle();
+  }
+  if (th.error || !th.data?.id) {
+    // NOT NULL 列等で作成できない環境向けに staff API フォールバック。
+    return openScoutChatThread(id);
+  }
+  // スカウト本文を初回メッセージとして残す（best-effort）。
+  if (s.message) {
+    const msgBase = { thread_id: th.data.id, sender_role: "agent", sender_id: s.agent, sender_name: s.agent, body: s.message };
+    let mr: any = await admin.from("chat_messages").insert({ ...msgBase, sender_kind: "agent" });
+    if (mr.error && /sender_kind|column .* does not exist/i.test(mr.error.message ?? "")) {
+      await admin.from("chat_messages").insert(msgBase);
+    }
+  }
+  // 対応履歴のスカウト送信行に thread_id を補完しておく（次回からは即遷移）。
+  try { await admin.from("engineer_actions").update({ thread_id: th.data.id }).eq("engineer_id", s.engineer_id).eq("action", "スカウト送信").is("thread_id", null); } catch { /* thread_id 列が無い環境は無視 */ }
+  revalidatePath("/chat");
+  return { ok: true, thread_id: th.data.id };
+}
+
 /** エンジニアへの対応を1件記録（誰が・いつ・何をしたか）。 */
 export async function addEngineerAction(input: { engineer_id: string; engineer_name?: string | null; action: string; note?: string | null }): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
@@ -129,6 +187,7 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   // スカウトを起点にチャットスレッドを生成し、スカウト本文を初回メッセージとして残す。
   //   企業(client)は後から talent_interest 等で合流するため、ここでは担当↔人材で開始する。
   //   チャット未整備環境でもスカウト自体は成功させる（best-effort）。
+  let createdThreadId: string | null = null;
   try {
     if (scoutRow?.id) {
       // 案件参照(job_no/job_id)も併せて保存し、フリーランス側の案件モーダル/お気に入りに紐づける。
@@ -138,6 +197,7 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
         th = await admin.from("chat_threads").insert(threadBase).select("id").maybeSingle();
       }
       if (th.data?.id) {
+        createdThreadId = th.data.id;
         // sender_kind(本番=NOT NULL のことがある) は sender_role と同義の値を入れる。
         //   列が無い/弾かれる環境では sender_kind を外して再挿入（best-effort）。
         const msgBase = { thread_id: th.data.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody };
@@ -149,14 +209,21 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
     }
   } catch { /* chat_* 未整備でもスカウトは成功 */ }
 
-  // 履歴にも残す（重複アプローチ防止・引き継ぎ）
-  await admin.from("engineer_actions").insert({
+  // 履歴にも残す（重複アプローチ防止・引き継ぎ）。スレッドに直接遷移できるよう thread_id も保存。
+  //   thread_id 列が無い旧環境では列を外して再挿入（best-effort）。
+  const actionRow: Record<string, any> = {
     engineer_id: input.engineer_id,
     engineer_name,
     action: "スカウト送信",
     note: job_title ? `案件: ${job_title}` : null,
     operator: agent,
-  });
+    thread_id: createdThreadId,
+  };
+  let ar: any = await admin.from("engineer_actions").insert(actionRow);
+  if (ar.error && /thread_id|column/i.test(ar.error.message ?? "")) {
+    const { thread_id: _omit, ...withoutThread } = actionRow;
+    await admin.from("engineer_actions").insert(withoutThread);
+  }
 
   // ※ スカウト/チャットはフリーランスとのやり取りのみ。提案ボード（提案管理）へは記録しない。
   //   （提案ボードへの記録はフリーランスが「応募」した時だけ＝createApplication / 応募トリガで行う。）

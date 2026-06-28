@@ -234,7 +234,25 @@ export async function createThread(input: { engineer_id: string; engineer_name?:
       }
       return { ok: false, error: error.message };
     }
+    // ④ スカウト経由でなくチャットから直接立てたスレッドは、対応履歴に「チャット開始」として残す
+    //   （スカウト送信アイコンではなくチャット開始アイコンで表示される）。thread_id 列が無い環境は外して再挿入。
+    try {
+      const actRow: Record<string, any> = {
+        engineer_id: input.engineer_id,
+        engineer_name: input.engineer_name?.trim() || null,
+        action: "チャット開始",
+        note: input.subject?.trim() || null,
+        operator: staff.agent,
+        thread_id: data?.id ?? null,
+      };
+      let ar: any = await admin.from("engineer_actions").insert(actRow);
+      if (ar.error && /thread_id|column/i.test(ar.error.message ?? "")) {
+        const { thread_id: _omit, ...withoutThread } = actRow;
+        await admin.from("engineer_actions").insert(withoutThread);
+      }
+    } catch { /* 履歴記録の失敗はスレッド作成の成否に影響させない */ }
     revalidatePath("/chat");
+    revalidatePath("/engineers");
     revalidateTag("sidebar-counts", "max");
     return { ok: true, thread_id: data?.id };
   } catch (e) {

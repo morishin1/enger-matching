@@ -189,6 +189,8 @@ export type EngineerAction = {
   note: string | null;
   operator: string | null;
   created_at: string;
+  /** 紐づくチャットスレッド（chat_threads.id）。スカウト送信/チャット開始の履歴から遷移に使う。未マイグレ環境では undefined。 */
+  thread_id?: string | null;
 };
 
 /** 全エンジニアへの対応履歴（enger.engineer_actions）。engineer_id でグルーピングして使う。 */
@@ -196,11 +198,12 @@ export async function listEngineerActions(): Promise<Record<string, EngineerActi
   if (!dbConfigured) return {};
   try {
     const sb = engerClient();
-    const { data, error } = await sb
-      .from("engineer_actions")
-      .select("id, engineer_id, engineer_name, action, note, operator, created_at")
-      .order("created_at", { ascending: false })
-      .limit(2000);
+    // thread_id 列を含めて取得。未マイグレ環境（列なし）では列なしで再取得。
+    const COLS_FULL = "id, engineer_id, engineer_name, action, note, operator, created_at, thread_id";
+    const COLS_BASE = "id, engineer_id, engineer_name, action, note, operator, created_at";
+    let res: any = await sb.from("engineer_actions").select(COLS_FULL).order("created_at", { ascending: false }).limit(2000);
+    if (res.error) res = await sb.from("engineer_actions").select(COLS_BASE).order("created_at", { ascending: false }).limit(2000);
+    const { data, error } = res;
     if (error) return {};
     const map: Record<string, EngineerAction[]> = {};
     for (const r of (data ?? []) as EngineerAction[]) {
