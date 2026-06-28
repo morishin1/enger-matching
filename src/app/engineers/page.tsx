@@ -3,8 +3,8 @@ import { MatchingPeerTabsServer } from "@/components/MatchingPeerTabsServer";
 import { QuickAccessButtons } from "@/components/QuickAccessButtons";
 import { UrlPeriodChips } from "@/components/UrlPeriodChips";
 import { FlowSteps } from "@/components/FlowSteps";
-import { listEngineers, listEngineerActions, listScouts, listApplications } from "@/lib/engineers";
-import { listEngineerChatStatus } from "@/lib/chat";
+import { listEngineers, listEngineerActions, listScouts, listApplications, listJobFavorites } from "@/lib/engineers";
+import { listEngineerChatStatus, resolveEngineerProfileNames, type EngineerProfileName } from "@/lib/chat";
 import { currentAccess } from "@/lib/accounts";
 import { asClientPeriod, hasCustomRange, inClientPeriod, inCustomRange, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
 
@@ -13,9 +13,13 @@ export const dynamic = "force-dynamic";
 export default async function EngineersPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
   const access = await currentAccess();
-  const [{ rows, available }, actions, scouts, applications, chatStatus] = await Promise.all([
-    listEngineers(), listEngineerActions(), listScouts(), listApplications(), listEngineerChatStatus(access?.email),
+  const [{ rows, available }, actions, scouts, applications, favorites, chatStatus] = await Promise.all([
+    listEngineers(), listEngineerActions(), listScouts(), listApplications(), listJobFavorites(), listEngineerChatStatus(access?.email),
   ]);
+  // フリーランス詳細モーダル用：プロフィール登録の 姓名(漢字)/フリガナ/イニシャル を id 別に解決。
+  const profileNames = Object.fromEntries(
+    (await resolveEngineerProfileNames(rows.map((r) => r.id))).entries(),
+  ) as Record<string, EngineerProfileName>;
 
   // 期間セレクタ（統一デザイン）。登録日(created_at)で一覧を絞り込む。既定=全期間。
   const mPeriod = asClientPeriod(sp.period, "all");
@@ -54,7 +58,7 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} chatStatus={chatStatus} />
+      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} />
     </div>
   );
 }

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
-import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
-import type { EngineerChatStatus } from "@/lib/chat";
+import type { Engineer, EngineerAction, EngineerSource, Scout, Application, JobFavorite } from "@/lib/engineers";
+import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread, lookupJobByNo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
@@ -121,9 +121,11 @@ const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
   declined: { label: "見送り", color: "#b42318" },
 };
 
-export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; chatStatus?: Record<string, EngineerChatStatus> }) {
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  // お気に入り案件一覧モーダル（履歴列のハートをクリックで開く）。
+  const [favDetail, setFavDetail] = useState<Engineer | null>(null);
   // withdrawal: "" (退会済みを除く＝既定) / "wish" (退会希望のみ) / "done" (退会処理済みのみ) / "all" (すべて表示)
   // meeting: "" (すべて) / "done" (面談済のみ)
   const [filters, setFilters] = useState<{ status: string; lang: string; sheet: string; withdrawal: string; meeting: string }>({ status: "", lang: "", sheet: "", withdrawal: "", meeting: "" });
@@ -301,6 +303,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
                 const ap = applications[e.id] ?? [];
+                const fav = favorites[e.id] ?? [];
                 const name = e.display_name || e.github_login || e.name || "—";
                 const sub = e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "");
                 return (
@@ -352,11 +355,18 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
                     <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
-                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
                         {sc.length > 0 && <span title="スカウト" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカ{sc.length}</span>}
-                        {log.length > 0 && <span title="対応" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応{log.length}</span>}
-                        {ap.length + sc.length + log.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                        {/* 「対応」をハート（お気に入り数）に置換。クリックで該当フリーランスのお気に入り案件一覧を表示。 */}
+                        {fav.length > 0 && (
+                          <button type="button" title="お気に入り数"
+                            onClick={(ev) => { ev.stopPropagation(); setFavDetail(e); }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#fdecef", color: "#d23f57", border: "1px solid #f7c5cf", cursor: "pointer", lineHeight: 1 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: "'FILL' 1" }}>favorite</span>{fav.length}
+                          </button>
+                        )}
+                        {ap.length + sc.length + fav.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
                       </span>
                     </td>
                     <td style={{ textAlign: "center" }}>
@@ -428,13 +438,52 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       </div>
 
       {detail && (
-        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} onClose={() => setDetail(null)} />
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} profile={profileNames[detail.id]} onClose={() => setDetail(null)} />
+      )}
+
+      {favDetail && (
+        <FavoritesModal engineer={favDetail} favorites={favorites[favDetail.id] ?? []} onClose={() => setFavDetail(null)} />
       )}
     </>
   );
 }
 
-function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; onClose: () => void }) {
+/** お気に入り案件一覧モーダル：履歴列のハートをクリックで開く。該当フリーランスがお気に入りに入れた案件を表示。 */
+function FavoritesModal({ engineer, favorites, onClose }: { engineer: Engineer; favorites: JobFavorite[]; onClose: () => void }) {
+  const name = engineer.display_name || engineer.github_login || engineer.name || "—";
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 320, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 480, maxHeight: "82vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 19, color: "#d23f57", fontVariationSettings: "'FILL' 1" }}>favorite</span>
+            お気に入り案件（{favorites.length}）
+          </h3>
+          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6 }}>{name} さんがお気に入りに登録した案件</div>
+        {favorites.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13, padding: 16, textAlign: "center" }}>お気に入り案件はありません。</div>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {favorites.map((f) => (
+              <li key={f.job_id} style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {f.job_no && <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>#{f.job_no}</span>}
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{f.job_title || "（無題の案件）"}</span>
+                  {!f.is_published && <span title="現在は非公開／募集終了の案件" style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-4)", border: "1px solid var(--color-border)" }}>非公開</span>}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>登録：{fmtDateTime(f.created_at)}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; profile?: EngineerProfileName; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [action, setAction] = useState<string>("");
@@ -561,7 +610,12 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                 <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login || detail.name || "—"}</h3>
                 <SourceBadge source={detail.source} />
               </div>
-              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : (detail.name ? `@${detail.name}` : "")} · {detail.primary_language ?? "—"}</div>
+              {/* 登録名の下：ENGERフリーランスのプロフィール登録情報（姓名漢字／フリガナ／イニシャル）。未入力は空欄。 */}
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", fontSize: 12, marginTop: 3 }}>
+                <span className="muted">姓名（漢字）</span><span>{profile?.kanji || ""}</span>
+                <span className="muted">姓名（フリガナ）</span><span>{profile?.kana || ""}</span>
+                <span className="muted">イニシャル</span><span>{profile?.initials || ""}</span>
+              </div>
               {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>
