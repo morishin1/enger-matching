@@ -52,6 +52,7 @@ export function ChatClient({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [draft, setDraft] = useState("");
+  const [draftFocused, setDraftFocused] = useState(false); // 入力欄の選択中フラグ（外枠/背景の出し分け）
   const [sendAs, setSendAs] = useState<ChatRole>("agent");
   const endRef = useRef<HTMLDivElement>(null);
   // 新規スレッド作成モーダル。
@@ -110,6 +111,7 @@ export function ChatClient({
         const r = await sendChatMessage({ thread_id: threadId, body: draft, role: sendAs });
         if (r.ok) {
           setDraft("");
+          setDraftFocused(false); // 送信したら入力欄の強調を元に戻す
           router.refresh();
         } else {
           alert(r.error ?? "送信に失敗しました");
@@ -260,20 +262,23 @@ export function ChatClient({
               )}
             </div>
             {/* スレッド名（双方に表示）。スタッフは入力・保存、人材側は表示のみ。
-                外枠を見やすくし、編集中(未保存)は白(中立)枠／保存済みは色付き枠で状態が一目で分かるようにする。 */}
+                ・保存済み＝背景は白・外枠は薄い線（落ち着いた状態）。
+                ・編集中（未保存）＝背景に色を付け、外枠も色付きにして「編集中」を一目で分かるようにする。 */}
             {isStaff ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 220 }}>
-                <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", color: subjectIsSaved ? "var(--color-brand-700,#1d4ed8)" : "var(--color-ink-4)" }}>
-                  スレッド名{subjectDirty ? "（未保存）" : subjectIsSaved ? "（保存済み）" : ""}
+                <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", color: subjectDirty ? "var(--color-brand-700,#1d4ed8)" : "var(--color-ink-4)" }}>
+                  スレッド名{subjectDirty ? "（編集中）" : subjectIsSaved ? "（保存済み）" : ""}
                 </span>
                 <div style={{
                   display: "flex", alignItems: "center", gap: 6,
-                  border: `2px solid ${subjectIsSaved ? "var(--color-brand-500,#2563eb)" : "var(--color-border-strong)"}`,
-                  background: subjectIsSaved ? "var(--color-brand-25,#eff6ff)" : "var(--color-surface)",
+                  // 外枠は薄め(1px)。編集中だけ色付きにする。
+                  border: `1px solid ${subjectDirty ? "var(--color-brand-400,#60a5fa)" : "var(--color-border)"}`,
+                  // 背景：保存済み/未入力は白、編集中だけ水色。
+                  background: subjectDirty ? "var(--color-brand-25,#eff6ff)" : "var(--color-surface)",
                   borderRadius: 10, padding: "2px 4px 2px 8px", transition: "border-color .2s, background .2s",
                 }}>
-                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, color: subjectIsSaved ? "var(--color-brand-600,#2563eb)" : "var(--color-ink-5)" }}>
-                    {subjectIsSaved ? "label" : "edit"}
+                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, color: subjectDirty ? "var(--color-brand-600,#2563eb)" : "var(--color-ink-5)" }}>
+                    {subjectDirty ? "edit" : "label"}
                   </span>
                   <input
                     value={subject}
@@ -361,13 +366,23 @@ export function ChatClient({
               ))}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+              {/* 入力欄：未選択時も外枠がはっきり見えるようにし、選択中（編集中）は外枠・背景・影で
+                  「ここに入力中」と分かるように強調。送信(=blur)で元のデザインに戻る。 */}
               <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onFocus={() => setDraftFocused(true)}
+                onBlur={() => setDraftFocused(false)}
                 onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send(); }}
                 placeholder="メッセージを入力（⌘/Ctrl + Enter で送信）"
                 rows={2}
-                style={{ flex: 1, resize: "vertical", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border)", fontSize: 13, fontFamily: "inherit" }}
+                style={{
+                  flex: 1, resize: "vertical", padding: "9px 11px", borderRadius: 10, fontSize: 13, fontFamily: "inherit",
+                  outline: "none", transition: "border-color .15s, background .15s, box-shadow .15s",
+                  border: `1.5px solid ${draftFocused ? "var(--color-brand-500,#2563eb)" : "var(--color-border-strong)"}`,
+                  background: draftFocused ? "var(--color-brand-25,#eff6ff)" : "var(--color-surface)",
+                  boxShadow: draftFocused ? "0 0 0 3px var(--color-brand-100,#dbeafe)" : "none",
+                }}
               />
               <button className="btn" disabled={pending || !draft.trim()} onClick={send}>送信</button>
             </div>
