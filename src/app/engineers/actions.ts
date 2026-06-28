@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { engerAdmin, publicAdmin } from "@/lib/supabase";
+import { engerAdmin, engerClient, publicAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
 import { classifySource, listEngineers } from "@/lib/engineers";
@@ -60,8 +60,27 @@ export async function addEngineerAction(input: { engineer_id: string; engineer_n
   return { ok: true };
 }
 
-/** エンジニアへスカウトを送る。対応履歴にも「スカウト送信」を自動記録。 */
-export async function sendScout(input: { engineer_id: string; engineer_name?: string | null; job_title?: string | null; message: string }): Promise<Result> {
+/** 案件ID(= enger.jobs.job_no, 数字)から案件タイトルを取得（スカウトの「対象案件名」自動入力用）。
+ *  解決できれば jobs.id(UUID) も返す（お気に入り/応募画面の紐づけ＝enger.job_favorites.job_id に使う）。 */
+export async function lookupJobByNo(jobNo: string): Promise<{ ok: boolean; id?: string; job_no?: string; title?: string | null; error?: string }> {
+  const access = await currentAccess();
+  if (!access) return { ok: false, error: "未認証です" };
+  const raw = String(jobNo ?? "").trim();
+  if (!/^\d+$/.test(raw)) return { ok: false, error: "案件IDは数字で入力してください" };
+  try {
+    const sb = engerClient();
+    const r: any = await sb.from("jobs").select("id, job_no, title").eq("job_no", Number(raw)).maybeSingle();
+    if (r.error) return { ok: false, error: r.error.message };
+    if (!r.data) return { ok: false, error: "該当する案件が見つかりません" };
+    return { ok: true, id: String(r.data.id), job_no: r.data.job_no != null ? String(r.data.job_no) : raw, title: r.data.title ?? null };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "案件の取得に失敗しました" };
+  }
+}
+
+/** エンジニアへスカウトを送る。対応履歴にも「スカウト送信」を自動記録。
+ *  案件ID(job_no)/案件(job_id) を一緒に保存し、フリーランス側の「応募画面へ」「お気に入り登録」に紐づける。 */
+export async function sendScout(input: { engineer_id: string; engineer_name?: string | null; job_title?: string | null; job_id?: string | null; job_no?: string | null; message: string }): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   if (!input.engineer_id) return { ok: false, error: "対象エンジニアが未指定です" };
@@ -71,34 +90,34 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   const agent = access?.name || access?.email || null;
   const engineer_name = input.engineer_name?.trim() || null;
   const job_title = input.job_title?.trim() || null;
+  const job_id = input.job_id?.trim() || null;                                   // enger.jobs.id（UUID・任意）
+  const job_no = input.job_no?.trim() || null;                                   // 案件ID（表示番号・任意）
+  const jobNoInt = job_no && /^\d+$/.test(job_no) ? Number(job_no) : null;       // chat_threads.job_no(integer) 用
 
   const scoutBody = input.message.trim();
-  const { data: scoutRow, error } = await admin.from("scouts").insert({
-    engineer_id: input.engineer_id,
-    engineer_name,
-    agent,
-    job_title,
-    message: scoutBody,
-    status: "sent",
-  }).select("id").maybeSingle();
-  if (error) return { ok: false, error: error.message };
+  // 案件参照列(job_id/job_no)を含めて insert。未マイグレ環境（列なし）でもスカウト自体は成功させる。
+  const scoutBase: Record<string, any> = { engineer_id: input.engineer_id, engineer_name, agent, job_title, message: scoutBody, status: "sent" };
+  let scoutIns: any = await admin.from("scouts").insert({ ...scoutBase, job_id, job_no }).select("id").maybeSingle();
+  if (scoutIns.error && /job_id|job_no|column/i.test(scoutIns.error.message ?? "")) {
+    scoutIns = await admin.from("scouts").insert(scoutBase).select("id").maybeSingle();
+  }
+  if (scoutIns.error) return { ok: false, error: scoutIns.error.message };
+  const scoutRow = scoutIns.data;
 
   // スカウトを起点にチャットスレッドを生成し、スカウト本文を初回メッセージとして残す。
   //   企業(client)は後から talent_interest 等で合流するため、ここでは担当↔人材で開始する。
   //   チャット未整備環境でもスカウト自体は成功させる（best-effort）。
   try {
     if (scoutRow?.id) {
-      const { data: th } = await admin.from("chat_threads").insert({
-        scout_id: scoutRow.id,
-        engineer_id: input.engineer_id,
-        engineer_name,
-        agent,
-        job_title,
-        subject: job_title,
-      }).select("id").maybeSingle();
-      if (th?.id) {
+      // 案件参照(job_no/job_id)も併せて保存し、フリーランス側の案件モーダル/お気に入りに紐づける。
+      const threadBase: Record<string, any> = { scout_id: scoutRow.id, engineer_id: input.engineer_id, engineer_name, agent, job_no: jobNoInt, job_title, subject: job_title };
+      let th: any = await admin.from("chat_threads").insert({ ...threadBase, job_id }).select("id").maybeSingle();
+      if (th.error && /job_id|column/i.test(th.error.message ?? "")) {
+        th = await admin.from("chat_threads").insert(threadBase).select("id").maybeSingle();
+      }
+      if (th.data?.id) {
         await admin.from("chat_messages").insert({
-          thread_id: th.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody,
+          thread_id: th.data.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody,
         });
       }
     }

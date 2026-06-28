@@ -241,6 +241,10 @@ export type Scout = {
   engineer_id: string;
   engineer_name: string | null;
   agent: string | null;
+  /** 対象案件 enger.jobs.id（UUID・任意）。お気に入り/応募画面の紐づけ用。未マイグレ環境では undefined */
+  job_id?: string | null;
+  /** 案件ID（表示番号 = jobs.job_no・任意）。未マイグレ環境では undefined */
+  job_no?: string | null;
   job_title: string | null;
   message: string;
   status: "sent" | "read" | "interested" | "declined";
@@ -318,14 +322,14 @@ export async function listScouts(): Promise<Record<string, Scout[]>> {
   if (!dbConfigured) return {};
   try {
     const sb = engerClient();
-    const { data, error } = await sb
-      .from("scouts")
-      .select("id, engineer_id, engineer_name, agent, job_title, message, status, reply, created_at, read_at, replied_at")
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    if (error) return {};
+    // 案件参照列(job_id/job_no)を含めて取得。未マイグレ環境（列なし）では列なしで再取得。
+    const COLS_FULL = "id, engineer_id, engineer_name, agent, job_id, job_no, job_title, message, status, reply, created_at, read_at, replied_at";
+    const COLS_BASE = "id, engineer_id, engineer_name, agent, job_title, message, status, reply, created_at, read_at, replied_at";
+    let res: any = await sb.from("scouts").select(COLS_FULL).order("created_at", { ascending: false }).limit(2000);
+    if (res.error) res = await sb.from("scouts").select(COLS_BASE).order("created_at", { ascending: false }).limit(2000);
+    if (res.error) return {};
     const map: Record<string, Scout[]> = {};
-    for (const r of (data ?? []) as Scout[]) {
+    for (const r of (res.data ?? []) as Scout[]) {
       (map[r.engineer_id] ??= []).push(r);
     }
     return map;

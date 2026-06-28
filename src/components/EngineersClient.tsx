@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
 import type { EngineerChatStatus } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread, lookupJobByNo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
 
@@ -442,6 +442,9 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const [err, setErr] = useState<string | null>(null);
   const [scoutMsg, setScoutMsg] = useState("");
   const [scoutJob, setScoutJob] = useState("");
+  const [scoutJobNo, setScoutJobNo] = useState("");                       // 案件ID（営業が入力）
+  const [scoutJobId, setScoutJobId] = useState<string | null>(null);      // 解決した enger.jobs.id（UUID）
+  const [jobLookupMsg, setJobLookupMsg] = useState<{ tone: "ok" | "err" | "loading"; text: string } | null>(null);
   const [scoutErr, setScoutErr] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(0);            // 対応履歴ページャ（5件/ページ）
   const [appPage, setAppPage] = useState(0);            // 応募した案件ページャ（5件/ページ）
@@ -483,6 +486,31 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const safeAppPage = Math.min(appPage, appPageCount - 1);
   const pagedApp = appLog.slice(safeAppPage * APP_PER_PAGE, safeAppPage * APP_PER_PAGE + APP_PER_PAGE);
 
+  // 案件ID(数字)を入れたら、案件名を自動取得して「対象案件名」へ反映（手入力での上書きは可）。
+  //   入力のたびに少し待ってから問い合わせる（デバウンス）。解決できれば jobs.id(UUID) も保持。
+  useEffect(() => {
+    const no = scoutJobNo.trim();
+    if (!no) { setScoutJobId(null); setJobLookupMsg(null); return; }
+    if (!/^\d+$/.test(no)) { setScoutJobId(null); setJobLookupMsg({ tone: "err", text: "案件IDは数字で入力してください" }); return; }
+    setJobLookupMsg({ tone: "loading", text: "案件名を取得中…" });
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const r = await lookupJobByNo(no);
+      if (cancelled) return;
+      if (r.ok) {
+        setScoutJobId(r.id ?? null);
+        setScoutJob(r.title || `案件ID ${r.job_no ?? no}`); // 自動入力（以降の手入力編集はそのまま尊重）
+        setJobLookupMsg({ tone: "ok", text: `案件名を取得：${r.title || "（無題）"}` });
+      } else {
+        setScoutJobId(null);
+        setJobLookupMsg({ tone: "err", text: r.error || "該当する案件が見つかりません" });
+      }
+    }, 450);
+    return () => { cancelled = true; clearTimeout(timer); };
+    // setter は安定。scoutJobNo の変化時のみ再実行する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoutJobNo]);
+
   // ③ スカウトを起点にチャットスレッドを開いて遷移（サーバ経由で enger-lp open-thread を呼ぶ）。
   const openChat = (scoutId: string) => {
     if (!scoutId || chatBusy) return;
@@ -498,9 +526,10 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
     if (!scoutMsg.trim()) { setScoutErr("スカウト本文を入力してください"); return; }
     setScoutErr(null);
     start(async () => {
-      const res = await sendScout({ engineer_id: detail.id, engineer_name: detail.display_name || detail.github_login, job_title: scoutJob, message: scoutMsg });
+      // 書き換え後の対象案件名・本文・案件ID(と解決済みjobs.id)をセットで送信。
+      const res = await sendScout({ engineer_id: detail.id, engineer_name: detail.display_name || detail.github_login, job_title: scoutJob, job_id: scoutJobId, job_no: scoutJobNo.trim() || null, message: scoutMsg });
       if (!res.ok) { setScoutErr(res.error || "送信に失敗しました"); return; }
-      setScoutMsg(""); setScoutJob("");
+      setScoutMsg(""); setScoutJob(""); setScoutJobNo(""); setScoutJobId(null); setJobLookupMsg(null);
       router.refresh();
     });
   };
@@ -643,7 +672,16 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
           <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>スカウト <span className="muted" style={{ fontWeight: 400 }}>（{scoutLog.length}件）</span></div>
 
           <div style={{ background: "var(--color-bg, #f7f8fa)", border: "1px solid var(--color-border)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-            <input value={scoutJob} onChange={(e) => setScoutJob(e.target.value)} placeholder="対象案件名（任意）" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
+            {/* 案件ID（数字）→ 対象案件名を自動取得。対象案件名は自動入力後も自由に編集可。 */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={scoutJobNo} onChange={(e) => setScoutJobNo(e.target.value)} inputMode="numeric" placeholder="案件ID" title="案件ID（数字）を入れると対象案件名を自動取得します"
+                style={{ width: 100, flex: "0 0 auto", fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
+              <input value={scoutJob} onChange={(e) => setScoutJob(e.target.value)} placeholder="対象案件名（任意・自動入力後も編集可）"
+                style={{ flex: 1, minWidth: 0, fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
+            </div>
+            {jobLookupMsg && (
+              <div style={{ fontSize: 11, color: jobLookupMsg.tone === "err" ? "#b42318" : jobLookupMsg.tone === "ok" ? "#067647" : "var(--color-ink-4)" }}>{jobLookupMsg.text}</div>
+            )}
             <textarea value={scoutMsg} onChange={(e) => setScoutMsg(e.target.value)} rows={3} placeholder="スカウト本文：案件の魅力・なぜあなたか・次のステップを簡潔に" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)", resize: "vertical" }} />
             {scoutErr && <div style={{ fontSize: 11.5, color: "#b42318" }}>{scoutErr}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -660,6 +698,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, color: "#fff", background: st.color }}>{st.label}</span>
                       {s.job_title && <span className="muted" style={{ fontSize: 11 }}>{s.job_title}</span>}
+                      {s.job_no && <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)" }}>案件ID {s.job_no}</span>}
                       <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>{fmtDate(s.created_at)}{s.agent ? ` · ${s.agent}` : ""}</span>
                     </div>
                     <div style={{ color: "var(--color-ink-2)", marginTop: 4, whiteSpace: "pre-wrap" }}>{s.message}</div>
