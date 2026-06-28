@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import {
   type TimeEntry, summarizeMonth, laborMinutesOf, plannedMinutesOf,
   fmtHm, fmtHmJst, monthRange, lastDayOf, deviatesFromShift,
+  laborMinutesFrom, spanMinutes,
 } from "@/lib/timecard";
 import {
   clockIn, clockOut, upsertTimeEntry, submitMonthForApproval,
@@ -516,7 +517,10 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
   const [pe, setPe] = useState(entry?.planned_end ? fmtHmJst(entry.planned_end) : "");
   const [as, setAs] = useState(entry?.actual_start ? fmtHmJst(entry.actual_start) : "");
   const [ae, setAe] = useState(entry?.actual_end ? fmtHmJst(entry.actual_end) : "");
-  const [brk, setBrk] = useState(String(entry?.break_minutes ?? 0));
+  // 休憩は「〇時間〇分」で入力（DB は合計分で保持）。
+  const [brkH, setBrkH] = useState(String(Math.floor((entry?.break_minutes ?? 0) / 60)));
+  const [brkM, setBrkM] = useState(String((entry?.break_minutes ?? 0) % 60));
+  const breakTotal = Math.max(0, parseInt(brkH, 10) || 0) * 60 + Math.max(0, parseInt(brkM, 10) || 0);
   const [note, setNote] = useState(entry?.note ?? "");
   const [devReason, setDevReason] = useState(entry?.deviation_reason ?? "");
   const locked = entry?.status === "submitted" || entry?.status === "approved";
@@ -534,6 +538,13 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
     actual_end:    liveActualEnd    ?? null,
   });
 
+  // 実働の即時計算（照合表示）。実績打刻＋休憩から算出し、保存後の集計値と一致させる。
+  const liveLabor = laborMinutesFrom(liveActualStart, liveActualEnd, breakTotal, livePlannedStart, livePlannedEnd);
+  const liveSpan = spanMinutes(liveActualStart, liveActualEnd);            // 拘束（休憩前）
+  const grossMinusBreak = Math.max(0, liveSpan - breakTotal);             // 単純計算（クランプなし）
+  const shiftClamped = liveSpan > 0 && !!(livePlannedStart && livePlannedEnd) && liveLabor !== grossMinusBreak;
+  const hasActualBoth = !!liveActualStart && !!liveActualEnd;
+
   const save = () => {
     setErr(null);
     // 承認済シフトと違う時間で働いた場合は理由を必須に
@@ -550,7 +561,7 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
         plannedStart: (plannedLocked || locked) ? undefined : toIso(workDate, ps),
         plannedEnd:   (plannedLocked || locked) ? undefined : toIso(workDate, pe),
         actualStart: toIso(workDate, as), actualEnd: toIso(workDate, ae),
-        breakMinutes: Number(brk) || 0, note,
+        breakMinutes: breakTotal, note,
         deviationReason: devReason,
       });
       if (res.ok) onSaved();
@@ -590,13 +601,35 @@ function EditModal({ meEmail, workDate, entry, onClose, onSaved }: {
           </div>
           <div>
             <div className="meta" style={{ fontSize: 11, marginBottom: 4, color: "#067647" }}>実績</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <HmSelect value={as} onChange={setAs} />
               <span>〜</span>
               <HmSelect value={ae} onChange={setAe} />
-              <label style={{ fontSize: 11.5, color: "var(--color-ink-3)", display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
-                休憩 <input type="number" min={0} value={brk} onChange={(e) => setBrk(e.target.value)} style={{ ...inp, width: 64 }} />分
-              </label>
+              {/* 休憩は「〇時間〇分」で入力（要望②）。合計分でDBに保存。 */}
+              <span style={{ fontSize: 11.5, color: "var(--color-ink-3)", display: "inline-flex", alignItems: "center", gap: 3, marginLeft: "auto" }}>
+                休憩
+                <input type="number" min={0} max={23} value={brkH} onChange={(e) => setBrkH(e.target.value)} aria-label="休憩 時間" style={{ ...inp, width: 50 }} />時間
+                <input type="number" min={0} max={59} value={brkM} onChange={(e) => setBrkM(e.target.value)} aria-label="休憩 分" style={{ ...inp, width: 50 }} />分
+              </span>
+            </div>
+            {/* 実働の自動計算（照合）。入力に応じて即時更新。 */}
+            <div style={{ marginTop: 8, padding: "8px 11px", borderRadius: 8, background: hasActualBoth ? "#e7f7ee" : "var(--color-surface-inset)", border: `1px solid ${hasActualBoth ? "#bfe3cc" : "var(--color-border)"}`, fontSize: 12.5 }}>
+              {hasActualBoth ? (
+                <>
+                  <span style={{ color: "var(--color-ink-3)" }}>実働（自動計算）</span>
+                  <b style={{ fontSize: 16, color: "#067647", marginLeft: 8 }}>{fmtHm(liveLabor)}</b>
+                  <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>
+                    ＝ 拘束 {fmtHm(liveSpan)} − 休憩 {fmtHm(breakTotal)}
+                  </span>
+                  {shiftClamped && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: "#9a7b12" }}>
+                      ※ シフト（{fmtHmJst(livePlannedStart)}–{fmtHmJst(livePlannedEnd)}）内で計算。時間外（早出・残業）は除外し {fmtHm(grossMinusBreak)} → {fmtHm(liveLabor)}。
+                    </div>
+                  )}
+                </>
+              ) : (
+                <span className="muted" style={{ fontSize: 11.5 }}>開始・終了を入力すると実働が自動計算されます。</span>
+              )}
             </div>
           </div>
           {/* シフト外で働いた理由：承認シフトと実績がずれているときに必須化 */}

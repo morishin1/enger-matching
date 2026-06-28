@@ -95,31 +95,41 @@ export function lastDayOf(ym: string): number {
 /** 当日打刻が必要な「YYYY-MM-DD」をクライアント現在時刻(JST)から作る。 */
 export function todayJst(): string { return jstYmd(); }
 
-/** 実働の集計単位（分）。15分単位で集計する（分単位の過大計上を防ぐ）。 */
-export const LABOR_UNIT_MIN = 15;
-
-/** 実労働時間（分）。actual_start/end が両方あるときだけ計算、無効値は 0。break_minutes を引く。
- *  ・シフト申請（planned_start/end）がある日は「申請したシフト時間内」で計算する：
- *      実働開始 = max(実打刻, シフト開始)（早出はカウントしない＝例:7時開始で6:35打刻でも7時から）
- *      実働終了 = min(実打刻, シフト終了)（シフト外の残業は基本カウントしない）
- *  ・最後に 15分単位で切り捨てて集計（分単位にしない）。 */
-export function laborMinutesOf(e: { actual_start: string | null; actual_end: string | null; break_minutes: number; planned_start?: string | null; planned_end?: string | null }): number {
-  if (!e.actual_start || !e.actual_end) return 0;
-  let s = new Date(e.actual_start).getTime();
-  let t = new Date(e.actual_end).getTime();
+/** 実打刻の拘束時間（分・休憩を引く前）。シフトクランプなし。照合表示・端数判定用。 */
+export function spanMinutes(startIso: string | null, endIso: string | null): number {
+  if (!startIso || !endIso) return 0;
+  const s = new Date(startIso).getTime(), t = new Date(endIso).getTime();
   if (!isFinite(s) || !isFinite(t) || t <= s) return 0;
-  // シフト申請がある日は申請時間内にクランプ（早出・残業は基本カウントしない）。
-  const ps = e.planned_start ? new Date(e.planned_start).getTime() : null;
-  const pe = e.planned_end ? new Date(e.planned_end).getTime() : null;
+  return Math.round((t - s) / 60000);
+}
+
+/** 実労働時間（分）を「開始・終了・休憩（分）」から算出（モーダルの即時計算と共通化）。
+ *  ・(終了 − 開始 − 休憩) を分単位そのままで返す（実績と一致＝照合できるよう端数の丸めはしない）。
+ *    ※ 以前は15分単位で切り捨てていたが「自動計算と実績が異なる」「短時間勤務が0になる」原因のため廃止。
+ *  ・シフト申請（planned_start/end）が両方ある日は「申請したシフト時間内」にクランプする
+ *    （早出 max(実打刻,シフト開始) / 残業 min(実打刻,シフト終了)）。シフトが無ければ実打刻そのまま。 */
+export function laborMinutesFrom(
+  startIso: string | null, endIso: string | null, breakMin: number,
+  plannedStartIso?: string | null, plannedEndIso?: string | null,
+): number {
+  if (!startIso || !endIso) return 0;
+  let s = new Date(startIso).getTime();
+  let t = new Date(endIso).getTime();
+  if (!isFinite(s) || !isFinite(t) || t <= s) return 0;
+  const ps = plannedStartIso ? new Date(plannedStartIso).getTime() : null;
+  const pe = plannedEndIso ? new Date(plannedEndIso).getTime() : null;
   if (ps != null && pe != null && isFinite(ps) && isFinite(pe) && pe > ps) {
     s = Math.max(s, ps);
     t = Math.min(t, pe);
     if (t <= s) return 0;
   }
-  const raw = Math.round((t - s) / 60000) - (e.break_minutes ?? 0);
-  if (raw <= 0) return 0;
-  // 15分単位で集計（端数切り捨て）。
-  return Math.floor(raw / LABOR_UNIT_MIN) * LABOR_UNIT_MIN;
+  const raw = Math.round((t - s) / 60000) - Math.max(0, breakMin ?? 0);
+  return raw > 0 ? raw : 0;
+}
+
+/** 実労働時間（分）。actual_start/end が両方あるときだけ計算、無効値は 0。break_minutes を引く。 */
+export function laborMinutesOf(e: { actual_start: string | null; actual_end: string | null; break_minutes: number; planned_start?: string | null; planned_end?: string | null }): number {
+  return laborMinutesFrom(e.actual_start, e.actual_end, e.break_minutes ?? 0, e.planned_start, e.planned_end);
 }
 
 /** 予定時間（分）。 */
