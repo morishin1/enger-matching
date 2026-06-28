@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { engerAdmin, publicAdmin } from "@/lib/supabase";
+import { engerAdmin, engerClient, publicAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
 import { classifySource, listEngineers } from "@/lib/engineers";
@@ -60,8 +60,40 @@ export async function addEngineerAction(input: { engineer_id: string; engineer_n
   return { ok: true };
 }
 
-/** エンジニアへスカウトを送る。対応履歴にも「スカウト送信」を自動記録。 */
-export async function sendScout(input: { engineer_id: string; engineer_name?: string | null; job_title?: string | null; message: string }): Promise<Result> {
+/** 案件ID(job_no, 数字)から「公開中」の案件を解決（未公開/削除済みは対象外）。
+ *  jobs は anon でも select 可（RLS using(true)）。is_published/deleted_at 列が無い古い環境は
+ *  フィルタ無しで再取得（列フォールバック）。フリーランス側 /jobs?job_id= で開けない案件を
+ *  紐づけてしまわないよう、公開中のみを正とする。 */
+async function resolvePublishedJobByNo(jobNo: string): Promise<{ id: string; job_no: string; title: string | null } | null> {
+  const raw = String(jobNo ?? "").trim();
+  if (!/^\d+$/.test(raw)) return null;
+  try {
+    const sb = engerClient();
+    const n = Number(raw);
+    let r: any = await sb.from("jobs").select("id, job_no, title").eq("job_no", n).eq("is_published", true).is("deleted_at", null).maybeSingle();
+    if (r.error && /is_published|deleted_at|column/i.test(r.error.message ?? "")) {
+      r = await sb.from("jobs").select("id, job_no, title").eq("job_no", n).maybeSingle();
+    }
+    if (r.error || !r.data) return null;
+    return { id: String(r.data.id), job_no: r.data.job_no != null ? String(r.data.job_no) : raw, title: r.data.title ?? null };
+  } catch { return null; }
+}
+
+/** 案件ID(= enger.jobs.job_no, 数字)から案件タイトルを取得（スカウトの「対象案件名」自動入力用）。
+ *  公開中の案件のみ対象。解決できれば jobs.id(UUID) も返す（お気に入り/応募画面の紐づけ用）。 */
+export async function lookupJobByNo(jobNo: string): Promise<{ ok: boolean; id?: string; job_no?: string; title?: string | null; error?: string }> {
+  const access = await currentAccess();
+  if (!access) return { ok: false, error: "未認証です" };
+  const raw = String(jobNo ?? "").trim();
+  if (!/^\d+$/.test(raw)) return { ok: false, error: "案件IDは数字で入力してください" };
+  const job = await resolvePublishedJobByNo(raw);
+  if (!job) return { ok: false, error: "公開中の該当案件が見つかりません" };
+  return { ok: true, id: job.id, job_no: job.job_no, title: job.title };
+}
+
+/** エンジニアへスカウトを送る。対応履歴にも「スカウト送信」を自動記録。
+ *  案件ID(job_no)とそれが指す案件(jobs.id)を一緒に保存し、フリーランス側の「応募画面へ」「お気に入り登録」に紐づける。 */
+export async function sendScout(input: { engineer_id: string; engineer_name?: string | null; job_title?: string | null; job_no?: string | null; message: string }): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   if (!input.engineer_id) return { ok: false, error: "対象エンジニアが未指定です" };
@@ -71,34 +103,43 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   const agent = access?.name || access?.email || null;
   const engineer_name = input.engineer_name?.trim() || null;
   const job_title = input.job_title?.trim() || null;
+  // 案件参照はサーバ側で確定する（クライアントの解決結果は信用しない＝デバウンス競合での誤紐づけ防止）。
+  //   ・案件ID(job_no)が数字なら「公開中の案件」を解決し、その jobs.id を job_id とする。
+  //   ・解決できない（未公開/該当なし）場合は job_no(入力値)のみ保持し、job_id は null（誤紐づけ防止）。
+  const typedJobNo = input.job_no?.trim() || null;
+  let job_id: string | null = null;
+  let job_no: string | null = typedJobNo;
+  if (typedJobNo) {
+    const resolved = await resolvePublishedJobByNo(typedJobNo);
+    if (resolved) { job_id = resolved.id; job_no = resolved.job_no; }
+  }
+  // chat_threads.job_no は integer。int 範囲(<=2147483647)のときだけ数値化（範囲外は null にして thread 生成を妨げない）。
+  const jobNoInt = job_no && /^\d+$/.test(job_no) && Number(job_no) <= 2147483647 ? Number(job_no) : null;
 
   const scoutBody = input.message.trim();
-  const { data: scoutRow, error } = await admin.from("scouts").insert({
-    engineer_id: input.engineer_id,
-    engineer_name,
-    agent,
-    job_title,
-    message: scoutBody,
-    status: "sent",
-  }).select("id").maybeSingle();
-  if (error) return { ok: false, error: error.message };
+  // 案件参照列(job_id/job_no)を含めて insert。未マイグレ環境（列なし）でもスカウト自体は成功させる。
+  const scoutBase: Record<string, any> = { engineer_id: input.engineer_id, engineer_name, agent, job_title, message: scoutBody, status: "sent" };
+  let scoutIns: any = await admin.from("scouts").insert({ ...scoutBase, job_id, job_no }).select("id").maybeSingle();
+  if (scoutIns.error && /job_id|job_no|column/i.test(scoutIns.error.message ?? "")) {
+    scoutIns = await admin.from("scouts").insert(scoutBase).select("id").maybeSingle();
+  }
+  if (scoutIns.error) return { ok: false, error: scoutIns.error.message };
+  const scoutRow = scoutIns.data;
 
   // スカウトを起点にチャットスレッドを生成し、スカウト本文を初回メッセージとして残す。
   //   企業(client)は後から talent_interest 等で合流するため、ここでは担当↔人材で開始する。
   //   チャット未整備環境でもスカウト自体は成功させる（best-effort）。
   try {
     if (scoutRow?.id) {
-      const { data: th } = await admin.from("chat_threads").insert({
-        scout_id: scoutRow.id,
-        engineer_id: input.engineer_id,
-        engineer_name,
-        agent,
-        job_title,
-        subject: job_title,
-      }).select("id").maybeSingle();
-      if (th?.id) {
+      // 案件参照(job_no/job_id)も併せて保存し、フリーランス側の案件モーダル/お気に入りに紐づける。
+      const threadBase: Record<string, any> = { scout_id: scoutRow.id, engineer_id: input.engineer_id, engineer_name, agent, job_no: jobNoInt, job_title, subject: job_title };
+      let th: any = await admin.from("chat_threads").insert({ ...threadBase, job_id }).select("id").maybeSingle();
+      if (th.error && /job_id|column/i.test(th.error.message ?? "")) {
+        th = await admin.from("chat_threads").insert(threadBase).select("id").maybeSingle();
+      }
+      if (th.data?.id) {
         await admin.from("chat_messages").insert({
-          thread_id: th.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody,
+          thread_id: th.data.id, sender_role: "agent", sender_id: agent, sender_name: agent, body: scoutBody,
         });
       }
     }
