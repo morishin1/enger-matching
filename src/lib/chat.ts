@@ -138,6 +138,33 @@ async function resolveEngineerNames(ids: string[]): Promise<Map<string, Resolved
   return out;
 }
 
+export type EngineerSearchName = { name: string; kana: string; initials: string | null };
+
+/** 新規スレッドの相手（フリーランス）検索用に、氏名(漢字)・フリガナ(カナ)・イニシャルを id 別に解決。
+ *  列名差異（フリガナ/イニシャルの未知列）を吸収するため profiles を select("*") で取得し、
+ *  候補キーから氏名・カナ・イニシャルを導出する（サーバ専用・対象は渡された id のみ）。 */
+export async function resolveEngineerSearch(ids: string[]): Promise<Map<string, EngineerSearchName>> {
+  const out = new Map<string, EngineerSearchName>();
+  const uuidLike = Array.from(new Set(ids.filter((v) => /^[0-9a-f-]{32,36}$/i.test(String(v ?? "")))));
+  if (uuidLike.length === 0) return out;
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return out; }
+  // 大量 IN を避けるため 200 件ずつに分割して取得。
+  for (let i = 0; i < uuidLike.length; i += 200) {
+    const chunk = uuidLike.slice(i, i + 200);
+    try {
+      let r: any = await pub.from("profiles").select("*").in("id", chunk);
+      if (r.error) r = await pub.from("profiles").select("id, display_name, name").in("id", chunk);
+      for (const p of (r.data ?? []) as any[]) {
+        const d = deriveNameInitials(p);
+        const kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
+        if (p?.id) out.set(String(p.id), { name: d.name, kana, initials: d.initials });
+      }
+    } catch { /* 取得失敗チャンクはスキップ（残りは続行） */ }
+  }
+  return out;
+}
+
 /** スレッドのスナップショット名と解決名から、表示すべき氏名を選ぶ（漢字＝日本語を最優先）。
  *  外部連携で作成時のスナップショットがローマ字(例「M F」)でも、プロフィールの漢字氏名があればそちらを表示する。 */
 function chooseDisplayName(resolved: ResolvedName | undefined, snapshot: string | null | undefined): { name: string | null; initials: string | null } {

@@ -13,6 +13,23 @@ const dt = (d: string) => {
 
 const ROLE_LABEL: Record<ChatRole, string> = { company: "企業", freelance: "人材", agent: "担当" };
 
+// 新規スレッド相手の検索用：全角/半角・大小・ひらがな↔カタカナを吸収して比較しやすい形へ正規化。
+//   これで「漢字氏名」「フリガナ（ひらがな/カタカナどちらの入力でも）」「イニシャル」のいずれでも一致する。
+const normForSearch = (s: string) =>
+  String(s ?? "")
+    .normalize("NFKC")                                                  // 全角英数・半角カナ等を統一
+    .toLowerCase()
+    .replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60)); // ひらがな→カタカナ
+
+// スレッドの短縮ID（UUID 先頭6桁）。タイトル横に目立たないよう表示する。
+const threadShortId = (id?: string | null) => {
+  const hex = String(id ?? "").replace(/[^0-9a-f]/gi, "");
+  return hex ? `T-${hex.slice(0, 6).toUpperCase()}` : "";
+};
+
+/** 新規スレッドの相手（フリーランス）候補。氏名(漢字)・フリガナ(カナ)・イニシャルで検索する。 */
+type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null };
+
 type Selected = { thread: ChatThread; messages: ChatMessage[]; reads: ChatRead[] } | null;
 
 export function ChatClient({
@@ -30,7 +47,7 @@ export function ChatClient({
   /** ENGERスタッフ(admin/agent)か。新規作成・削除・タイトル/メモ編集を出すかの判定。 */
   isStaff?: boolean;
   /** 新規スレッドの相手（フリーランス）候補。 */
-  engineers?: { id: string; name: string }[];
+  engineers?: EngineerOption[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -228,6 +245,11 @@ export function ChatClient({
             ) : (
               <div style={{ flex: 1, minWidth: 120, fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>{selected.thread.subject || ""}</div>
             )}
+            {/* スレッドID（タイトル横に目立たないよう表示）。クリック相当のコピー用に full UUID を tooltip に。 */}
+            {selected.thread.id && (
+              <span className="mono" title={`スレッドID: ${selected.thread.id}`}
+                style={{ flexShrink: 0, fontSize: 10.5, color: "var(--color-ink-5)", letterSpacing: ".02em" }}>{threadShortId(selected.thread.id)}</span>
+            )}
             {isStaff && (
               <button className="btn ghost btn-xs" disabled={pending} onClick={removeThread} title="このスレッドを削除（メッセージも完全削除）"
                 style={{ flexShrink: 0, color: "#b42318", display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -318,13 +340,17 @@ export function ChatClient({
 
 // 新規スレッド作成モーダル（スタッフ専用）。相手（フリーランス）を選び、任意でタイトルを入力。
 function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose, onSubmit, pending }: {
-  engineers: { id: string; name: string }[];
+  engineers: EngineerOption[];
   value: string; onValue: (v: string) => void;
   subject: string; onSubject: (v: string) => void;
   onClose: () => void; onSubmit: () => void; pending: boolean;
 }) {
   const [q, setQ] = useState("");
-  const filtered = q.trim() ? engineers.filter((e) => e.name.toLowerCase().includes(q.trim().toLowerCase())) : engineers;
+  // 姓名（漢字・カタカナ両方）＋イニシャルで検索。入力はひらがな/カタカナ/全角半角を吸収して比較。
+  const nq = normForSearch(q.trim());
+  const filtered = nq
+    ? engineers.filter((e) => normForSearch(`${e.name} ${e.kana ?? ""} ${e.initials ?? ""}`).includes(nq))
+    : engineers;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -334,12 +360,12 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
         </div>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>
           相手（フリーランス）
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="名前で絞り込み…"
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="氏名（漢字・カナ）/イニシャルで絞り込み…"
             style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }} />
           <select value={value} onChange={(e) => onValue(e.target.value)} size={6}
             style={{ padding: "6px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }}>
             {filtered.length === 0 && <option value="" disabled>該当なし</option>}
-            {filtered.slice(0, 200).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            {filtered.slice(0, 200).map((e) => <option key={e.id} value={e.id}>{e.initials ? `${e.name}（${e.initials}）` : e.name}</option>)}
           </select>
           {engineers.length === 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>フリーランスの一覧を取得できませんでした。</span>}
         </label>
