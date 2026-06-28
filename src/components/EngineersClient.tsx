@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
@@ -443,8 +443,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const [scoutMsg, setScoutMsg] = useState("");
   const [scoutJob, setScoutJob] = useState("");
   const [scoutJobNo, setScoutJobNo] = useState("");                       // 案件ID（営業が入力）
-  const [scoutJobId, setScoutJobId] = useState<string | null>(null);      // 解決した enger.jobs.id（UUID）
   const [jobLookupMsg, setJobLookupMsg] = useState<{ tone: "ok" | "err" | "loading"; text: string } | null>(null);
+  const titleEditedRef = useRef(false);                                   // 対象案件名を手入力で編集したか（自動入力の上書き判定）
   const [scoutErr, setScoutErr] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(0);            // 対応履歴ページャ（5件/ページ）
   const [appPage, setAppPage] = useState(0);            // 応募した案件ページャ（5件/ページ）
@@ -486,28 +486,29 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
   const safeAppPage = Math.min(appPage, appPageCount - 1);
   const pagedApp = appLog.slice(safeAppPage * APP_PER_PAGE, safeAppPage * APP_PER_PAGE + APP_PER_PAGE);
 
-  // 案件ID(数字)を入れたら、案件名を自動取得して「対象案件名」へ反映（手入力での上書きは可）。
-  //   入力のたびに少し待ってから問い合わせる（デバウンス）。解決できれば jobs.id(UUID) も保持。
+  // 案件ID(数字)を入れたら、公開中の案件名を自動取得して「対象案件名」へ反映。
+  //   ・入力のたびに少し待ってから問い合わせる（デバウンス）。
+  //   ・案件IDが変わるたびに手入力フラグをリセットし、ロード中に手入力した案件名は上書きしない。
+  //   ・紐づけ(jobs.id)はサーバ側(sendScout)で job_no から確定するため、ここでは保持しない（競合での誤紐づけ防止）。
   useEffect(() => {
     const no = scoutJobNo.trim();
-    if (!no) { setScoutJobId(null); setJobLookupMsg(null); return; }
-    if (!/^\d+$/.test(no)) { setScoutJobId(null); setJobLookupMsg({ tone: "err", text: "案件IDは数字で入力してください" }); return; }
+    if (!no) { setJobLookupMsg(null); return; }
+    if (!/^\d+$/.test(no)) { setJobLookupMsg({ tone: "err", text: "案件IDは数字で入力してください" }); return; }
+    titleEditedRef.current = false; // 新しい案件IDなので自動入力を許可
     setJobLookupMsg({ tone: "loading", text: "案件名を取得中…" });
     let cancelled = false;
     const timer = setTimeout(async () => {
       const r = await lookupJobByNo(no);
       if (cancelled) return;
       if (r.ok) {
-        setScoutJobId(r.id ?? null);
-        setScoutJob(r.title || `案件ID ${r.job_no ?? no}`); // 自動入力（以降の手入力編集はそのまま尊重）
+        if (!titleEditedRef.current) setScoutJob(r.title || `案件ID ${r.job_no ?? no}`); // ロード中の手入力は尊重
         setJobLookupMsg({ tone: "ok", text: `案件名を取得：${r.title || "（無題）"}` });
       } else {
-        setScoutJobId(null);
-        setJobLookupMsg({ tone: "err", text: r.error || "該当する案件が見つかりません" });
+        setJobLookupMsg({ tone: "err", text: r.error || "公開中の該当案件が見つかりません" });
       }
     }, 450);
     return () => { cancelled = true; clearTimeout(timer); };
-    // setter は安定。scoutJobNo の変化時のみ再実行する。
+    // setter/ref は安定。scoutJobNo の変化時のみ再実行する。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scoutJobNo]);
 
@@ -526,10 +527,10 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
     if (!scoutMsg.trim()) { setScoutErr("スカウト本文を入力してください"); return; }
     setScoutErr(null);
     start(async () => {
-      // 書き換え後の対象案件名・本文・案件ID(と解決済みjobs.id)をセットで送信。
-      const res = await sendScout({ engineer_id: detail.id, engineer_name: detail.display_name || detail.github_login, job_title: scoutJob, job_id: scoutJobId, job_no: scoutJobNo.trim() || null, message: scoutMsg });
+      // 書き換え後の対象案件名・本文・案件ID(job_no)をセットで送信。jobs.id はサーバ側で job_no から確定する。
+      const res = await sendScout({ engineer_id: detail.id, engineer_name: detail.display_name || detail.github_login, job_title: scoutJob, job_no: scoutJobNo.trim() || null, message: scoutMsg });
       if (!res.ok) { setScoutErr(res.error || "送信に失敗しました"); return; }
-      setScoutMsg(""); setScoutJob(""); setScoutJobNo(""); setScoutJobId(null); setJobLookupMsg(null);
+      setScoutMsg(""); setScoutJob(""); setScoutJobNo(""); setJobLookupMsg(null); titleEditedRef.current = false;
       router.refresh();
     });
   };
@@ -676,7 +677,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             <div style={{ display: "flex", gap: 8 }}>
               <input value={scoutJobNo} onChange={(e) => setScoutJobNo(e.target.value)} inputMode="numeric" placeholder="案件ID" title="案件ID（数字）を入れると対象案件名を自動取得します"
                 style={{ width: 100, flex: "0 0 auto", fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
-              <input value={scoutJob} onChange={(e) => setScoutJob(e.target.value)} placeholder="対象案件名（任意・自動入力後も編集可）"
+              <input value={scoutJob} onChange={(e) => { titleEditedRef.current = true; setScoutJob(e.target.value); }} placeholder="対象案件名（任意・自動入力後も編集可）"
                 style={{ flex: 1, minWidth: 0, fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
             </div>
             {jobLookupMsg && (
@@ -685,7 +686,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             <textarea value={scoutMsg} onChange={(e) => setScoutMsg(e.target.value)} rows={3} placeholder="スカウト本文：案件の魅力・なぜあなたか・次のステップを簡潔に" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)", resize: "vertical" }} />
             {scoutErr && <div style={{ fontSize: 11.5, color: "#b42318" }}>{scoutErr}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button type="button" className="btn btn-xs" disabled={pending} onClick={submitScout} style={{ opacity: pending ? 0.6 : 1 }}>{pending ? "送信中…" : "スカウトを送る"}</button>
+              <button type="button" className="btn btn-xs" disabled={pending || jobLookupMsg?.tone === "loading"} onClick={submitScout} style={{ opacity: (pending || jobLookupMsg?.tone === "loading") ? 0.6 : 1 }}>{pending ? "送信中…" : "スカウトを送る"}</button>
             </div>
           </div>
 
