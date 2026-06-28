@@ -177,27 +177,40 @@ export async function updateThreadSubject(input: { thread_id: string; subject: s
   return { ok: true };
 }
 
-/** 新規スレッドを作成する（ENGERスタッフのみ）。engineer_id は public.profiles.id。 */
+/** 新規スレッドを作成する（ENGERスタッフのみ）。engineer_id は public.profiles.id。
+ *  抜本対応：例外を投げず必ず Result を返す／権限(RLS/grant)・列欠落エラーは原因が分かる
+ *  メッセージにして supabase/chat-fix.sql の実行を促す（メッセージ送信と同方針）。 */
 export async function createThread(input: { engineer_id: string; engineer_name?: string | null; subject?: string | null }): Promise<{ ok: boolean; thread_id?: string; error?: string }> {
-  const admin = adminOrNull();
-  if (!admin) return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" };
-  const staff = await requireStaff();
-  if (!staff.ok) return { ok: false, error: staff.error };
-  if (!input.engineer_id) return { ok: false, error: "対象フリーランスを選択してください" };
-  const { data, error } = await admin
-    .from("chat_threads")
-    .insert({
-      engineer_id: input.engineer_id,
-      engineer_name: input.engineer_name?.trim() || null,
-      agent: staff.agent,
-      subject: input.subject?.trim() || null,
-      status: "open",
-    })
-    .select("id")
-    .maybeSingle();
-  if (error) return { ok: false, error: error.message };
-  revalidatePath("/chat");
-  return { ok: true, thread_id: data?.id };
+  try {
+    const admin = adminOrNull();
+    if (!admin) return { ok: false, error: "スレッド作成用のサーバ設定が未完了です（SUPABASE_SERVICE_ROLE_KEY 未設定）。" };
+    const staff = await requireStaff();
+    if (!staff.ok) return { ok: false, error: staff.error };
+    if (!input.engineer_id) return { ok: false, error: "対象フリーランスを選択してください" };
+    const { data, error } = await admin
+      .from("chat_threads")
+      .insert({
+        engineer_id: input.engineer_id,
+        engineer_name: input.engineer_name?.trim() || null,
+        agent: staff.agent,
+        subject: input.subject?.trim() || null,
+        status: "open",
+      })
+      .select("id")
+      .maybeSingle();
+    if (error) {
+      // 権限(RLS/grant)・列欠落・制約エラーは本番スキーマ未適用が原因のことが多い。対処を明示。
+      if (/row-level security|permission denied|violates|relation .* does not exist|column .* does not exist/i.test(error.message ?? "")) {
+        return { ok: false, error: `新規スレッドの作成に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/列 未適用の可能性）。` };
+      }
+      return { ok: false, error: error.message };
+    }
+    revalidatePath("/chat");
+    revalidateTag("sidebar-counts", "max");
+    return { ok: true, thread_id: data?.id };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "新規スレッドの作成に失敗しました（不明なエラー）" };
+  }
 }
 
 /** スレッドを削除する（ENGERスタッフのみ）。
