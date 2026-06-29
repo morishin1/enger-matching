@@ -61,6 +61,8 @@ export function KpiDashboardClient(props: {
   historyPeriodLabel?: string;
   /** 期間タブを内蔵表示しない（上位で単一の期間バーを使う場合）。custom の日付入力は残す。 */
   hidePeriodTabs?: boolean;
+  /** 打合せ（打ち合わせ記録）の選択期間 実績/目標。アウトサイドKPI用。loadKpiClientProps から付与。 */
+  meetingKpi?: { actual: number; target: number } | null;
 }) {
   const router = useRouter();
   const isAdmin = props.access.role === "admin";
@@ -152,6 +154,18 @@ export function KpiDashboardClient(props: {
           </div>
         </div>
       </div>
+
+      {/* KGI達成率（アウトサイド/インサイド）4ボックス。選択期間の 目標% と 現在数値。
+          「選択した日（当日）の実績・目標」の直上に常時表示（最重要の達成率を即把握）。 */}
+      {props.meetingKpi !== undefined && (
+        <RoleAchievementBoxes
+          meeting={props.meetingKpi ?? { actual: 0, target: 0 }}
+          deal={props.snapshot.deal}
+          proposal={props.snapshot.proposal}
+          schedule={props.snapshot.schedule}
+          periodLabel={periodNote(props.period)}
+        />
+      )}
 
       {/* 指標カード（選択タブの期間そのままで集計） */}
       <div className="muted" style={{ fontSize: 11.5, marginTop: -6 }}>
@@ -250,6 +264,52 @@ function HistoryTable({ rows, periodLabel, teamName }: { rows: HistoryRow[]; per
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// KGI達成率の4ボックス（アウトサイド：打合せ/合格 ・ インサイド：提案/面談）。
+//   各ボックスに「達成率%（大きく）＋ 現在 / 目標」を表示。選択期間の数値（実績・目標）。
+function RoleAchievementBoxes({ meeting, deal, proposal, schedule, periodLabel }: {
+  meeting: { actual: number; target: number };
+  deal: { target: number; actual: number; pct: number };
+  proposal: { target: number; actual: number; pct: number };
+  schedule: { target: number; actual: number; pct: number };
+  periodLabel: string;
+}) {
+  const pctOf = (a: number, t: number) => (t > 0 ? Math.round((a / t) * 100) : null);
+  const boxes = [
+    { role: "アウトサイド", metric: "打合せ数", roleColor: "#067647", actual: meeting.actual, target: meeting.target, pct: pctOf(meeting.actual, meeting.target) },
+    { role: "アウトサイド", metric: "合格数",   roleColor: "#067647", actual: deal.actual, target: deal.target, pct: deal.target > 0 ? deal.pct : null },
+    { role: "インサイド",   metric: "提案数",   roleColor: "#0b5cab", actual: proposal.actual, target: proposal.target, pct: proposal.target > 0 ? proposal.pct : null },
+    { role: "インサイド",   metric: "面談数",   roleColor: "#0b5cab", actual: schedule.actual, target: schedule.target, pct: schedule.target > 0 ? schedule.pct : null },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="muted" style={{ fontSize: 11.5, fontWeight: 700 }}>KGI達成率（チーム別）<span style={{ fontWeight: 400 }}> — {periodLabel}</span></div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }} className="kgi-4box">
+        {boxes.map((b, i) => {
+          const tone = b.pct == null ? "#94a3b8" : b.pct >= 100 ? "#067647" : b.pct >= 80 ? "#0095D9" : b.pct >= 50 ? "#b45309" : "#b42318";
+          return (
+            <div key={i} className="card" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6, borderTop: `3px solid ${b.roleColor}` }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: b.roleColor }}>{b.role}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-ink-2)" }}>{b.metric}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <span className="mono" style={{ fontSize: 26, fontWeight: 900, lineHeight: 1, color: tone }}>{b.pct == null ? "—" : `${b.pct}%`}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-4)" }}>達成率</span>
+              </div>
+              <div className="mono" style={{ fontSize: 14, fontWeight: 800 }}>
+                {b.actual}<span style={{ fontSize: 11.5, color: "var(--color-ink-4)", fontWeight: 500 }}> / {b.target} 件</span>
+              </div>
+              <div style={{ height: 6, background: "var(--color-surface-inset)", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(b.pct ?? 0, 100)}%`, height: "100%", background: tone, borderRadius: 99 }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
