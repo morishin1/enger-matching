@@ -11,7 +11,7 @@ import Link from "@/components/AppLink";
 import { toast } from "@/components/toast";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions } from "@/lib/actions";
-import { StarsInput, StarsView } from "./Stars";
+import { StarsInput } from "./Stars";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { ProposalCloseControls } from "./ProposalCloseControls";
@@ -26,23 +26,6 @@ const STAGE_TONE: Record<string, string> = {
   返信待ち: "#6b7280", 提案中: "#0095D9", 確認中: "#06b6d4", 面談調整: "#d98a2b", クロージング中: "#e0567f", 面談合格: "#1aa260",
 };
 const fmtDateTime = (d: any) => { if (!d) return "—"; const t = new Date(d); return isNaN(t.getTime()) ? "—" : `${t.getFullYear()}/${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
-
-// 会社の提案適性ランク バッジ（NG/A/B/C）。提案してダメな会社を一目で分かるようにする。
-function CompanyRankBadge({ rank }: { rank?: { grade: "NG" | "A" | "B" | "C"; label: string } | null }) {
-  if (!rank) return null;
-  const tone =
-    rank.grade === "NG" ? { bg: "#fdecef", fg: "#b42318", bd: "#f7c5cf", text: "NG" }
-    : rank.grade === "A" ? { bg: "#e7f7ee", fg: "#067647", bd: "#bfe3cc", text: "A" }
-    : rank.grade === "C" ? { bg: "#fff1e6", fg: "#b45309", bd: "#f5b97f", text: "C" }
-    : { bg: "var(--color-surface-inset)", fg: "var(--color-ink-3)", bd: "var(--color-border)", text: "B" };
-  return (
-    <span title={`提案適性ランク：${rank.label}`}
-      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}`, whiteSpace: "nowrap" }}>
-      <span>ランク {tone.text}</span>
-      <span style={{ fontWeight: 500 }}>{rank.label}</span>
-    </span>
-  );
-}
 
 // 案件情報 / 人材情報の編集可能な行（ラベル＋テキスト入力）。
 function EditInfo({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -451,8 +434,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
-                  <CompanyRankBadge rank={p.company_rank} />
-                  {p.company_star?.avg >= 1 && <span title={`会社評価（失注時の案件★平均）${p.company_star.avg} / ${p.company_star.count}件`}><StarsView value={p.company_star.avg} size={12} showNumber count={p.company_star.count} /></span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -475,8 +456,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
-                  <CompanyRankBadge rank={p.cand_company_rank} />
-                  {p.cand_company_star?.avg >= 1 && <span title={`会社評価（失注時の案件★平均）${p.cand_company_star.avg} / ${p.cand_company_star.count}件`}><StarsView value={p.cand_company_star.avg} size={12} showNumber count={p.cand_company_star.count} /></span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.cand_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -689,8 +668,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
             {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。 */}
             <div className="card" style={{ padding: 16, flex: "1 1 220px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>クローズ</div>
-              <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} company={p.company} stage={p.stage} createdAt={p.created_at} proposalId={p.id} />
-              <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} company={p.cand_company} stage={p.stage} createdAt={p.created_at} proposalId={p.id} />
+              <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} />
+              <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} />
             </div>
           </div>
 
