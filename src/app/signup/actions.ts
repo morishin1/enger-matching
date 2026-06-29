@@ -73,11 +73,19 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   if (isCommonPassword(password)) return { error: "推測されやすいパスワードです。別の文字列を設定してください。" };
 
   // 5) Supabase Auth に登録
+  //    確認メールのリンクは必ず自サイトのコールバック(/api/auth/callback)へ戻す。
+  //    これを指定しないと Supabase 既定の Site URL に飛び、code 交換が行われず
+  //    「メールアドレスを登録する」→ エラー画面になる（#131 ①の原因）。
+  //    パスワード再設定(requestPasswordReset)と同じ callback を使う（Redirect URL 許可済み）。
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://dx.enger.jp").replace(/\/$/, "");
   const supabase = await authServerClient();
   const { error } = await supabase.auth.signUp({
     email: rawEmail,
     password,
-    options: { data: { full_name: name, company: company ?? "" } },
+    options: {
+      data: { full_name: name, company: company ?? "" },
+      emailRedirectTo: `${site}/api/auth/callback?next=${encodeURIComponent("/login?confirmed=1")}`,
+    },
   });
   if (error) {
     const msg = /already registered|already been registered|exists/i.test(error.message)

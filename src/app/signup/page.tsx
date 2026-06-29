@@ -7,7 +7,6 @@ export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
   const [role, setRole] = useState<"client" | "candidate" | "freelance">("client");
   const [agHost, setAgHost] = useState(false);
-  const [oauthNotice, setOauthNotice] = useState<string | null>(null);
   useEffect(() => {
     try {
       const h = window.location.hostname || "";
@@ -19,11 +18,6 @@ export default function SignupPage() {
       if (as === "client") { setRole("client"); }
       else if (/^ag\./i.test(h) || as === "freelance") { setAgHost(true); setRole("freelance"); }
       else if (as === "candidate") { setRole("candidate"); }
-      // OAuth(Google/GitHub) 初回 → 区分を選んでもらう案内
-      if (qs.get("oauth") === "1") {
-        const em = qs.get("email") || "";
-        setOauthNotice(em ? `Googleアカウント（${em}）でのログインを確認しました。ご利用区分を選んで登録を完了してください。` : "Googleアカウントでのログインを確認しました。ご利用区分を選んで登録を完了してください。");
-      }
     } catch { /* noop */ }
   }, []);
 
@@ -46,8 +40,8 @@ export default function SignupPage() {
           {state?.ok ? (
             <div style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, boxShadow: "0 24px 70px rgba(0,0,0,.35)", textAlign: "center" }}>
               <div style={{ fontSize: 40, marginBottom: 8 }}>📨</div>
-              <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>登録を受け付けました</h2>
-              <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}>管理者の承認後にログインできるようになります。<br />承認まで今しばらくお待ちください。</p>
+              <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>確認メールを送信しました</h2>
+              <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}>ご登録のメールに届く「<b>メールアドレスを登録する</b>」リンクを開いて、メールアドレスの確認を完了してください。<br />その後、<b>管理者の承認</b>をもってログインできるようになります。</p>
               <a href="/login" style={{ display: "inline-block", marginTop: 16, color: "#0095D9", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>ログイン画面へ戻る →</a>
             </div>
           ) : (
@@ -56,9 +50,6 @@ export default function SignupPage() {
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800, color: "#0F2440" }}>新規登録</h2>
                 <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>登録後、管理者の承認をもってご利用いただけます。</p>
               </div>
-              {oauthNotice && (
-                <div style={{ background: "#eaf6fd", border: "1px solid #cfe7f8", borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: "#0F2440" }}>{oauthNotice}</div>
-              )}
 
               {agHost || role === "freelance" || role === "candidate" ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12, color: "#6b7280" }}>ご登録区分
