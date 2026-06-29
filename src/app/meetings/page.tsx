@@ -1,6 +1,7 @@
 import { MeetingsClient } from "@/components/MeetingsClient";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getCompanyOverview } from "@/lib/companies";
+import { loadKpiMembers } from "@/lib/kpi-members";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,8 @@ export default async function MeetingsPage() {
   // datalist 候補は company_overview（案件/人材由来）と企業マスタ名の和集合。
   const overviewNames = ((await getCompanyOverview()) ?? []).map((c) => c.name);
   const companies = Array.from(new Set([...overviewNames, ...companyDir.map((c) => c.name)].filter(Boolean)));
+  // 自社担当の選択肢：KPI推移のメンバーマスタ（編集可能）と連動。未設定時は定数フォールバック。
+  const owners = (await loadKpiMembers()).map((m) => m.name).filter(Boolean);
 
   return (
     <div className="page">
@@ -71,7 +74,7 @@ export default async function MeetingsPage() {
         </div>
       )}
 
-      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} companyDir={companyDir} interviews={interviews} />}
+      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} companyDir={companyDir} interviews={interviews} owners={owners} />}
     </div>
   );
 }

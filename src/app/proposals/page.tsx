@@ -2,6 +2,7 @@ import { ProposalsWorkspace } from "@/components/ProposalsWorkspace";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { loadProposalOwners } from "@/lib/proposal-owners";
+import { loadKpiMembers } from "@/lib/kpi-members";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
@@ -19,7 +20,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
   // 提案開始件数（created_at 基準）。ステージ移動の影響を受けず一貫してカウントする。
   let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
 
-  const [staff, proposalOwners, access] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess()]);
+  const [staff, proposalOwners, access, kpiMembers] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess(), loadKpiMembers()]);
   // KPI推移タブ・日報タブの埋め込みデータ（/kpi・/reports と同等の集計を再利用）。
   const [kpiData, reportsView] = await Promise.all([
     loadKpiClientProps({ email: access?.email ?? "", name: access?.name ?? null, role: access?.role ?? "", teamRole: access?.teamRole ?? null, department: access?.department ?? null }, sp),
@@ -296,6 +297,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             stageTargets={kpiData?.stageTargets}
             kgiByMember={kpiData?.kgiByMember}
             roleByMember={kpiData?.roleByMember}
+            kpiMembers={kpiMembers}
+            kpiMemberSuggestions={staff.members}
             funnelRates={kpiData?.funnelRates}
             meetingEvents={kpiData?.meetingEvents}
             procurementEvents={kpiData?.procurementEvents}

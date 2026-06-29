@@ -2,9 +2,12 @@
 //   enger.kpi_funnel_target（1行・id=1）から読む。未マイグレ/未設定時は既定値。
 import { engerAdmin, engerClient, dbConfigured } from "./supabase";
 import { DEFAULT_FUNNEL_TARGET, type FunnelTarget, type KpiRoleKey } from "./kpi-roles";
+import { loadKpiMembers } from "./kpi-members";
 
-/** メンバー名 → 役割（outside/inside/telapo）。app_users.kpi_role 優先・無ければ position(inside/outside)。
- *  ステージ目標ボードの役割別KPI/KGI表示に使う（サーバ専用）。未設定メンバーは含めない。 */
+/** メンバー名 → 役割（outside/inside/telapo）。
+ *  ・KPI推移のメンバーマスタ（app_settings: kpi_members）の team を最優先。
+ *  ・無ければ app_users.kpi_role、さらに無ければ position(inside/outside)。
+ *  ステージ目標ボードの役割別KPI/KGI表示に使う（サーバ専用）。役割未設定のメンバーは含めない。 */
 export async function getMemberKpiRoles(): Promise<Record<string, KpiRoleKey>> {
   if (!dbConfigured) return {};
   let sb: ReturnType<typeof engerClient>;
@@ -24,6 +27,10 @@ export async function getMemberKpiRoles(): Promise<Record<string, KpiRoleKey>> {
       if (role) out[nm] = role;
     }
   } catch { /* テーブル/列が無い環境でも空で続行 */ }
+  // KPI推移のメンバーマスタ（手動編集）を最優先で上書き。
+  try {
+    for (const m of await loadKpiMembers()) { if (m.team) out[m.name] = m.team; }
+  } catch { /* マスタ未設定でも続行 */ }
   return out;
 }
 

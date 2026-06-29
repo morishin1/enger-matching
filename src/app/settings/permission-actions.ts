@@ -7,6 +7,7 @@ import { resolveAccess } from "@/lib/accounts";
 import { MENU_PERM_KEY, MENU_ITEMS, MENU_GROUP_KEYS, type MenuPermissions } from "@/lib/menu-permissions";
 import { REPORT_SCOPE_KEY, REPORT_ROLE_KEYS, type ReportScope, type ReportScopes } from "@/lib/report-scope";
 import { PROPOSAL_OWNERS_KEY, type ProposalOwners } from "@/lib/proposal-owners";
+import { KPI_MEMBERS_KEY, normalizeKpiMembers, type KpiMember } from "@/lib/kpi-members";
 
 type Result = { ok: boolean; error?: string };
 
@@ -97,6 +98,25 @@ export async function saveProposalOwners(owners: ProposalOwners): Promise<Result
     revalidatePath("/proposals");
     revalidatePath("/matching");
     revalidatePath("/settings");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** KPI推移の担当者（メンバー）マスタを保存（管理者またはマネージャー/リーダー）。
+ *  ここで保存した名前・チーム（アウトサイド/インサイド/テレアポ）が、KPI推移のメンバー行・役割と、
+ *  打ち合わせ記録の自社担当プルダウンの選択肢に反映される。 */
+export async function saveKpiMembers(members: KpiMember[]): Promise<Result> {
+  const g = await requireAdminOrManager(); if (!g.ok) return g;
+  const clean = normalizeKpiMembers(members);
+  try {
+    const sb = engerAdmin();
+    const { error } = await sb.from("app_settings").upsert({ key: KPI_MEMBERS_KEY, value: clean }, { onConflict: "key" });
+    if (error) {
+      if (/app_settings|relation|column/i.test(error.message)) return { ok: false, error: "app_settings テーブルが未整備です（supabase/app-settings.sql を実行してください）" };
+      return { ok: false, error: error.message };
+    }
+    revalidatePath("/proposals");
+    revalidatePath("/meetings");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }

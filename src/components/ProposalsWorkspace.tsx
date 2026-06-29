@@ -19,6 +19,8 @@ import { TeamActivityBoard } from "./TeamActivityBoard";
 import { KpiPeriodBar } from "./KpiPeriodBar";
 import { KgiFunnelBanner } from "./KgiFunnelBanner";
 import { StageTargetBoard } from "./StageTargetBoard";
+import { KpiMembersEditor } from "./KpiMembersEditor";
+import type { KpiMember } from "@/lib/kpi-members";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
 import { PeriodChips } from "./PeriodChips";
@@ -38,7 +40,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -53,6 +55,9 @@ export function ProposalsWorkspace({
   kgiByMember?: Record<string, { placementTarget: number | null }>;
   // 役割別KPI/KGI：メンバー名→役割（outside/inside/telapo）と、チームのファネル目標（面談率/合格率）。
   roleByMember?: Record<string, string>;
+  // KPI推移のメンバーマスタ（編集UI＋ステージ目標ボードの対象メンバー）。
+  kpiMembers?: KpiMember[];
+  kpiMemberSuggestions?: string[];
   funnelRates?: { meetingRate: number; passRate: number; won: number };
   // ステージ目標ボード「打ち合わせ／案件の仕入れ／面談」列のソースイベント（{date, owner} の compact 配列）。
   meetingEvents?: { date: string; owner: string }[];
@@ -175,6 +180,8 @@ export function ProposalsWorkspace({
     for (const nm of proposers ?? []) { const v = String(nm ?? "").trim(); if (v) set.add(v); }
     for (const nm of closers ?? []) { const v = String(nm ?? "").trim(); if (v) set.add(v); } // 合格（稼働決定）はクロージング担当で集計するため
     for (const r of (teamActivity?.rows ?? []) as any[]) { const v = String(r?.name ?? "").trim(); if (v) set.add(v); }
+    // KPI推移のメンバーマスタ（手動登録）は、提案/活動が無くても必ず行として表示する。
+    for (const m of kpiMembers ?? []) { const v = String(m?.name ?? "").trim(); if (v) set.add(v); }
     const base = Array.from(set);
     const addOwner = (raw: string) => {
       const v = String(raw ?? "").trim(); if (!v) return;
@@ -184,7 +191,7 @@ export function ProposalsWorkspace({
     for (const ev of procurementEvents ?? []) addOwner(ev.owner);
     for (const ev of meetingReachedEvents ?? []) addOwner(ev.owner);
     return Array.from(set);
-  }, [proposers, closers, teamActivity, meetingEvents, procurementEvents, meetingReachedEvents]);
+  }, [proposers, closers, teamActivity, meetingEvents, procurementEvents, meetingReachedEvents, kpiMembers]);
 
   // 「打ち合わせ」「案件の仕入れ」列の現在値（KPI推移の期間で絞り、担当者名へ寛容突合して集計）。
   //   ※ 提案系（提案中/面談/合格）は StageTargetBoard 側で proposals から算出する。
@@ -358,8 +365,14 @@ export function ProposalsWorkspace({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                       <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
                       <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
-                      <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>打ち合わせ → 提案中 → 案件の仕入れ → 面談 → 合格（稼働決定） の目標/現在/達成率</span>
+                      {/* ① この表の隣にも期間フィルターを置く（上部までスクロールせず期間を切り替えられる）。 */}
+                      <div style={{ marginLeft: "auto" }}>
+                        <KpiPeriodBar current={kpiProps?.period} card={false} note="" />
+                      </div>
                     </div>
+                    <div className="muted" style={{ fontSize: 11, marginBottom: 12 }}>打ち合わせ → 提案中 → 案件の仕入れ → 面談 → 合格（稼働決定） の目標/現在/達成率</div>
+                    {/* ②③ メンバー編集・追加・削除（チーム：アウトサイド/インサイド/テレアポ）。打ち合わせ記録の自社担当にも連動。 */}
+                    <KpiMembersEditor initial={kpiMembers ?? []} suggestions={kpiMemberSuggestions ?? []} canEdit={!!privileged} />
                     <StageTargetBoard
                       proposals={proposalsForStage}
                       members={stageBoardMembers}
