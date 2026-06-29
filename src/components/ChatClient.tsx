@@ -344,8 +344,11 @@ export function ChatClient({
               <div className="muted" style={{ textAlign: "center", fontSize: 12, padding: 20 }}>まだメッセージはありません。下の入力欄から送信できます。</div>
             )}
             {selected.messages.map((m) => {
-              // ③ こちら側（担当・企業として代理送信）は右、フリーランスからの受信のみ左。
-              const mine = m.sender_role !== "freelance";
+              // こちら側（担当・企業として代理送信）だけを右寄せにする。
+              //   フリーランスからの受信は role が "freelance" 以外（空/null/不明）になっている
+              //   ケースがあり、!== "freelance" 判定だと受信が右に出てしまう。明示の自社ロール
+              //   （agent / company）のみ右、それ以外（freelance・空・null・不明）は受信＝左に固定。
+              const mine = m.sender_role === "agent" || m.sender_role === "company";
               // 担当の発言には、相手（企業・人材）の既読を表示する。
               const compRead = readAt(selected.reads, "company");
               const flRead = readAt(selected.reads, "freelance");
