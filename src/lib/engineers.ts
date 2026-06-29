@@ -9,6 +9,12 @@ export type EngineerSkill = { name: string; level?: string; ratio?: number };
 export const freelanceShortId = (id: string | null | undefined): string =>
   id ? `E-${String(id).replace(/-/g, "").slice(0, 5).toUpperCase()}` : "";
 
+/** 日本語（ひらがな/カタカナ/漢字/CJK互換漢字/半角カナ/々〆）を含むか。
+ *  Google等のローマ字表示名（アカウントID相当）を「漢字氏名」と誤認しないために使う。
+ *  ※ 文字直書きの「豈」は U+8C48 でハングル等を巻き込むため、範囲は Unicode エスケープで指定する。 */
+export const hasJapanese = (s: string | null | undefined): boolean =>
+  /[\u3041-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f\u3005\u3006]/.test(String(s ?? ""));
+
 /** スキルシート1件（LP=enger.jp がアップロードし public.profiles.skill_sheets に保存）。
  *  ・url  : 公開URL（公開バケット skillsheets。そのままブラウザで開ける）
  *  ・name : 表示用ファイル名（本名回避のためイニシャル運用）
