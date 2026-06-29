@@ -21,7 +21,7 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
 
   // 新規スレッドの相手（フリーランス）選択用リスト。スタッフのみ取得。
   //   検索を「姓名（漢字・カタカナ）＋イニシャル」に対応させるため、各候補に氏名・フリガナ・イニシャルを付与。
-  let engineers: { id: string; name: string; kana: string; initials: string | null }[] = [];
+  let engineers: { id: string; name: string; kana: string; initials: string | null; regInitial: string | null }[] = [];
   if (isStaff) {
     try {
       const { rows } = await listEngineers();
@@ -30,7 +30,7 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
         .map((e: any) => {
           const s = searchMap.get(String(e.id));
           const name = (s?.name || e.display_name || e.name || e.github_login || "（無名）") as string;
-          return { id: String(e.id), name, kana: s?.kana ?? "", initials: s?.initials ?? null };
+          return { id: String(e.id), name, kana: s?.kana ?? "", initials: s?.initials ?? null, regInitial: s?.regInitial ?? null };
         })
         .filter((e) => e.id);
     } catch { /* 取得失敗は空でも続行（手入力フォールバックは無し） */ }

@@ -38,7 +38,7 @@ const matchThreadId = (id: string | null | undefined, query: string): boolean =>
 };
 
 /** 新規スレッドの相手（フリーランス）候補。氏名(漢字)・フリガナ(カナ)・イニシャルで検索する。 */
-type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null };
+type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null; regInitial?: string | null };
 
 type Selected = { thread: ChatThread; messages: ChatMessage[]; reads: ChatRead[] } | null;
 
@@ -344,7 +344,8 @@ export function ChatClient({
               <div className="muted" style={{ textAlign: "center", fontSize: 12, padding: 20 }}>まだメッセージはありません。下の入力欄から送信できます。</div>
             )}
             {selected.messages.map((m) => {
-              const mine = m.sender_role === "agent";
+              // ③ こちら側（担当・企業として代理送信）は右、フリーランスからの受信のみ左。
+              const mine = m.sender_role !== "freelance";
               // 担当の発言には、相手（企業・人材）の既読を表示する。
               const compRead = readAt(selected.reads, "company");
               const flRead = readAt(selected.reads, "freelance");
@@ -458,8 +459,14 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
   // 姓名（漢字・カタカナ両方）＋イニシャルで検索。入力はひらがな/カタカナ/全角半角を吸収して比較。
   const nq = normForSearch(q.trim());
   const filtered = nq
-    ? engineers.filter((e) => normForSearch(`${e.name} ${e.kana ?? ""} ${e.initials ?? ""}`).includes(nq))
+    ? engineers.filter((e) => normForSearch(`${e.name} ${e.kana ?? ""} ${e.initials ?? ""} ${e.regInitial ?? ""}`).includes(nq))
     : engineers;
+  // ① 表示は「姓名漢字（姓漢字）」を基本に、プロフィールに登録イニシャルがあれば「（イニシャル）」も併記。
+  const optionLabel = (e: EngineerOption): string => {
+    const surname = (e.name.split(/[\s　]+/)[0] || e.name).slice(0, 4);
+    const reg = (e.regInitial ?? "").trim();
+    return `${e.name}（${surname}）${reg ? `（${reg}）` : ""}`;
+  };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 460, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -474,7 +481,7 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
           <select value={value} onChange={(e) => onValue(e.target.value)} size={6}
             style={{ padding: "6px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }}>
             {filtered.length === 0 && <option value="" disabled>該当なし</option>}
-            {filtered.slice(0, 200).map((e) => <option key={e.id} value={e.id}>{e.initials ? `${e.name}（${e.initials}）` : e.name}</option>)}
+            {filtered.slice(0, 200).map((e) => <option key={e.id} value={e.id}>{optionLabel(e)}</option>)}
           </select>
           {engineers.length === 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>フリーランスの一覧を取得できませんでした。</span>}
         </label>
