@@ -118,50 +118,45 @@ export async function addEngineerAction(input: { engineer_id: string; engineer_n
   return { ok: true };
 }
 
-/** スカウト対象の案件を「案件を探す（おすすめ一覧）」へ即時同期する。
- *  ・案件を探す/お気に入り は jobs.is_published=true の案件しか取得・表示しない。
- *    スカウトした案件が未公開だと、フリーランス側で「お気に入り登録」を押しても
- *    一覧に対象が無く実体が紐づかない（＝登録済み表示なのに反映されない）不具合になる。
- *  ・そこでスカウト送信時にその案件を公開化（is_published=true / deleted_at=null）して、
- *    スカウトが届いた瞬間におすすめ一覧へ載せ、お気に入り登録できる状態にする。
- *  ・公開化には service role(admin) が必要。公開済みの場合はそのまま id/title を返す。 */
-async function ensureJobPublishedByNo(admin: ReturnType<typeof engerAdmin>, jobNo: string): Promise<{ id: string; job_no: string; title: string | null } | null> {
-  const raw = String(jobNo ?? "").trim();
-  if (!/^\d+$/.test(raw)) return null;
-  const n = Number(raw);
+/** 案件ID(job_no)から実在案件を解決し、その jobs.id(UUID) を返す。
+ *  ・フリーランス側のお気に入り(enger.job_favorites)は job_id(= jobs.id) が必須。
+ *    スカウトに正しい job_id を紐づけることが、お気に入り登録→お気に入り案件一覧まで
+ *    通すための必須条件（LP側はこの job_id を起点に案件を解決・候補注入する）。
+ *  ・job_no は表記ゆれ（"No.1554" / "#1554" / ゼロ埋め）があり得るため、
+ *    数字だけを抽出して enger.jobs.job_no(int) と突き合わせる。
+ *  ・削除済み(deleted_at)は対象外。公開状態(is_published)は問わない（未公開でも紐づける）。 */
+function digitsOf(jobNo: string | null | undefined): number | null {
+  const d = String(jobNo ?? "").replace(/\D/g, "");
+  if (!d) return null;
+  const n = Number(d);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+async function resolveJobByNo(admin: ReturnType<typeof engerAdmin>, jobNo: string): Promise<{ id: string; job_no: string; title: string | null; published: boolean } | null> {
+  const n = digitsOf(jobNo);
+  if (n == null) return null;
   try {
-    // 公開状態に関係なく案件本体を引く（未公開でも対象にする）。
-    let r: any = await admin.from("jobs").select("id, job_no, title, is_published").eq("job_no", n).maybeSingle();
-    if (r.error || !r.data) return null;
-    const job = r.data;
-    // 未公開ならおすすめ一覧へ載せるため公開化。deleted_at 列が無い環境では外して再試行。
-    if (job.is_published !== true) {
-      let up: any = await admin.from("jobs").update({ is_published: true, deleted_at: null }).eq("job_no", n);
-      if (up.error && /deleted_at|column/i.test(up.error.message ?? "")) {
-        await admin.from("jobs").update({ is_published: true }).eq("job_no", n);
-      }
+    // 削除済みを除外して引く。deleted_at 列が無い環境ではフィルタを外して再取得。
+    let r: any = await admin.from("jobs").select("id, job_no, title, is_published").eq("job_no", n).is("deleted_at", null).maybeSingle();
+    if (r.error && /deleted_at|column/i.test(r.error.message ?? "")) {
+      r = await admin.from("jobs").select("id, job_no, title, is_published").eq("job_no", n).maybeSingle();
     }
-    return { id: String(job.id), job_no: job.job_no != null ? String(job.job_no) : raw, title: job.title ?? null };
+    if (r.error || !r.data) return null;
+    return { id: String(r.data.id), job_no: r.data.job_no != null ? String(r.data.job_no) : String(n), title: r.data.title ?? null, published: r.data.is_published === true };
   } catch { return null; }
 }
 
-/** 案件ID(= enger.jobs.job_no, 数字)から案件タイトルを取得（スカウトの「対象案件名」自動入力用）。
- *  公開・未公開どちらの案件も対象（未公開はスカウト送信時に自動公開化される）。
- *  解決できれば jobs.id(UUID) も返す（お気に入り/応募画面の紐づけ用）。 */
+/** 案件ID(= enger.jobs.job_no)から案件タイトルを取得（スカウトの「対象案件名」自動入力用）。
+ *  公開・未公開どちらの案件も対象。解決できれば jobs.id(UUID) も返す（お気に入り/応募画面の紐づけ用）。 */
 export async function lookupJobByNo(jobNo: string): Promise<{ ok: boolean; id?: string; job_no?: string; title?: string | null; published?: boolean; error?: string }> {
   const access = await currentAccess();
   if (!access) return { ok: false, error: "未認証です" };
-  const raw = String(jobNo ?? "").trim();
-  if (!/^\d+$/.test(raw)) return { ok: false, error: "案件IDは数字で入力してください" };
+  if (digitsOf(jobNo) == null) return { ok: false, error: "案件IDは数字で入力してください" };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
-  try {
-    const r: any = await admin.from("jobs").select("id, job_no, title, is_published").eq("job_no", Number(raw)).maybeSingle();
-    if (r.error || !r.data) return { ok: false, error: "該当案件が見つかりません" };
-    return { ok: true, id: String(r.data.id), job_no: r.data.job_no != null ? String(r.data.job_no) : raw, title: r.data.title ?? null, published: r.data.is_published === true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "案件の取得に失敗しました" };
-  }
+  const job = await resolveJobByNo(admin, jobNo);
+  if (!job) return { ok: false, error: "該当案件が見つかりません（案件マスタに未登録の可能性）" };
+  return { ok: true, id: job.id, job_no: job.job_no, title: job.title, published: job.published };
 }
 
 /** エンジニアへスカウトを送る。対応履歴にも「スカウト送信」を自動記録。
@@ -177,15 +172,15 @@ export async function sendScout(input: { engineer_id: string; engineer_name?: st
   const engineer_name = input.engineer_name?.trim() || null;
   const job_title = input.job_title?.trim() || null;
   // 案件参照はサーバ側で確定する（クライアントの解決結果は信用しない＝デバウンス競合での誤紐づけ防止）。
-  //   ・案件ID(job_no)が数字なら案件本体を解決し、その jobs.id を job_id とする。
-  //   ・未公開の案件は「案件を探す（おすすめ一覧）」へ即時公開化し、スカウトが届いた瞬間に
-  //     フリーランス側でお気に入り登録／応募できる状態にする（要望：スカウト即同期）。
-  //   ・解決できない（該当なし）場合は job_no(入力値)のみ保持し、job_id は null（誤紐づけ防止）。
+  //   ・案件ID(job_no)から実在案件を解決し、その jobs.id を job_id として必ず保存する。
+  //     この job_id がフリーランス側のお気に入り(job_favorites.job_id)／応募の紐づけに使われる。
+  //   ・job_no は表記ゆれを許容して数字で突き合わせる（resolveJobByNo）。公開状態は問わない。
+  //   ・解決できない（案件マスタに該当なし）場合は job_no(入力値)のみ保持し、job_id は null（誤紐づけ防止）。
   const typedJobNo = input.job_no?.trim() || null;
   let job_id: string | null = null;
   let job_no: string | null = typedJobNo;
   if (typedJobNo) {
-    const resolved = await ensureJobPublishedByNo(admin, typedJobNo);
+    const resolved = await resolveJobByNo(admin, typedJobNo);
     if (resolved) { job_id = resolved.id; job_no = resolved.job_no; }
   }
   // chat_threads.job_no は integer。int 範囲(<=2147483647)のときだけ数値化（範囲外は null にして thread 生成を妨げない）。
