@@ -639,10 +639,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
       if (cancelled) return;
       if (r.ok) {
         if (!titleEditedRef.current) setScoutJob(r.title || `案件ID ${r.job_no ?? no}`); // ロード中の手入力は尊重
-        // 未公開案件はスカウト送信時に「案件を探す（おすすめ一覧）」へ自動公開され、お気に入り登録可能になる。
-        setJobLookupMsg(r.published === false
-          ? { tone: "ok", text: `案件名を取得：${r.title || "（無題）"}（未公開→送信時に公開）` }
-          : { tone: "ok", text: `案件名を取得：${r.title || "（無題）"}` });
+        setJobLookupMsg({ tone: "ok", text: `案件名を取得：${r.title || "（無題）"}` });
       } else {
         setJobLookupMsg({ tone: "err", text: r.error || "該当案件が見つかりません" });
       }
