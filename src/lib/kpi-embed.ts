@@ -142,6 +142,32 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     let roleByMember: Record<string, string> = {};
     try { roleByMember = await getMemberKpiRoles(); } catch { /* 役割が未整備でも続行 */ }
 
+    // 打合せ（打ち合わせ記録）KPI：選択期間の 実績/目標。アウトサイドの4ボックス用。
+    //   ・実績：meetings.meeting_date が選択期間内の記録件数（個人スコープは our_owner 一致のみ）。
+    //   ・目標：営業日数 × 3件/日 × アウトサイド人数（個人スコープ＝本人がアウトサイドなら×1、それ以外0）。
+    //          3件/日 は kpi-roles のアウトサイド KPI「打ち合わせ 1日3件」を既定として採用。
+    try {
+      const sb = engerAdmin();
+      const mr: any = await sb.from("meetings").select("our_owner, meeting_date").not("meeting_date", "is", null).limit(8000);
+      const startMs = range.start.getTime(), endMs = range.end.getTime();
+      let mActual = 0;
+      for (const r of (mr?.data ?? [])) {
+        const d = r?.meeting_date ? new Date(r.meeting_date).getTime() : NaN;
+        if (isNaN(d) || d < startMs || d >= endMs) continue;
+        if (!isTeam) {
+          const owner = String(r?.our_owner ?? "").trim();
+          if (!owner || !ownerMatches(owner, targetName)) continue;
+        }
+        mActual++;
+      }
+      const bizDays = Math.max(1, businessDaysInRange(range.start, range.end));
+      const PER_DAY = 3;
+      const mTarget = isTeam
+        ? bizDays * PER_DAY * Object.values(roleByMember).filter((r) => r === "outside").length
+        : (roleByMember[targetName] === "outside" ? bizDays * PER_DAY : 0);
+      (kpi as any).meetingKpi = { actual: mActual, target: mTarget };
+    } catch { (kpi as any).meetingKpi = { actual: 0, target: 0 }; }
+
     // KGI逆算ファネル（画面トップ常時表示）：当月(累計)の 提案→面談→合格→稼働 と目標。
     //   営業マニュアル §10 準拠。提案=新規提案 / 面談=日程確定(schedule) / 合格=成約(deal=稼働決定) / 稼働=合格と同義。
     //   ・teamFunnel    = チーム全体。
