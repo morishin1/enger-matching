@@ -10,11 +10,13 @@ const FEATURES = [
   { icon: "groups", t: "企業ポータル", d: "匿名人材のスカウト・選考、自社案件の掲載まで" },
 ];
 
-export default function LoginPage({ searchParams }: { searchParams: Promise<{ redirect?: string; err?: string }> }) {
-  const { redirect = "/", err } = use(searchParams);
+export default function LoginPage({ searchParams }: { searchParams: Promise<{ redirect?: string; err?: string; confirmed?: string }> }) {
+  const { redirect = "/", err, confirmed } = use(searchParams);
   const [state, action, pending] = useActionState<LoginState, FormData>(signIn, null);
   const [showPw, setShowPw] = useState(false);
   const error = state?.error || err;
+  // メール確認完了（?confirmed=1）かつエラー無しのときだけ、案内を表示。
+  const notice = confirmed === "1" && !error ? "メールアドレスの確認が完了しました。管理者の承認後にログインできます。" : null;
 
   const input = { padding: "13px 14px", border: "1.5px solid #cbd5e1", borderRadius: 10, fontSize: 15, fontFamily: "inherit", background: "#fff", outline: "none", width: "100%", color: "#0F2440", boxSizing: "border-box" } as const;
 
@@ -68,6 +70,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
                   <button type="button" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? "パスワードを隠す" : "パスワードを表示"} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: 0, background: "none", cursor: "pointer", color: "#0095D9", fontSize: 12, fontWeight: 700, padding: "4px 6px" }}>{showPw ? "隠す" : "表示"}</button>
                 </div>
               </label>
+              {notice && <div style={{ fontSize: 12.5, color: "#067647", background: "#ecfdf3", border: "1px solid #abefc6", borderRadius: 8, padding: "9px 11px" }}>{notice}</div>}
               {error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{error}</div>}
               <button type="submit" disabled={pending} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: pending ? "not-allowed" : "pointer", opacity: pending ? 0.6 : 1, boxShadow: "0 6px 16px rgba(0,149,217,.3)" }}>{pending ? "ログイン中…" : "ログイン"}</button>
 

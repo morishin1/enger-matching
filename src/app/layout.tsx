@@ -67,6 +67,19 @@ export default async function RootLayout({
   if (auth.access && isDxBlockedRole(auth.access.role)) {
     redirect(`/api/auth/signout?err=${encodeURIComponent(DX_BLOCKED_MESSAGE)}`);
   }
+  // 多層防御：認証セッションはあるが ENGER business に入室できない状態を全ルートで遮断する
+  //   （入口の callback/signIn だけでなくリクエスト時にも強制。万一 Cookie が残った場合の保険）。
+  //   ・未登録(access=null)：サインアウトしてログインへ。
+  //   ・承認待ち(pending)/無効(disabled)：理由を添えてサインアウト。
+  if (auth.email && !auth.access) {
+    redirect(`/api/auth/signout`);
+  }
+  if (auth.access && (auth.access.status === "pending" || auth.access.status === "disabled")) {
+    const blockedMsg = auth.access.status === "pending"
+      ? "このアカウントは承認待ちです。管理者の承認後にログインできます。"
+      : "このアカウントは無効化されています。管理者にお問い合わせください。";
+    redirect(`/api/auth/signout?err=${encodeURIComponent(blockedMsg)}`);
+  }
 
   // 担当者候補（提案者∪クロージング、重複排除、未割当除外）
   const operators = Array.from(new Set([...staff.proposers, ...staff.closers.filter((c) => c !== "未割当")]));
