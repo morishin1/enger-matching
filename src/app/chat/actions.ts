@@ -72,6 +72,9 @@ export async function sendChatMessage(input: {
   thread_id: string;
   body: string;
   role?: ChatRole;
+  /** 送信者名の上書き。企業として代理送信する時に、担当が手入力した企業名を入れる（⑤）。
+   *  これにより人材(フリーランス)側でも「企業 ・ ○○株式会社」と誰の発言か分かる。 */
+  senderName?: string | null;
 }): Promise<Result> {
   try {
     const admin = adminOrNull();
@@ -85,7 +88,13 @@ export async function sendChatMessage(input: {
     try { access = await currentAccess(); } catch { /* noop */ }
     const role: ChatRole = input.role ?? "agent";
     const sender_id = access?.email ?? null;
-    const sender_name = access?.name ?? access?.email ?? "担当";
+    const staffName = access?.name ?? access?.email ?? "担当";
+    // 送信者名（人材側にも表示される）：
+    //   ・担当(agent)        … 担当者名
+    //   ・企業(company)      … 担当が手入力した企業名（未入力なら「企業」）。誰の発言か人材側で分かるようにする（④⑤）。
+    //   ・人材(freelance)    … 上書きが無ければ担当名（dx からの人材代理送信は基本使わない）
+    const typedName = input.senderName?.trim() || "";
+    const sender_name = role === "company" ? (typedName || "企業") : (typedName || staffName);
 
     // 本番(enger-lp 由来)の chat_messages には sender_kind(NOT NULL) 列があることがある。
     //   ・sender_kind には sender_role と同義の値(agent/company/freelance)を入れる。
@@ -225,7 +234,25 @@ export async function createThread(input: { engineer_id: string; engineer_name?:
       }
       return { ok: false, error: error.message };
     }
+    // ④ スカウト経由でなくチャットから直接立てたスレッドは、対応履歴に「チャット開始」として残す
+    //   （スカウト送信アイコンではなくチャット開始アイコンで表示される）。thread_id 列が無い環境は外して再挿入。
+    try {
+      const actRow: Record<string, any> = {
+        engineer_id: input.engineer_id,
+        engineer_name: input.engineer_name?.trim() || null,
+        action: "チャット開始",
+        note: input.subject?.trim() || null,
+        operator: staff.agent,
+        thread_id: data?.id ?? null,
+      };
+      let ar: any = await admin.from("engineer_actions").insert(actRow);
+      if (ar.error && /thread_id|column/i.test(ar.error.message ?? "")) {
+        const { thread_id: _omit, ...withoutThread } = actRow;
+        await admin.from("engineer_actions").insert(withoutThread);
+      }
+    } catch { /* 履歴記録の失敗はスレッド作成の成否に影響させない */ }
     revalidatePath("/chat");
+    revalidatePath("/engineers");
     revalidateTag("sidebar-counts", "max");
     return { ok: true, thread_id: data?.id };
   } catch (e) {

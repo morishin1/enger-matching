@@ -1,7 +1,14 @@
 import { unstable_cache } from "next/cache";
-import { publicAdmin, engerClient, dbConfigured } from "./supabase";
+import { publicAdmin, engerClient, engerAdmin, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
+
+/** スキルシート1件（LP=enger.jp がアップロードし public.profiles.skill_sheets に保存）。
+ *  ・url  : 公開URL（公開バケット skillsheets。そのままブラウザで開ける）
+ *  ・name : 表示用ファイル名（本名回避のためイニシャル運用）
+ *  ・path : バケット内パス（将来、署名URL方式へ切り替える場合に使用）
+ *  1人につき最大3件。 */
+export type SkillSheet = { url: string; name?: string | null; path?: string | null; uploaded_at?: string | null };
 
 /**
  * 登録元の判別ルール（将来のLP追加に備え、ラベル文字列で持つ）。
@@ -75,8 +82,10 @@ export type Engineer = {
   estimated_pay_mid: number | null;
   estimated_pay_high: number | null;
   portfolio_url: string | null;
-  skill_sheet_url: string | null;
-  skill_sheet_name: string | null;
+  skill_sheet_url: string | null;        // 旧・単一カラム（後方互換。skill_sheets の先頭1件と同期）
+  skill_sheet_name: string | null;       // 旧・単一カラム（後方互換）
+  skill_sheets: SkillSheet[];            // 新・複数スキルシート（最大3件）。未提出は []
+
   headline: string | null;
   bio: string | null;
   qiita_id: string | null;
@@ -130,7 +139,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // 退会関連列（withdrawal_requested_at / withdrawal_reason / withdrawal_completed_at）は
     //   supabase/profiles-withdrawal.sql で追加。未マイグレ環境では列無しフォールバックに落ちる。
     const wd = "withdrawal_requested_at, withdrawal_reason, withdrawal_completed_at";
-    const richVariants = [
+    const baseVariants = [
       // source 列がある環境ではそれも取得して LMS 等の除外に使う（無ければ下のフォールバックへ）。
       `${base}, signup_source, signup_method, source, phone, contact_line, ${wd}`,
       `${base}, signup_source, signup_method, source, ${wd}`,
@@ -145,6 +154,12 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       `${base}, signup_source, signup_method, tel, messenger`,
       `${base}, signup_source, signup_method`,
       base,
+    ];
+    // まず skill_sheets（複数スキルシート）込みで取得を試し、列が無い環境では列なしにフォールバック。
+    //   skillsheets-multi.sql 適用済み環境では先頭の variant が成功し skill_sheets を取得できる。
+    const richVariants = [
+      ...baseVariants.map((v) => `${v}, skill_sheets`),
+      ...baseVariants,
     ];
     // 無限道場（role=student）は DX の LP登録一覧に出さないため、student のみで拾う条件は外す。
     // ※ ENGERフリーランス登録者は github_login / display_name / email のいずれかを持つため取りこぼさない。
@@ -164,9 +179,23 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
     const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
     const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;
+    // skill_sheets（jsonb 配列）を正規化。url を持つ要素のみ・最大3件。
+    //   未マイグレ環境（skill_sheets 列なし）や未提出時は、旧・単一カラム skill_sheet_url から1件を合成して後方互換。
+    const sheetsOf = (r: any): SkillSheet[] => {
+      const raw = Array.isArray(r.skill_sheets) ? r.skill_sheets : [];
+      const list = raw
+        .filter((s: any) => s && typeof s.url === "string" && s.url)
+        .slice(0, 3)
+        .map((s: any) => ({ url: String(s.url), name: s.name ?? null, path: s.path ?? null, uploaded_at: s.uploaded_at ?? null }));
+      if (list.length === 0 && r.skill_sheet_url) {
+        return [{ url: String(r.skill_sheet_url), name: r.skill_sheet_name ?? null, path: null, uploaded_at: null }];
+      }
+      return list;
+    };
     const rows = (data ?? []).map((r: any) => ({
       ...r,
       skills: Array.isArray(r.skills) ? r.skills : [],
+      skill_sheets: sheetsOf(r),
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
       phone: phoneOf(r),
@@ -189,6 +218,8 @@ export type EngineerAction = {
   note: string | null;
   operator: string | null;
   created_at: string;
+  /** 紐づくチャットスレッド（chat_threads.id）。スカウト送信/チャット開始の履歴から遷移に使う。未マイグレ環境では undefined。 */
+  thread_id?: string | null;
 };
 
 /** 全エンジニアへの対応履歴（enger.engineer_actions）。engineer_id でグルーピングして使う。 */
@@ -196,11 +227,12 @@ export async function listEngineerActions(): Promise<Record<string, EngineerActi
   if (!dbConfigured) return {};
   try {
     const sb = engerClient();
-    const { data, error } = await sb
-      .from("engineer_actions")
-      .select("id, engineer_id, engineer_name, action, note, operator, created_at")
-      .order("created_at", { ascending: false })
-      .limit(2000);
+    // thread_id 列を含めて取得。未マイグレ環境（列なし）では列なしで再取得。
+    const COLS_FULL = "id, engineer_id, engineer_name, action, note, operator, created_at, thread_id";
+    const COLS_BASE = "id, engineer_id, engineer_name, action, note, operator, created_at";
+    let res: any = await sb.from("engineer_actions").select(COLS_FULL).order("created_at", { ascending: false }).limit(2000);
+    if (res.error) res = await sb.from("engineer_actions").select(COLS_BASE).order("created_at", { ascending: false }).limit(2000);
+    const { data, error } = res;
     if (error) return {};
     const map: Record<string, EngineerAction[]> = {};
     for (const r of (data ?? []) as EngineerAction[]) {
@@ -312,6 +344,54 @@ export async function listApplications(): Promise<Record<string, Application[]>>
         r.source_mail_url = hit.source_mail_url;
       }
       (map[r.engineer_id] ??= []).push(r);
+    }
+    return map;
+  } catch { return {}; }
+}
+
+export type JobFavorite = {
+  job_id: string;
+  job_no: string | null;
+  job_title: string | null;
+  is_published: boolean;
+  created_at: string;
+};
+
+/** 全エンジニアのお気に入り案件（enger.job_favorites）。engineer_id でグルーピングして使う。
+ *  ・案件名/番号/公開状態は enger.jobs を引いて補完（お気に入り一覧の表示用）。
+ *  ・job_favorites の RLS は本人のみ閲覧のため、dx(営業)からは service role(engerAdmin) で取得する。 */
+export async function listJobFavorites(): Promise<Record<string, JobFavorite[]>> {
+  if (!dbConfigured) return {};
+  try {
+    const sb = engerAdmin();
+    const { data, error } = await sb
+      .from("job_favorites")
+      .select("engineer_id, job_id, created_at")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (error) return {};
+    const favs = (data ?? []) as { engineer_id: string; job_id: string; created_at: string }[];
+    // 案件マスタ（jobs）から案件名・番号・公開状態を補完。
+    const jobIds = Array.from(new Set(favs.map((f) => f.job_id).filter(Boolean)));
+    const jobMap = new Map<string, { job_no: string | null; title: string | null; is_published: boolean }>();
+    if (jobIds.length > 0) {
+      try {
+        const jr: any = await sb.from("jobs").select("id, job_no, title, is_published").in("id", jobIds).limit(5000);
+        for (const j of (jr.data ?? [])) {
+          jobMap.set(String(j.id), { job_no: j.job_no != null ? String(j.job_no) : null, title: j.title ?? null, is_published: !!j.is_published });
+        }
+      } catch { /* jobs 取得失敗でもお気に入り件数は出す */ }
+    }
+    const map: Record<string, JobFavorite[]> = {};
+    for (const f of favs) {
+      const j = jobMap.get(String(f.job_id));
+      (map[String(f.engineer_id)] ??= []).push({
+        job_id: f.job_id,
+        job_no: j?.job_no ?? null,
+        job_title: j?.title ?? null,
+        is_published: j?.is_published ?? false,
+        created_at: f.created_at,
+      });
     }
     return map;
   } catch { return {}; }

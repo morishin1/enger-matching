@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
-import type { Engineer, EngineerAction, EngineerSource, Scout, Application } from "@/lib/engineers";
-import type { EngineerChatStatus } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutChatThread, lookupJobByNo } from "@/app/engineers/actions";
+import type { Engineer, EngineerAction, EngineerSource, Scout, Application, JobFavorite, SkillSheet } from "@/lib/engineers";
+import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
 
@@ -69,9 +69,11 @@ const skillNames = (e: Engineer) => (e.skills ?? []).map((s) => s.name).filter(B
 // タップ選択中心の対応種別（営業の入力を最小化）
 const ACTION_TYPES = ["スカウト送信", "メール送信", "返信あり", "面談設定", "面談実施", "見送り", "保留", "メモ"];
 const ACTION_COLOR: Record<string, string> = {
-  "スカウト送信": "#0b5cab", "メール送信": "#0b5cab", "返信あり": "#067647", "面談設定": "#067647",
+  "スカウト送信": "#0b5cab", "チャット開始": "#7c3aed", "メール送信": "#0b5cab", "返信あり": "#067647", "面談設定": "#067647",
   "面談実施": "#067647", "面談済": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
 };
+// 対応履歴の先頭に出すアイコン（スカウト送信／チャット開始 を視覚的に区別する・④）。
+const ACTION_ICON: Record<string, string> = { "スカウト送信": "campaign", "チャット開始": "chat" };
 const fmtDate = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 // 登録日時（年月日＋時刻）
 const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
@@ -114,16 +116,46 @@ function ContactIcons({ e, chat }: { e: { email?: string | null; phone?: string 
   );
 }
 
-const SCOUT_STATUS: Record<string, { label: string; color: string }> = {
-  sent: { label: "送信済み", color: "#0b5cab" },
-  read: { label: "既読", color: "#475467" },
-  interested: { label: "興味あり", color: "#067647" },
-  declined: { label: "見送り", color: "#b42318" },
+// スキルシートのファイルマーク。拡張子で色を出し分け（pdf=赤 / xls=緑 / doc=青 / 既定=ブランド）。
+const sheetColor = (s: SkillSheet): string => {
+  const ext = (s.name || s.url || "").toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/)?.[1] ?? "";
+  if (ext === "pdf") return "#d23f57";
+  if (ext === "xls" || ext === "xlsx" || ext === "csv") return "#067647";
+  if (ext === "doc" || ext === "docx") return "#0b5cab";
+  return "var(--color-brand-700,#0b5cab)";
+};
+const sheetIcon = (s: SkillSheet): string => {
+  const ext = (s.name || s.url || "").toLowerCase().match(/\.([a-z0-9]+)(?:\?|#|$)/)?.[1] ?? "";
+  if (ext === "pdf") return "picture_as_pdf";
+  if (ext === "xls" || ext === "xlsx" || ext === "csv") return "table_view";
+  return "description";
 };
 
-export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; chatStatus?: Record<string, EngineerChatStatus> }) {
+/** フリーランス一覧「スキルシート」列：アップロード件数ぶんファイルマークを点灯（最大3）。
+ *  各マークをクリックで該当ファイルを新規タブで開く（即閲覧）。ホバーでファイル名を表示。 */
+function SkillSheetMarks({ sheets }: { sheets: SkillSheet[] | null | undefined }) {
+  const list = (Array.isArray(sheets) ? sheets : []).filter((s) => s && s.url).slice(0, 3);
+  if (list.length === 0) return <span className="muted" title="未提出" style={{ fontSize: 12 }}>—</span>;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+      {list.map((s, i) => (
+        <a key={i} href={s.url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()}
+          title={s.name || `スキルシート${i + 1}`}
+          className="material-symbols-outlined"
+          style={{ fontSize: 18, lineHeight: 1, color: sheetColor(s), textDecoration: "none" }}>
+          {sheetIcon(s)}
+        </a>
+      ))}
+      <span className="muted" style={{ fontSize: 10, marginLeft: 2 }}>{list.length}/3</span>
+    </span>
+  );
+}
+
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus> }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  // お気に入り案件一覧モーダル（履歴列のハートをクリックで開く）。
+  const [favDetail, setFavDetail] = useState<Engineer | null>(null);
   // withdrawal: "" (退会済みを除く＝既定) / "wish" (退会希望のみ) / "done" (退会処理済みのみ) / "all" (すべて表示)
   // meeting: "" (すべて) / "done" (面談済のみ)
   const [filters, setFilters] = useState<{ status: string; lang: string; sheet: string; withdrawal: string; meeting: string }>({ status: "", lang: "", sheet: "", withdrawal: "", meeting: "" });
@@ -168,8 +200,9 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
       if (filters.lang && (e.primary_language || "") !== filters.lang) return false;
       if (filters.meeting === "done" && !meetingDoneIds.has(e.id)) return false;
-      if (filters.sheet === "あり" && !e.skill_sheet_url) return false;
-      if (filters.sheet === "なし" && e.skill_sheet_url) return false;
+      const hasSheets = (e.skill_sheets?.length ?? 0) > 0 || !!e.skill_sheet_url;
+      if (filters.sheet === "あり" && !hasSheets) return false;
+      if (filters.sheet === "なし" && hasSheets) return false;
       // 退会フィルタ：
       //   既定（""）  → 退会処理済みは除外、それ以外（通常 + 退会希望中）を表示
       //   "wish"      → 退会希望中（申請あり・処理未済）のみ
@@ -301,6 +334,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
                 const ap = applications[e.id] ?? [];
+                const fav = favorites[e.id] ?? [];
                 const name = e.display_name || e.github_login || e.name || "—";
                 const sub = e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "");
                 return (
@@ -344,19 +378,22 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td><span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{e.primary_language ?? "—"}</span></td>
                     <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
                     <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
-                    <td>
-                      {e.skill_sheet_url
-                        ? <a href={e.skill_sheet_url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ textDecoration: "none", color: "var(--color-brand-700)", fontSize: 12, fontWeight: 600 }}>スキルシート ↗</a>
-                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
-                    </td>
+                    <td><SkillSheetMarks sheets={e.skill_sheets} /></td>
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
                     <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
-                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
                         {sc.length > 0 && <span title="スカウト" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカ{sc.length}</span>}
-                        {log.length > 0 && <span title="対応" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3" }}>対応{log.length}</span>}
-                        {ap.length + sc.length + log.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
+                        {/* 「対応」をハート（お気に入り数）に置換。クリックで該当フリーランスのお気に入り案件一覧を表示。 */}
+                        {fav.length > 0 && (
+                          <button type="button" title="お気に入り数"
+                            onClick={(ev) => { ev.stopPropagation(); setFavDetail(e); }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#fdecef", color: "#d23f57", border: "1px solid #f7c5cf", cursor: "pointer", lineHeight: 1 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: "'FILL' 1" }}>favorite</span>{fav.length}
+                          </button>
+                        )}
+                        {ap.length + sc.length + fav.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
                       </span>
                     </td>
                     <td style={{ textAlign: "center" }}>
@@ -428,13 +465,52 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       </div>
 
       {detail && (
-        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} onClose={() => setDetail(null)} />
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} profile={profileNames[detail.id]} onClose={() => setDetail(null)} />
+      )}
+
+      {favDetail && (
+        <FavoritesModal engineer={favDetail} favorites={favorites[favDetail.id] ?? []} onClose={() => setFavDetail(null)} />
       )}
     </>
   );
 }
 
-function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; onClose: () => void }) {
+/** お気に入り案件一覧モーダル：履歴列のハートをクリックで開く。該当フリーランスがお気に入りに入れた案件を表示。 */
+function FavoritesModal({ engineer, favorites, onClose }: { engineer: Engineer; favorites: JobFavorite[]; onClose: () => void }) {
+  const name = engineer.display_name || engineer.github_login || engineer.name || "—";
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 320, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 480, maxHeight: "82vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 19, color: "#d23f57", fontVariationSettings: "'FILL' 1" }}>favorite</span>
+            お気に入り案件（{favorites.length}）
+          </h3>
+          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6 }}>{name} さんがお気に入りに登録した案件</div>
+        {favorites.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13, padding: 16, textAlign: "center" }}>お気に入り案件はありません。</div>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {favorites.map((f) => (
+              <li key={f.job_id} style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {f.job_no && <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>#{f.job_no}</span>}
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{f.job_title || "（無題の案件）"}</span>
+                  {!f.is_published && <span title="現在は非公開／募集終了の案件" style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-4)", border: "1px solid var(--color-border)" }}>非公開</span>}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>登録：{fmtDateTime(f.created_at)}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; profile?: EngineerProfileName; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [action, setAction] = useState<string>("");
@@ -512,11 +588,13 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scoutJobNo]);
 
-  // ③ スカウトを起点にチャットスレッドを開いて遷移（サーバ経由で enger-lp open-thread を呼ぶ）。
+  // ③ 既存スレッドへ直接遷移。対応履歴に thread_id が無い古いスカウトは、DB優先の
+  //    openScoutThread で「既存スレッドを探す→無ければ作成」してから遷移する（外部APIに依存しない）。
+  const goThread = (threadId: string) => { if (threadId) router.push(`/chat?t=${threadId}`); };
   const openChat = (scoutId: string) => {
     if (!scoutId || chatBusy) return;
     setChatBusy(scoutId);
-    openScoutChatThread(scoutId).then((r) => {
+    openScoutThread(scoutId).then((r) => {
       setChatBusy(null);
       if (r.ok && r.thread_id) router.push(`/chat?t=${r.thread_id}`);
       else toast(r.error ?? "チャットを開けませんでした", "error");
@@ -561,7 +639,12 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
                 <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login || detail.name || "—"}</h3>
                 <SourceBadge source={detail.source} />
               </div>
-              <div className="muted" style={{ fontSize: 12 }}>{detail.github_login ? <a href={`https://github.com/${detail.github_login}`} target="_blank" rel="noreferrer" style={{ color: "var(--color-brand-700,#0b5cab)" }}>@{detail.github_login}</a> : (detail.name ? `@${detail.name}` : "")} · {detail.primary_language ?? "—"}</div>
+              {/* 登録名の下：ENGERフリーランスのプロフィール登録情報（姓名漢字／フリガナ／イニシャル）。未入力は空欄。 */}
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", fontSize: 12, marginTop: 3 }}>
+                <span className="muted">姓名（漢字）</span><span>{profile?.kanji || ""}</span>
+                <span className="muted">姓名（フリガナ）</span><span>{profile?.kana || ""}</span>
+                <span className="muted">イニシャル</span><span>{profile?.initials || ""}</span>
+              </div>
               {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>
@@ -597,18 +680,21 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
         <WithdrawalSection engineer={detail} />
 
 
-        {(detail.portfolio_url || detail.skill_sheet_url) && (
+        {(detail.portfolio_url || (detail.skill_sheets?.length ?? 0) > 0 || detail.qiita_id) && (
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12 }}>
             {detail.portfolio_url && (
               <a href={detail.portfolio_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>link</span>ポートフォリオ
               </a>
             )}
-            {detail.skill_sheet_url && (
-              <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>スキルシート{detail.skill_sheet_name ? `（${detail.skill_sheet_name}）` : ""}
+            {/* スキルシートは複数（最大3件）。各ファイルを個別リンクで開ける。 */}
+            {(detail.skill_sheets ?? []).map((s, i) => (
+              <a key={i} href={s.url} target="_blank" rel="noreferrer" title={s.name || `スキルシート${i + 1}`}
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, color: sheetColor(s), fontWeight: 600 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{sheetIcon(s)}</span>
+                {s.name || `スキルシート${i + 1}`}
               </a>
-            )}
+            ))}
             {detail.qiita_id && (
               <a href={`https://qiita.com/${detail.qiita_id}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>article</span>Qiita
@@ -668,9 +754,10 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
           </div>
         )}
 
-        {/* スカウト */}
+        {/* スカウト（送信フォーム）。※ 送信済みスカウトの履歴一覧は下の「対応履歴」で確認できるため
+            ここには表示しない（①：スカウト本文の下の履歴部分は削除）。 */}
         <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>スカウト <span className="muted" style={{ fontWeight: 400 }}>（{scoutLog.length}件）</span></div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>スカウト</div>
 
           <div style={{ background: "var(--color-bg, #f7f8fa)", border: "1px solid var(--color-border)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
             {/* 案件ID（数字）→ 対象案件名を自動取得。対象案件名は自動入力後も自由に編集可。 */}
@@ -690,25 +777,6 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
             </div>
           </div>
 
-          {scoutLog.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {scoutLog.map((s) => {
-                const st = SCOUT_STATUS[s.status] ?? SCOUT_STATUS.sent;
-                return (
-                  <div key={s.id} style={{ fontSize: 12, padding: "8px 10px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)" }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, color: "#fff", background: st.color }}>{st.label}</span>
-                      {s.job_title && <span className="muted" style={{ fontSize: 11 }}>{s.job_title}</span>}
-                      {s.job_no && <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)" }}>案件ID {s.job_no}</span>}
-                      <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto" }}>{fmtDate(s.created_at)}{s.agent ? ` · ${s.agent}` : ""}</span>
-                    </div>
-                    <div style={{ color: "var(--color-ink-2)", marginTop: 4, whiteSpace: "pre-wrap" }}>{s.message}</div>
-                    {s.reply && <div style={{ marginTop: 6, padding: "6px 8px", borderRadius: 6, background: "var(--color-bg,#f7f8fa)", fontSize: 11.5 }}><b>返信：</b>{s.reply}</div>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
 
         {/* 対応履歴 */}
@@ -738,21 +806,40 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, onClose }: { eng
               {pagedLog.map((a) => {
                 const scout = a.action === "スカウト送信" ? actionScout.get(a.id) : undefined;
                 const jobTitle = (scout?.job_title ?? "").trim();
+                const jobNo = scout?.job_no ?? null;
+                const icon = ACTION_ICON[a.action];                    // ④ スカウト送信/チャット開始 を区別するアイコン
+                const threadId = a.thread_id ?? null;                  // 履歴に紐づくスレッド（あれば即遷移）
+                // ③④「チャットで連絡する」を出す行：スレッドに紐づく履歴 or スカウトに対応づく行。
+                const showChat = a.action === "チャット開始" || a.action === "スカウト送信";
+                const chatBusyId = scout?.id ?? a.id;
                 return (
                   <div key={a.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, padding: "7px 9px", border: "1px solid var(--color-border)", borderRadius: 8, background: "var(--color-surface)" }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, flex: "0 0 auto", color: "#fff", background: ACTION_COLOR[a.action] || "#475467" }}>{a.action}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, padding: "2px 7px", borderRadius: 99, flex: "0 0 auto", color: "#fff", background: ACTION_COLOR[a.action] || "#475467" }}>
+                      {icon && <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>{icon}</span>}
+                      {a.action}
+                    </span>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      {/* ②「スカウト送信」行のラベル隣に案件名（scouts.job_title）。空なら空欄（ダミー無し）。
-                          ③ 案件名の隣に「チャットで連絡する」ボタン（該当スレッドへ遷移）。 */}
-                      {a.action === "スカウト送信" && (scout || jobTitle) && (
+                      {/* ②「スカウト送信」行のラベル隣に案件名＋案件ID（目立たないリンク・クリックで案件詳細）。
+                          ③④ 案件名の隣に「チャットで連絡する」ボタン（該当スレッドへ遷移）。 */}
+                      {showChat && (scout || jobTitle || threadId) && (
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 2 }}>
                           {jobTitle && <span style={{ fontWeight: 700, color: "var(--color-ink)" }}>{jobTitle}</span>}
-                          {scout && (
-                            <button type="button" onClick={() => openChat(scout.id)} disabled={chatBusy === scout.id}
+                          {/* ② 案件ID（目立たない表示）。クリックで案件詳細（/jobs/[job_no]）を開く。 */}
+                          {jobNo && (
+                            <Link href={`/jobs/${jobNo}`} target="_blank" rel="noopener noreferrer" title="案件詳細を開く"
+                              onClick={(ev) => ev.stopPropagation()}
+                              className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, textDecoration: "none" }}>
+                              案件ID {jobNo}
+                            </Link>
+                          )}
+                          {(threadId || scout) && (
+                            <button type="button"
+                              onClick={() => threadId ? goThread(threadId) : (scout ? openChat(scout.id) : undefined)}
+                              disabled={!threadId && chatBusy === chatBusyId}
                               className="btn ghost btn-xs" title="この人材とのチャットを開く"
                               style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", color: "var(--color-brand-700)", borderColor: "var(--color-brand-200)" }}>
                               <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>chat</span>
-                              {chatBusy === scout.id ? "開いています…" : "チャットで連絡する"}
+                              {(!threadId && chatBusy === chatBusyId) ? "開いています…" : "チャットで連絡する"}
                             </button>
                           )}
                         </div>

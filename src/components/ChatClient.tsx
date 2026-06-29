@@ -27,6 +27,16 @@ const threadShortId = (id?: string | null) => {
   return hex ? `T-${hex.slice(0, 6).toUpperCase()}` : "";
 };
 
+// ②スレッドID検索：表示形式「T-89365F」全体でも、数字/英字の部分一致でもヒットさせる。
+//   クエリから T- や区切りを除いて英数字だけにし、UUID 全体(16進)に対する部分一致で判定する。
+//   （短縮IDは UUID 先頭6桁なので、UUID 全体との部分一致で短縮IDの一致も自然に含まれる。）
+const matchThreadId = (id: string | null | undefined, query: string): boolean => {
+  const nq = String(query ?? "").toUpperCase().replace(/^T-?/, "").replace(/[^0-9A-F]/g, "");
+  if (!nq) return true;
+  const hex = String(id ?? "").replace(/-/g, "").toUpperCase();
+  return hex.includes(nq);
+};
+
 /** 新規スレッドの相手（フリーランス）候補。氏名(漢字)・フリガナ(カナ)・イニシャルで検索する。 */
 type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null };
 
@@ -54,6 +64,8 @@ export function ChatClient({
   const [draft, setDraft] = useState("");
   const [draftFocused, setDraftFocused] = useState(false); // 入力欄の選択中フラグ（外枠/背景の出し分け）
   const [sendAs, setSendAs] = useState<ChatRole>("agent");
+  const [companyName, setCompanyName] = useState(""); // ④企業として代理送信する時に手入力する企業名
+  const [threadQ, setThreadQ] = useState("");         // ②スレッドID検索クエリ
   const endRef = useRef<HTMLDivElement>(null);
   // 新規スレッド作成モーダル。
   const [showNew, setShowNew] = useState(false);
@@ -108,7 +120,7 @@ export function ChatClient({
     if (!threadId || !draft.trim()) return;
     start(async () => {
       try {
-        const r = await sendChatMessage({ thread_id: threadId, body: draft, role: sendAs });
+        const r = await sendChatMessage({ thread_id: threadId, body: draft, role: sendAs, senderName: sendAs === "company" ? companyName : null });
         if (r.ok) {
           setDraft("");
           setDraftFocused(false); // 送信したら入力欄の強調を元に戻す
@@ -189,15 +201,34 @@ export function ChatClient({
     <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 320px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
       {/* 左：スレッド一覧 */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-        {/* ＋新規スレッド（ENGERスタッフのみ・人材側には出さない） */}
-        {isStaff && (
-          <button type="button" className="btn ghost" onClick={() => setShowNew(true)}
-            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%" }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>add</span>新規スレッド
-          </button>
-        )}
+        {/* ＋新規スレッド（ENGERスタッフのみ）＋ ②スレッドID検索窓（隣に設置）。 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {isStaff && (
+            <button type="button" className="btn ghost" onClick={() => setShowNew(true)}
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>add</span>新規スレッド
+            </button>
+          )}
+          {/* スレッドIDで検索（例：T-89365F／数字の部分一致でもヒット）。 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, padding: "0 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, color: "var(--color-ink-5)" }}>search</span>
+            <input value={threadQ} onChange={(e) => setThreadQ(e.target.value)} placeholder="スレッドIDで検索（例：T-89365F）"
+              style={{ flex: 1, minWidth: 0, padding: "7px 0", border: 0, background: "transparent", outline: "none", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink)" }} />
+            {threadQ && (
+              <button type="button" onClick={() => setThreadQ("")} title="クリア"
+                style={{ flexShrink: 0, border: 0, background: "transparent", cursor: "pointer", color: "var(--color-ink-5)", display: "inline-flex" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+              </button>
+            )}
+          </div>
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "68vh", overflowY: "auto" }}>
-        {threads.map((t) => {
+        {threads.filter((t) => matchThreadId(t.id, threadQ)).length === 0 && (
+          <div className="muted" style={{ fontSize: 12, textAlign: "center", padding: 16 }}>
+            {threadQ ? `「${threadQ}」に一致するスレッドはありません。` : "スレッドがありません。"}
+          </div>
+        )}
+        {threads.filter((t) => matchThreadId(t.id, threadQ)).map((t) => {
           const active = t.id === threadId;
           return (
             <div
@@ -355,15 +386,34 @@ export function ChatClient({
 
           {/* 入力 */}
           <div style={{ borderTop: "1px solid var(--color-border)", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+            {/* 送信者の選択。③人材（代理入力）は廃止。④企業はカッコ内に企業名を手入力できる。
+                入力した企業名は人材(フリーランス)側にも送信者名として表示される（⑤）。 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11.5, flexWrap: "wrap" }}>
               <span className="muted">送信者：</span>
-              {(["agent", "company", "freelance"] as ChatRole[]).map((r) => (
-                <label key={r} style={{ display: "inline-flex", alignItems: "center", gap: 3, cursor: "pointer" }}>
-                  <input type="radio" name="sendAs" checked={sendAs === r} onChange={() => setSendAs(r)} />
-                  {ROLE_LABEL[r]}
-                  {r === "agent" ? `（${meName}）` : "（代理入力）"}
-                </label>
-              ))}
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 3, cursor: "pointer" }}>
+                <input type="radio" name="sendAs" checked={sendAs === "agent"} onChange={() => setSendAs("agent")} />
+                担当（{meName}）
+              </label>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 3, cursor: "pointer" }}>
+                <input type="radio" name="sendAs" checked={sendAs === "company"} onChange={() => setSendAs("company")} />
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                  企業（
+                  <input
+                    type="text"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    onFocus={() => setSendAs("company")}
+                    placeholder="企業名を入力"
+                    style={{
+                      width: 140, padding: "2px 6px", borderRadius: 6, fontSize: 11.5, fontFamily: "inherit",
+                      border: `1px solid ${sendAs === "company" ? "var(--color-brand-400,#60a5fa)" : "var(--color-border)"}`,
+                      background: sendAs === "company" ? "var(--color-surface)" : "var(--color-surface-inset)",
+                      color: "var(--color-ink)", outline: "none",
+                    }}
+                  />
+                  ）
+                </span>
+              </label>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
               {/* 入力欄：未選択時も外枠がはっきり見えるようにし、選択中（編集中）は外枠・背景・影で
