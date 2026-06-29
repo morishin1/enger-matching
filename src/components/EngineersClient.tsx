@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
-import { freelanceShortId, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
+import { freelanceShortId, hasJapanese, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
@@ -32,6 +32,20 @@ function Fresh({ d }: { d: string | null }) {
   return <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>;
 }
 const shortId = freelanceShortId; // 人材ID（E-C94D4）は lib/engineers を唯一の生成元にする
+
+// 一覧・モーダルの表示名（チャット新規スレッドと同じフォールバック）：
+//   漢字氏名（プロフィール登録の姓名・日本語のみ）→ 人材ID（E-C94D4）。
+//   アカウントID（display_name / github_login）には倒さない（＝アカウントID露出を防ぐ）。
+const resolveDisplayName = (e: Engineer, prof?: EngineerProfileName): string => {
+  const kanji = (prof?.kanji ?? "").trim();
+  return (hasJapanese(kanji) ? kanji : "") || shortId(e.id) || "—";
+};
+// アバター用の2文字（イニシャル登録→漢字氏名→表示名 の順）。
+const avatarTextOf = (name: string, prof?: EngineerProfileName): string => {
+  const ini = (prof?.initials ?? "").trim();
+  const kanji = (prof?.kanji ?? "").trim();
+  return (ini || (hasJapanese(kanji) ? kanji : name)).slice(0, 2);
+};
 
 /** 登録元バッジ。EngineerSource (key/label/method/color) を表示。将来のLP/方式追加に備え汎用化。 */
 const PALETTE: Record<EngineerSource["color"], { bg: string; fg: string; bd: string }> = {
@@ -196,7 +210,9 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
     const needle = q.trim().toLowerCase();
     return engineers.filter((e) => {
       if (needle) {
-        const hay = [e.display_name, e.github_login, e.name, e.primary_language, e.email, e.phone, e.contact_line, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
+        const prof = profileNames[e.id];
+        // 漢字氏名・フリガナ・イニシャル・人材ID(E-XXXXX) でも検索できるようにする。
+        const hay = [e.display_name, e.github_login, e.name, prof?.kanji, prof?.kana, prof?.initials, shortId(e.id), e.primary_language, e.email, e.phone, e.contact_line, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
@@ -337,7 +353,11 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 const sc = scouts[e.id] ?? [];
                 const ap = applications[e.id] ?? [];
                 const fav = favorites[e.id] ?? [];
-                const name = e.display_name || e.github_login || e.name || "—";
+                const prof = profileNames[e.id];
+                // 氏名は「漢字氏名→人材ID」。アカウントID（display_name/github）は氏名として出さない。
+                const name = resolveDisplayName(e, prof);
+                const avatarText = avatarTextOf(name, prof);
+                // 参考のアカウントハンドルはサブ行に残す（識別補助）。
                 const sub = e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "");
                 return (
                   <tr key={e.id} className="clickable"
@@ -345,7 +365,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     title="クリックで詳細"
                     style={selected.has(e.id) ? { background: "var(--color-brand-25, #f0f6ff)" } : undefined}>
                     <td style={{ textAlign: "center" }}>
-                      <input type="checkbox" aria-label={`${e.display_name || e.github_login || e.name || e.id} を選択`}
+                      <input type="checkbox" aria-label={`${name} を選択`}
                         checked={selected.has(e.id)} onChange={() => toggleOne(e.id)}
                         style={{ accentColor: "var(--color-brand-600)" }} />
                     </td>
@@ -354,7 +374,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td>
                       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: 99, flex: "0 0 32px" }} /> : <div className="ava" style={{ flex: "0 0 32px" }}>{name.slice(0, 2)}</div>}
+                        {e.avatar_url ? <img src={e.avatar_url} alt="" style={{ width: 32, height: 32, borderRadius: 99, flex: "0 0 32px" }} /> : <div className="ava" style={{ flex: "0 0 32px" }}>{avatarText}</div>}
                         <div style={{ minWidth: 0 }}>
                           <div className="pri" style={{ color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             <span>{name}</span>
@@ -475,12 +495,12 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       )}
 
       {favDetail && (
-        <FavoritesModal engineer={favDetail} favorites={favorites[favDetail.id] ?? []} onClose={() => setFavDetail(null)} />
+        <FavoritesModal engineer={favDetail} favorites={favorites[favDetail.id] ?? []} profile={profileNames[favDetail.id]} onClose={() => setFavDetail(null)} />
       )}
       {histDetail && (
         <HistoryJobsModal engineer={histDetail.engineer} kind={histDetail.kind}
           applications={applications[histDetail.engineer.id] ?? []} scouts={scouts[histDetail.engineer.id] ?? []}
-          onClose={() => setHistDetail(null)} />
+          profile={profileNames[histDetail.engineer.id]} onClose={() => setHistDetail(null)} />
       )}
     </>
   );
@@ -488,8 +508,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
 
 /** 履歴列の「応募」「スカ」クリックで開く案件名一覧モーダル。
  *  ①応募：その人材が応募した案件名。 ②スカ：案件ID(job_id/job_no)に紐づく“正しい案件名”のみ（スカウトタイトルは使わない）。 */
-function HistoryJobsModal({ engineer, kind, applications, scouts, onClose }: { engineer: Engineer; kind: "応募" | "スカ"; applications: Application[]; scouts: Scout[]; onClose: () => void }) {
-  const name = engineer.display_name || engineer.github_login || engineer.name || "—";
+function HistoryJobsModal({ engineer, kind, applications, scouts, profile, onClose }: { engineer: Engineer; kind: "応募" | "スカ"; applications: Application[]; scouts: Scout[]; profile?: EngineerProfileName; onClose: () => void }) {
+  const name = resolveDisplayName(engineer, profile);
   const items = kind === "応募"
     ? applications.map((a) => ({ key: a.id, job_no: a.job_no, title: a.job_title, created: a.created_at }))
     : scouts.filter((s) => (s.linked_job_title ?? "").trim()).map((s) => ({ key: s.id, job_no: s.job_no ?? null, title: s.linked_job_title!, created: s.created_at }));
@@ -537,8 +557,8 @@ function HistoryJobsModal({ engineer, kind, applications, scouts, onClose }: { e
 }
 
 /** お気に入り案件一覧モーダル：履歴列のハートをクリックで開く。該当フリーランスがお気に入りに入れた案件を表示。 */
-function FavoritesModal({ engineer, favorites, onClose }: { engineer: Engineer; favorites: JobFavorite[]; onClose: () => void }) {
-  const name = engineer.display_name || engineer.github_login || engineer.name || "—";
+function FavoritesModal({ engineer, favorites, profile, onClose }: { engineer: Engineer; favorites: JobFavorite[]; profile?: EngineerProfileName; onClose: () => void }) {
+  const name = resolveDisplayName(engineer, profile);
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 320, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 480, maxHeight: "82vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -694,10 +714,10 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{(detail.display_name ?? detail.name ?? "?").slice(0, 2)}</div>}
+            {detail.avatar_url ? <img src={detail.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: 99 }} /> : <div className="ava" style={{ width: 48, height: 48 }}>{avatarTextOf(resolveDisplayName(detail, profile), profile)}</div>}
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{detail.display_name || detail.github_login || detail.name || "—"}</h3>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{resolveDisplayName(detail, profile)}</h3>
                 <SourceBadge source={detail.source} />
               </div>
               {/* 登録名の下：ENGERフリーランスのプロフィール登録情報（姓名漢字／フリガナ／イニシャル）。未入力は空欄。 */}
