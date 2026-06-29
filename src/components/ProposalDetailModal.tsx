@@ -374,11 +374,11 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 href={`/matching?job=${p.job_no}${p.candidate_no != null ? `&cand=${p.candidate_no}` : ""}`}
                 title="この案件×人材のマッチング結果画面を開く"
                 style={{ fontSize: 18, fontWeight: 800, marginTop: 4, display: "inline-flex", alignItems: "center", gap: 6, color: "var(--color-brand-700)", textDecoration: "none" }}>
-                {p.c_init || (p.candidate_name ?? "—")} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}
+                {p.candidate_name || p.c_init || "—"} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}
                 <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, lineHeight: 1 }}>open_in_new</span>
               </Link>
             ) : (
-              <div style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{p.c_init || (p.candidate_name ?? "—")} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, marginTop: 4 }}>{p.candidate_name || p.c_init || "—"} <span style={{ color: "var(--color-ink-4)", margin: "0 6px" }}>/</span> {p.job_title ?? "—"}</div>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -501,15 +501,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               {/* 自社担当：人材の所属会社の会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。 */}
               <ReadInfo label="自社担当" value={p.cand_company_owner_staff} hint="企業メニューの会社データ（自社担当）と連携。編集は企業メニューで。" />
             </div>
-          </div>
-
-          {/* 会社名・担当の保存（自動表示された値もそのまま保存できる） */}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -8 }}>
-            <button type="button" className="btn btn-sm" disabled={busy === "save"} onClick={saveFields} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
-              {busy === "save" && <span style={{ width: 12, height: 12, border: "2px solid rgba(0,0,0,.15)", borderTopColor: "var(--color-ink-2)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />}
-              <span className="material-symbols-outlined" style={{ fontSize: 15, verticalAlign: "-3px" }}>save</span>
-              会社名・担当を保存
-            </button>
           </div>
 
           {/* 対応履歴 */}
