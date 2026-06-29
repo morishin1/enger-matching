@@ -3,6 +3,12 @@ import { publicAdmin, engerClient, engerAdmin, dbConfigured } from "./supabase";
 
 export type EngineerSkill = { name: string; level?: string; ratio?: number };
 
+/** ENGERフリーランス登録者の「人材ID」（DX 登録者一覧 左端のID。例: E-C94D4）。
+ *  public.profiles.id(UUID) の先頭5桁(16進)から導出する。名前未登録時の表示名フォールバックにも使う。
+ *  ※ 表示元（登録者一覧／チャット新規スレッド）で必ず同じ値になるよう、ここを唯一の生成元とする。 */
+export const freelanceShortId = (id: string | null | undefined): string =>
+  id ? `E-${String(id).replace(/-/g, "").slice(0, 5).toUpperCase()}` : "";
+
 /** スキルシート1件（LP=enger.jp がアップロードし public.profiles.skill_sheets に保存）。
  *  ・url  : 公開URL（公開バケット skillsheets。そのままブラウザで開ける）
  *  ・name : 表示用ファイル名（本名回避のためイニシャル運用）

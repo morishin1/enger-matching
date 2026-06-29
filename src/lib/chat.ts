@@ -37,12 +37,15 @@ const hasJa = (s?: string | null) => JA_RE.test(String(s ?? ""));
 // プロフィールのスキーマ差異を吸収するため、氏名・フリガナ・イニシャルの候補キーを順に探す。
 //   （外部連携で列名が異なる/未登録のケースに対応。select("*") で全列を取得して JS 側で吸収する。）
 const NAME_KEYS = ["name_kanji", "kanji_name", "kanji", "real_name", "full_name", "fullname", "氏名", "name", "display_name"];
-const SEI_KEYS = ["last_name", "family_name", "name_sei", "sei", "lastname", "姓"];
-const MEI_KEYS = ["first_name", "given_name", "name_mei", "mei", "firstname", "名"];
+// 漢字専用の姓/名カラム（last_name_kanji 等）を最優先で拾う。ローマ字の last_name 等しか無い場合のみ
+// それらにフォールバックする（順序が優先順位）。enger-lp の登録フォームは *_kanji に保存する。
+const SEI_KEYS = ["last_name_kanji", "lastname_kanji", "family_name_kanji", "sei_kanji", "last_name", "family_name", "name_sei", "sei", "lastname", "姓"];
+const MEI_KEYS = ["first_name_kanji", "firstname_kanji", "given_name_kanji", "mei_kanji", "first_name", "given_name", "name_mei", "mei", "firstname", "名"];
 const KANA_KEYS = ["furigana", "name_kana", "kana", "yomi", "yomigana", "ruby", "kana_name", "name_ruby", "ruby_name", "name_furigana", "furigana_name", "phonetic", "name_phonetic", "フリガナ", "ふりがな"];
 const KANA_SEI_KEYS = ["kana_sei", "sei_kana", "furigana_sei", "sei_furigana", "last_name_kana", "lastname_kana", "family_name_kana", "family_kana", "last_kana"];
 const KANA_MEI_KEYS = ["kana_mei", "mei_kana", "furigana_mei", "mei_furigana", "first_name_kana", "firstname_kana", "given_name_kana", "given_kana", "first_kana"];
-const INITIAL_KEYS = ["initials", "initial", "name_initials", "name_initial", "initial_name", "イニシャル"];
+// 自動生成イニシャル（initial_auto 等）を最優先で拾う。
+const INITIAL_KEYS = ["initial_auto", "initials_auto", "auto_initial", "auto_initials", "initials", "initial", "name_initials", "name_initial", "initial_name", "イニシャル"];
 
 const pick = (row: any, keys: string[]): string => {
   for (const k of keys) { const v = row?.[k]; if (v != null && String(v).trim()) return String(v).trim(); }
@@ -166,7 +169,7 @@ async function augmentNamesFromAuth(map: Map<string, ResolvedName>, ids: string[
   }));
 }
 
-export type EngineerSearchName = { name: string; kana: string; initials: string | null; regInitial: string | null };
+export type EngineerSearchName = { name: string; kana: string; initials: string | null; regInitial: string | null; sei: string; mei: string };
 
 /** 新規スレッドの相手（フリーランス）検索用に、氏名(漢字)・フリガナ(カナ)・イニシャルを id 別に解決。
  *  列名差異（フリガナ/イニシャルの未知列）を吸収するため profiles を select("*") で取得し、
@@ -188,7 +191,10 @@ export async function resolveEngineerSearch(ids: string[]): Promise<Map<string, 
         const kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
         // 「プロフィールに明示登録されたイニシャル」のみ（姓・カナ由来の自動値は含めない）。①で別枠表示する。
         const regInitial = pick(p, INITIAL_KEYS) || null;
-        if (p?.id) out.set(String(p.id), { name: d.name, kana, initials: d.initials, regInitial });
+        // 姓/名（漢字）を個別に保持（表示名の「姓名（姓）（イニシャル）」整形に使う）。
+        const sei = pick(p, SEI_KEYS);
+        const mei = pick(p, MEI_KEYS);
+        if (p?.id) out.set(String(p.id), { name: d.name, kana, initials: d.initials, regInitial, sei, mei });
       }
     } catch { /* 取得失敗チャンクはスキップ（残りは続行） */ }
   }

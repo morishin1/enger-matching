@@ -37,8 +37,15 @@ const matchThreadId = (id: string | null | undefined, query: string): boolean =>
   return hex.includes(nq);
 };
 
-/** 新規スレッドの相手（フリーランス）候補。氏名(漢字)・フリガナ(カナ)・イニシャルで検索する。 */
-type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null; regInitial?: string | null };
+/** 新規スレッドの相手（フリーランス）候補。氏名(漢字)・フリガナ(カナ)・イニシャル・人材IDで検索する。
+ *  ・sei/mei  : 姓・名（漢字）を個別保持（表示名整形用）。
+ *  ・initials : 自動生成イニシャル（initial_auto）。
+ *  ・freelanceId : 人材ID（E-C94D4）。氏名未登録時の表示名フォールバック。
+ *  ・account  : display_name / github / メールのローカルパート（極端な例外時のみ使う代替識別子）。 */
+type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null; regInitial?: string | null; sei?: string | null; mei?: string | null; freelanceId?: string | null; account?: string | null };
+
+// 日本語（漢字・かな）を含むか。氏名がローマ字（display_name）止まりかどうかの判定に使う。
+const hasJaText = (s: string) => /[　-ヿ㐀-鿿豈-﫿ｦ-ﾟ]/.test(String(s ?? ""));
 
 type Selected = { thread: ChatThread; messages: ChatMessage[]; reads: ChatRead[] } | null;
 
@@ -462,13 +469,28 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
   // 姓名（漢字・カタカナ両方）＋イニシャルで検索。入力はひらがな/カタカナ/全角半角を吸収して比較。
   const nq = normForSearch(q.trim());
   const filtered = nq
-    ? engineers.filter((e) => normForSearch(`${e.name} ${e.kana ?? ""} ${e.initials ?? ""} ${e.regInitial ?? ""}`).includes(nq))
+    ? engineers.filter((e) => normForSearch(`${e.name} ${e.kana ?? ""} ${e.initials ?? ""} ${e.sei ?? ""} ${e.mei ?? ""} ${e.freelanceId ?? ""} ${e.account ?? ""}`).includes(nq))
     : engineers;
-  // ① 表示は「姓名漢字（姓漢字）」を基本に、プロフィールに登録イニシャルがあれば「（イニシャル）」も併記。
+  // 表示名のマッピング（フォールバック付き）：
+  //   1) 姓名（漢字）が両方ある → 「姓 名（姓）（イニシャル）」例：藤本 太郎（藤本）（FT）
+  //   1') 片方のみ／単一の漢字氏名しか無い → 取れた漢字氏名をそのまま（姓の重複表示はしない）
+  //   2) 漢字氏名なし → 人材ID（例：E-C94D4）。アカウントID/表示名には倒さない。
+  //   3) 氏名も人材IDも無い極端な例外 → アカウント識別子（display_name / メールのローカルパート 等）
   const optionLabel = (e: EngineerOption): string => {
-    const surname = (e.name.split(/[\s　]+/)[0] || e.name).slice(0, 4);
-    const reg = (e.regInitial ?? "").trim();
-    return `${e.name}（${surname}）${reg ? `（${reg}）` : ""}`;
+    const sei = (e.sei ?? "").trim();
+    const mei = (e.mei ?? "").trim();
+    const ini = (e.initials ?? "").trim();
+    const iniPart = ini ? `（${ini}）` : "";
+    if (sei && mei) return `${sei} ${mei}（${sei}）${iniPart}`;
+    const nm = (e.name ?? "").trim();
+    if (hasJaText(nm)) {
+      const head = sei || mei;                       // 分割済みの姓/名があればカッコ表示
+      const headPart = head && head !== nm ? `（${head}）` : ""; // 単一トークンの重複表示を避ける
+      return `${nm}${headPart}${iniPart}`;
+    }
+    const fid = (e.freelanceId ?? "").trim();
+    if (fid) return fid;
+    return (e.account ?? "").trim() || "（無名）";
   };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 400, padding: 20 }}>

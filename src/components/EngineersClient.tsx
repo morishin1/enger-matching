@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
-import type { Engineer, EngineerAction, EngineerSource, Scout, Application, JobFavorite, SkillSheet } from "@/lib/engineers";
+import { freelanceShortId, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
@@ -31,7 +31,7 @@ function Fresh({ d }: { d: string | null }) {
   const tone = label === "新着" ? "new" : label === "3日以内" ? "soon" : label === "4〜14日前" ? "mid" : "old";
   return <span className="fresh" data-tone={tone}><span className="dot" />{label}</span>;
 }
-const shortId = (id: string) => `E-${(id || "").replace(/-/g, "").slice(0, 5).toUpperCase()}`;
+const shortId = freelanceShortId; // 人材ID（E-C94D4）は lib/engineers を唯一の生成元にする
 
 /** 登録元バッジ。EngineerSource (key/label/method/color) を表示。将来のLP/方式追加に備え汎用化。 */
 const PALETTE: Record<EngineerSource["color"], { bg: string; fg: string; bd: string }> = {
