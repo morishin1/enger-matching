@@ -31,7 +31,7 @@ export type ChatThread = {
 };
 
 // 日本語（ひらがな/カタカナ/漢字）を含むか。Google等のローマ字表示名と区別するために使う。
-const JA_RE = /[぀-ヿ㐀-鿿豈-﫿々〆ヵヶ]/;
+const JA_RE = /[\u3041-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f\u3005\u3006]/;
 const hasJa = (s?: string | null) => JA_RE.test(String(s ?? ""));
 
 // プロフィールのスキーマ差異を吸収するため、氏名・フリガナ・イニシャルの候補キーを順に探す。

@@ -45,7 +45,7 @@ const matchThreadId = (id: string | null | undefined, query: string): boolean =>
 type EngineerOption = { id: string; name: string; kana?: string; initials?: string | null; regInitial?: string | null; sei?: string | null; mei?: string | null; freelanceId?: string | null; account?: string | null };
 
 // 日本語（漢字・かな）を含むか。氏名がローマ字（display_name）止まりかどうかの判定に使う。
-const hasJaText = (s: string) => /[　-ヿ㐀-鿿豈-﫿ｦ-ﾟ]/.test(String(s ?? ""));
+const hasJaText = (s: string) => /[\u3041-\u30ff\u3400-\u9fff\uf900-\ufaff\uff66-\uff9f\u3005\u3006]/.test(String(s ?? ""));
 
 type Selected = { thread: ChatThread; messages: ChatMessage[]; reads: ChatRead[] } | null;
 
@@ -158,7 +158,8 @@ export function ChatClient({
     const eng = engineers.find((e) => e.id === newEng);
     start(async () => {
       try {
-        const r = await createThread({ engineer_id: newEng, engineer_name: eng?.name ?? null, subject: newSubject });
+        // スナップショット名は空文字を避け null に倒す（表示側は chooseDisplayName で profiles から再解決）。
+        const r = await createThread({ engineer_id: newEng, engineer_name: (eng?.name || null), subject: newSubject });
         if (r.ok && r.thread_id) {
           // 自動付与されたスレッドIDを明示（②）。遷移先ヘッダでも T-XXXXXX を表示。
           setShowNew(false); setNewEng(""); setNewSubject("");
@@ -469,22 +470,28 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
   // 姓名（漢字・カタカナ両方）＋イニシャルで検索。入力はひらがな/カタカナ/全角半角を吸収して比較。
   const nq = normForSearch(q.trim());
   const filtered = nq
-    ? engineers.filter((e) => normForSearch(`${e.name} ${e.kana ?? ""} ${e.initials ?? ""} ${e.sei ?? ""} ${e.mei ?? ""} ${e.freelanceId ?? ""} ${e.account ?? ""}`).includes(nq))
+    ? engineers.filter((e) => normForSearch(`${e.name ?? ""} ${e.kana ?? ""} ${e.initials ?? ""} ${e.sei ?? ""} ${e.mei ?? ""} ${e.freelanceId ?? ""} ${e.account ?? ""}`).includes(nq))
     : engineers;
   // 表示名のマッピング（フォールバック付き）：
   //   1) 姓名（漢字）が両方ある → 「姓 名（姓）（イニシャル）」例：藤本 太郎（藤本）（FT）
-  //   1') 片方のみ／単一の漢字氏名しか無い → 取れた漢字氏名をそのまま（姓の重複表示はしない）
-  //   2) 漢字氏名なし → 人材ID（例：E-C94D4）。アカウントID/表示名には倒さない。
+  //   1') 単一の漢字氏名しか無い → 取れた漢字氏名をそのまま（姓やフルネームの重複表示はしない）
+  //   2) 漢字氏名なし → 人材ID（例：E-C94D4）。アカウントID/ローマ字表示名には倒さない。
   //   3) 氏名も人材IDも無い極端な例外 → アカウント識別子（display_name / メールのローカルパート 等）
+  // ・カッコ内イニシャルは「ローマ字（FT 等）」のみ採用。漢字氏名から作った擬似イニシャル
+  //   （initialsOf が返す漢字そのもの）は出さない＝「加藤功大（加藤功大）」の重複を防ぐ。
+  // ・sei/mei はローマ字カラム由来のこともある（last_name 等）。日本語を含む時のみ漢字氏名として扱う。
   const optionLabel = (e: EngineerOption): string => {
     const sei = (e.sei ?? "").trim();
     const mei = (e.mei ?? "").trim();
-    const ini = (e.initials ?? "").trim();
+    const iniRaw = (e.initials ?? "").trim();
+    const ini = /[A-Za-z]/.test(iniRaw) ? iniRaw.toUpperCase() : ""; // ローマ字イニシャルのみ
     const iniPart = ini ? `（${ini}）` : "";
-    if (sei && mei) return `${sei} ${mei}（${sei}）${iniPart}`;
+    const seiJa = hasJaText(sei) ? sei : "";
+    const meiJa = hasJaText(mei) ? mei : "";
+    if (seiJa && meiJa) return `${seiJa} ${meiJa}（${seiJa}）${iniPart}`;
     const nm = (e.name ?? "").trim();
     if (hasJaText(nm)) {
-      const head = sei || mei;                       // 分割済みの姓/名があればカッコ表示
+      const head = seiJa || meiJa;                    // 分割済みの姓/名（漢字）があればカッコ表示
       const headPart = head && head !== nm ? `（${head}）` : ""; // 単一トークンの重複表示を避ける
       return `${nm}${headPart}${iniPart}`;
     }

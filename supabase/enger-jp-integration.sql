@@ -18,6 +18,13 @@ alter table public.profiles add column if not exists contact_line text;    -- LI
 --   skills(jsonb/text[]), primary_language, total_stars, total_repos,
 --   estimated_pay_low/mid/high, portfolio_url, skill_sheet_url, skill_sheet_name,
 --   headline, bio, qiita_id, last_login_at, created_at(登録日時)
+--
+-- 氏名表示（dx のチャット候補一覧・登録者一覧で読む列。enger.jp の登録フォームが保存する想定）:
+--   last_name_kanji, first_name_kanji   … 姓・名（漢字）。両方あれば「姓 名（姓）（イニシャル）」表示。
+--   last_name_kana,  first_name_kana    … 姓・名（フリガナ）。イニシャル自動生成にも利用。
+--   initial_auto                        … 自動生成イニシャル（例 "FT"）。
+--   ※ これらが未登録（漢字氏名が無い）の人材は、dx 側で「人材ID（E-XXXXX）」を表示名に使う。
+--     dx は列名差異を吸収して読むが（lib/chat.ts の候補キー）、上記の正規列名で保存されるのが望ましい。
 
 create index if not exists profiles_signup_source_idx on public.profiles (signup_source);
 create index if not exists profiles_created_at_idx     on public.profiles (created_at);
