@@ -101,7 +101,9 @@ const normCo = (s: string) => String(s ?? "").toLowerCase()
   .replace(/株式会社|（株）|\(株\)|有限会社|（有）|\(有\)|合同会社|合資会社/g, "")
   .replace(/[\s　・，,.。\-―ー_]/g, "").trim();
 
-function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDeleted }: { companies: string[]; companyDir?: { name: string; contact_name: string | null; meeting_done?: boolean }[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
+function MeetingForm({ companies, companyDir = [], owners = [], onDone, initial, editId, onDeleted }: { companies: string[]; companyDir?: { name: string; contact_name: string | null; meeting_done?: boolean }[]; owners?: string[]; onDone: () => void; initial?: Partial<typeof empty>; editId?: string | null; onDeleted?: () => void }) {
+  // 自社担当の選択肢：KPI推移のメンバーマスタ（owners）優先。未設定時は定数フォールバック。
+  const ownerOptions = owners.length ? owners : MEETING_OWNERS;
   const router = useRouter();
   // 企業マスタ（正規化名→企業）。窓口担当者プリフィル・類似検出・打合せ完了フラグ連携に使う。
   const dirByNorm = useMemo(() => {
@@ -210,7 +212,7 @@ function MeetingForm({ companies, companyDir = [], onDone, initial, editId, onDe
         <div><L>窓口担当者{isExistingCompany ? "（企業マスタと連携）" : ""}</L><input style={inp} value={f.their_contact} onChange={(e) => { setContactTouched(true); set("their_contact", e.target.value); }} placeholder="例：山田 様" /></div>
         <div><L>打ち合わせ日</L><input style={inp} type="date" value={f.meeting_date} onChange={(e) => set("meeting_date", e.target.value)} /></div>
         <div><L>時刻</L><input style={inp} type="time" value={(f as any).meeting_time ?? ""} onChange={(e) => set("meeting_time" as any, e.target.value)} /></div>
-        <div><L>自社担当者</L><select style={inp} value={f.our_owner} onChange={(e) => set("our_owner", e.target.value)}><option value="">—</option>{MEETING_OWNERS.map((o) => <option key={o}>{o}</option>)}</select></div>
+        <div><L>自社担当者</L><select style={inp} value={f.our_owner} onChange={(e) => set("our_owner", e.target.value)}><option value="">—</option>{ownerOptions.map((o) => <option key={o}>{o}</option>)}{/* 既存値が選択肢に無い場合も表示を保つ */}{f.our_owner && !ownerOptions.includes(f.our_owner) && <option key={f.our_owner}>{f.our_owner}</option>}</select></div>
       </div>
 
       {/* 類似企業の注意喚起（保存はそのまま可能）。新規入力で似た既存企業があるときだけ表示。 */}
@@ -388,7 +390,7 @@ function MonthCalendar({ meetings, interviews, onPick, onInterview, onPickDay, c
   );
 }
 
-export function MeetingsClient({ meetings, companies, companyDir = [], interviews = [] }: { meetings: any[]; companies: string[]; companyDir?: { name: string; contact_name: string | null; meeting_done?: boolean }[]; interviews?: any[] }) {
+export function MeetingsClient({ meetings, companies, companyDir = [], interviews = [], owners = [] }: { meetings: any[]; companies: string[]; companyDir?: { name: string; contact_name: string | null; meeting_done?: boolean }[]; interviews?: any[]; owners?: string[] }) {
   const router = useRouter();
   const [show, setShow] = useState(false);
   const [formInitial, setFormInitial] = useState<Partial<typeof empty> | undefined>(undefined);
@@ -489,7 +491,7 @@ export function MeetingsClient({ meetings, companies, companyDir = [], interview
         </div>
       </div>
 
-      {show && <MeetingForm key={editId ?? JSON.stringify(formInitial ?? {})} companies={companies} companyDir={companyDir} initial={formInitial} editId={editId} onDone={() => { setShow(false); setFormInitial(undefined); setEditId(null); }} onDeleted={() => { /* refresh after deletion handled in form */ }} />}
+      {show && <MeetingForm key={editId ?? JSON.stringify(formInitial ?? {})} companies={companies} companyDir={companyDir} owners={owners} initial={formInitial} editId={editId} onDone={() => { setShow(false); setFormInitial(undefined); setEditId(null); }} onDeleted={() => { /* refresh after deletion handled in form */ }} />}
 
       {view === "calendar" ? (
         <MonthCalendar meetings={filtered} interviews={interviews} cursor={monthCursor} onCursorChange={setMonthCursor} onPick={(c) => { if (c) { setQ(c); setView("cards"); } }} onInterview={openFromInterview} onPickDay={(ds) => setDayDrawer(ds)} />
