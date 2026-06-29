@@ -278,6 +278,8 @@ export type Scout = {
   /** 案件ID（表示番号 = jobs.job_no・任意）。未マイグレ環境では undefined */
   job_no?: string | null;
   job_title: string | null;
+  /** ② 案件ID(job_id/job_no)に紐づく現在の正しい案件名（jobs.title）。紐づきが無ければ null。 */
+  linked_job_title?: string | null;
   message: string;
   status: "sent" | "read" | "interested" | "declined";
   reply: string | null;
@@ -408,8 +410,30 @@ export async function listScouts(): Promise<Record<string, Scout[]>> {
     let res: any = await sb.from("scouts").select(COLS_FULL).order("created_at", { ascending: false }).limit(2000);
     if (res.error) res = await sb.from("scouts").select(COLS_BASE).order("created_at", { ascending: false }).limit(2000);
     if (res.error) return {};
+    const scoutsArr = (res.data ?? []) as Scout[];
+    // ② スカウト一覧用：案件ID（job_id 優先・無ければ job_no）に紐づく「正しい案件名」を jobs マスタから解決。
+    //   スカウトの保存タイトル(job_title)ではなく、紐づく案件の現在の名称(linked_job_title)を持たせる。
+    try {
+      const jobIds = Array.from(new Set(scoutsArr.map((s) => s.job_id).filter(Boolean))) as string[];
+      const jobNos = Array.from(new Set(scoutsArr.map((s) => (s.job_no != null ? String(s.job_no) : null)).filter(Boolean))) as string[];
+      const byId = new Map<string, { job_no: string | null; title: string | null }>();
+      const byNo = new Map<string, { job_no: string | null; title: string | null }>();
+      if (jobIds.length) {
+        const jr: any = await sb.from("jobs").select("id, job_no, title").in("id", jobIds).limit(2000);
+        for (const j of (jr.data ?? [])) byId.set(String(j.id), { job_no: j.job_no != null ? String(j.job_no) : null, title: j.title ?? null });
+      }
+      if (jobNos.length) {
+        const jr2: any = await sb.from("jobs").select("id, job_no, title").in("job_no", jobNos).limit(2000);
+        for (const j of (jr2.data ?? [])) byNo.set(String(j.job_no), { job_no: j.job_no != null ? String(j.job_no) : null, title: j.title ?? null });
+      }
+      for (const s of scoutsArr) {
+        const hit = (s.job_id && byId.get(s.job_id)) || (s.job_no != null && byNo.get(String(s.job_no))) || null;
+        s.linked_job_title = hit?.title ?? null;
+        if (hit?.job_no && (s.job_no == null || s.job_no === "")) s.job_no = hit.job_no;
+      }
+    } catch { /* jobs 参照に失敗しても素のスカウトは返す（linked_job_title は null のまま） */ }
     const map: Record<string, Scout[]> = {};
-    for (const r of (res.data ?? []) as Scout[]) {
+    for (const r of scoutsArr) {
       (map[r.engineer_id] ??= []).push(r);
     }
     return map;

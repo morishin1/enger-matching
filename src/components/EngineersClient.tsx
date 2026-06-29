@@ -156,6 +156,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
   const [q, setQ] = useState("");
   // お気に入り案件一覧モーダル（履歴列のハートをクリックで開く）。
   const [favDetail, setFavDetail] = useState<Engineer | null>(null);
+  // 履歴列の「応募」「スカ」クリックで開く案件名一覧モーダル。
+  const [histDetail, setHistDetail] = useState<{ engineer: Engineer; kind: "応募" | "スカ" } | null>(null);
   // withdrawal: "" (退会済みを除く＝既定) / "wish" (退会希望のみ) / "done" (退会処理済みのみ) / "all" (すべて表示)
   // meeting: "" (すべて) / "done" (面談済のみ)
   const [filters, setFilters] = useState<{ status: string; lang: string; sheet: string; withdrawal: string; meeting: string }>({ status: "", lang: "", sheet: "", withdrawal: "", meeting: "" });
@@ -383,8 +385,12 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
                       <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                        {ap.length > 0 && <span title="応募" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647" }}>応募{ap.length}</span>}
-                        {sc.length > 0 && <span title="スカウト" style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab" }}>スカ{sc.length}</span>}
+                        {ap.length > 0 && <button type="button" title="応募した案件名を一覧で見る"
+                          onClick={(ev) => { ev.stopPropagation(); setHistDetail({ engineer: e, kind: "応募" }); }}
+                          style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", cursor: "pointer", lineHeight: 1 }}>応募{ap.length}</button>}
+                        {sc.length > 0 && <button type="button" title="スカウトした案件名を一覧で見る"
+                          onClick={(ev) => { ev.stopPropagation(); setHistDetail({ engineer: e, kind: "スカ" }); }}
+                          style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab", border: "1px solid #cfe0f5", cursor: "pointer", lineHeight: 1 }}>スカ{sc.length}</button>}
                         {/* 「対応」をハート（お気に入り数）に置換。クリックで該当フリーランスのお気に入り案件一覧を表示。 */}
                         {fav.length > 0 && (
                           <button type="button" title="お気に入り数"
@@ -471,7 +477,62 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       {favDetail && (
         <FavoritesModal engineer={favDetail} favorites={favorites[favDetail.id] ?? []} onClose={() => setFavDetail(null)} />
       )}
+      {histDetail && (
+        <HistoryJobsModal engineer={histDetail.engineer} kind={histDetail.kind}
+          applications={applications[histDetail.engineer.id] ?? []} scouts={scouts[histDetail.engineer.id] ?? []}
+          onClose={() => setHistDetail(null)} />
+      )}
     </>
+  );
+}
+
+/** 履歴列の「応募」「スカ」クリックで開く案件名一覧モーダル。
+ *  ①応募：その人材が応募した案件名。 ②スカ：案件ID(job_id/job_no)に紐づく“正しい案件名”のみ（スカウトタイトルは使わない）。 */
+function HistoryJobsModal({ engineer, kind, applications, scouts, onClose }: { engineer: Engineer; kind: "応募" | "スカ"; applications: Application[]; scouts: Scout[]; onClose: () => void }) {
+  const name = engineer.display_name || engineer.github_login || engineer.name || "—";
+  const items = kind === "応募"
+    ? applications.map((a) => ({ key: a.id, job_no: a.job_no, title: a.job_title, created: a.created_at }))
+    : scouts.filter((s) => (s.linked_job_title ?? "").trim()).map((s) => ({ key: s.id, job_no: s.job_no ?? null, title: s.linked_job_title!, created: s.created_at }));
+  const heading = kind === "応募" ? `応募した案件（${items.length}）` : `スカウトした案件（${items.length}）`;
+  const sub = kind === "応募" ? `${name} さんが応募した案件` : `${name} さんに送ったスカウト（案件IDに紐づく案件名のみ表示）`;
+  const empty = kind === "応募" ? "応募した案件はありません。" : "案件IDに紐づくスカウトはありません。";
+  const accent = kind === "応募" ? "#067647" : "#0b5cab";
+  const icon = kind === "応募" ? "how_to_reg" : "campaign";
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 320, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 480, maxHeight: "82vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 19, color: accent }}>{icon}</span>
+            {heading}
+          </h3>
+          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6 }}>{sub}</div>
+        {items.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13, padding: 16, textAlign: "center" }}>{empty}</div>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {items.map((it) => (
+              <li key={it.key} style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {it.job_no && <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>#{it.job_no}</span>}
+                  {it.job_no ? (
+                    <Link href={`/jobs/${it.job_no}`} target="_blank" rel="noopener noreferrer" title="案件詳細を開く"
+                      style={{ fontSize: 13, fontWeight: 600, color: "var(--color-brand-700)", textDecoration: "none" }}>
+                      {it.title || "（無題の案件）"}
+                    </Link>
+                  ) : (
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{it.title || "（無題の案件）"}</span>
+                  )}
+                </div>
+                {it.created && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{fmtDateTime(it.created)}</div>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
 
