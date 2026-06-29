@@ -42,8 +42,8 @@ const NAME_KEYS = ["name_kanji", "kanji_name", "kanji", "real_name", "full_name"
 const SEI_KEYS = ["last_name_kanji", "lastname_kanji", "family_name_kanji", "sei_kanji", "last_name", "family_name", "name_sei", "sei", "lastname", "姓"];
 const MEI_KEYS = ["first_name_kanji", "firstname_kanji", "given_name_kanji", "mei_kanji", "first_name", "given_name", "name_mei", "mei", "firstname", "名"];
 const KANA_KEYS = ["furigana", "name_kana", "kana", "yomi", "yomigana", "ruby", "kana_name", "name_ruby", "ruby_name", "name_furigana", "furigana_name", "phonetic", "name_phonetic", "フリガナ", "ふりがな"];
-const KANA_SEI_KEYS = ["kana_sei", "sei_kana", "furigana_sei", "sei_furigana", "last_name_kana", "lastname_kana", "family_name_kana", "family_kana", "last_kana"];
-const KANA_MEI_KEYS = ["kana_mei", "mei_kana", "furigana_mei", "mei_furigana", "first_name_kana", "firstname_kana", "given_name_kana", "given_kana", "first_kana"];
+const KANA_SEI_KEYS = ["last_name_furigana", "lastname_furigana", "family_name_furigana", "last_furigana", "kana_sei", "sei_kana", "furigana_sei", "sei_furigana", "last_name_kana", "lastname_kana", "family_name_kana", "family_kana", "last_kana"];
+const KANA_MEI_KEYS = ["first_name_furigana", "firstname_furigana", "given_name_furigana", "first_furigana", "kana_mei", "mei_kana", "furigana_mei", "mei_furigana", "first_name_kana", "firstname_kana", "given_name_kana", "given_kana", "first_kana"];
 // 自動生成イニシャル（initial_auto 等）を最優先で拾う。
 const INITIAL_KEYS = ["initial_auto", "initials_auto", "auto_initial", "auto_initials", "initials", "initial", "name_initials", "name_initial", "initial_name", "イニシャル"];
 

@@ -81,7 +81,8 @@ const pay = (e: Engineer) => {
 const skillNames = (e: Engineer) => (e.skills ?? []).map((s) => s.name).filter(Boolean);
 
 // タップ選択中心の対応種別（営業の入力を最小化）
-const ACTION_TYPES = ["スカウト送信", "メール送信", "返信あり", "面談設定", "面談実施", "見送り", "保留", "メモ"];
+// ※「面談設定」「見送り」「保留」は選択肢から除外（過去データの表示は ACTION_COLOR/ICON で維持）。
+const ACTION_TYPES = ["スカウト送信", "メール送信", "返信あり", "面談実施", "メモ"];
 const ACTION_COLOR: Record<string, string> = {
   "スカウト送信": "#0b5cab", "チャット開始": "#7c3aed", "メール送信": "#0b5cab", "返信あり": "#067647", "面談設定": "#067647",
   "面談実施": "#067647", "面談済": "#067647", "見送り": "#b42318", "保留": "#b45309", "メモ": "#475467",
@@ -671,15 +672,23 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
 
   // ③ 既存スレッドへ直接遷移。対応履歴に thread_id が無い古いスカウトは、DB優先の
   //    openScoutThread で「既存スレッドを探す→無ければ作成」してから遷移する（外部APIに依存しない）。
-  const goThread = (threadId: string) => { if (threadId) router.push(`/chat?t=${threadId}`); };
+  // ③ チャットは別タブで開く。スレッドが既にあれば直接、無ければ生成してからそのタブへ遷移。
+  const goThread = (threadId: string) => { if (threadId) window.open(`/chat?t=${threadId}`, "_blank", "noopener,noreferrer"); };
   const openChat = (scoutId: string) => {
     if (!scoutId || chatBusy) return;
+    // ユーザー操作の同期内で空タブを先に開く（非同期後の window.open はポップアップブロック対象になるため）。
+    const w = window.open("about:blank", "_blank");
     setChatBusy(scoutId);
     openScoutThread(scoutId).then((r) => {
       setChatBusy(null);
-      if (r.ok && r.thread_id) router.push(`/chat?t=${r.thread_id}`);
-      else toast(r.error ?? "チャットを開けませんでした", "error");
-    }).catch((e) => { setChatBusy(null); toast(e instanceof Error ? e.message : "チャットを開けませんでした", "error"); });
+      if (r.ok && r.thread_id) {
+        const url = `/chat?t=${r.thread_id}`;
+        if (w && !w.closed) w.location.href = url; else window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        if (w && !w.closed) w.close();
+        toast(r.error ?? "チャットを開けませんでした", "error");
+      }
+    }).catch((e) => { setChatBusy(null); if (w && !w.closed) w.close(); toast(e instanceof Error ? e.message : "チャットを開けませんでした", "error"); });
   };
 
   const submitScout = () => {
@@ -946,7 +955,6 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
           )}
         </div>
 
-        <div className="muted" style={{ fontSize: 10.5 }}>※ enger.jp（GitHub連携）で本人が登録したプロフィールです。対応履歴は重複アプローチ防止・引き継ぎのために共有されます。</div>
       </div>
     </div>
   );
