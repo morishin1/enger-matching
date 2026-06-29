@@ -166,7 +166,7 @@ async function augmentNamesFromAuth(map: Map<string, ResolvedName>, ids: string[
   }));
 }
 
-export type EngineerSearchName = { name: string; kana: string; initials: string | null };
+export type EngineerSearchName = { name: string; kana: string; initials: string | null; regInitial: string | null };
 
 /** 新規スレッドの相手（フリーランス）検索用に、氏名(漢字)・フリガナ(カナ)・イニシャルを id 別に解決。
  *  列名差異（フリガナ/イニシャルの未知列）を吸収するため profiles を select("*") で取得し、
@@ -186,7 +186,9 @@ export async function resolveEngineerSearch(ids: string[]): Promise<Map<string, 
       for (const p of (r.data ?? []) as any[]) {
         const d = deriveNameInitials(p);
         const kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
-        if (p?.id) out.set(String(p.id), { name: d.name, kana, initials: d.initials });
+        // 「プロフィールに明示登録されたイニシャル」のみ（姓・カナ由来の自動値は含めない）。①で別枠表示する。
+        const regInitial = pick(p, INITIAL_KEYS) || null;
+        if (p?.id) out.set(String(p.id), { name: d.name, kana, initials: d.initials, regInitial });
       }
     } catch { /* 取得失敗チャンクはスキップ（残りは続行） */ }
   }
@@ -421,6 +423,43 @@ export function agentHasUnreadCached(email?: string | null): Promise<boolean> {
   const key = String(email ?? "").toLowerCase().trim();
   if (!key) return Promise.resolve(false);
   return _cachedAgentHasUnread(key);
+}
+
+/** 担当(agent)の未読受信メッセージ「件数」。サイドバー「チャット」の数字バッジ用（④）。
+ *  agentHasUnread と同じ軽量手法（既読時刻より新しい非agentメッセージ）で件数を数える。 */
+export async function agentUnreadCount(agentId?: string | null): Promise<number> {
+  const id = String(agentId ?? "").trim();
+  if (!dbConfigured || !id) return 0;
+  try {
+    const sb = chatReader();
+    const rr: any = await sb.from("chat_reads")
+      .select("thread_id, last_read_at").eq("participant_role", "agent").eq("participant_id", id);
+    const readAt = new Map<string, string>();
+    for (const r of (rr.data ?? []) as any[]) readAt.set(r.thread_id, r.last_read_at);
+    const mr: any = await sb.from("chat_messages")
+      .select("thread_id, created_at, sender_role")
+      .neq("sender_role", "agent")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    let n = 0;
+    for (const m of (mr.data ?? []) as any[]) {
+      const ra = readAt.get(m.thread_id);
+      if (!ra || m.created_at > ra) n++;
+    }
+    return n;
+  } catch { return 0; }
+}
+
+const _cachedAgentUnreadCount = unstable_cache(
+  async (email: string) => agentUnreadCount(email),
+  ["agent-chat-unread-count"],
+  { revalidate: 30, tags: ["sidebar-counts"] },
+);
+/** サイドバーの数字バッジ用：担当(email)の未読受信チャット件数（30秒キャッシュ）。 */
+export function agentUnreadCountCached(email?: string | null): Promise<number> {
+  const key = String(email ?? "").toLowerCase().trim();
+  if (!key) return Promise.resolve(0);
+  return _cachedAgentUnreadCount(key);
 }
 
 /** LP登録一覧（エンジニア）向け：engineer_id ごとのチャット状態。

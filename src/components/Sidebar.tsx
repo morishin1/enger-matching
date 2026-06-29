@@ -30,7 +30,7 @@ const NAV: NavItem[] = [
     { href: "/line",      id: "line",      label: "LINE",       desc: "LINE経由の人材・案件とトーク" },
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
-  { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", dot: "chatUnread" },
+  { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", count: "chatUnread", hot: true },
   // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
   { href: "/progress", id: "progress", label: "稼働管理", desc: "稼働・請求・書類の管理", icon: "progress", count: "progress", children: [
     { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）", desc: "稼働状況と請求" },
@@ -196,7 +196,9 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
         <div className="nav">
           {items.map((n) => {
             const Ico = Icons[n.icon];
-            const badge = n.count ? fmt(counts?.[n.count]) : null;
+            // hot バッジ（未読チャット等）は 0 のとき非表示。通常バッジは従来どおり総数を表示。
+            const rawCount = n.count ? (counts?.[n.count] ?? 0) : null;
+            const badge = rawCount == null ? null : (n.hot && rawCount === 0 ? null : fmt(rawCount));
             // ドット表示（未読チャット等の有無マーク。件数は出さず存在のみ示す）。
             const showDot = n.dot ? (counts?.[n.dot] ?? 0) > 0 : false;
             const hasChildren = (n.children?.length ?? 0) > 0;
