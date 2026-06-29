@@ -91,9 +91,20 @@ export function ProposalsWorkspace({
   const kpiFrom = kpiSp?.get("from") || "";
   const kpiTo = kpiSp?.get("to") || "";
   const inKpiPeriod = (createdAt: string | null | undefined): boolean => {
-    if (kpiFrom || kpiTo) return inCustomRange(createdAt, kpiFrom, kpiTo); // 先週/30日/全期間/任意
+    if (kpiFrom || kpiTo) return inCustomRange(createdAt, kpiFrom, kpiTo); // 先週/期間指定（from/to あり）
+    const t = new Date(createdAt ?? 0).getTime();
+    if (!t) return false;
+    if (kpiKp === "yesterday") {
+      const s = new Date(); s.setHours(0, 0, 0, 0); const sm = s.getTime();
+      return t >= sm - 86400000 && t < sm;
+    }
+    if (kpiKp === "quarter") {
+      // サーバーの quarter（暦の四半期）と揃える：その四半期の開始〜+3ヶ月。
+      const d = new Date(); const qm = Math.floor(d.getMonth() / 3) * 3;
+      return t >= new Date(d.getFullYear(), qm, 1).getTime() && t < new Date(d.getFullYear(), qm + 3, 1).getTime();
+    }
     const k: ClientPeriod | null = kpiKp === "week" ? "week" : kpiKp === "month" ? "month" : kpiKp === "today" ? "today" : null;
-    return k ? inClientPeriod(new Date(createdAt ?? 0).getTime(), k) : true;
+    return k ? inClientPeriod(t, k) : true;
   };
   const proposalsForStage = useMemo(() => proposals.filter((p) => inKpiPeriod(p?.created_at)), [proposals, kpiKp, kpiFrom, kpiTo]);
 
