@@ -139,7 +139,25 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
             <kbd>⌘K</kbd>
           </form>
           <HelpButton />
-          <Link href="/notifications" className="icon-btn" title="お知らせ"><Icons.bell /><span className="dot" /></Link>
+          {/* お知らせベル（#235②）：提案の承認待ち・差戻しがあるとき赤バッジ＋件数を表示し、
+              クリックで提案管理（承認タブが自動で開く）へ。無いときは通常のお知らせへ。 */}
+          {(() => {
+            const approvals = counts?.proposalApprovals ?? 0;
+            const has = approvals > 0;
+            return (
+              <Link href={has ? "/proposals" : "/notifications"} className="icon-btn"
+                title={has ? `承認待ちが ${approvals} 件あります（クリックで承認へ）` : "お知らせ"}
+                style={{ position: "relative" }}>
+                <Icons.bell />
+                {has ? (
+                  <span aria-label={`承認待ち ${approvals} 件`}
+                    style={{ position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 99, background: "#dc2626", color: "#fff", fontSize: 10, fontWeight: 800, lineHeight: "16px", textAlign: "center", border: "1.5px solid var(--color-surface, #fff)", boxSizing: "border-box" }}>
+                    {approvals > 99 ? "99+" : approvals}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })()}
           <span title="権限ロール" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: ROLE_BADGE[role].bg, color: ROLE_BADGE[role].fg, whiteSpace: "nowrap" }}>{ROLE_BADGE[role].label}</span>
           {position && POSITION_LABEL[position] && (
             <span title="営業区分" style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: position === "outside" ? "#fff1e6" : "#eaf4fd", color: position === "outside" ? "#b45309" : "#0b5cab", whiteSpace: "nowrap" }}>{POSITION_LABEL[position]}</span>

@@ -11,7 +11,6 @@ import Link from "@/components/AppLink";
 import { toast } from "@/components/toast";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions } from "@/lib/actions";
-import { StarsInput } from "./Stars";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { ProposalCloseControls } from "./ProposalCloseControls";
@@ -156,9 +155,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
-  // 失注時の★評価（人材／案件）。案件★は企業評価に連動。確定には両方必須。
-  const [candRating, setCandRating] = useState<number>(p.cand_rating ?? 0);
-  const [jobRating, setJobRating] = useState<number>(p.job_rating ?? 0);
   // 削除の申請/承認権限（admin=承認可・即削除 / agent=申請のみ）。
   const [delPerm, setDelPerm] = useState<{ canRequest: boolean; canApprove: boolean }>({ canRequest: false, canApprove: false });
   useEffect(() => { getProposalDeletePermissions().then(setDelPerm).catch(() => {}); }, []);
@@ -192,8 +188,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(effStage)));
   // 「どの会社の誰が担当か」が空なら入力を促す（勝率分析に直結。見送りには必須）。
   const lostContactMissing = !lostCompany.trim() || !lostClientContact.trim();
-  // 見送り確定の必須条件：失注理由＋理由メモ＋会社名＋先方担当者＋人材★＋案件★がすべて揃っていること。
-  const lostReady = !!lostReason && lostNote.trim().length > 0 && !lostContactMissing && candRating >= 1 && jobRating >= 1;
+  // 見送り確定の必須条件：失注理由＋理由メモ＋会社名＋先方担当者がすべて揃っていること。
+  const lostReady = !!lostReason && lostNote.trim().length > 0 && !lostContactMissing;
 
   // 右ドロワーのスライドイン（マウント直後に true へ）
   const [shown, setShown] = useState(false);
@@ -315,8 +311,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     // どの会社の誰が担当か（会社名・先方担当者・提案者・クロージング担当）も失注記録に残す。
     company: lostCompany.trim() || null, client_contact: lostClientContact.trim() || null,
     proposer: proposer || null, closer: closer || null,
-    // ★評価（人材／案件）。案件★は企業評価に連動。
-    cand_rating: candRating || null, job_rating: jobRating || null,
   }));
   // 提案削除：承認制は廃止。admin / agent とも理由を入力して即削除（操作ログに記録される）。
   const removeProposal = () => {
@@ -700,19 +694,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="具体的な事情を簡潔に（例: 他社が単価5万安く先に提示 / 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
                 {!lostNote.trim() && <span style={{ color: "var(--color-danger)", fontSize: 10.5 }}>※ 失注理由メモは必須です。</span>}
               </label>
-              {/* ★評価（人材／案件）。両方必須。案件★は企業評価に連動する。 */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>人材の評価<span style={{ color: "var(--color-danger)" }}> *</span></span>
-                  <StarsInput value={candRating} onChange={setCandRating} />
-                  {candRating < 1 && <span style={{ color: "var(--color-danger)", fontSize: 10.5 }}>※ 人材★は必須です。</span>}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>案件の評価<span style={{ color: "var(--color-danger)" }}> *</span> <span className="muted" style={{ fontSize: 10 }}>（企業評価に連動）</span></span>
-                  <StarsInput value={jobRating} onChange={setJobRating} />
-                  {jobRating < 1 && <span style={{ color: "var(--color-danger)", fontSize: 10.5 }}>※ 案件★は必須です。</span>}
-                </div>
-              </div>
               {/* どの会社の誰が担当か（勝率分析に直結）。失注記録に確実に残す。
                   会社名・先方担当者は案件情報／人材情報（①）から選んで自動入力でき、手入力もできる。 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
