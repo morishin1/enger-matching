@@ -316,13 +316,13 @@ export function ProposalsWorkspace({
       {approvalRows.length > 0 && tab !== "approval" && (
         <button type="button" onClick={() => setTab("approval")}
           style={{
-            display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", cursor: "pointer",
-            border: "1px solid #f5b97f", background: "#fff7ed", color: "#9a3412", borderRadius: 10,
-            padding: "10px 14px", fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+            display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", cursor: "pointer",
+            border: "1.5px solid #f5b97f", background: "#fff7ed", color: "#9a3412", borderRadius: 12,
+            padding: "16px 18px", fontSize: 16, fontWeight: 700, fontFamily: "inherit",
           }}>
-          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20 }}>notifications_active</span>
-          承認待ちが {approvalRows.length} 件あります
-          <span style={{ marginLeft: "auto", fontWeight: 700, color: "#b45309" }}>承認タブを開く ›</span>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 28 }}>notifications_active</span>
+          <span>承認待ちが <span style={{ fontSize: 22, fontWeight: 800, margin: "0 1px" }}>{approvalRows.length}</span> 件あります</span>
+          <span style={{ marginLeft: "auto", fontWeight: 700, color: "#b45309", fontSize: 14.5, whiteSpace: "nowrap" }}>承認タブを開く ›</span>
         </button>
       )}
 

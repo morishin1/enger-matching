@@ -4,6 +4,7 @@ import { engerClient, publicAdmin, dbConfigured } from "./supabase";
 export type SidebarCounts = Partial<Record<
   "jobs" | "people" | "companies" | "proposals" | "progress" | "matching" | "engineers" | "line"
   | "newJobs" | "newPeople" | "newEngineers" | "newLine" | "approvalsPending"
+  | "proposalApprovals" /* 提案の承認待ち・差戻し件数（右上ベルの赤バッジ用・#235） */
   | "chatUnread" /* 担当の未読チャット有無（ドット表示用・0/1） */, number>>;
 
 async function fetchCounts(): Promise<SidebarCounts> {
@@ -44,6 +45,16 @@ async function fetchCounts(): Promise<SidebarCounts> {
     } catch { return undefined; }
   };
 
+  // 提案の承認待ち・差戻し件数（右上ベルの赤バッジ用・#235）。
+  //   ProposalsWorkspace の isAwaitingApproval と一致：approval_status in (pending,rejected) または stage=承認待ち。
+  //   approval_status 列が無い旧スキーマでは stage=承認待ち のみで集計（エラーフォールバック）。
+  const proposalApprovalsCount = async (): Promise<number | undefined> => {
+    const withCol = await safeCount(() => sb.from("proposals").select("id", { count: "exact", head: true })
+      .or("approval_status.in.(pending,rejected),stage.eq.承認待ち"));
+    if (withCol !== undefined) return withCol;
+    return safeCount(() => sb.from("proposals").select("id", { count: "exact", head: true }).eq("stage", "承認待ち"));
+  };
+
   // LINE 経由案件・人材の合算件数。proposals.source='line' に紐づく案件/人材を distinct で集計。
   //   ・schema 未拡張環境では source 列が無いことがあるため、エラーは undefined として扱う。
   //   ・タブの数字としては「LINE 経由の案件 + LINE 経由の人材」のユニーク数。
@@ -62,7 +73,7 @@ async function fetchCounts(): Promise<SidebarCounts> {
     } catch { return undefined; }
   };
 
-  const [jobs, people, companies, proposals, engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending, line, newLine] = await Promise.all([
+  const [jobs, people, companies, proposals, engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending, proposalApprovals, line, newLine] = await Promise.all([
     safeCount(() => sb.from("jobs").select("id", { count: "exact", head: true }).eq("is_published", true)),
     safeCount(() => sb.from("candidates").select("id", { count: "exact", head: true })),
     companyCount(),
@@ -76,10 +87,11 @@ async function fetchCounts(): Promise<SidebarCounts> {
     //   app_users(status=pending) ＋ LP仮想エントリ(profiles/auth.users で app_users 未登録) の合算。
     //   サーバ集計は listLpPendingCandidates を内部で呼んで件数化する。
     approvalsPendingCount(),
+    proposalApprovalsCount(),
     lineCount(),
     lineCount(since7),
   ]);
-  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending, line, newLine };
+  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending, proposalApprovals, line, newLine };
 }
 
 // 30秒キャッシュ + タグ。書き込み時に revalidateTag("sidebar-counts") で即時更新。
