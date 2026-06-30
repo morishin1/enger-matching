@@ -23,8 +23,9 @@ import { saveStageTarget } from "@/app/proposals/stage-actions";
 const STAGE_COLUMNS: { key: string; label?: string; source: "proposal" | "override"; attr?: "proposer" | "closer"; hint: string }[] = [
   { key: "架電",         source: "override", hint: "テレアポの架電・接触数（コンタクト）。月1,200件目安（40〜80件/日×20営業日）。" },
   { key: "打ち合わせ",   source: "override", hint: "打合せ記録の自社担当者が一致し、打ち合わせ日が入っている件数（メニュー「打合わせ」と連携）" },
-  { key: "提案中",       source: "proposal", attr: "proposer", hint: "進行中の提案で「提案中」ステージの件数（提案者で集計）" },
+  // ⑤「案件の仕入れ」と「提案中」の列を入れ替え（案件の仕入れ → 提案中 の順）。
   { key: "案件の仕入れ", source: "override", hint: "承認済（打合せ完了）かつ自社担当者ありの企業から取り込んだ案件のうち、自社担当者が一致する件数（案件側のみ）" },
+  { key: "提案中",       source: "proposal", attr: "proposer", hint: "進行中の提案で「提案中」ステージの件数（提案者で集計）" },
   { key: "面談",         source: "override", hint: "「面談」フォルダに入ったことのある提案の件数（提案者・累計）。別フォルダや失注へ移っても減らず、レコード削除でのみ減算します。" },
   { key: "合格", label: "合格（稼働決定）", source: "proposal", attr: "closer", hint: "「合格」ステージに入った提案の件数（クロージング担当者で集計）。削除・見送りで減算します。" },
 ];
@@ -164,6 +165,14 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
     return ra !== rb ? ra - rb : a.localeCompare(b, "ja");
   });
 
+  // ③④ チーム合計：表示中メンバーの「実数合計」と「目標合計」を列ごとに集計（一番下の行）。
+  const teamTotals = STAGE_KEYS.reduce((acc, s) => {
+    let cur = 0, tg = 0;
+    for (const nm of shownMembers) { cur += current[nm]?.[s] ?? 0; tg += stageTargets[nm]?.[s] ?? 0; }
+    acc[s] = { cur, tg };
+    return acc;
+  }, {} as Record<string, { cur: number; tg: number }>);
+
   const filterChips = (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
       {ROLE_FILTERS.map((f) => {
@@ -286,6 +295,25 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
               </tr>
             );
           })}
+          {/* ③④ チーム合計（一番下）：表示中メンバーの実数合計／目標合計。 */}
+          <tr style={{ background: "var(--color-surface-soft)", borderTop: "2px solid var(--color-border-strong)" }}>
+            <td style={{ ...td, textAlign: "left", fontWeight: 800 }}>
+              チーム合計
+              <div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>{shownMembers.length}名の合計</div>
+            </td>
+            {STAGE_COLUMNS.map((c) => {
+              const { cur, tg } = teamTotals[c.key] ?? { cur: 0, tg: 0 };
+              const pct = tg > 0 ? Math.round((cur / tg) * 100) : null;
+              return (
+                <td key={c.key} style={{ ...td, fontWeight: 800 }}>
+                  <div>{cur}<span style={{ color: "var(--color-ink-5)", fontWeight: 500 }}> / </span>{tg}</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: pctTone(pct) }}>{pct == null ? "—" : `${pct}%`}</div>
+                </td>
+              );
+            })}
+            <td style={td}>—</td>
+            <td style={td}>—</td>
+          </tr>
         </tbody>
       </table>
       </div>
