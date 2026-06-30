@@ -212,6 +212,7 @@ export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<st
   if (uuidLike.length === 0) return out;
   let pub: ReturnType<typeof publicAdmin>;
   try { pub = publicAdmin(); } catch { return out; }
+  // 1) profiles からライブの 漢字氏名／フリガナ／イニシャル を解決。
   for (let i = 0; i < uuidLike.length; i += 200) {
     const chunk = uuidLike.slice(i, i + 200);
     try {
@@ -228,7 +229,56 @@ export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<st
       }
     } catch { /* 取得失敗チャンクはスキップ */ }
   }
+  // 2) #241：ログアウト等で profiles の漢字氏名が一時的に空になっても「直近に保存された氏名」を維持する。
+  //    ・ライブで日本語の漢字氏名が取れた id → スナップショットを upsert（変更時のみ）＝最後に確認できた氏名を保存。
+  //    ・取れなかった id → 保存済みスナップショットがあればそれを表示に採用（人材IDへ化けるのを防ぐ）。
+  await applyNameSnapshots(out, uuidLike);
   return out;
+}
+
+/** #241：漢字氏名のスナップショット（enger.freelance_name_snapshots）を適用する。
+ *  ライブ解決で日本語の漢字氏名が取れた id は最新値を保存（変更時のみ upsert）。取れなかった id は
+ *  保存済みの値にフォールバック。テーブル未作成(未マイグレ)等の失敗時は何もしない（従来動作のまま）。
+ *  ※ 引数 out をその場で書き換える（フォールバック反映）。 */
+async function applyNameSnapshots(out: Map<string, EngineerProfileName>, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return; }
+  // 既存スナップショットを取得（200件ずつ）。テーブル未作成等で失敗したら何もしない。
+  const snap = new Map<string, { kanji: string; kana: string; initials: string }>();
+  try {
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const r: any = await admin.from("freelance_name_snapshots").select("engineer_id, kanji, kana, initials").in("engineer_id", chunk);
+      if (r.error) return; // 未マイグレ等 → フォールバックも保存もしない（従来動作）
+      for (const s of (r.data ?? []) as any[]) {
+        snap.set(String(s.engineer_id), { kanji: String(s.kanji ?? ""), kana: String(s.kana ?? ""), initials: String(s.initials ?? "") });
+      }
+    }
+  } catch { return; }
+  const now = new Date().toISOString();
+  const toUpsert: { engineer_id: string; kanji: string; kana: string; initials: string; updated_at: string }[] = [];
+  for (const id of ids) {
+    const live = out.get(id);
+    const liveKanji = (live?.kanji ?? "").trim();
+    if (hasJa(liveKanji)) {
+      // ライブで日本語氏名が取れた＝現に正しい氏名。スナップショットと差があれば更新（最新を保存）。
+      const kana = live?.kana ?? "";
+      const initials = live?.initials ?? "";
+      const s = snap.get(id);
+      if (!s || s.kanji !== liveKanji || s.kana !== kana || s.initials !== initials) {
+        toUpsert.push({ engineer_id: id, kanji: liveKanji, kana, initials, updated_at: now });
+      }
+    } else {
+      // ライブで取れない（ログアウト等）→ 保存済みの日本語氏名があれば、それを表示に採用。
+      const s = snap.get(id);
+      if (s && hasJa(s.kanji)) out.set(id, { kanji: s.kanji, kana: s.kana, initials: s.initials });
+    }
+  }
+  // 変更分のみまとめて保存（人材数ぶんの無駄な書き込みを避ける）。失敗は表示に影響させない。
+  if (toUpsert.length) {
+    try { await admin.from("freelance_name_snapshots").upsert(toUpsert, { onConflict: "engineer_id" }); } catch { /* noop */ }
+  }
 }
 
 /** スレッドのスナップショット名と解決名から、表示すべき氏名を選ぶ（漢字＝日本語を最優先）。
