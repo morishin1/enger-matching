@@ -1,4 +1,5 @@
 import { unstable_cache } from "next/cache";
+import { after } from "next/server";
 import { engerClient, engerAdmin, publicAdmin, authAdmin, dbConfigured } from "@/lib/supabase";
 
 export type ChatRole = "company" | "freelance" | "agent";
@@ -212,6 +213,7 @@ export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<st
   if (uuidLike.length === 0) return out;
   let pub: ReturnType<typeof publicAdmin>;
   try { pub = publicAdmin(); } catch { return out; }
+  // 1) profiles からライブの 漢字氏名／フリガナ／イニシャル を解決。
   for (let i = 0; i < uuidLike.length; i += 200) {
     const chunk = uuidLike.slice(i, i + 200);
     try {
@@ -228,7 +230,68 @@ export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<st
       }
     } catch { /* 取得失敗チャンクはスキップ */ }
   }
+  // 2) #241：ログアウト等で profiles の漢字氏名が一時的に空になっても「直近に保存された氏名」を維持する。
+  //    ・ライブで日本語の漢字氏名が取れた id → スナップショットを upsert（変更時のみ）＝最後に確認できた氏名を保存。
+  //    ・取れなかった id → 保存済みスナップショットがあればそれを表示に採用（人材IDへ化けるのを防ぐ）。
+  await applyNameSnapshots(out, uuidLike);
   return out;
+}
+
+/** #241：漢字氏名のスナップショット（enger.freelance_name_snapshots）を適用する。
+ *  ライブ解決で日本語の漢字氏名が取れた id は最新値を保存（変更時のみ upsert）。取れなかった id は
+ *  保存済みの値にフォールバック。テーブル未作成(未マイグレ)等の失敗時は何もしない（従来動作のまま）。
+ *  ※ 引数 out をその場で書き換える（フォールバック反映）。 */
+async function applyNameSnapshots(out: Map<string, EngineerProfileName>, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return; }
+  // 既存スナップショットを取得（200件ずつ・並列）。レンダリングのクリティカルパスを短くする。
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200));
+  const reads = await Promise.all(chunks.map(async (chunk) => {
+    try { return await admin.from("freelance_name_snapshots").select("engineer_id, kanji, kana, initials").in("engineer_id", chunk) as any; }
+    catch { return { error: true } as any; }
+  }));
+  const snap = new Map<string, { kanji: string; kana: string; initials: string }>();
+  let anyOk = false;
+  for (const r of reads) {
+    if (r?.error) continue;          // 一部チャンクの失敗は無視（成功分のフォールバックは活かす）
+    anyOk = true;
+    for (const s of (r.data ?? []) as any[]) {
+      snap.set(String(s.engineer_id), { kanji: String(s.kanji ?? ""), kana: String(s.kana ?? ""), initials: String(s.initials ?? "") });
+    }
+  }
+  if (!anyOk) return; // テーブル未作成/全読取失敗 → フォールバックも保存もしない（従来動作のまま）
+  const now = new Date().toISOString();
+  const toUpsert: { engineer_id: string; kanji: string; kana: string; initials: string; updated_at: string }[] = [];
+  for (const id of ids) {
+    const live = out.get(id);
+    const liveKanji = (live?.kanji ?? "").trim();
+    if (hasJa(liveKanji)) {
+      // ライブで日本語氏名が取れた＝現に正しい氏名。スナップショットと差があれば更新（＝氏名変更を反映）。
+      const kana = live?.kana ?? "";
+      const initials = live?.initials ?? "";
+      const s = snap.get(id);
+      if (!s || s.kanji !== liveKanji || s.kana !== kana || s.initials !== initials) {
+        toUpsert.push({ engineer_id: id, kanji: liveKanji, kana, initials, updated_at: now });
+      }
+    } else {
+      // ライブで日本語氏名が取れない（＝ログアウト等で profiles の漢字氏名が一時的に空）→ 保存済みの氏名を表示に採用。
+      //   ※ 仕様上の割り切り：「ログアウトで一時的に空」と「本人が氏名を削除/ローマ字に変更」は
+      //     DX 側からは区別できない（どちらもライブ漢字氏名＝空）。#241 は『変更していないのに消える』の
+      //     防止が主目的のため、ここでは保存値を維持する（＝最後の日本語氏名を表示し続ける）。
+      //     別の“日本語氏名”へ変更された場合は上の分岐で最新へ更新される。
+      const s = snap.get(id);
+      if (s && hasJa(s.kanji)) out.set(id, { kanji: s.kanji, kana: s.kana, initials: s.initials });
+    }
+  }
+  // 変更分のみ保存。書き込みはレンダリングのクリティカルパスから外す（after でレスポンス後に実行）。
+  //   ・after が使えない文脈（リクエスト外）では best-effort で実行。失敗は表示に影響させない。
+  if (!toUpsert.length) return;
+  const persist = async () => {
+    try { await admin.from("freelance_name_snapshots").upsert(toUpsert, { onConflict: "engineer_id" }); } catch { /* noop */ }
+  };
+  try { after(persist); } catch { await persist(); }
 }
 
 /** スレッドのスナップショット名と解決名から、表示すべき氏名を選ぶ（漢字＝日本語を最優先）。
