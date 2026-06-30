@@ -3,10 +3,11 @@
 import { useState } from "react";
 
 // KGI逆算ファネル（KPI推移タブの最上部に常時表示）。
-//   営業マニュアル §10 準拠：提案 → 面談 → 合格 → 稼働 を当月(累計)の実績/目標で表示。
+//   提案 → 面談 → 合格 を、上部の期間フィルターに連動した実績/目標で表示する。
+//   実績・目標は下表「メンバー別ステージ目標」の各列合計（提案中/面談/合格）と一致する。
 //   ・各ステージを信号色（緑80%↑/黄50-80%/赤50%↓）で着色。
-//   ・矢印上に歩留まり率（面談率・合格率・稼働化率）を表示。
-//   ・先頭に「稼働 ◯/目標（残り◯件・あと◯営業日）」を大きく出す。
+//   ・矢印上に歩留まり率（面談率・合格率）を表示。
+//   ・先頭に KGI「合格（インサイドは面談）◯/目標」を大きく出す。
 //   ・チーム全体／アウトサイド／インサイド を切り替えて、各チームの実績を出し分ける
 //     （目標・率はチーム共通。実績のみ kpi_role で絞る）。
 
@@ -35,9 +36,11 @@ function signal(pct: number | null): { fg: string; bg: string; bd: string } {
 const pctOf = (a: number, t: number): number | null => (t > 0 ? Math.round((a / t) * 100) : null);
 const rate = (n: number, d: number): string => (d > 0 ? `${Math.round((n / d) * 100)}%` : "—");
 
-export function KgiFunnelBanner({ funnel, funnelsByRole }: { funnel?: Funnel | null; funnelsByRole?: FunnelsByRole | null }) {
-  // 表示モード：累計（当月実績そのまま）／月末着地予測（累計 × 総営業日 ÷ 経過営業日）。
-  const [mode, setMode] = useState<"cumulative" | "forecast">("cumulative");
+export function KgiFunnelBanner({ funnel, funnelsByRole, allowForecast = true }: { funnel?: Funnel | null; funnelsByRole?: FunnelsByRole | null; allowForecast?: boolean }) {
+  // 表示モード：累計（実績そのまま）／月末着地予測（累計 × 総営業日 ÷ 経過営業日）。
+  //   着地予測の営業日係数は「今月」基準のため、期間が今月以外のときは予測を無効化（累計のみ）。
+  const [modeState, setModeState] = useState<"cumulative" | "forecast">("cumulative");
+  const mode = allowForecast ? modeState : "cumulative";
   // 対象チーム（全体/アウト/イン）。funnelsByRole が無い場合は単一 funnel をそのまま表示。
   const [team, setTeam] = useState<TeamKey>("all");
   const f = funnelsByRole ? funnelsByRole[team] : funnel;
@@ -51,27 +54,27 @@ export function KgiFunnelBanner({ funnel, funnelsByRole }: { funnel?: Funnel | n
   // チームが担当するステージ（インサイド＝提案→面談 / アウトサイド＝面談→稼働 / 全体＝全部）。
   //   役割分担（提案=インサイド主担当 / 合格・稼働=アウトサイド主担当）により、チーム別では
   //   担当外ステージが小さく出るのが正常。担当外は淡色にして「何をすべきか」を強調する。
-  const ownedIdx: number[] = !funnelsByRole || team === "all" ? [0, 1, 2, 3] : team === "inside" ? [0, 1] : [1, 2, 3];
+  // 担当ステージ（提案=0/面談=1/合格=2）。インサイド＝提案→面談 / アウトサイド＝面談→合格 / 全体＝全部。
+  const ownedIdx: number[] = !funnelsByRole || team === "all" ? [0, 1, 2] : team === "inside" ? [0, 1] : [1, 2];
   const stageOwned = (i: number) => ownedIdx.includes(i);
-  // ヘッダのKGI：インサイドは「面談」（面談率が責務）、それ以外は「稼働」。
+  // ヘッダのKGI：インサイドは「面談」（面談率が責務）、それ以外は「合格（稼働決定）」。
   const kgi = (funnelsByRole && team === "inside")
     ? { label: "面談", actual: proj(a.meeting), target: t.meeting }
-    : { label: "稼働", actual: dPass, target: t.won };
+    : { label: "合格", actual: dPass, target: t.won };
   const kgiRemain = Math.max(0, kgi.target - kgi.actual);
   const kgiSig = signal(pctOf(kgi.actual, kgi.target));
 
-  // 4ステージ（合格＝稼働決定のため稼働の実績は合格と同値）。表示値はモードに応じて累計/着地予測。
+  // 3ステージ（提案 → 面談 → 合格）。⑥「稼働」項目は削除（合格＝稼働決定のため重複）。
+  //   表示値はモードに応じて累計/着地予測。
   const stages = [
     { label: "提案", actual: proj(a.proposal), target: t.proposal },
     { label: "面談", actual: proj(a.meeting), target: t.meeting },
     { label: "合格", actual: dPass, target: t.won },
-    { label: "稼働", actual: dPass, target: t.won },
   ];
-  // 矢印上の歩留まり率（面談率・合格率・稼働化率）。
+  // 矢印上の歩留まり率（面談率・合格率）。
   const yields = [
     { label: "面談率", value: rate(a.meeting, a.proposal) },
     { label: "合格率", value: rate(a.pass, a.meeting) },
-    { label: "稼働化率", value: rate(a.pass, a.pass) },
   ];
 
   return (
@@ -94,16 +97,18 @@ export function KgiFunnelBanner({ funnel, funnelsByRole }: { funnel?: Funnel | n
             ))}
           </span>
         )}
-        {/* 累計 / 月末着地予測 トグル */}
+        {/* 累計 / 月末着地予測 トグル（着地予測は「今月」期間でのみ表示） */}
+        {allowForecast && (
         <span style={{ display: "inline-flex", gap: 2, background: "var(--color-surface-inset)", borderRadius: 99, padding: 2 }}>
           {([["cumulative", "累計"], ["forecast", "着地予測"]] as const).map(([k, lbl]) => (
-            <button key={k} type="button" onClick={() => setMode(k)}
+            <button key={k} type="button" onClick={() => setModeState(k)}
               style={{ fontFamily: "inherit", fontSize: 11, fontWeight: mode === k ? 800 : 600, cursor: "pointer", padding: "3px 10px", borderRadius: 99, border: 0,
                 background: mode === k ? "var(--color-surface)" : "transparent", color: mode === k ? "var(--color-ink)" : "var(--color-ink-3)", boxShadow: mode === k ? "0 1px 2px rgba(15,23,42,.08)" : "none" }}>
               {lbl}
             </button>
           ))}
         </span>
+        )}
         {/* チームのKGI ◯/目標（残り・営業日）。インサイドは面談、それ以外は稼働。 */}
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "baseline", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>{funnelsByRole ? `${teamLabel}・` : ""}KGI {kgi.label}{mode === "forecast" ? "（着地予測）" : ""}</span>
@@ -138,9 +143,9 @@ export function KgiFunnelBanner({ funnel, funnelsByRole }: { funnel?: Funnel | n
         })}
       </div>
       <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>
-        信号色＝達成率（<b style={{ color: "#067647" }}>80%↑緑</b>／<b style={{ color: "#9a7b12" }}>50–80%黄</b>／<b style={{ color: "#b42318" }}>50%↓赤</b>）。目標は当月：提案{t.proposal}→面談{t.meeting}→合格{t.won}→稼働{t.won}（KPI＆KGIのファネル目標）。
+        信号色＝達成率（<b style={{ color: "#067647" }}>80%↑緑</b>／<b style={{ color: "#9a7b12" }}>50–80%黄</b>／<b style={{ color: "#b42318" }}>50%↓赤</b>）。数値は<b>上部の期間フィルター</b>に連動し、目標 提案{t.proposal}→面談{t.meeting}→合格{t.won} は下表「メンバー別ステージ目標」の各列合計と一致します。
         {funnelsByRole && team === "all" && <>　チーム別タブで各チームの担当ステージ（実績のみ出し分け・目標/率は共通）を確認できます。</>}
-        {funnelsByRole && team !== "all" && <>　{teamLabel}の担当は<b>{team === "inside" ? "提案→面談（面談率）" : "面談→合格→稼働（合格率）"}</b>。<b>淡色</b>＝担当外ステージ（他チーム主担当のため小さく出るのが正常）。実績はチーム別・目標/率は共通。</>}
+        {funnelsByRole && team !== "all" && <>　{teamLabel}の担当は<b>{team === "inside" ? "提案→面談（面談率）" : "面談→合格（合格率）"}</b>。<b>淡色</b>＝担当外ステージ（他チーム主担当のため小さく出るのが正常）。実績はチーム別・目標/率は共通。</>}
         {mode === "forecast" && <>　<b>着地予測</b>＝当月累計 ×（総営業日{f.bizTotal} ÷ 経過{f.bizPassed}）。このペースが続いた場合の月末見込み。</>}
       </div>
     </div>

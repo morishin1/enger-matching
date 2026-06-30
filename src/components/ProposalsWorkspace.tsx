@@ -26,6 +26,7 @@ import { ReportsClient } from "./ReportsClient";
 import { PeriodChips } from "./PeriodChips";
 import { CLIENT_PERIOD_LABEL, CLIENT_PERIOD_KEYS, inClientPeriod, inCustomRange, hasCustomRange, type ClientPeriod } from "@/lib/period";
 import { ownerMatches } from "@/lib/owner-match";
+import { normalizeStage } from "@/lib/proposal-constants";
 
 type Period = ClientPeriod;
 const PERIOD_LABEL = CLIENT_PERIOD_LABEL;
@@ -40,7 +41,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -48,8 +49,6 @@ export function ProposalsWorkspace({
   kpiProps?: any;
   teamActivity?: any;
   teamFunnel?: any;
-  // KGIファネルのチーム別（全体/アウトサイド/インサイド）出し分け。
-  funnelsByRole?: { all: any; outside: any; inside: any } | null;
   // ステージ別 担当者目標（{owner:{stage:target}}）と メンバー別KGI（稼働化目標）。
   stageTargets?: Record<string, Record<string, number>>;
   kgiByMember?: Record<string, { placementTarget: number | null }>;
@@ -247,6 +246,45 @@ export function ProposalsWorkspace({
     return out;
   }, [roleByMember, funnelRates, teamActivity, stageBoardMembers, stageCurrentOverrides]);
 
+  // ①② KGI逆算ファネルを、ステージ目標ボードと同じ期間連動データから算出する。
+  //   提案=「提案中」列 / 面談=「面談」列 / 合格=「合格」列 の実数合計・目標合計を集計し、
+  //   チーム全体／アウトサイド／インサイド に分けてバナーへ渡す（実数・目標が表と一致する）。
+  const boardFunnels = useMemo(() => {
+    // 役割解決はステージ目標ボードと同一にする（roleKgiByMember＝表の役割フィルタと同じ突合）。
+    //   これでファネルのアウト/イン タブ合計が、表のアウト/イン絞り込み合計と一致する。
+    const roleOfName = (nm: string): string => roleKgiByMember[nm]?.role ?? "";
+    // メンバー×ステージの現在値（StageTargetBoard と同一ロジック・同一入力）。
+    const cur: Record<string, { prop: number; meet: number; pass: number }> = {};
+    const ensure = (nm: string) => (cur[nm] ??= { prop: 0, meet: 0, pass: 0 });
+    for (const p of proposalsForStage) {
+      const st = normalizeStage(p?.stage);
+      if (st === "提案中") { const who = stageBoardMembers.find((nm) => ownerMatches(nm, p?.proposer)); if (who) ensure(who).prop++; }
+      else if (st === "合格") { const who = stageBoardMembers.find((nm) => ownerMatches(nm, p?.closer)); if (who) ensure(who).pass++; }
+    }
+    for (const [owner, byStage] of Object.entries(stageCurrentOverrides)) ensure(owner).meet = byStage["面談"] ?? 0;
+    const sumFor = (pred: (nm: string) => boolean) => {
+      let proposal = 0, meeting = 0, pass = 0, tProp = 0, tMeet = 0, tWon = 0;
+      for (const nm of stageBoardMembers) {
+        if (!pred(nm)) continue;
+        const c = cur[nm]; const tg = stageTargets?.[nm] ?? {};
+        proposal += c?.prop ?? 0; meeting += c?.meet ?? 0; pass += c?.pass ?? 0;
+        tProp += tg["提案中"] ?? 0; tMeet += tg["面談"] ?? 0; tWon += tg["合格"] ?? 0;
+      }
+      return {
+        actual: { proposal, meeting, pass },
+        target: { proposal: tProp, meeting: tMeet, won: tWon },
+        bizPassed: teamFunnel?.bizPassed ?? 0,
+        bizTotal: teamFunnel?.bizTotal ?? 0,
+        monthLabel: teamActivity?.periodLabel ?? teamFunnel?.monthLabel,
+      };
+    };
+    return {
+      all: sumFor(() => true),
+      outside: sumFor((nm) => roleOfName(nm) === "outside"),
+      inside: sumFor((nm) => roleOfName(nm) === "inside"),
+    };
+  }, [proposalsForStage, stageCurrentOverrides, stageBoardMembers, stageTargets, roleKgiByMember, teamFunnel, teamActivity]);
+
   const counts: Record<TabKey, number> = { kpi: 0, approval: approvalRows.length, board: boardRows.length, history: historyRows.length, lost: analyticsClient.length, report: reportsView?.replyUnread ?? 0 };
   // 提案履歴タブは廃止：内容が「提案ボード(進行中) + 失注分析(終了)」と重複し、ブラウザに同じ
   //   行を二重に転送していたため。終了した提案は「失注分析」タブで見られる（mode=analytics）。
@@ -336,7 +374,7 @@ export function ProposalsWorkspace({
         kpiProps ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {/* KGI逆算ファネル（営業マニュアル§10）：当月の 提案→面談→合格→稼働 を常時トップ表示。 */}
-            <KgiFunnelBanner funnel={teamFunnel} funnelsByRole={funnelsByRole} />
+            <KgiFunnelBanner funnel={boardFunnels.all} funnelsByRole={boardFunnels} allowForecast={kpiKp === "month"} />
             {/* 期間切替はタブ右に移動（他タブと同じ位置・1段）。このバーがダッシュボード・各表すべてに連動。 */}
             {/* ① KPIダッシュボードを一番上に（期間タブは内蔵せず上の1バーに統一）。 */}
             <div className="card flush" style={{ overflow: "hidden" }}>
@@ -370,7 +408,7 @@ export function ProposalsWorkspace({
                         <KpiPeriodBar current={kpiProps?.period} card={false} note="" />
                       </div>
                     </div>
-                    <div className="muted" style={{ fontSize: 11, marginBottom: 12 }}>打ち合わせ → 提案中 → 案件の仕入れ → 面談 → 合格（稼働決定） の目標/現在/達成率</div>
+                    <div className="muted" style={{ fontSize: 11, marginBottom: 12 }}>打ち合わせ → 案件の仕入れ → 提案中 → 面談 → 合格（稼働決定） の目標/現在/達成率</div>
                     {/* ②③ メンバー編集・追加・削除（チーム：アウトサイド/インサイド/テレアポ）。打ち合わせ記録の自社担当にも連動。 */}
                     <KpiMembersEditor initial={kpiMembers ?? []} suggestions={kpiMemberSuggestions ?? []} canEdit={!!privileged} />
                     <StageTargetBoard
