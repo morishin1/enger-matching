@@ -511,6 +511,12 @@ export async function bulkTrashBefore(opts: {
 // ===================== 提案 / 稼働 =====================
 
 /** 提案の任意フィールドを更新 (架電進捗/担当/失注理由 等)。 */
+// #234②：「提案中」以降に入ったとみなすステージ（proposed_at を初回記録する対象）。新旧ステージ名を吸収。
+const PROPOSED_REACHED_STAGES = new Set([
+  "提案中", "確認中", "面談", "合格", "稼働", "稼働決定",
+  "提案済", "返信待ち", "返信あり", "面談調整", "クロージング中", "面談合格",
+]);
+
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
@@ -569,6 +575,13 @@ export async function updateProposalFields(id: string, fields: Record<string, an
     ({ error } = await admin.from("proposals").update(rest).eq("id", id));
   }
   if (error) return { ok: false, error: error.message };
+
+  // #234②：「提案中」以降に入った時、提案到達日時を初回のみ記録（累計集計「提案中」列のソース）。
+  //   ※ 既に値があれば上書きしない（is null）。列未整備の環境では握りつぶす。
+  if ("stage" in fields && PROPOSED_REACHED_STAGES.has(String(fields.stage ?? ""))) {
+    try { await admin.from("proposals").update({ proposed_at: now }).eq("id", id).is("proposed_at", null); }
+    catch { /* proposed_at 列が無い環境はスキップ */ }
+  }
 
   // 会社名が入力されていれば企業マスタへ紐づけ（窓口担当=企業担当 / 自社担当=closer）。
   // 企業管理(/companies) でも「その会社の誰が担当か」を一元で確認できるようにする。
@@ -1165,6 +1178,11 @@ export async function updateProposalStage(id: string, stage: string) {
   if (stage === "面談" || stage === "合格") {
     try { await admin.from("proposals").update({ meeting_reached_at: now }).eq("id", id).is("meeting_reached_at", null); }
     catch { /* meeting_reached_at 列が無い環境はスキップ */ }
+  }
+  // #234②：「提案中」以降に入った時、提案到達日時を初回のみ記録（累計集計「提案中」列のソース）。
+  if (PROPOSED_REACHED_STAGES.has(stage)) {
+    try { await admin.from("proposals").update({ proposed_at: now }).eq("id", id).is("proposed_at", null); }
+    catch { /* proposed_at 列が無い環境はスキップ */ }
   }
   revalidatePath("/proposals");
   revalidatePath("/analytics");

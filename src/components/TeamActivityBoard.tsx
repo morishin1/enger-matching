@@ -188,7 +188,7 @@ export function TeamActivityBoard({
 
 // ───────── 編集モーダル ─────────
 
-function TargetEditModal(props: {
+export function TargetEditModal(props: {
   scope: "person" | "team";
   ownerEmail?: string; ownerName?: string;
   weekStart: string;

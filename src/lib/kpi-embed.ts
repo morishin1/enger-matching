@@ -231,6 +231,8 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
     // 面談到達（「面談」フォルダに入ったことのある提案）。提案者ごと・累計（移動/失注で減算せず削除のみ減算）。
     //   meeting_reached_at をソースに、無ければ現在ステージが面談以降の提案をフォールバック判定。
     let meetingReachedEvents: { date: string; owner: string }[] = [];
+    // 提案到達（「提案中」に入ったことのある提案）。提案者ごと・累計（別フォルダ/失注へ移っても減算せず削除のみ減算・#234②）。
+    let proposalReachedEvents: { date: string; owner: string }[] = [];
     try {
       const sb = engerAdmin();
       // 企業名の正規化（jobs.client_name ⇔ companies.name の名寄せ）。companies.ts の compKey と同じ規則。
@@ -244,7 +246,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
         sb.from("meetings").select("our_owner, meeting_date").not("meeting_date", "is", null).limit(5000) as any,
         sb.from("companies").select("name, meeting_done, owner_staff").limit(20000) as any,
         sb.from("jobs").select("client_name, created_at, imported_at").order("imported_at", { ascending: false, nullsFirst: false }).limit(8000) as any,
-        sb.from("proposals").select("proposer, stage, meeting_reached_at, stage_updated_at, updated_at, created_at").order("created_at", { ascending: false }).limit(8000) as any,
+        sb.from("proposals").select("proposer, stage, meeting_reached_at, proposed_at, stage_updated_at, updated_at, created_at").order("created_at", { ascending: false }).limit(8000) as any,
       ];
       const [mr, cr0, jr0, pr0]: any[] = await Promise.all(queries);
 
@@ -275,18 +277,30 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
 
       // ③ 面談到達：全提案（進行中/失注/稼働を含む）から、面談に入ったことのあるものを提案者に按分。
       const REACHED_STAGES = new Set(["面談", "合格", "稼働", "稼働決定"]);
+      // 提案到達：normalizeStage の結果が「提案中以降の進行中」＝提案中/確認中/面談/合格。
+      //   終端（稼働/失注 等）は normalizeStage が所属確認に倒すため、proposed_at（到達日時）で判定する。
+      const PROPOSED_REACHED_NORM = new Set(["提案中", "確認中", "面談", "合格"]);
       let pr: any = pr0;
       if (pr?.error) pr = await sb.from("proposals").select("proposer, stage, stage_updated_at, updated_at, created_at").order("created_at", { ascending: false }).limit(8000);
       for (const p of (pr?.data ?? [])) {
         const owner = String(p?.proposer ?? "").trim(); if (!owner) continue;
-        const reached = !!p?.meeting_reached_at || REACHED_STAGES.has(normalizeStage(p?.stage));
-        if (!reached) continue;
-        const date = p?.meeting_reached_at ?? p?.stage_updated_at ?? p?.updated_at ?? p?.created_at;
-        if (date) meetingReachedEvents.push({ date: String(date), owner });
+        const ns = normalizeStage(p?.stage);
+        // 面談到達（累計）
+        const reachedMtg = !!p?.meeting_reached_at || REACHED_STAGES.has(ns);
+        if (reachedMtg) {
+          const d = p?.meeting_reached_at ?? p?.stage_updated_at ?? p?.updated_at ?? p?.created_at;
+          if (d) meetingReachedEvents.push({ date: String(d), owner });
+        }
+        // 提案到達（累計）：proposed_at があるか、現在ステージが提案中以降（進行中）。
+        const reachedProp = !!p?.proposed_at || PROPOSED_REACHED_NORM.has(ns);
+        if (reachedProp) {
+          const d = p?.proposed_at ?? p?.stage_updated_at ?? p?.updated_at ?? p?.created_at;
+          if (d) proposalReachedEvents.push({ date: String(d), owner });
+        }
       }
     } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
 
-    return { kpi, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents };
+    return { kpi, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents };
   } catch {
     return null;
   }

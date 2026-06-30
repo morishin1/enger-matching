@@ -15,7 +15,7 @@ import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
 import { KpiDashboardClient } from "./KpiDashboardClient";
-import { TeamActivityBoard } from "./TeamActivityBoard";
+import { TeamActivityBoard, TargetEditModal } from "./TeamActivityBoard";
 import { KpiPeriodBar } from "./KpiPeriodBar";
 import { KgiFunnelBanner } from "./KgiFunnelBanner";
 import { StageTargetBoard } from "./StageTargetBoard";
@@ -41,7 +41,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -62,6 +62,7 @@ export function ProposalsWorkspace({
   meetingEvents?: { date: string; owner: string }[];
   procurementEvents?: { date: string; owner: string }[];
   meetingReachedEvents?: { date: string; owner: string }[];
+  proposalReachedEvents?: { date: string; owner: string }[];   // #234②「提案中」列の累計ソース
   reportsView?: any;
   // history: 全件（進行中＋終了）。期間で絞り込みして ProposalHistory に渡す
   history: any[];
@@ -87,6 +88,7 @@ export function ProposalsWorkspace({
   const [tab, setTab] = useState<TabKey>("kpi");
   // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
   const [kpiSubTab, setKpiSubTab] = useState<"activity" | "stage">("activity");
+  const [stageTeamEdit, setStageTeamEdit] = useState(false); // #234①：ステージ目標タブ内の「チーム目標を編集（週次）」
 
   // KPI推移の期間（KpiPeriodBar が設定する URL の kp / from / to）。メンバー別ステージ目標ボードを
   //   この期間で絞り込むための判定。アクティビティ表はサーバー集計で既に期間連動済み。
@@ -189,8 +191,9 @@ export function ProposalsWorkspace({
     for (const ev of meetingEvents ?? []) addOwner(ev.owner);
     for (const ev of procurementEvents ?? []) addOwner(ev.owner);
     for (const ev of meetingReachedEvents ?? []) addOwner(ev.owner);
+    for (const ev of proposalReachedEvents ?? []) addOwner(ev.owner);
     return Array.from(set);
-  }, [proposers, closers, teamActivity, meetingEvents, procurementEvents, meetingReachedEvents, kpiMembers]);
+  }, [proposers, closers, teamActivity, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, kpiMembers]);
 
   // 「打ち合わせ」「案件の仕入れ」列の現在値（KPI推移の期間で絞り、担当者名へ寛容突合して集計）。
   //   ※ 提案系（提案中/面談/合格）は StageTargetBoard 側で proposals から算出する。
@@ -204,6 +207,8 @@ export function ProposalsWorkspace({
     for (const ev of meetingEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "打ち合わせ");
     for (const ev of procurementEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "案件の仕入れ");
     for (const ev of meetingReachedEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "面談");
+    // #234②「提案中」は累計（到達日時ベース）。別フォルダ/失注へ移っても減らず、削除のみ減算。
+    for (const ev of proposalReachedEvents ?? []) if (inKpiPeriod(ev.date)) bump(ev.owner, "提案中");
     // 架電（テレアポ）＝アクティビティの contact（期間はサーバ集計済み）。担当者名で按分。
     for (const r of (teamActivity?.rows ?? []) as any[]) {
       const c = Number(r?.actual?.contact ?? 0);
@@ -212,7 +217,7 @@ export function ProposalsWorkspace({
       if (who) (out[who] ??= {})["架電"] = c;
     }
     return out;
-  }, [meetingEvents, procurementEvents, meetingReachedEvents, teamActivity, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
+  }, [meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, teamActivity, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
 
   // 役割別KGI：インサイド＝面談率（提案→面談）／アウトサイド＝合格率（面談→稼働）。
   //   ・インサイドは提案者責任：面談到達(面談列) ÷ 提案数(アクティビティの proposal)。
@@ -258,10 +263,11 @@ export function ProposalsWorkspace({
     const ensure = (nm: string) => (cur[nm] ??= { prop: 0, meet: 0, pass: 0 });
     for (const p of proposalsForStage) {
       const st = normalizeStage(p?.stage);
-      if (st === "提案中") { const who = stageBoardMembers.find((nm) => ownerMatches(nm, p?.proposer)); if (who) ensure(who).prop++; }
-      else if (st === "合格") { const who = stageBoardMembers.find((nm) => ownerMatches(nm, p?.closer)); if (who) ensure(who).pass++; }
+      // 提案中は累計（stageCurrentOverrides["提案中"]）で集計するためここでは数えない（#234②）。
+      if (st === "合格") { const who = stageBoardMembers.find((nm) => ownerMatches(nm, p?.closer)); if (who) ensure(who).pass++; }
     }
-    for (const [owner, byStage] of Object.entries(stageCurrentOverrides)) ensure(owner).meet = byStage["面談"] ?? 0;
+    // 提案中・面談は到達ベースの累計（stageCurrentOverrides）から取る（表の「提案中」「面談」列と一致）。
+    for (const [owner, byStage] of Object.entries(stageCurrentOverrides)) { ensure(owner).meet = byStage["面談"] ?? 0; ensure(owner).prop = byStage["提案中"] ?? 0; }
     const sumFor = (pred: (nm: string) => boolean) => {
       let proposal = 0, meeting = 0, pass = 0, tProp = 0, tMeet = 0, tWon = 0;
       for (const nm of stageBoardMembers) {
@@ -403,11 +409,23 @@ export function ProposalsWorkspace({
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                       <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>flag</span>
                       <h3 style={{ margin: 0, fontSize: 13.5, fontWeight: 700 }}>メンバー別 ステージ目標・KPI/KGI達成率</h3>
+                      {/* #234①：この表（タブ）内にも「チーム目標を編集（週次）」を設置（メンバー別アクティビティと同じ）。 */}
+                      {privileged && teamActivity?.weekStart && (
+                        <button type="button" className="btn ghost btn-xs" onClick={() => setStageTeamEdit(true)} title="チームの週次目標を編集">
+                          <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: "-3px", marginRight: 2 }}>flag</span>
+                          チーム目標を編集（週次）
+                        </button>
+                      )}
                       {/* ① この表の隣にも期間フィルターを置く（上部までスクロールせず期間を切り替えられる）。 */}
                       <div style={{ marginLeft: "auto" }}>
                         <KpiPeriodBar current={kpiProps?.period} card={false} note="" />
                       </div>
                     </div>
+                    {stageTeamEdit && teamActivity?.weekStart && (
+                      <TargetEditModal scope="team" weekStart={teamActivity.weekStart}
+                        title="チーム目標を編集（週次）" subtitle="会社全体（its）の週次目標。期間に応じて按分されます。"
+                        initial={teamActivity.teamWeeklyTarget ?? {}} onClose={() => setStageTeamEdit(false)} />
+                    )}
                     <div className="muted" style={{ fontSize: 11, marginBottom: 12 }}>打ち合わせ → 案件の仕入れ → 提案中 → 面談 → 合格（稼働決定） の目標/現在/達成率</div>
                     {/* ②③ メンバー編集・追加・削除（チーム：アウトサイド/インサイド/テレアポ）。打ち合わせ記録の自社担当にも連動。 */}
                     <KpiMembersEditor initial={kpiMembers ?? []} suggestions={kpiMemberSuggestions ?? []} canEdit={!!privileged} />
