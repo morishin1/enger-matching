@@ -729,12 +729,21 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
                 <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{resolveDisplayName(detail, profile)}</h3>
                 <SourceBadge source={detail.source} />
               </div>
-              {/* 登録名の下：ENGERフリーランスのプロフィール登録情報（姓名漢字／フリガナ／イニシャル）。未入力は空欄。 */}
-              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", fontSize: 12, marginTop: 3 }}>
-                <span className="muted">姓名（漢字）</span><span>{profile?.kanji || ""}</span>
-                <span className="muted">姓名（フリガナ）</span><span>{profile?.kana || ""}</span>
-                <span className="muted">イニシャル</span><span>{profile?.initials || ""}</span>
-              </div>
+              {/* 登録名の下：ENGERフリーランスのプロフィール登録情報（姓名漢字／フリガナ／イニシャル）。
+                  #239：値が無い行は出さない（空ラベルを表示しない）。フリガナは姓カナ＋名カナ、その下にイニシャル。 */}
+              {(() => {
+                const kanji = (profile?.kanji ?? "").trim();
+                const kana = (profile?.kana ?? "").trim();
+                const ini = (profile?.initials ?? "").trim();
+                if (!kanji && !kana && !ini) return null;
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", fontSize: 12, marginTop: 3 }}>
+                    {kanji && <><span className="muted">姓名（漢字）</span><span>{kanji}</span></>}
+                    {kana && <><span className="muted">姓名（フリガナ）</span><span>{kana}</span></>}
+                    {ini && <><span className="muted">イニシャル</span><span>{ini}</span></>}
+                  </div>
+                );
+              })()}
               {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>

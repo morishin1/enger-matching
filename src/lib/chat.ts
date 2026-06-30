@@ -37,16 +37,17 @@ const hasJa = (s?: string | null) => JA_RE.test(String(s ?? ""));
 
 // プロフィールのスキーマ差異を吸収するため、氏名・フリガナ・イニシャルの候補キーを順に探す。
 //   （外部連携で列名が異なる/未登録のケースに対応。select("*") で全列を取得して JS 側で吸収する。）
-const NAME_KEYS = ["name_kanji", "kanji_name", "kanji", "real_name", "full_name", "fullname", "氏名", "name", "display_name"];
-// 漢字専用の姓/名カラム（last_name_kanji 等）を最優先で拾う。ローマ字の last_name 等しか無い場合のみ
-// それらにフォールバックする（順序が優先順位）。enger-lp の登録フォームは *_kanji に保存する。
-const SEI_KEYS = ["last_name_kanji", "lastname_kanji", "family_name_kanji", "sei_kanji", "last_name", "family_name", "name_sei", "sei", "lastname", "姓"];
-const MEI_KEYS = ["first_name_kanji", "firstname_kanji", "given_name_kanji", "mei_kanji", "first_name", "given_name", "name_mei", "mei", "firstname", "名"];
-const KANA_KEYS = ["furigana", "name_kana", "kana", "yomi", "yomigana", "ruby", "kana_name", "name_ruby", "ruby_name", "name_furigana", "furigana_name", "phonetic", "name_phonetic", "フリガナ", "ふりがな"];
-const KANA_SEI_KEYS = ["last_name_furigana", "lastname_furigana", "family_name_furigana", "last_furigana", "kana_sei", "sei_kana", "furigana_sei", "sei_furigana", "last_name_kana", "lastname_kana", "family_name_kana", "family_kana", "last_kana"];
-const KANA_MEI_KEYS = ["first_name_furigana", "firstname_furigana", "given_name_furigana", "first_furigana", "kana_mei", "mei_kana", "furigana_mei", "mei_furigana", "first_name_kana", "firstname_kana", "given_name_kana", "given_kana", "first_kana"];
-// 自動生成イニシャル（initial_auto 等）を最優先で拾う。
-const INITIAL_KEYS = ["initial_auto", "initials_auto", "auto_initial", "auto_initials", "initials", "initial", "name_initials", "name_initial", "initial_name", "イニシャル"];
+// ※ 先頭は enger.jp 共有 public.profiles の確定カラム（#239 仕様書 / profiles-personal-info.sql）。
+const NAME_KEYS = ["real_name_kanji", "name_kanji", "kanji_name", "kanji", "real_name", "full_name", "fullname", "氏名", "name", "display_name"];
+// 漢字専用の姓/名カラム（real_name_kanji_sei / last_name_kanji 等）を最優先で拾う。ローマ字の last_name 等しか
+// 無い場合のみそれらにフォールバックする（順序が優先順位）。enger-lp の登録フォームは real_name_kanji_* に保存する。
+const SEI_KEYS = ["real_name_kanji_sei", "last_name_kanji", "lastname_kanji", "family_name_kanji", "sei_kanji", "last_name", "family_name", "name_sei", "sei", "lastname", "姓"];
+const MEI_KEYS = ["real_name_kanji_mei", "first_name_kanji", "firstname_kanji", "given_name_kanji", "mei_kanji", "first_name", "given_name", "name_mei", "mei", "firstname", "名"];
+const KANA_KEYS = ["real_name_kana", "furigana", "name_kana", "kana", "yomi", "yomigana", "ruby", "kana_name", "name_ruby", "ruby_name", "name_furigana", "furigana_name", "phonetic", "name_phonetic", "フリガナ", "ふりがな"];
+const KANA_SEI_KEYS = ["real_name_kana_sei", "last_name_furigana", "lastname_furigana", "family_name_furigana", "last_furigana", "kana_sei", "sei_kana", "furigana_sei", "sei_furigana", "last_name_kana", "lastname_kana", "family_name_kana", "family_kana", "last_kana"];
+const KANA_MEI_KEYS = ["real_name_kana_mei", "first_name_furigana", "firstname_furigana", "given_name_furigana", "first_furigana", "kana_mei", "mei_kana", "furigana_mei", "mei_furigana", "first_name_kana", "firstname_kana", "given_name_kana", "given_kana", "first_kana"];
+// 登録イニシャル（initial_display＝enger.jp 確定カラム / initial_auto 等）を最優先で拾う。
+const INITIAL_KEYS = ["initial_display", "initial_auto", "initials_auto", "auto_initial", "auto_initials", "initials", "initial", "name_initials", "name_initial", "initial_name", "イニシャル"];
 
 const pick = (row: any, keys: string[]): string => {
   for (const k of keys) { const v = row?.[k]; if (v != null && String(v).trim()) return String(v).trim(); }
@@ -252,16 +253,15 @@ export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<st
         // 漢字氏名：姓+名（漢字）優先。無ければ単一氏名欄のうち日本語を含むものだけ採用（ローマ字 display_name は除外）。
         const kanji = joinName(pick(p, SEI_KEYS), pick(p, MEI_KEYS))
           || (NAME_KEYS.map((k) => String(p?.[k] ?? "").trim()).find(hasJa) ?? "");
-        // フリガナ／イニシャル：候補キー → 動的スキャン の順で拾う（#239：未知の列名にも追従）。
+        // フリガナ：分割カナ(姓+名)優先→連結カナ。候補キーで取れなければ動的スキャン（未知の列名にも追従）。
         let kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
+        // イニシャル：登録値(initial_display 等)のみ。#239 仕様により DX 側でフリガナ等から再生成はしない（未登録は空欄）。
         let initials = pick(p, INITIAL_KEYS);
         if (!kana || !initials) {
           const sc = scanKanaInitials(p);
           if (!kana) kana = sc.kana;
           if (!initials) initials = sc.initials;
         }
-        // 明示のイニシャルが無ければフリガナから導出（氏名からは生成しない＝未登録は空欄のまま）。
-        if (!initials) initials = initialsFromKana(kana) || "";
         if (p?.id) out.set(String(p.id), { kanji, kana, initials });
       }
     } catch { /* 取得失敗チャンクはスキップ */ }
