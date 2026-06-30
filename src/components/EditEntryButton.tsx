@@ -7,6 +7,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateCandidateById, updateJobById } from "@/lib/actions";
+import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
 import { Icons } from "./icons";
 
 // LINE登録チェック。ON で signup_source='line' を保存（OFF で解除）。新規登録フォームと同UI。
@@ -89,6 +90,59 @@ function Select({ label, value, onChange, options }: { label: string; value?: st
     </label>
   );
 }
+// #237①：人材の国籍は3択（日本国籍 / 外国籍 / 不明）。
+const CAND_NAT_OPTS = [
+  { value: "", label: "未設定" },
+  { value: "日本国籍", label: "日本国籍" },
+  { value: "外国籍", label: "外国籍" },
+  { value: "不明", label: "不明" },
+];
+// 既存の自由文 nationality（例「中国」「不問」）を 3 択の初期値へ寄せる（バッジ分類と一致）。
+function natBucket(raw?: string | null): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  return CAND_NAT_LABEL[classifyCandNationality(s)]; // japan→日本国籍 / foreign→外国籍 / unknown→不明
+}
+
+// #237②：経験年数は 1〜10年の選択式。11年以上は「その他」で半角数字を直接入力。保存値は「N年」。
+function ExpYearsField({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
+  const parse = (v?: string) => {
+    const m = String(v ?? "").match(/\d+/);            // 最初の数字グループ（"3〜5年"→3 等）
+    const n = m ? parseInt(m[0], 10) : NaN;
+    if (!Number.isFinite(n) || n <= 0) return { mode: "", other: "" };
+    if (n >= 1 && n <= 10) return { mode: String(n), other: "" };
+    return { mode: "other", other: String(n) };
+  };
+  const init = parse(value);
+  const [mode, setMode] = useState(init.mode);
+  const [other, setOther] = useState(init.other);
+  const emit = (m: string, o: string) => {
+    if (!m) return onChange("");
+    if (m === "other") { const d = o.replace(/[^\d]/g, ""); return onChange(d ? `${d}年` : ""); }
+    onChange(`${m}年`);
+  };
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={labelStyle}>経験年数</span>
+      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <select value={mode} onChange={(e) => { const m = e.target.value; setMode(m); emit(m, other); }} style={{ ...fieldStyle, flex: 1, minWidth: 0 }}>
+          <option value="">未設定</option>
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((y) => <option key={y} value={String(y)}>{y}年</option>)}
+          <option value="other">その他（11年以上・直接入力）</option>
+        </select>
+        {mode === "other" && (
+          <>
+            <input inputMode="numeric" value={other} placeholder="例：15"
+              onChange={(e) => { const o = e.target.value.replace(/[^\d]/g, ""); setOther(o); emit("other", o); }}
+              style={{ ...fieldStyle, width: 90, flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>年</span>
+          </>
+        )}
+      </div>
+    </label>
+  );
+}
+
 function Textarea({ label, value, onChange }: { label: string; value?: string; onChange: (v: string) => void }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / -1" }}>
@@ -136,7 +190,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     avail: c.avail ?? "",
     location: c.location ?? "",
     remote_pref: remoteBucket(c.remote_pref),
-    nationality: c.nationality ?? "",
+    nationality: natBucket(c.nationality),
     age_band: c.age_band ?? "",
     status: c.status ?? "",
     skill_sheet_url: c.skill_sheet_url ?? "",
@@ -205,12 +259,12 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               ]} />
               <Field label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               <Field label="希望単価" value={f.rate} onChange={set("rate")} />
-              <Field label="経験年数" value={f.exp} onChange={set("exp")} />
+              <ExpYearsField value={f.exp} onChange={set("exp")} />
               <DateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
               <Field label="最寄駅" value={f.location} onChange={set("location")} />
               <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
-              {/* 国籍・年代は誤インポート/手動登録の修正用に自由入力で編集可能にする（空欄で未設定）。 */}
-              <Field label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="例：日本 / 中国 / 不問（空欄で未設定）" />
+              {/* #237①：国籍は3択（日本国籍/外国籍/不明）。年代は誤インポート修正用に自由入力。 */}
+              <Select label="国籍" value={f.nationality} onChange={set("nationality")} options={CAND_NAT_OPTS} />
               <Field label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半（空欄で未設定）" />
               <Field label="ステータス" value={f.status} onChange={set("status")} />
               <Field label="スキルシートURL" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />

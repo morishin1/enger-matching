@@ -904,7 +904,9 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {pagedLog.map((a) => {
                 const scout = a.action === "スカウト送信" ? actionScout.get(a.id) : undefined;
-                const jobTitle = (scout?.job_title ?? "").trim();
+                // 案件名はマークの隣に1回だけ表示する。scout 突合できない時のみ note の「案件: XXX」から補完。
+                const noteJob = a.action === "スカウト送信" ? (a.note?.match(/^\s*案件[:：]\s*(.+)$/)?.[1]?.trim() ?? "") : "";
+                const jobTitle = (scout?.job_title ?? "").trim() || noteJob;
                 const jobNo = scout?.job_no ?? null;
                 const icon = ACTION_ICON[a.action];                    // ④ スカウト送信/チャット開始 を区別するアイコン
                 const threadId = a.thread_id ?? null;                  // 履歴に紐づくスレッド（あれば即遷移）
@@ -943,7 +945,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
                           )}
                         </div>
                       )}
-                      {a.note && <div style={{ color: "var(--color-ink-2)" }}>{a.note}</div>}
+                      {/* #238：スカウト送信行の「案件: XXX」メモはマーク隣の案件名と重複するため非表示。 */}
+                      {a.note && a.action !== "スカウト送信" && <div style={{ color: "var(--color-ink-2)" }}>{a.note}</div>}
                       <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>{fmtDate(a.created_at)}{a.operator ? ` · ${a.operator}` : ""}</div>
                     </div>
                     <button type="button" onClick={() => remove(a.id)} disabled={pending} title="削除" className="btn ghost btn-xs" style={{ flex: "0 0 auto", padding: "2px 7px", color: "#b42318" }}>×</button>
