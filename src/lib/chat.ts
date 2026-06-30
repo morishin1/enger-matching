@@ -207,6 +207,35 @@ export type EngineerProfileName = { kanji: string; kana: string; initials: strin
 /** フリーランス詳細モーダル用：プロフィール登録の「姓名(漢字)」「フリガナ」「イニシャル」を id 別に解決。
  *  ・未入力の項目は空文字（モーダルでは空欄表示）。display_name/ローマ字へはフォールバックしない。
  *  ・列名差異を吸収するため profiles を select("*") で取得し候補キーから導出（サーバ専用・渡された id のみ）。 */
+// 値が「カナのみ」（ひらがな/カタカナ/半角カナ＋スペース/中点のみ・漢字や英数字を含まない）か。
+//   ※ 範囲は Unicode エスケープで指定（文字直書きの範囲はハングル等を巻き込む不具合があるため）。
+const isKanaValue = (v: any): boolean => {
+  const s = String(v ?? "").trim();
+  if (!s) return false;
+  return /[ぁ-ヿｦ-ﾟ]/.test(s) && !/[㐀-鿿豈-﫿A-Za-z0-9]/.test(s);
+};
+// 値が「英字2文字のイニシャル」（FT / F.T 等）か。avatar_initial の1文字や漢字1文字は弾く。
+const isInitialValue = (v: any): boolean => /^[A-Za-z]\.?[A-Za-z]\.?$/.test(String(v ?? "").trim());
+
+/** #239：プロフィールの列名が候補キーに無くても、行の全列から「フリガナ」「イニシャル」らしき列を
+ *  動的に拾うフォールバック。LP側で *_kanji と同様に後から追加された furigana/initial 列に追従する。
+ *  ・フリガナ：列名に furigana/katakana/kana/yomi/ruby/phonetic 等を含み、値がカナのみ。姓+名を優先。
+ *  ・イニシャル：列名に initial を含み（avatar系は後回し）、値が英字2文字。 */
+function scanKanaInitials(p: any): { kana: string; initials: string } {
+  const keys = Object.keys(p ?? {});
+  const kanaKeys = keys.filter((k) => /furigana|katakana|kana|yomi|ruby|phonetic|フリガナ|カナ/i.test(k) && isKanaValue(p[k]));
+  const seiKey = kanaKeys.find((k) => /(sei|last|family|姓)/i.test(k));
+  const meiKey = kanaKeys.find((k) => /(mei|first|given|名)/i.test(k));
+  let kana = "";
+  if (seiKey && meiKey) kana = `${String(p[seiKey]).trim()} ${String(p[meiKey]).trim()}`.trim();
+  else if (kanaKeys.length) kana = String(p[kanaKeys[0]]).trim();
+  const iniKeys = keys
+    .filter((k) => /initial|イニシャル/i.test(k) && isInitialValue(p[k]))
+    .sort((a, b) => (/(avatar)/i.test(a) ? 1 : 0) - (/(avatar)/i.test(b) ? 1 : 0)); // avatar_initial は最後に
+  const initials = iniKeys.length ? String(p[iniKeys[0]]).trim().toUpperCase() : "";
+  return { kana, initials };
+}
+
 export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<string, EngineerProfileName>> {
   const out = new Map<string, EngineerProfileName>();
   const uuidLike = Array.from(new Set(ids.filter((v) => /^[0-9a-f-]{32,36}$/i.test(String(v ?? "")))));
@@ -223,9 +252,16 @@ export async function resolveEngineerProfileNames(ids: string[]): Promise<Map<st
         // 漢字氏名：姓+名（漢字）優先。無ければ単一氏名欄のうち日本語を含むものだけ採用（ローマ字 display_name は除外）。
         const kanji = joinName(pick(p, SEI_KEYS), pick(p, MEI_KEYS))
           || (NAME_KEYS.map((k) => String(p?.[k] ?? "").trim()).find(hasJa) ?? "");
-        const kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
-        // イニシャル：プロフィール登録値→フリガナから導出。氏名からは生成しない（未登録は空欄のまま）。
-        const initials = pick(p, INITIAL_KEYS) || initialsFromKana(kana) || "";
+        // フリガナ／イニシャル：候補キー → 動的スキャン の順で拾う（#239：未知の列名にも追従）。
+        let kana = joinName(pick(p, KANA_SEI_KEYS), pick(p, KANA_MEI_KEYS)) || pick(p, KANA_KEYS);
+        let initials = pick(p, INITIAL_KEYS);
+        if (!kana || !initials) {
+          const sc = scanKanaInitials(p);
+          if (!kana) kana = sc.kana;
+          if (!initials) initials = sc.initials;
+        }
+        // 明示のイニシャルが無ければフリガナから導出（氏名からは生成しない＝未登録は空欄のまま）。
+        if (!initials) initials = initialsFromKana(kana) || "";
         if (p?.id) out.set(String(p.id), { kanji, kana, initials });
       }
     } catch { /* 取得失敗チャンクはスキップ */ }

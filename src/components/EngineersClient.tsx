@@ -358,8 +358,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 // 氏名は「漢字氏名→人材ID」。アカウントID（display_name/github）は氏名として出さない。
                 const name = resolveDisplayName(e, prof);
                 const avatarText = avatarTextOf(name, prof);
-                // 参考のアカウントハンドルはサブ行に残す（識別補助）。
-                const sub = e.github_login ? `@${e.github_login}` : (e.name ? `@${e.name}` : "");
+                // #239①：名前の下の @ の隣に、プロフィール登録のイニシャルを表示（未登録なら @ のみ）。
+                const sub = `@${(prof?.initials ?? "").trim()}`;
                 return (
                   <tr key={e.id} className="clickable"
                     onClick={(ev) => { if ((ev.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setDetail(e); }}
