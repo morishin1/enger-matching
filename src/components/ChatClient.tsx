@@ -480,21 +480,24 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
   // ・カッコ内イニシャルは「ローマ字（FT 等）」のみ採用。漢字氏名から作った擬似イニシャル
   //   （initialsOf が返す漢字そのもの）は出さない＝「加藤功大（加藤功大）」の重複を防ぐ。
   // ・sei/mei はローマ字カラム由来のこともある（last_name 等）。日本語を含む時のみ漢字氏名として扱う。
+  // 表示名フォーマット（#240）：「姓（漢字） 名（漢字） (イニシャル)」。例：藤本 太郎 (FT)
+  //   ・イニシャルは登録値（initial_auto＝regInitial）を最優先。無ければローマ字の自動イニシャルを使う。
+  //   ・半角カッコ＋前スペースで「 (FT)」。イニシャル未登録なら付けない（藤本 太郎）。
+  //   ・姓名（漢字）が無い場合のフォールバック（人材ID E-XXXXX → アカウント）は従来通り。
   const optionLabel = (e: EngineerOption): string => {
-    const sei = (e.sei ?? "").trim();
-    const mei = (e.mei ?? "").trim();
-    const iniRaw = (e.initials ?? "").trim();
-    const ini = /[A-Za-z]/.test(iniRaw) ? iniRaw.toUpperCase() : ""; // ローマ字イニシャルのみ
-    const iniPart = ini ? `（${ini}）` : "";
-    const seiJa = hasJaText(sei) ? sei : "";
-    const meiJa = hasJaText(mei) ? mei : "";
-    if (seiJa && meiJa) return `${seiJa} ${meiJa}（${seiJa}）${iniPart}`;
+    const seiJa = hasJaText((e.sei ?? "").trim()) ? (e.sei ?? "").trim() : "";
+    const meiJa = hasJaText((e.mei ?? "").trim()) ? (e.mei ?? "").trim() : "";
+    // イニシャル：登録値(initial_auto) → ローマ字の自動イニシャル の順。
+    const reg = (e.regInitial ?? "").trim();
+    const fallbackIni = /[A-Za-z]/.test((e.initials ?? "").trim()) ? (e.initials ?? "").trim() : "";
+    const ini = (reg || fallbackIni).toUpperCase();
+    const iniPart = ini ? ` (${ini})` : "";
+    // 姓・名（漢字）が両方ある → 「姓 名 (イニシャル)」
+    if (seiJa && meiJa) return `${seiJa} ${meiJa}${iniPart}`;
+    // 単一の漢字氏名のみ → 「氏名 (イニシャル)」（姓の重複表示はしない）
     const nm = (e.name ?? "").trim();
-    if (hasJaText(nm)) {
-      const head = seiJa || meiJa;                    // 分割済みの姓/名（漢字）があればカッコ表示
-      const headPart = head && head !== nm ? `（${head}）` : ""; // 単一トークンの重複表示を避ける
-      return `${nm}${headPart}${iniPart}`;
-    }
+    if (hasJaText(nm)) return `${nm}${iniPart}`;
+    // 漢字氏名なし → 人材ID（E-XXXXX）→ アカウント識別子 の順でフォールバック（従来通り）。
     const fid = (e.freelanceId ?? "").trim();
     if (fid) return fid;
     return (e.account ?? "").trim() || "（無名）";
