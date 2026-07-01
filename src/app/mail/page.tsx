@@ -13,6 +13,9 @@ import { FlowSteps } from "@/components/FlowSteps";
 import Link from "@/components/AppLink";
 
 export const dynamic = "force-dynamic";
+// Gmail 同期（最大500件/回の本文取得＋添付保存）に時間がかかるため、関数実行上限を60秒に引き上げる。
+//   これが無いと Hobby 既定の短い上限でタイムアウトし、取込が途中で失敗しやすい。
+export const maxDuration = 60;
 
 // Gmail ブランドロゴ（簡易カラー版）。「Gmail 取込」タブを一目で分かるように。
 function GmailIcon({ size = 16 }: { size?: number }) {
