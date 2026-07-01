@@ -89,8 +89,9 @@ export function ProposalsWorkspace({
   // 「全期間」チップのカレンダー（任意期間）。from/to 指定時はその範囲で絞り込む。
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  // 既定は「KPI推移」タブ（KPI/KGI→提案→結果→日報 の流れの起点）。
-  const [tab, setTab] = useState<TabKey>("kpi");
+  // 既定は「提案ボード」タブ（要望）。KPI/KGI は専用ダッシュボード（/kgi）へ集約したため、
+  //   提案管理の入口は進行中の提案ボードにする。KPI推移タブは非表示（下の tabsDef で show:false）。
+  const [tab, setTab] = useState<TabKey>("board");
   // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
   const [kpiSubTab, setKpiSubTab] = useState<"activity" | "stage">("activity");
   const [stageTeamEdit, setStageTeamEdit] = useState(false); // #234①：ステージ目標タブ内の「チーム目標を編集（週次）」
@@ -328,7 +329,9 @@ export function ProposalsWorkspace({
   //   行を二重に転送していたため。終了した提案は「失注分析」タブで見られる（mode=analytics）。
   //   ※ コンポーネント(ProposalHistory)は残してあるので、必要なら show: true に戻せば復活可能。
   const tabsDef: { key: TabKey; label: string; icon: string; show: boolean; title?: string }[] = [
-    { key: "kpi",      label: "KPI推移",    icon: "insights",    show: true, title: "自分／チームの KPI・KGI 推移。ここを起点に、提案 → 結果（失注分析）→ 改善（日報）の流れで振り返ります。" },
+    // KPI推移は非表示（要望）。KPI/KGI は専用ダッシュボード（サイドメニュー「KGI/KPI」＝/kgi）へ集約。
+    //   ※ タブ内容のコンポーネントは残してあるので、復活時は show: true に戻すだけでよい。
+    { key: "kpi",      label: "KPI推移",    icon: "insights",    show: false, title: "自分／チームの KPI・KGI 推移。ここを起点に、提案 → 結果（失注分析）→ 改善（日報）の流れで振り返ります。" },
     { key: "approval", label: "承認",       icon: "verified",    show: true, title: "承認待ち・差戻しの提案。承認するとボードへ進みます（期間で絞り込み可。承認漏れ防止のため上部バナーは全期間で判定）。" },
     { key: "board",   label: "提案ボード", icon: "view_kanban", show: true, title: "進行中の提案カンバン。期間フィルタに従って絞り込まれます。" },
     { key: "history", label: "提案履歴",   icon: "history",     show: false, title: "提案履歴。期間フィルタで絞り込み。" },
