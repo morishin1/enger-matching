@@ -29,7 +29,6 @@ import { MatchingPeriodChips } from "@/components/MatchingPeriodChips";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 import { listLineworksTargets } from "@/lib/lineworks-targets";
-import { SendToLineButton } from "@/components/SendToLineButton";
 import { QuickAccessButtons } from "@/components/QuickAccessButtons";
 
 export const dynamic = "force-dynamic";
@@ -711,18 +710,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             <h1>{person?.name ?? "人材"} に合う案件</h1>
             <div className="sub">この人材のスキルを主軸に、単価・職種・リモート条件で補正して案件をランキング表示します。</div>
           </div>
+          {/* ヘッダの「LINEに送る」は廃止（マッチ結果カード内の LINEに送る＝雛形確認つき に集約）。 */}
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-            {sel?.job && (
-              <SendToLineButton
-                targets={lwTargets}
-                candidateName={person?.name ?? "人材"}
-                jobTitle={sel.job.title ?? "案件"}
-                personNo={person?.candidate_no ?? null}
-                jobNo={sel.job.job_no ?? null}
-                score={sel.score ?? null}
-                matchedSkills={sel.matchedSkills ?? []}
-              />
-            )}
             <CopyLinkButton />
             <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 人材一覧へ</Link>
           </div>
@@ -928,19 +917,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <h1>マッチング</h1>
           <div className="sub">案件を選ぶと、スキル一致を主軸（単価・職種・リモートで補正）に候補をランキング表示します。</div>
         </div>
+        {/* ヘッダの「LINEに送る」は廃止（マッチ結果カード内の LINEに送る＝雛形確認つき に集約。LINE WORKSボタンは使い方ガイド＋Web版を開く導線）。 */}
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           <QuickAccessButtons canImport={scope.isInternal && gmailConfigured()} />
-          {job && sel?.candidate && (
-            <SendToLineButton
-              targets={lwTargets}
-              candidateName={sel.candidate.name ?? "人材"}
-              jobTitle={job.title ?? "案件"}
-              personNo={sel.candidate.candidate_no ?? null}
-              jobNo={job.job_no ?? null}
-              score={sel.score ?? null}
-              matchedSkills={sel.matchedSkills ?? []}
-            />
-          )}
         </div>
       </div>
 
