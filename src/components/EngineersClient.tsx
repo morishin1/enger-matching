@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { freelanceShortId, hasJapanese, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
 
@@ -266,6 +266,27 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       router.refresh();
     });
   };
+  // #263 ログイン停止/解除（一括）。選択行の状態から実行可能な件数を出し分ける。
+  const [confirmSuspend, setConfirmSuspend] = useState<null | "suspend" | "unsuspend">(null);
+  const selectedRows = useMemo(() => engineers.filter((e) => selected.has(e.id)), [engineers, selected]);
+  const nSuspendable = selectedRows.filter((e) => !e.login_suspended_at).length;
+  const nUnsuspendable = selectedRows.filter((e) => !!e.login_suspended_at).length;
+  const performSuspension = (suspend: boolean) => {
+    // 停止は「未停止の選択者」、解除は「停止中の選択者」のみを対象にする。
+    const ids = selectedRows.filter((e) => suspend ? !e.login_suspended_at : !!e.login_suspended_at).map((e) => e.id);
+    if (ids.length === 0) return;
+    setBulkBusy(true); setMatchingMsg(null);
+    bulkSetLoginSuspension(ids, suspend).then((res) => {
+      setBulkBusy(false); setConfirmSuspend(null);
+      if (!res.ok) { setMatchingMsg(res.error || "更新に失敗しました"); return; }
+      setSelected(new Set());
+      const kick = suspend ? `（Auth停止 ${res.banned ?? 0}名${(res.banErrors ?? 0) > 0 ? `・失敗${res.banErrors}名` : ""}）` : "";
+      setMatchingMsg(suspend
+        ? `⛔ ${res.updated ?? ids.length} 名のログインを停止しました${kick}`
+        : `✓ ${res.updated ?? ids.length} 名のログイン制限を解除しました`);
+      router.refresh();
+    });
+  };
   const buildPages = (cur1: number, count: number) => {
     const win = [1, 2, cur1 - 1, cur1, cur1 + 1, count - 1, count].filter((n) => n >= 1 && n <= count);
     const uniq = [...new Set(win)].sort((a, b) => a - b);
@@ -379,6 +400,10 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                         <div style={{ minWidth: 0 }}>
                           <div className="pri" style={{ color: "var(--color-brand-700)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             <span>{name}</span>
+                            {/* #263 ログイン停止中バッジ：管理者が凍結したアカウント（ひと目で判別）。 */}
+                            {e.login_suspended_at && (
+                              <span title={`ログイン停止中（${fmtDateTime(e.login_suspended_at)} 停止）`} style={{ fontSize: 10, fontWeight: 800, padding: "1px 7px", borderRadius: 99, background: "#b42318", color: "#fff", border: "1px solid #b42318" }}>⛔ ログイン停止中</span>
+                            )}
                             {/* 退会希望／退会済みバッジ：LP側で withdrawal_requested_at が立った時に表示。 */}
                             {e.withdrawal_completed_at
                               ? <span title={`退会処理済み（${fmtDateTime(e.withdrawal_completed_at)}）`} style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: "var(--color-surface-inset)", color: "var(--color-ink-4)", border: "1px solid var(--color-border)" }}>退会済み</span>
@@ -445,10 +470,45 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
               padding: "10px 14px", borderRadius: 12, background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", boxShadow: "0 -8px 24px rgba(15,23,42,.12)" }}>
             <span style={{ fontSize: 13, fontWeight: 700 }}>{selected.size} 名選択中</span>
             <button type="button" className="btn ghost btn-xs" onClick={() => setSelected(new Set())} disabled={bulkBusy}>選択解除</button>
+            {/* #263 ログイン停止／解除：選択者の状態に応じて対象がある方だけ活性化。削除ボタンの左隣に配置。 */}
+            <button type="button" onClick={() => setConfirmSuspend("suspend")} disabled={bulkBusy || nSuspendable === 0}
+              title={nSuspendable === 0 ? "選択中に停止可能な（未停止の）ユーザーがいません" : "選択したユーザーのログインを強制停止します（凍結・いつでも解除可能）"}
+              style={{ marginLeft: "auto", padding: "7px 16px", borderRadius: 8, border: "1px solid #b42318", background: nSuspendable === 0 ? "var(--color-surface-inset)" : "#b42318", color: nSuspendable === 0 ? "var(--color-ink-4)" : "#fff", fontSize: 12.5, fontWeight: 700, cursor: nSuspendable === 0 ? "not-allowed" : "pointer", opacity: bulkBusy ? 0.6 : 1 }}>
+              ⛔ ログインを停止（{nSuspendable}名）
+            </button>
+            <button type="button" onClick={() => setConfirmSuspend("unsuspend")} disabled={bulkBusy || nUnsuspendable === 0}
+              title={nUnsuspendable === 0 ? "選択中にログイン停止中のユーザーがいません" : "選択したユーザーのログイン制限を解除します（通常ログインへ復帰）"}
+              style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid #bfe3cc", background: nUnsuspendable === 0 ? "var(--color-surface-inset)" : "#eef8f1", color: nUnsuspendable === 0 ? "var(--color-ink-4)" : "#067647", fontSize: 12.5, fontWeight: 700, cursor: nUnsuspendable === 0 ? "not-allowed" : "pointer", opacity: bulkBusy ? 0.6 : 1 }}>
+              ✓ ログイン制限を解除（{nUnsuspendable}名）
+            </button>
             <button type="button" onClick={() => setConfirmDel(true)} disabled={bulkBusy}
-              style={{ marginLeft: "auto", padding: "7px 16px", borderRadius: 8, border: "1px solid #f7c5cf", background: "#fdecef", color: "#b42318", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+              style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid #f7c5cf", background: "#fdecef", color: "#b42318", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               🗑 選択した {selected.size} 名を削除
             </button>
+          </div>
+        )}
+
+        {/* #263 ログイン停止/解除 確認モーダル（誤操作防止） */}
+        {confirmSuspend && (
+          <div onClick={() => !bulkBusy && setConfirmSuspend(null)} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(15,36,64,.5)", display: "grid", placeItems: "center", padding: 20 }}>
+            <div onClick={(ev) => ev.stopPropagation()} className="card" style={{ width: "min(460px, 96vw)", padding: 20 }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 800 }}>
+                {confirmSuspend === "suspend" ? `${nSuspendable} 名のログインを停止します` : `${nUnsuspendable} 名のログイン制限を解除します`}
+              </h3>
+              <p style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7, margin: "0 0 14px" }}>
+                {confirmSuspend === "suspend"
+                  ? <>選択したユーザーのログインを強制停止しますか？停止すると、該当ユーザーはサービスサイトへのログインおよび利用ができなくなります。<br />※ データは残ります（物理削除ではありません）。いつでも「ログイン制限を解除」で元に戻せます。</>
+                  : <>選択したユーザーのログイン制限を解除しますか？解除すると、該当ユーザーは再度サービスサイトへログインできるようになります。</>}
+              </p>
+              {matchingMsg && <div style={{ fontSize: 12, color: "var(--color-danger)", marginBottom: 10 }}>{matchingMsg}</div>}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button type="button" className="btn ghost btn-xs" onClick={() => setConfirmSuspend(null)} disabled={bulkBusy}>キャンセル</button>
+                <button type="button" onClick={() => performSuspension(confirmSuspend === "suspend")} disabled={bulkBusy}
+                  style={{ padding: "7px 16px", borderRadius: 8, border: 0, background: confirmSuspend === "suspend" ? "#b42318" : "#067647", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", opacity: bulkBusy ? 0.6 : 1 }}>
+                  {bulkBusy ? "処理中…" : "実行"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

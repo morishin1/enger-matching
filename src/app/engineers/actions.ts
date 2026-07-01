@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { engerAdmin, publicAdmin } from "@/lib/supabase";
+import { engerAdmin, publicAdmin, authAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
 import { classifySource, listEngineers, freelanceShortId, type SkillSheet } from "@/lib/engineers";
@@ -470,6 +470,75 @@ export async function markEngineerWithdrawn(id: string): Promise<{ ok: boolean; 
     if (!Array.isArray(r.data) || r.data.length === 0) return { ok: false, error: "対象が見つかりませんでした" };
     revalidatePath("/engineers");
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// profiles.id が auth.users.id と一致しない環境向けフォールバック：email から auth ユーザーIDを解決。
+async function resolveAuthUserId(auth: ReturnType<typeof authAdmin>, profileId: string, email: string | null): Promise<string | null> {
+  // まず profiles.id ＝ auth.users.id を試す（LP登録は auth の uid を profiles PK に使う想定）。
+  try {
+    const g: any = await auth.auth.admin.getUserById(profileId);
+    if (!g.error && g.data?.user?.id) return g.data.user.id;
+  } catch { /* fallthrough */ }
+  const needle = String(email ?? "").trim().toLowerCase();
+  if (!needle) return null;
+  try {
+    for (let page = 1; page <= 10; page++) {
+      const r: any = await auth.auth.admin.listUsers({ page, perPage: 200 });
+      if (r.error) return null;
+      const users: any[] = r.data?.users ?? [];
+      const hit = users.find((u) => String(u.email ?? "").toLowerCase() === needle);
+      if (hit) return hit.id;
+      if (users.length < 200) return null;
+    }
+  } catch { /* noop */ }
+  return null;
+}
+
+/** #263 ログイン停止/解除（一括・admin / agent）。
+ *  ・public.profiles.login_suspended_at に記録（一覧バッジ・LP側バリデーション用）。
+ *  ・Supabase Auth の ban（banned_until）を設定/解除 → 新規ログインは Auth 層で遮断され、
+ *    停止中はリフレッシュトークンも使えないため、ログイン中のセッションも失効する（強制キック）。
+ *  ・解除（suspend=false）で即座に通常ログイン可能へ復帰（ペナルティなし）。 */
+export async function bulkSetLoginSuspension(ids: string[], suspend: boolean): Promise<{ ok: boolean; updated?: number; banned?: number; banErrors?: number; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const clean = Array.from(new Set((ids ?? []).map((s) => String(s ?? "").trim()).filter(Boolean)));
+  if (clean.length === 0) return { ok: false, error: "対象がありません" };
+  try {
+    const pub = publicAdmin();
+    // ① フラグ更新（記録・バッジ・LP側バリデーション用）
+    const now = new Date().toISOString();
+    const up: any = await pub.from("profiles").update({ login_suspended_at: suspend ? now : null }).in("id", clean).select("id, email");
+    if (up.error) {
+      if (/login_suspended_at|column/i.test(up.error.message ?? "")) {
+        return { ok: false, error: "supabase/profiles-login-suspension.sql の適用が必要です（login_suspended_at 列が未追加）" };
+      }
+      return { ok: false, error: up.error.message };
+    }
+    const rows: { id: string; email: string | null }[] = Array.isArray(up.data) ? up.data : [];
+    if (rows.length === 0) return { ok: false, error: "対象が見つかりませんでした" };
+
+    // ② Auth 層の ban/解除（ログイン遮断＋セッション失効）。ban_duration: "none" で解除。
+    let banned = 0, banErrors = 0;
+    let auth: ReturnType<typeof authAdmin> | null = null;
+    try { auth = authAdmin(); } catch { auth = null; }
+    if (auth) {
+      for (const row of rows) {
+        try {
+          const uid = await resolveAuthUserId(auth, row.id, row.email);
+          if (!uid) { banErrors++; continue; }
+          const r: any = await auth.auth.admin.updateUserById(uid, { ban_duration: suspend ? "876000h" : "none" } as any);
+          if (r.error) banErrors++; else banned++;
+        } catch { banErrors++; }
+      }
+    } else {
+      banErrors = rows.length;
+    }
+    revalidatePath("/engineers");
+    return { ok: true, updated: rows.length, banned, banErrors };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
