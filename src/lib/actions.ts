@@ -2951,6 +2951,50 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, account };
 }
 
+// 受信メールを期間指定でエクスポート（ローカル整形用のダウンロード）。
+//   ・カレンダーで選んだ from/to（YYYY-MM-DD、JST 基準の当日境界）で received_at を絞る。
+//   ・生メール（gmail_message_id/件名/差出人/本文）＋ 既存のAI抽出結果を返す。
+//     → gmail_message_id を突き合わせキーにして、ローカルで磨いたプロンプトの結果を後で取り込める。
+//   ・CSV/JSONL への整形とファイル保存はクライアント側（Blob ダウンロード）で行う。
+export type InboxExportRow = {
+  gmail_message_id: string | null;
+  received_at: string | null;
+  from_name: string | null;
+  from_email: string | null;
+  subject: string | null;
+  body: string | null;
+  has_attachment: boolean | null;
+  attachment_names: string[] | null;
+  extracted_kind: string | null;
+  extracted_summary: string | null;
+  extracted_data: any;
+  registered_job_no: number | null;
+  registered_candidate_no: number | null;
+  is_archived: boolean | null;
+};
+
+const INBOX_EXPORT_MAX = 5000;
+
+export async function exportInboxEmails(opts: { from?: string; to?: string; includeArchived?: boolean }): Promise<{ ok: boolean; rows?: InboxExportRow[]; count?: number; capped?: boolean; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  // YYYY-MM-DD を JST の当日境界に変換（to は当日いっぱいを含む）。不正な値は無視。
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  const fromIso = opts.from && ymd.test(opts.from) ? `${opts.from}T00:00:00+09:00` : null;
+  const toIso = opts.to && ymd.test(opts.to) ? `${opts.to}T23:59:59.999+09:00` : null;
+  let qb: any = admin.from("inbox_emails")
+    .select("gmail_message_id, received_at, from_name, from_email, subject, body, has_attachment, attachment_names, extracted_kind, extracted_summary, extracted_data, registered_job_no, registered_candidate_no, is_archived")
+    .order("received_at", { ascending: false })
+    .limit(INBOX_EXPORT_MAX);
+  if (fromIso) qb = qb.gte("received_at", fromIso);
+  if (toIso) qb = qb.lte("received_at", toIso);
+  if (!opts.includeArchived) qb = qb.eq("is_archived", false);
+  const r: any = await qb;
+  if (r.error) return { ok: false, error: r.error.message };
+  const rows: InboxExportRow[] = r.data ?? [];
+  return { ok: true, rows, count: rows.length, capped: rows.length >= INBOX_EXPORT_MAX };
+}
+
 const INBOX_EXTRACT_SYSTEM = "あなたはエンジニア人材紹介エージェントのメール仕分けアシスタントです。受信メール本文から、それが『案件情報』か『人材情報』か『その他/スパム』かを判定し、構造化データを返してください。出力は必ず指定された JSON 形式のみ（説明文不要）。";
 const INBOX_EXTRACT_PROMPT_TEMPLATE = (subject: string, from: string, body: string) => `次のメールを判定し、JSON のみを出力してください。
 
