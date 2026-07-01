@@ -293,7 +293,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
             <>
               <div style={{ flex: "1 1 auto", minWidth: 0 }}>
                 <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 }}>
-                  {p.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
+                  {p.job_line && <span title="LINE経由の案件" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.job_title ?? "—"}</span>
                 </div>
                 <div className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.company ?? ""}{idJob(p) ? ` · ${idJob(p)}` : ""}</div>
@@ -301,7 +301,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto", minWidth: 0, maxWidth: 240 }}>
                 <div className="ava" style={{ width: 28, height: 28, fontSize: 10.5, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
+                  <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>{p.cand_line && <span title="LINE経由の人材" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={14} /></span>}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</span></div>
                   <div className="muted" style={{ fontSize: 10 }}>{idCand(p) ?? ""}{p.lp_direct ? " · 📥LP" : ""}</div>
                 </div>
                 {proposerTag(p.proposer)}{closerTag(p)}
@@ -335,7 +335,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
           <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-ink-3)", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>chevron_right</span>
         </button>
         <div onClick={() => toggleCollapse(g.key)} style={{ flex: "1 1 auto", minWidth: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {top.source === "line" && <span title="LINE で来た案件・人材の提案" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
+          {(groupMode === "cand" ? top.cand_line : top.job_line) && <span title={groupMode === "cand" ? "LINE経由の人材" : "LINE経由の案件"} style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={15} /></span>}
           {groupMode === "cand" ? (
             <>
               {/* 人材ごとにまとめた見出し：人材名（イニシャル）＋人材NO＋提案した案件数。 */}

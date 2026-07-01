@@ -211,6 +211,17 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed; }
             // LINE経由（案件 or 人材のどちらかが LINE登録、または提案自体が source='line'）。失注分析のLINEグラフ集計に使う。
             p.line_origin = String(p.source ?? "") === "line" || !!(p.job_id && mJ[p.job_id]?.line) || !!(p.candidate_id && mC[p.candidate_id]?.line);
+            // 案件側/人材側のどちらが LINE 由来かを個別判定（名前の横にLINEアイコンを出す用）。
+            //   ・案件/人材が signup_source='line' ならその側を LINE 表示。
+            //   ・提案が source='line' で片側だけ LINE 明示なら、その側のみ（もう片側は非LINE）。
+            //   ・提案が source='line' でどちらも未明示なら判別不能のため両側に表示。
+            {
+              const jLine = !!(p.job_id && mJ[p.job_id]?.line);
+              const cLine = !!(p.candidate_id && mC[p.candidate_id]?.line);
+              const src = String(p.source ?? "") === "line";
+              p.job_line = jLine || (src && !cLine);
+              p.cand_line = cLine || (src && !jLine);
+            }
             p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
             // 人材側 会社名（保存値 → 人材所属会社の順で自動表示）。
             const candCompany = p.cand_company ?? (p.candidate_id ? candCompanyById[p.candidate_id] : null) ?? null;
