@@ -2939,8 +2939,9 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
 
   let synced = 0;
   let skippedBounce = 0;
-  // 同時5本で取得（Gmail API は概ね 250 quota/秒なので問題ない）
-  const POOL = 5; let idx = 0;
+  // 同時8本で取得（最大500件の初回取込を短縮。Gmail API は概ね 250 quota/秒・messages.get=5units なので余裕）。
+  //   ※ 取込は1通ずつ insert するため、途中でタイムアウトしても取得済み分は保存され、次回同期で残りを取得（重複排除あり）。
+  const POOL = 8; let idx = 0;
   const work = async (gid: string) => {
     const r = await fetchMessage(gid);
     if (!r.ok) return;
