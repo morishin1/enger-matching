@@ -17,13 +17,14 @@ type NavItem = { href: string; id: string; label: string; desc?: string; icon: k
 // ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
 // マッチングは「案件×人材」の中核。案件/人材/LP登録は子としてぶら下げ、
 // 上部の統一タブ（MatchingPeerTabs）と意味的にも一致させる。
+// サイドメニュー構成（要望）：
+//   ダッシュボード → KGI/KPI → マッチング → 提案管理 → 打合せ記録 → 企業 → チャット →（その他: PR・集客 / 設定）
+//   ダッシュボードは「現在のKGI/KPI」を起点に表示。マッチング配下＝案件/人材/フリーランス/LINE。
+//   メール取り込みは業務の入口だが、上部を簡潔にするため「設定」配下へ移動（URLは従来どおり）。
 const NAV: NavItem[] = [
-  { href: "/", id: "dashboard", label: "ダッシュボード", desc: "新着ニュースと売上KPI", icon: "dashboard" },
+  { href: "/", id: "dashboard", label: "ダッシュボード", desc: "現在のKGI/KPIと新着", icon: "dashboard" },
   { href: "/kgi", id: "kgi", label: "KGI/KPI", desc: "目標の分解と達成状況（営業日ベース）", icon: "analytics" },
-  { href: "/companies", id: "companies", label: "企業", desc: "取引先・商談の管理", icon: "company", count: "companies" },
-  // 「マッチング」クリックはマッチング画面(/matching)に着地（既定タブ＝マッチング）。
-  //   子は案件→人材→LP登録の順。
-  // マッチング配下：案件 → 人材 → フリーランス → LINE。
+  // 「マッチング」クリックはマッチング画面(/matching)に着地（既定タブ＝マッチング）。子は案件→人材→フリーランス→LINE。
   { href: "/matching", id: "matching", label: "マッチング", desc: "AIで最適な組み合わせを提案", icon: "matching", children: [
     { href: "/jobs",      id: "jobs",      label: "案件",       desc: "募集中の案件を管理",       count: "jobs",      newCount: "newJobs" },
     { href: "/people",    id: "people",    label: "人材",       desc: "登録人材を管理",           count: "people",    newCount: "newPeople" },
@@ -31,6 +32,8 @@ const NAV: NavItem[] = [
     { href: "/line",      id: "line",      label: "LINE",       desc: "LINE経由の人材・案件とトーク" },
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
+  { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・案件/人材情報の仕入れ", icon: "inbox" },
+  { href: "/companies", id: "companies", label: "企業", desc: "取引先・商談の管理", icon: "company", count: "companies" },
   { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", count: "chatUnread", hot: true },
   // 稼働管理は当面使わないためサイドメニューから非表示（要望）。復活時は下のコメントを解除するだけ。
   //   ※ ページ自体（/progress・/documents）は URL では引き続きアクセス可能。
@@ -48,18 +51,14 @@ const ANALYSIS: NavItem[] = [];
 // その他（補助ツール）。日報は「設定」の配下にまとめ、AIアシスタントは非表示。
 //   ※ メール取込は業務の入口なので admin ではトップメニュー（下の MAIL_TOP）に昇格した。
 //   設定 …（親＝/settings）／ 日報（/reports）。
+// その他（補助ツール）：PR・集客 と 設定（配下に メール取り込み / 日報）。
 const TOOLS: NavItem[] = [
-  { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・フィードバック", icon: "inbox" },
-  { href: "/pr", id: "pr", label: "PR・X集客", desc: "発信・集客", icon: "bolt" },
+  { href: "/pr", id: "pr", label: "PR・集客", desc: "発信・集客", icon: "bolt" },
   { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending", children: [
-    { href: "/reports", id: "reports", label: "日報",       desc: "気づき・改善の記録" },
+    { href: "/mail",    id: "mail",    label: "メール取り込み", desc: "Gmail取込・期間指定でダウンロード" },
+    { href: "/reports", id: "reports", label: "日報",           desc: "気づき・改善の記録" },
   ] },
 ];
-
-// メール取り込み（トップメニュー）。業務の入口なので上部に固定表示する。
-//   ・admin: NAV の先頭（ダッシュボードの次）に差し込む。
-//   ・agent: 従来どおり別途 AGENT_MAIL を出す（職能/menuPerms で制御）。重複防止のため NAV には入れない。
-const MAIL_TOP: NavItem = { href: "/mail", id: "mail", label: "メール取り込み", desc: "Gmail取込・期間指定でダウンロード", icon: "mail" };
 
 // テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
 const TENANT_NAV: NavItem[] = [
@@ -102,7 +101,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   const isTenant = role === "partner" || role === "freelance";
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
-  const SALES_HREFS = ["/kgi", "/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/chat", "/line", "/progress", "/companies", "/meetings", "/analytics", "/pipeline", "/kpi", "/funnel"];
+  const SALES_HREFS = ["/kgi", "/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/chat", "/line", "/progress", "/companies", "/meetings", "/pr", "/analytics", "/pipeline", "/kpi", "/funnel"];
   // ダッシュボード・稼働・分析・書類・企業は全エージェント可（分析ページは金額系を admin 限定で隠す）。
   //   企業は閲覧のみ（CSV書き出しは廃止）なので、職能に関わらずメンバーでも閲覧できるようにする。
   const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents", "/companies"]);
@@ -119,12 +118,11 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
     return out;
   };
 
-  // admin は NAV の先頭（ダッシュボードの次）に「メール取り込み」を差し込む。
-  const NAV_ADMIN: NavItem[] = [NAV[0], MAIL_TOP, ...NAV.slice(1)];
+  // admin は要望の並び（NAV そのまま）。メール取り込みは「設定」配下に移動済み。
   const nav0 = isClient ? CLIENT_NAV
     : isTenant ? TENANT_NAV
     : role === "agent" ? filterForAgent(NAV)
-    : NAV_ADMIN; // admin は全部＋先頭にメール取り込み
+    : NAV; // admin は全部
   const analysis0 = (isClient || isTenant) ? []
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;
@@ -186,7 +184,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
         )}
       </div>
 
-      {renderGroup(isClient ? "メニュー" : "取込・マッチング業務", nav)}
+      {renderGroup("メニュー", nav)}
       {analysis.length > 0 && renderGroup("振り返り・分析", analysis)}
       {tools.length > 0 && renderGroup("その他", tools)}
 
