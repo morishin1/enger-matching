@@ -8,15 +8,21 @@ create table if not exists enger.kgi_sales_plan (
   id               uuid primary key default gen_random_uuid(),
   month            date not null,           -- 月初（YYYY-MM-01）
   sales_target_man numeric,                 -- 月間売上目標（万円）
-  plan             jsonb,                   -- AI逆算結果（上記）
+  inside_count     int,                     -- インサイド営業の人数（打ち合わせ容量の見積り用）
+  outside_count    int,                     -- アウトサイド営業の人数（同上）
+  plan             jsonb,                   -- AI逆算結果（上記＋headcount/feasible/advice）
   updated_by_email text,
   updated_by_name  text,
   updated_at       timestamptz default now(),
   unique (month)
 );
 
+-- 既存テーブルへの後追い（列が無い環境向け）。
+alter table enger.kgi_sales_plan add column if not exists inside_count  int;
+alter table enger.kgi_sales_plan add column if not exists outside_count int;
+
 alter table enger.kgi_sales_plan enable row level security;
 grant select on enger.kgi_sales_plan to anon, authenticated;
 grant all on enger.kgi_sales_plan to service_role;
 
-comment on table enger.kgi_sales_plan is 'KGIダッシュボードの月間売上目標（手動）とAI逆算KPI割り振り（月次）。';
+comment on table enger.kgi_sales_plan is 'KGIダッシュボードの月間売上目標（手動）＋人員配分（inside/outside）とAI逆算KPI割り振り（月次）。';
