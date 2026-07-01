@@ -27,6 +27,7 @@ const empty = {
   relation_status: "🆕新規", fb_sentiment: "😐中立", ai_summary: "", enger_fb: "",
   miss_points: "", needs: "", strategy: "", next_action_us: "", next_action_them: "",
   competitors: [] as string[], competitor_detail: "", tags: [] as string[], transcript_url: "", publishable: "配信可能", follow_up_date: "",
+  job_info_count: 0, cand_info_count: 0, // 仕入れKGI：この打ち合わせで得た案件/人材情報の件数
 };
 
 function Chips({ all, sel, onToggle }: { all: string[]; sel: string[]; onToggle: (v: string) => void }) {
@@ -239,6 +240,25 @@ function MeetingForm({ companies, companyDir = [], owners = [], onDone, initial,
       </div>
 
       <div><L>企業タイプ</L><CompanyTypePicker value={f.company_type} onChange={(v) => set("company_type", v)} inputStyle={inp} /></div>
+
+      {/* 仕入れKGI：この打ち合わせで案件情報・人材情報をどれだけ獲得できたか（＝質の良い案件/人材が集められているか） */}
+      <div style={{ background: "var(--color-surface-inset)", borderRadius: 10, padding: "10px 12px" }}>
+        <L>仕入れKGI｜この打ち合わせで獲得した情報の件数</L>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 4, alignItems: "center" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+            <span style={{ color: "#0e7490", fontWeight: 700 }}>案件情報</span>
+            <input type="number" min={0} value={f.job_info_count} onChange={(e) => set("job_info_count", Math.max(0, Math.floor(Number(e.target.value) || 0)))} style={{ ...inp, width: 88, textAlign: "right" }} />
+            <span className="muted">件</span>
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+            <span style={{ color: "#7c3aed", fontWeight: 700 }}>人材情報</span>
+            <input type="number" min={0} value={f.cand_info_count} onChange={(e) => set("cand_info_count", Math.max(0, Math.floor(Number(e.target.value) || 0)))} style={{ ...inp, width: 88, textAlign: "right" }} />
+            <span className="muted">件</span>
+          </label>
+          <span className="muted" style={{ fontSize: 11 }}>※ 良い案件/人材情報がもらえたか＝KGI。エンド直の案件、FL・BP・PP の人材情報を記録（/kgi に集計）。</span>
+        </div>
+      </div>
+
       <div><L>響かなかった点（タップ）</L><TextChips presets={MEETING_MISSES} value={f.miss_points} onChange={(v) => set("miss_points", v)} color="#d23f57" /></div>
       <div><L>顧客の課題・ニーズ（タップ）</L><TextChips presets={MEETING_NEEDS} value={f.needs} onChange={(v) => set("needs", v)} /></div>
       <div><L>競合・他社言及（タップ）</L><Chips all={MEETING_COMPETITORS} sel={f.competitors} onToggle={(v) => toggle("competitors", v)} /></div>
@@ -422,6 +442,7 @@ export function MeetingsClient({ meetings, companies, companyDir = [], interview
       needs: m.needs ?? "", strategy: m.strategy ?? "", next_action_us: m.next_action_us ?? "", next_action_them: m.next_action_them ?? "",
       competitors: m.competitors ?? [], competitor_detail: m.competitor_detail ?? "", tags: m.tags ?? [],
       transcript_url: m.transcript_url ?? "", publishable: m.publishable ?? "", follow_up_date: m.follow_up_date ? String(m.follow_up_date).slice(0, 10) : "",
+      job_info_count: Number(m.job_info_count) || 0, cand_info_count: Number(m.cand_info_count) || 0,
     });
     setShow(true);
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -515,6 +536,9 @@ export function MeetingsClient({ meetings, companies, companyDir = [], interview
                 </div>
                 {m.ai_summary && <div style={{ fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.6 }}>{m.ai_summary}</div>}
                 {m.company_type && <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>🏷 企業タイプ：{m.company_type}</div>}
+                {(Number(m.job_info_count) > 0 || Number(m.cand_info_count) > 0) && (
+                  <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>📥 仕入れ：案件情報 <b style={{ color: "#0e7490" }}>{Number(m.job_info_count) || 0}</b>件 ・ 人材情報 <b style={{ color: "#7c3aed" }}>{Number(m.cand_info_count) || 0}</b>件</div>
+                )}
                 {m.miss_points && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>⚠️ 響かず：{m.miss_points}</div>}
                 {m.enger_fb && <div style={{ fontSize: 11.5, color: "var(--color-brand-700)" }}>📣 ENGER FB：{m.enger_fb}</div>}
                 {m.next_action_us && <div style={{ fontSize: 11.5, color: "var(--color-ink-2)" }}>▶ 次(自社)：{m.next_action_us}</div>}
