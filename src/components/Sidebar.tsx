@@ -31,11 +31,12 @@ const NAV: NavItem[] = [
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
   { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", count: "chatUnread", hot: true },
-  // 稼働管理は「業務（稼働・請求）」と「書類送付」を子としてまとめる（散らばり防止）。
-  { href: "/progress", id: "progress", label: "稼働管理", desc: "稼働・請求・書類の管理", icon: "progress", count: "progress", children: [
-    { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）", desc: "稼働状況と請求" },
-    { href: "/documents", id: "documents",    label: "書類送付", desc: "契約書類の送付" },
-  ] },
+  // 稼働管理は当面使わないためサイドメニューから非表示（要望）。復活時は下のコメントを解除するだけ。
+  //   ※ ページ自体（/progress・/documents）は URL では引き続きアクセス可能。
+  // { href: "/progress", id: "progress", label: "稼働管理", desc: "稼働・請求・書類の管理", icon: "progress", count: "progress", children: [
+  //   { href: "/progress",  id: "progress-ops", label: "業務（稼働・請求）", desc: "稼働状況と請求" },
+  //   { href: "/documents", id: "documents",    label: "書類送付", desc: "契約書類の送付" },
+  // ] },
 ];
 
 // 「分析」メニューは非表示にした（KPI推移は提案管理タブへ移動済み）。
