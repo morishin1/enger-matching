@@ -44,16 +44,21 @@ const NAV: NavItem[] = [
 //   復活させたい場合は ANALYSIS 配列を定義し、下の analysis0 にセットする。
 const ANALYSIS: NavItem[] = [];
 
-// その他（補助ツール）。メール取込・日報は「設定」の配下にまとめ、AIアシスタントは非表示。
-//   設定 …（親＝/settings）／ メール取込（/mail）／ 日報（/reports）。
+// その他（補助ツール）。日報は「設定」の配下にまとめ、AIアシスタントは非表示。
+//   ※ メール取込は業務の入口なので admin ではトップメニュー（下の MAIL_TOP）に昇格した。
+//   設定 …（親＝/settings）／ 日報（/reports）。
 const TOOLS: NavItem[] = [
   { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・フィードバック", icon: "inbox" },
   { href: "/pr", id: "pr", label: "PR・X集客", desc: "発信・集客", icon: "bolt" },
   { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending", children: [
-    { href: "/mail",    id: "mail",    label: "メール取込", desc: "案件・人材メールを取り込み" },
     { href: "/reports", id: "reports", label: "日報",       desc: "気づき・改善の記録" },
   ] },
 ];
+
+// メール取り込み（トップメニュー）。業務の入口なので上部に固定表示する。
+//   ・admin: NAV の先頭（ダッシュボードの次）に差し込む。
+//   ・agent: 従来どおり別途 AGENT_MAIL を出す（職能/menuPerms で制御）。重複防止のため NAV には入れない。
+const MAIL_TOP: NavItem = { href: "/mail", id: "mail", label: "メール取り込み", desc: "Gmail取込・期間指定でダウンロード", icon: "mail" };
 
 // テナント隔離ロール(partner/freelance)向けメニュー。漏洩防止のため限定（自分＋共有のみ／他社は匿名）。
 const TENANT_NAV: NavItem[] = [
@@ -113,10 +118,12 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
     return out;
   };
 
+  // admin は NAV の先頭（ダッシュボードの次）に「メール取り込み」を差し込む。
+  const NAV_ADMIN: NavItem[] = [NAV[0], MAIL_TOP, ...NAV.slice(1)];
   const nav0 = isClient ? CLIENT_NAV
     : isTenant ? TENANT_NAV
     : role === "agent" ? filterForAgent(NAV)
-    : NAV; // admin は全部
+    : NAV_ADMIN; // admin は全部＋先頭にメール取り込み
   const analysis0 = (isClient || isTenant) ? []
     : role === "agent" ? filterForAgent(ANALYSIS)
     : ANALYSIS;

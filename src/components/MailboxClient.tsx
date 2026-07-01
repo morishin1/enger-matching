@@ -8,7 +8,47 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail, backfillInboxSourceMailUrls } from "@/lib/actions";
+import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail, backfillInboxSourceMailUrls, exportInboxEmails, type InboxExportRow } from "@/lib/actions";
+
+// ── 期間ダウンロード（ローカル整形用）──────────────────────────────
+//   inbox_emails の生メール＋AI抽出結果を CSV / JSONL に整形してブラウザ保存する。
+//   gmail_message_id を先頭列に含めるので、ローカルで磨いたプロンプトの結果を後で突き合わせ可能。
+const EXPORT_COLS: (keyof InboxExportRow)[] = [
+  "gmail_message_id", "received_at", "from_name", "from_email", "subject", "body",
+  "has_attachment", "attachment_names", "extracted_kind", "extracted_summary",
+  "extracted_data", "registered_job_no", "registered_candidate_no",
+];
+// 1セルを文字列化（配列は " / " 連結、オブジェクトは JSON 文字列）。
+const cellStr = (v: unknown): string => {
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.join(" / ");
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+};
+const csvEscape = (s: string): string => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+function rowsToCsv(rows: InboxExportRow[]): string {
+  const header = EXPORT_COLS.join(",");
+  const lines = rows.map((r) => EXPORT_COLS.map((c) => csvEscape(cellStr((r as any)[c]))).join(","));
+  // Excel が UTF-8 を正しく開けるよう BOM を先頭に付与。改行は CRLF。
+  return "﻿" + [header, ...lines].join("\r\n");
+}
+function rowsToJsonl(rows: InboxExportRow[]): string {
+  return rows.map((r) => JSON.stringify(r)).join("\n");
+}
+function downloadText(filename: string, text: string, mime: string) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+// ブラウザのローカル日付を YYYY-MM-DD で返す（日本のユーザーは JST）。
+function todayLocal(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 const fmtDateTime = (d: any) => {
   if (!d) return "—";
@@ -45,6 +85,39 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
   const [pending, start] = useTransition();
   const [active, setActive] = useState<Row | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  // 期間ダウンロード（ローカル整形用）の状態。既定は当日の1日分。
+  const [dlFrom, setDlFrom] = useState<string>(todayLocal());
+  const [dlTo, setDlTo] = useState<string>(todayLocal());
+  const [dlFormat, setDlFormat] = useState<"csv" | "jsonl">("csv");
+  const [dlInclArchived, setDlInclArchived] = useState(false);
+  const [dlMsg, setDlMsg] = useState<string | null>(null);
+  const [dlBusy, setDlBusy] = useState(false);
+
+  const downloadRange = () => {
+    if (dlBusy) return;
+    if (dlFrom && dlTo && dlFrom > dlTo) { setDlMsg("開始日が終了日より後になっています。"); return; }
+    setDlBusy(true);
+    setDlMsg("メールを収集中…");
+    (async () => {
+      try {
+        const res = await exportInboxEmails({ from: dlFrom || undefined, to: dlTo || undefined, includeArchived: dlInclArchived });
+        if (!res.ok) { setDlMsg(`ダウンロード失敗: ${res.error}`); return; }
+        const rows = res.rows ?? [];
+        if (rows.length === 0) { setDlMsg("該当期間のメールが0通でした。まず「Gmail 同期」で取り込んでください。"); return; }
+        const ext = dlFormat === "csv" ? "csv" : "jsonl";
+        const filename = `inbox_${dlFrom || "all"}_${dlTo || "all"}.${ext}`;
+        const text = dlFormat === "csv" ? rowsToCsv(rows) : rowsToJsonl(rows);
+        const mime = dlFormat === "csv" ? "text/csv;charset=utf-8" : "application/x-ndjson;charset=utf-8";
+        downloadText(filename, text, mime);
+        setDlMsg(`✓ ${rows.length}通をダウンロードしました（${filename}）${res.capped ? "。上限に達したため一部のみ。期間を狭めてください。" : ""}`);
+      } catch (e) {
+        setDlMsg(`ダウンロード失敗: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setDlBusy(false);
+      }
+    })();
+  };
 
   const sync = () => {
     if (!gmailReady) return;
@@ -126,6 +199,41 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="件名・差出人で絞り込み"
             style={{ fontFamily: "inherit", fontSize: 13, padding: "7px 11px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)", minWidth: 240 }} />
         </div>
+      </div>
+
+      {/* 期間ダウンロード（ローカル整形用）。カレンダーで from/to を選び CSV/JSONL で保存。 */}
+      <div className="card" style={{ padding: "12px 14px", display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 12, background: "var(--color-surface-soft)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 200 }}>
+          <span style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 700, letterSpacing: ".04em" }}>期間ダウンロード（ローカル整形用）</span>
+          <span style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>受信日でメールを書き出し。<span className="mono">gmail_message_id</span> を含むので後で突き合わせ可。</span>
+        </div>
+        <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>
+          開始日
+          <input type="date" value={dlFrom} max={dlTo || undefined} onChange={(e) => setDlFrom(e.target.value)}
+            style={{ fontFamily: "inherit", fontSize: 13, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>
+          終了日
+          <input type="date" value={dlTo} min={dlFrom || undefined} onChange={(e) => setDlTo(e.target.value)}
+            style={{ fontFamily: "inherit", fontSize: 13, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>
+          形式
+          <select value={dlFormat} onChange={(e) => setDlFormat(e.target.value as "csv" | "jsonl")}
+            style={{ fontFamily: "inherit", fontSize: 13, padding: "6px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+            <option value="csv">CSV（Excel）</option>
+            <option value="jsonl">JSONL（AI入力向け）</option>
+          </select>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
+          <input type="checkbox" checked={dlInclArchived} onChange={(e) => setDlInclArchived(e.target.checked)} />
+          アーカイブも含む
+        </label>
+        <button type="button" className="btn brand" disabled={dlBusy} onClick={downloadRange}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>download</span>
+          {dlBusy ? "作成中…" : "ダウンロード"}
+        </button>
+        {dlMsg && <span className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>{dlMsg}</span>}
       </div>
 
       {/* タブ */}
