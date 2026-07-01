@@ -12,8 +12,11 @@ import {
   getKgiSalesPlan, meetingCapacityMonth, recoveryPace,
   DEFAULT_MTG_PER_PERSON_DAY, type KgiMonthly,
 } from "@/lib/kgi-plan";
+import {
+  weeksOfMonth, distributeMonthlyToWeeks, SEASON_PROFILES, SEASON_NOTES,
+} from "@/lib/kgi-week";
 import { KgiPlanControls } from "@/components/KgiPlanControls";
-import { getKpiSnapshot, businessDaysInRange, jstStartOfDay, addDays, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getWeeklyKgiActuals, businessDaysInRange, jstStartOfDay, addDays, type Metric } from "@/lib/kpi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -69,6 +72,31 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
     const snap = await getKpiSnapshot({ ownerName: null, type: "month", base: new Date(`${mk}T12:00:00+09:00`) });
     for (const k of ["proposal", "schedule", "deal"] as Metric[]) actualByMetric[k] = snap.snapshot[k]?.actual ?? 0;
   } catch { /* KPI未整備でも続行 */ }
+
+  // 実際の週（Mon-Fri・月内クリップ）。7月なら5週、第1週は Jul1-3 の3営業日、等。
+  const jToday = new Date(now.getTime() + 9 * 3600 * 1000); // JSTの壁時計に補正して日付を取る
+  const todayYmd = { y: jToday.getUTCFullYear(), m: jToday.getUTCMonth() + 1, d: jToday.getUTCDate() };
+  const weeks = weeksOfMonth(mk, todayYmd);
+  const season = SEASON_NOTES[m];
+
+  // 月次KPIを《旬ウェイト×営業日》で各週へ配分（Σ=月次）。実績は提案管理(proposals)から週別に集計。
+  const weekTargets = plan ? {
+    proposal: distributeMonthlyToWeeks(plan.monthly.proposal, weeks, SEASON_PROFILES.proposal),
+    meeting: distributeMonthlyToWeeks(plan.monthly.meeting, weeks, SEASON_PROFILES.meeting),
+    placement: distributeMonthlyToWeeks(plan.monthly.placement, weeks, SEASON_PROFILES.placement),
+    appointment: distributeMonthlyToWeeks(plan.monthly.appointment, weeks, SEASON_PROFILES.appointment),
+  } : null;
+  let weekActuals: { proposal: number; schedule: number; deal: number }[] = weeks.map(() => ({ proposal: 0, schedule: 0, deal: 0 }));
+  if (plan && weeks.length) {
+    try { weekActuals = await getWeeklyKgiActuals({ ownerName: null, weeks: weeks.map((w) => ({ fromISO: w.fromISO, toISO: w.toISO })) }); }
+    catch { /* 提案管理未整備でも続行 */ }
+  }
+  // 週次表示の対象KPI（実績が取れる 提案/面談/稼働）と、目標のみの打ち合わせ。
+  const WEEK_KPIS: { key: keyof KgiMonthly; label: string; act: "proposal" | "schedule" | "deal" }[] = [
+    { key: "proposal", label: "提案", act: "proposal" },
+    { key: "meeting", label: "面談", act: "schedule" },
+    { key: "placement", label: "稼働", act: "deal" },
+  ];
 
   const th: CSSProperties = { textAlign: "left", padding: "9px 12px", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700, whiteSpace: "nowrap" };
   const td: CSSProperties = { padding: "10px 12px", fontSize: 13.5, borderTop: "1px solid var(--color-border)" };
@@ -265,9 +293,99 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
         </div>
       )}
 
+      {/* 年間シーズナリティ（月の動向・仮説） */}
+      {season && (
+        <div className="card" style={{ padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: season.push ? "#b45309" : "var(--color-brand-700)" }}>event_upcoming</span>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800 }}>
+              {season.quarter}｜{m}月の動向：{season.headline}
+              {season.push && <span style={{ marginLeft: 8, fontSize: 10.5, color: "#b45309", fontWeight: 800, border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 6, padding: "1px 6px" }}>提案強化月</span>}
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 3, lineHeight: 1.7 }}>{season.note}</div>
+            <div className="muted" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.7 }}>
+              月内リズム（仮説）：<b>上旬(1–10)</b>=内務・フォロー ／ <b style={{ color: "#b45309" }}>中旬(11–20)</b>=★提案最大化（週次目標を約1.5倍に配分） ／ <b>下旬(21–末)</b>=クロージング（稼働は下旬に厚め）。
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 週次カレンダー（実際のN週・提案管理連動）：月/週/日の達成率 */}
+      {plan && weekTargets && weeks.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>calendar_month</span>
+            <b style={{ fontSize: 13.5 }}>週次カレンダー（{weeks.length}週）— 実績は提案管理と連動</b>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>各週＝営業日数×旬ウェイトで配分（合計＝月次目標）／ セル：<b>実績/目標</b>・下段=達成率・日次</span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <thead><tr>
+                <th style={th}>週</th>
+                <th style={{ ...th, textAlign: "right" }}>営業日</th>
+                {WEEK_KPIS.map((k) => <th key={k.key} style={{ ...th, textAlign: "right" }}>{k.label}</th>)}
+                <th style={{ ...th, textAlign: "right" }}>打合せ(目標)</th>
+              </tr></thead>
+              <tbody>
+                {weeks.map((w, wi) => {
+                  const rowBg = w.isCurrent ? "rgba(0,149,217,0.06)" : undefined;
+                  return (
+                    <tr key={w.index} style={{ background: rowBg }}>
+                      <td style={td}>
+                        <b>W{w.index}</b> <span className="muted" style={{ fontSize: 11 }}>{w.label}</span>
+                        {w.isCurrent && <span style={{ marginLeft: 6, fontSize: 10, color: "#0095D9", fontWeight: 800 }}>今週・残{w.remainingBiz}日</span>}
+                        {w.isPast && <span style={{ marginLeft: 6, fontSize: 10, color: "var(--color-ink-4)" }}>済</span>}
+                      </td>
+                      <td style={tdR} className="mono">{w.bizDays}日</td>
+                      {WEEK_KPIS.map((k) => {
+                        const tgt = weekTargets[k.key][wi] ?? 0;
+                        const act = weekActuals[wi]?.[k.act] ?? 0;
+                        const p = pctOf(act, tgt);
+                        const dly = w.bizDays > 0 ? tgt / w.bizDays : 0;
+                        return (
+                          <td key={k.key} style={tdR}>
+                            <div className="mono" style={{ fontWeight: 700 }}><b style={{ color: toneOf(p) }}>{act}</b> / {tgt}</div>
+                            <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>{p == null ? "—" : `${p}%`}・日{fmt(dly)}</div>
+                          </td>
+                        );
+                      })}
+                      <td style={tdR}>
+                        <div className="mono" style={{ fontWeight: 700 }}>{weekTargets.appointment[wi] ?? 0}</div>
+                        <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>日{fmt(w.bizDays > 0 ? (weekTargets.appointment[wi] ?? 0) / w.bizDays : 0)}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* 合計（＝月次目標 と 月次実績）で全週達成＝月間目標を確認 */}
+                <tr style={{ background: "var(--color-surface-2, rgba(0,0,0,0.02))", borderTop: "2px solid var(--color-border)" }}>
+                  <td style={{ ...td, fontWeight: 800 }}>月合計</td>
+                  <td style={tdR} className="mono">{bizDays}日</td>
+                  {WEEK_KPIS.map((k) => {
+                    const tgt = plan.monthly[k.key] ?? 0;
+                    const act = actualByMetric[k.act as Metric] ?? weekActuals.reduce((s, x) => s + x[k.act], 0);
+                    const p = pctOf(act, tgt);
+                    return (
+                      <td key={k.key} style={tdR}>
+                        <div className="mono" style={{ fontWeight: 800 }}><b style={{ color: toneOf(p) }}>{act}</b> / {tgt}</div>
+                        <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>{p == null ? "—" : `${p}%`}</div>
+                      </td>
+                    );
+                  })}
+                  <td style={{ ...tdR, fontWeight: 800 }} className="mono">{plan.monthly.appointment}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
+            ※ 週の合計は月次目標に一致します（<b>全週を達成すれば月間目標に到達</b>）。今週の残営業日が少ない週（例：月初の週）は、その分だけ週次目標も自動で小さく配分されます。
+            実績は proposals（提案管理）由来のチーム全体。打ち合わせは実績集計対象外のため目標のみです。
+          </div>
+        </div>
+      )}
+
       <div className="muted" style={{ fontSize: 11, lineHeight: 1.7 }}>
-        ※ 初版は<b>全社（チーム）ビュー</b>です。売上目標・人員配分は月ごとに手動設定、KPIの割り振りと実現条件はAIが逆算します（AIキー未設定時は既定の転換率で逆算）。
-        部署別・個人別、日次カレンダー（予定×実績）、案件/人材の仕入れKPI（エンド直・FL・BP・PP採用）は今後の拡張予定です。
+        ※ 初版は<b>全社（チーム）ビュー</b>です。売上目標・人員配分は月ごとに手動設定、KPIの割り振り・週配分・実現条件はAI/仮説モデルが算定します（AIキー未設定時は既定の転換率で逆算）。
+        部署別・個人別、日次の予定×実績カレンダー、案件/人材の仕入れKPI（エンド直・FL・BP・PP採用）は今後の拡張予定です。
       </div>
     </div>
   );

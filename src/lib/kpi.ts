@@ -280,6 +280,60 @@ export async function getKpiSnapshot(opts: {
   return { range, snapshot };
 }
 
+/** 指定した複数の週レンジ（月内）について、提案管理(proposals)由来の週次実績を一括集計する。
+ *  KGIダッシュボードの週次カレンダー用（提案/面談/稼働）。DB往復は proposals×1。
+ *  from/to は 'YYYY-MM-DD'（JST）。to は当日いっぱいを含む。集計基準は getKpiSnapshot と同一
+ *  （提案=提案者・提案中以降・承認済のみ／面談・稼働=CL担当のステージ到達）。 */
+export async function getWeeklyKgiActuals(opts: {
+  ownerName: string | null;
+  weeks: { fromISO: string; toISO: string }[];
+}): Promise<{ proposal: number; schedule: number; deal: number }[]> {
+  const n = opts.weeks.length;
+  if (n === 0) return [];
+  const froms = opts.weeks.map((w) => new Date(`${w.fromISO}T00:00:00+09:00`));
+  const tosExcl = opts.weeks.map((w) => addDays(new Date(`${w.toISO}T00:00:00+09:00`), 1));
+  const overallStart = new Date(Math.min(...froms.map((d) => d.getTime())));
+  const overallEnd = new Date(Math.max(...tosExcl.map((d) => d.getTime())));
+  const sb = engerAdmin();
+  const startIso = iso(overallStart), endIso = iso(overallEnd);
+  void endIso; // 上限は週ごとの inRange で判定するため or 条件は下限のみ
+
+  let r: any = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status, approval_status")
+    .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
+    .limit(20000);
+  if (r.error && /approval_status|column/i.test(r.error.message ?? "")) {
+    r = await sb.from("proposals")
+      .select("id, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+      .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso},updated_at.gte.${startIso}`)
+      .limit(20000);
+  }
+  if (r.error) r = await sb.from("proposals")
+    .select("id, proposer, closer, stage, created_at, stage_updated_at")
+    .or(`created_at.gte.${startIso},stage_updated_at.gte.${startIso}`)
+    .limit(20000);
+  const props: any[] = r.error ? [] : (r.data ?? []);
+
+  const isProposer = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.proposer);
+  const isCloser = (p: any) => !opts.ownerName || ownerMatches(opts.ownerName, p.closer);
+  const isApproved = (p: any) => { const s = String(p?.approval_status ?? "").trim(); return s !== "pending" && s !== "rejected"; };
+  const a = metricFlags;
+
+  return opts.weeks.map((_, wi) => {
+    const s = iso(froms[wi]), e = iso(tosExcl[wi]);
+    const inR = (d: string | null) => !!d && d >= s && d < e;
+    let proposal = 0, schedule = 0, deal = 0;
+    for (const p of props) {
+      if (isApproved(p) && a.isProposed(p) && isProposer(p) && inR(p.created_at)) proposal++;
+      if (!isCloser(p)) continue;
+      const ev = p.stage_updated_at ?? p.updated_at ?? null;
+      if (a.isSchedule(p) && inR(ev)) schedule++;
+      if (a.isDeal(p) && inR(ev)) deal++;
+    }
+    return { proposal, schedule, deal };
+  });
+}
+
 /** その週の週次目標を kpi_targets から取る。レコードがなければ ITS デフォルト。 */
 export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekStart: Date }): Promise<Partial<Record<Metric, number>>> {
   const sb = engerAdmin();
