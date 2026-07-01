@@ -237,7 +237,10 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
 
   return (
     <>
-      <button type="button" className="btn ghost" onClick={() => setOpen(true)}>✎ 編集</button>
+      {/* #237②：開くたびに最新の candidate から初期化し直す（保存後に再編集すると旧値へ戻る不具合の対策）。
+          useState(initial) は初回マウント時のみ反映され、close の setF(initial) は保存クリック時のクロージャ（旧値）を
+          掴むため、開くたびに最新 props でリセットして常に保存済みの最新値を表示する。 */}
+      <button type="button" className="btn ghost" onClick={() => { setF(initial); setMsg(null); setOpen(true); }}>✎ 編集</button>
       {open && (
         <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -258,8 +261,11 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
                 { value: "二社下以降",  label: "二社下以降" },
               ]} />
               <Field label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
-              <Field label="希望単価" value={f.rate} onChange={set("rate")} />
-              <ExpYearsField value={f.exp} onChange={set("exp")} />
+              {/* #237①：希望単価を少し狭く・経験年数を広くして、経験年数の入力欄（選択＋「その他」直接入力）が切れないようにする。 */}
+              <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "minmax(0, 0.8fr) minmax(0, 1.2fr)", gap: 10 }}>
+                <Field label="希望単価" value={f.rate} onChange={set("rate")} />
+                <ExpYearsField value={f.exp} onChange={set("exp")} />
+              </div>
               <DateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
               <Field label="最寄駅" value={f.location} onChange={set("location")} />
               <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
