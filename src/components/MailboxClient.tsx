@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail, backfillInboxSourceMailUrls, exportInboxEmails, type InboxExportRow } from "@/lib/actions";
+import { syncInboxFromGmail, extractInboxEmail, registerInboxAsJob, registerInboxAsCandidate, skipInboxEmail, archiveInboxEmail, autoIngestFromGmail, backfillInboxSourceMailUrls, exportInboxEmails, importInboxExtractions, type InboxExportRow, type InboxImportResult, type InboxImportSummary } from "@/lib/actions";
 
 // ── 期間ダウンロード（ローカル整形用）──────────────────────────────
 //   inbox_emails の生メール＋AI抽出結果を CSV / JSONL に整形してブラウザ保存する。
@@ -49,6 +49,93 @@ function todayLocal(): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+
+// ── 書き戻しインポート（CSV/JSONL パース）──────────────────────────
+//   ダウンロードしたファイルをローカルで整形（extracted_kind / extracted_data を編集）して再アップ。
+//   JSONL は各行が {gmail_message_id, extracted_kind, extracted_data:{...}} でそのまま突き合わせ可。
+//   CSV は extracted_data 列に JSON を入れるか、フラット列（title/name など）で指定できる。
+type ImportRowIn = { gmail_message_id?: string; extracted_kind?: string; extracted_summary?: string; extracted_data?: any };
+
+// 簡易 CSV パーサ（引用符・ダブルクオート・改行埋め込みに対応）。ヘッダ行必須。
+function parseCsvRows(text: string): Record<string, string>[] {
+  const s = text.replace(/^﻿/, "");
+  const rows: string[][] = [];
+  let field = "", row: string[] = [], inQ = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inQ) {
+      if (c === '"') { if (s[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else if (c === '"') { inQ = true; }
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c === "\r") { /* CRLF は \n 側で確定 */ }
+    else field += c;
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  if (rows.length === 0) return [];
+  const header = rows[0].map((h) => h.trim());
+  return rows.slice(1).filter((r) => r.some((c) => c !== "")).map((r) => {
+    const o: Record<string, string> = {};
+    header.forEach((h, i) => { o[h] = r[i] ?? ""; });
+    return o;
+  });
+}
+
+// フラット列（extracted_data 列が無い CSV）から data オブジェクトを組む。
+const FLAT_STR_KEYS = ["title", "client_name", "role_label", "remote_type", "flow_note", "work_location", "start_date", "detail", "name", "company", "rate", "exp", "remote_pref", "skill_sheet_url"];
+function buildFlatData(o: Record<string, string>): any {
+  const d: any = {};
+  for (const k of FLAT_STR_KEYS) { const v = (o[k] ?? "").trim(); if (v) d[k] = v; }
+  const sk = (o.skills ?? "").trim();
+  if (sk) d.skills = sk.split(/\s*[/、,]\s*/).filter(Boolean);
+  for (const k of ["salary_min", "salary_max"]) { const m = String(o[k] ?? "").match(/\d+/); if (m) d[k] = Number(m[0]); }
+  return d;
+}
+
+// パース済み1レコードを取り込み行に正規化（JSON優先、無ければフラット列）。
+function toImportRow(o: Record<string, any>): ImportRowIn {
+  const gid = String(o.gmail_message_id ?? o.gmailMessageId ?? "").trim();
+  const kind = String(o.extracted_kind ?? o.kind ?? "").trim();
+  const summary = o.extracted_summary != null ? String(o.extracted_summary) : (o.summary != null ? String(o.summary) : undefined);
+  let data: any = {};
+  const rawData = o.extracted_data;
+  if (rawData && typeof rawData === "object") data = rawData;                 // JSONL: 既にオブジェクト
+  else if (typeof rawData === "string" && rawData.trim()) {                    // CSV: JSON文字列
+    try { data = JSON.parse(rawData); } catch { data = { _parse_error: true }; }
+  } else data = buildFlatData(o);                                             // CSV: フラット列
+  return { gmail_message_id: gid, extracted_kind: kind, extracted_summary: summary, extracted_data: data };
+}
+
+// ファイル全文を取り込み行配列へ（JSONL / JSON配列 / CSV を自動判別）。
+function parseImportText(text: string, filename: string): { rows: ImportRowIn[]; parseErrors: number } {
+  const t = text.replace(/^﻿/, "").trim();
+  const isJson = /\.jsonl?$/i.test(filename) || t.startsWith("{") || t.startsWith("[");
+  let records: Record<string, any>[] = [];
+  if (isJson) {
+    if (t.startsWith("[")) { try { const a = JSON.parse(t); if (Array.isArray(a)) records = a; } catch { /* fallthrough */ } }
+    if (records.length === 0) {
+      records = t.split(/\r?\n/).map((ln) => ln.trim()).filter(Boolean).map((ln) => { try { return JSON.parse(ln); } catch { return { _bad: true }; } });
+    }
+  } else {
+    records = parseCsvRows(text);
+  }
+  const rows = records.filter((r) => !r._bad).map(toImportRow);
+  const parseErrors = records.filter((r) => r._bad).length + rows.filter((r) => r.extracted_data?._parse_error).length;
+  return { rows, parseErrors };
+}
+
+const IMPORT_STATUS_LABEL: Record<string, { label: string; tone: string }> = {
+  job_new:            { label: "案件・新規",       tone: "#0095D9" },
+  job_merged:         { label: "案件・既存に統合", tone: "#7c3aed" },
+  cand_new:           { label: "人材・新規",       tone: "#067647" },
+  cand_merged:        { label: "人材・既存に統合", tone: "#7c3aed" },
+  archived:           { label: "アーカイブ",       tone: "#94a3b8" },
+  already_registered: { label: "登録済み（スキップ）", tone: "#d98a2b" },
+  not_found:          { label: "未取込",           tone: "#b42318" },
+  invalid:            { label: "不正な行",         tone: "#b42318" },
+  error:              { label: "エラー",           tone: "#b42318" },
+};
 
 const fmtDateTime = (d: any) => {
   if (!d) return "—";
@@ -235,6 +322,9 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
         </button>
         {dlMsg && <span className="muted" style={{ fontSize: 12, flexBasis: "100%" }}>{dlMsg}</span>}
       </div>
+
+      {/* 書き戻しインポート（ローカル整形結果を DB へ反映。二重登録チェック付き） */}
+      <InboxImportPanel />
 
       {/* タブ */}
       <div style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--color-border)" }}>
@@ -471,6 +561,134 @@ function MailboxDetailModal({ r, onClose }: { r: Row; onClose: () => void }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────
+// 書き戻しインポート：ローカルで整形した CSV/JSONL を DB へ反映する。
+//   フロー: ①ファイル選択 → ②「検証（ドライラン）」で二重登録チェック → ③「取り込み実行」。
+//   二重登録は Layer A（登録済みメールをスキップ）＋ Layer B（既存に統合）でサーバ側が防止。
+function InboxImportPanel() {
+  const router = useRouter();
+  const [rows, setRows] = useState<ImportRowIn[]>([]);
+  const [fileName, setFileName] = useState<string>("");
+  const [allowRe, setAllowRe] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<InboxImportResult[] | null>(null);
+  const [summary, setSummary] = useState<InboxImportSummary | null>(null);
+  const [wasDryRun, setWasDryRun] = useState(true);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const onFile = async (f: File | null) => {
+    setResults(null); setSummary(null); setWasDryRun(true); // 新ファイルは再検証を必須にする
+    if (!f) { setRows([]); setFileName(""); setMsg(null); return; }
+    try {
+      const text = await f.text();
+      const parsed = parseImportText(text, f.name);
+      setRows(parsed.rows); setFileName(f.name);
+      setMsg(`${parsed.rows.length}行を読み込みました${parsed.parseErrors ? `（うち${parsed.parseErrors}行は解析エラーで除外）` : ""}。まず「検証」で二重登録をチェックしてください。`);
+    } catch (e) {
+      setRows([]); setFileName("");
+      setMsg(`読み込み失敗: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const run = (dryRun: boolean) => {
+    if (busy || rows.length === 0) return;
+    if (!dryRun && !confirm(`${rows.length}行をDBへ取り込みます。よろしいですか？（登録済みメールは${allowRe ? "上書き" : "スキップ"}）`)) return;
+    setBusy(true); setMsg(dryRun ? "検証中…（DBは変更しません）" : "取り込み中…");
+    (async () => {
+      try {
+        const res = await importInboxExtractions(rows, { dryRun, allowReregister: allowRe });
+        if (!res.ok) { setMsg(`失敗: ${res.error}`); return; }
+        setResults(res.results ?? []); setSummary(res.summary ?? null); setWasDryRun(dryRun);
+        setMsg(dryRun ? "✓ 検証結果（DB未反映）。内容を確認して問題なければ「取り込み実行」を押してください。" : "✓ 取り込みが完了しました。");
+        if (!dryRun) router.refresh();
+      } catch (e) {
+        setMsg(`失敗: ${e instanceof Error ? e.message : String(e)}`);
+      } finally { setBusy(false); }
+    })();
+  };
+
+  const chip = (label: string, n: number, tone: string) => (
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, background: "var(--color-surface)", border: "1px solid var(--color-border)", color: tone }}>{label} {n}</span>
+  );
+
+  return (
+    <div className="card" style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, background: "var(--color-surface-soft)" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 220 }}>
+          <span style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 700, letterSpacing: ".04em" }}>書き戻しインポート（CSV/JSONL）</span>
+          <span style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>ローカル整形した抽出結果を <span className="mono">gmail_message_id</span> で突き合わせて登録。二重登録は自動でチェック。</span>
+        </div>
+        <label className="btn ghost" style={{ cursor: "pointer" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>upload_file</span>
+          ファイルを選択
+          <input type="file" accept=".jsonl,.json,.csv,.txt" style={{ display: "none" }}
+            onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+        </label>
+        {fileName && <span className="muted" style={{ fontSize: 12 }}>{fileName}（{rows.length}行）</span>}
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}
+          title="オンにすると、既に案件/人材へ登録済みのメールも再登録（内容を上書き）します。既定はオフ＝スキップ。">
+          <input type="checkbox" checked={allowRe} onChange={(e) => setAllowRe(e.target.checked)} />
+          登録済みも上書き
+        </label>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button type="button" className="btn" disabled={busy || rows.length === 0} onClick={() => run(true)}
+            title="DBを変更せず、各行が新規登録・既存への統合・スキップのどれになるかを表示します。">
+            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>fact_check</span>
+            検証（ドライラン）
+          </button>
+          <button type="button" className="btn brand" disabled={busy || rows.length === 0 || (wasDryRun && !results)} onClick={() => run(false)}
+            title="検証で内容を確認してから実行してください。">
+            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>save</span>
+            取り込み実行
+          </button>
+        </div>
+      </div>
+
+      {msg && <span className="muted" style={{ fontSize: 12 }}>{msg}</span>}
+
+      {summary && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>{wasDryRun ? "検証結果" : "取込結果"}（全{summary.total}）:</span>
+          {chip("案件・新規", summary.jobNew, "#0095D9")}
+          {chip("人材・新規", summary.candNew, "#067647")}
+          {chip("既存に統合", summary.jobMerged + summary.candMerged, "#7c3aed")}
+          {chip("スキップ(登録済)", summary.alreadyRegistered, "#d98a2b")}
+          {chip("アーカイブ", summary.archived, "#94a3b8")}
+          {summary.notFound > 0 && chip("未取込", summary.notFound, "#b42318")}
+          {summary.invalid > 0 && chip("不正", summary.invalid, "#b42318")}
+          {summary.error > 0 && chip("エラー", summary.error, "#b42318")}
+        </div>
+      )}
+
+      {results && results.length > 0 && (
+        <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--color-border)", borderRadius: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ position: "sticky", top: 0, background: "var(--color-surface)", borderBottom: "1px solid var(--color-border)" }}>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, color: "var(--color-ink-4)" }}>gmail_message_id</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, color: "var(--color-ink-4)" }}>結果</th>
+                <th style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, color: "var(--color-ink-4)" }}>詳細</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r, i) => {
+                const t = IMPORT_STATUS_LABEL[r.status] ?? { label: r.status, tone: "var(--color-ink-3)" };
+                return (
+                  <tr key={i} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                    <td className="mono" style={{ padding: "5px 10px", color: "var(--color-ink-4)", fontSize: 10.5, whiteSpace: "nowrap" }}>{r.gmail_message_id.length > 16 ? r.gmail_message_id.slice(0, 16) + "…" : r.gmail_message_id}</td>
+                    <td style={{ padding: "5px 10px", whiteSpace: "nowrap" }}><span style={{ fontWeight: 700, color: t.tone }}>{t.label}</span></td>
+                    <td style={{ padding: "5px 10px", color: "var(--color-ink-3)" }}>{r.detail ?? ""}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
