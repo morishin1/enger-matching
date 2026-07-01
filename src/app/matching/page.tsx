@@ -818,7 +818,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       ].filter(Boolean).join(" / ")}</div>
 
                       {/* 提案フォームを最上部に（すぐ送れるように） */}
-                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score}
+                      <ProposalComposer key={`${j.job_no}-${person?.candidate_no}`} job={j} cand={person} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} lineTargets={lwTargets}
                         alreadyProposed={proposedJobIds.has(j.id)} proposalId={proposalIdByJob.get(j.id) ?? null}
                         proposedBy={proposalInfoByJob.get(j.id)?.proposer ?? null}
                         proposedAt={proposalInfoByJob.get(j.id)?.createdAt ?? null}
@@ -882,10 +882,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
         {/* 注力（♥お気に入り・手動）：ハートを外すと即座に件数・行が減る */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
-          <FocusList kind="jobs" items={focusJobs} unit="件" removeOnUnheart
+          <FocusList kind="jobs" items={focusJobs} unit="件" removeOnUnheart lineTargets={lwTargets}
             headerTitle={<><span style={{ color: "#e0567f" }}>♥</span> 注力案件</>}
             emptyText={<>案件一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</>} />
-          <FocusList kind="people" items={focusCands} unit="名" removeOnUnheart
+          <FocusList kind="people" items={focusCands} unit="名" removeOnUnheart lineTargets={lwTargets}
             headerTitle={<><span style={{ color: "#e0567f" }}>♥</span> 注力人材</>}
             emptyText={<>人材一覧やマッチングで <span style={{ color: "#e0567f" }}>♥</span> を押すとここに表示されます</>} />
         </div>
@@ -897,13 +897,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>💡 自動おすすめ案件</div><span className="tag">{recoJobs.length}件</span>
               </div>
-              {recoJobs.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>新着の決まりやすい案件はありません</div> : <FocusList kind="jobs" items={recoJobs} />}
+              {recoJobs.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>新着の決まりやすい案件はありません</div> : <FocusList kind="jobs" items={recoJobs} lineTargets={lwTargets} />}
             </div>
             <div className="card flush">
               <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>💡 自動おすすめ人材</div><span className="tag">{recoCands.length}名</span>
               </div>
-              {recoCands.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>プロパー・新着の決まりやすい人材はありません</div> : <FocusList kind="people" items={recoCands} />}
+              {recoCands.length === 0 ? <div style={{ padding: 24, textAlign: "center", color: "var(--color-ink-4)", fontSize: 12.5 }}>プロパー・新着の決まりやすい人材はありません</div> : <FocusList kind="people" items={recoCands} lineTargets={lwTargets} />}
             </div>
           </div>
         )}
@@ -1075,7 +1075,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     />
 
                     {/* 提案フォームを最上部に（すぐ送れるように） */}
-                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score}
+                    <ProposalComposer key={`${job?.job_no}-${c?.candidate_no}`} job={job} cand={c} matchedSkills={sel.matchedSkills} missingSkills={sel.missingSkills} score={sel.score} lineTargets={lwTargets}
                       alreadyProposed={proposedCandIds.has(c.id)} proposalId={proposalIdByCand.get(c.id) ?? null}
                       proposedBy={proposalInfoByCand.get(c.id)?.proposer ?? null}
                       proposedAt={proposalInfoByCand.get(c.id)?.createdAt ?? null}

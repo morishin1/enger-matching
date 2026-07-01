@@ -7,12 +7,15 @@ import { candidateProposalMail, jobProposalMail, gmailComposeUrl, gmailSearchUrl
 import { createProposal, undoProposal, recordProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 import { SendMailModalButton } from "./SendMailModalButton";
+import { LineShareButton } from "./LineShareButton";
+import { matchLineTemplate } from "@/lib/line-templates";
+import type { LineworksTarget } from "@/lib/lineworks-targets";
 
 type Job = any;
 type Cand = any;
 
 export function ProposalComposer({
-  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, approvalStatus = null, members = [],
+  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, approvalStatus = null, members = [], lineTargets,
 }: {
   job: Job; cand: Cand; matchedSkills: string[]; missingSkills?: string[]; score: number;
   alreadyProposed?: boolean;
@@ -25,6 +28,8 @@ export function ProposalComposer({
   approvalStatus?: string | null;
   /** 提案者・承認者の選択肢（社内メンバー名）。空のときはローカルストレージの担当名のみ入力可能。 */
   members?: string[];
+  /** 渡すと「LINEに送る」ボタン（マッチ共有雛形の確認・編集→送信/コピー）を表示。 */
+  lineTargets?: LineworksTarget[];
 }) {
   // 承認者の選択は MailComposeWizard（メール送信モーダル）側に集約済みのため、
   // ここでは持たない。提案者は本人（sender）を既定。
@@ -312,6 +317,12 @@ export function ProposalComposer({
             </Link>
           );
         })()}
+        {/* LINEに送る：マッチ共有の雛形を確認・編集して LINE WORKS へ送信（またはコピーでシェア）。 */}
+        {lineTargets && (
+          <LineShareButton targets={lineTargets}
+            text={matchLineTemplate({ job, cand, score, matchedSkills })}
+            buttonTitle="このマッチ（人材×案件）をLINE向け雛形で確認・編集して送信/コピー" />
+        )}
         {saved && (proposedBy || proposedAt) && (
           <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-3)", marginLeft: 4 }}>
             {proposedBy ? <>提案者：<b style={{ color: "var(--color-ink-2)" }}>{proposedBy}</b></> : null}
