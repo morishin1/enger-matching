@@ -164,12 +164,14 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           <div className="ava" style={{ width: 22, height: 22, fontSize: 9, flex: "0 0 22px" }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {p.job_line && <span title="LINE経由の案件" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 3, display: "inline-flex" }}><Icons.line size={13} /></span>}
               {p.job_no != null
                 ? <Link prefetch={false} href={p.candidate_no != null ? `/matching?job=${p.job_no}&cand=${p.candidate_no}` : `/matching?job=${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link>
                 : (p.job_title ?? "—")}
             </div>
             <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {p.lp_direct && <span title="LP（enger.jp）からの直接応募" style={{ color: "#067647", fontWeight: 700 }}>📥 </span>}
+              {p.cand_line && <span title="LINE経由の人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 3, display: "inline-flex" }}><Icons.line size={12} /></span>}
               {(p.candidate_name ?? "—")} {p.company ? `· ${p.company}` : ""}{p.proposer ? ` · ${p.proposer}` : ""}
             </div>
           </div>
@@ -211,6 +213,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             </span>
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
+            {p.job_line && <span title="LINE経由の案件" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 3, display: "inline-flex" }}><Icons.line size={14} /></span>}
             {p.job_no != null
               ? <Link
                   prefetch={false}
@@ -239,7 +242,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>{p.cand_line && <span title="LINE経由の人材" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</span></div>
               <div className="muted" style={{ fontSize: 10.5 }}>{p.rate ?? ""}{p.score != null ? ` · マッチ${p.score}%` : ""}</div>
             </div>
           </div>

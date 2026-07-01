@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/components/AppLink";
+import { Icons } from "@/components/icons";
 import { classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 
 function Stars({ score }: { score: number }) {
@@ -24,8 +25,8 @@ type RankedJob = { job: any; score: number };
 const AI_STORE_KEY = (personNo: number) => `enger.match.aijobs.v1.${personNo}`;
 const VIEW_STORE_KEY = (personNo: number) => `enger.match.viewjobs.v1.${personNo}`;
 
-export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, candForAI }: {
-  personNo: number; tab: string; selJobNo?: number; ranked: RankedJob[]; proposedJobIds?: Set<string>; candForAI: any;
+export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, lineJobIds, candForAI }: {
+  personNo: number; tab: string; selJobNo?: number; ranked: RankedJob[]; proposedJobIds?: Set<string>; lineJobIds?: Set<string>; candForAI: any;
 }) {
   const [ai, setAi] = useState<Map<number, { score: number; reason: string }> | null>(null);
   const [view, setView] = useState<"rule" | "ai">("rule"); // 既定はルール順（AI未使用＝コスト0）
@@ -141,6 +142,7 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, c
               <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+                  {lineJobIds?.has(j.id) && <span title="LINE経由の案件" style={{ lineHeight: 0, display: "inline-flex", flexShrink: 0 }}><Icons.line size={12} /></span>}
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
                   <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>No.{String(j.job_no).padStart(5, "0")}</span>
                   {proposed && (

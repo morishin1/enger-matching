@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/components/AppLink";
+import { Icons } from "@/components/icons";
 import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
 
 // 単価表示（rate が無いとき salary_min/max から組み立て）。
@@ -20,8 +21,8 @@ type Ranked = { candidate: any; score: number; dupCount?: number; dupNos?: numbe
 const AI_STORE_KEY = (jobNo: number) => `enger.match.ai.v1.${jobNo}`;
 const VIEW_STORE_KEY = (jobNo: number) => `enger.match.view.v1.${jobNo}`;
 
-export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, jobForAI }: {
-  jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; jobForAI: any;
+export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, lineCandIds, jobForAI }: {
+  jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; lineCandIds?: Set<string>; jobForAI: any;
 }) {
   const [ai, setAi] = useState<Map<number, { score: number; reason: string }> | null>(null);
   const [view, setView] = useState<"rule" | "ai">("rule"); // 既定はルール順（AI未使用＝コスト0）
@@ -154,7 +155,7 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
               <span style={{ width: 24, height: 24, borderRadius: 99, background: i < 3 ? rankColor : "var(--color-surface-inset)", color: i < 3 ? "#fff" : "var(--color-ink-3)", display: "grid", placeItems: "center", fontSize: 12, fontWeight: 700, fontFamily: "var(--font-display)" }}>{i + 1}</span>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
-                  {jobAbbr} ↔ {c.name}
+                  {jobAbbr} ↔ {lineCandIds?.has(c.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, display: "inline-flex", flexShrink: 0 }}><Icons.line size={12} /></span>}{c.name}
                   <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
                   {mergedCount > 1 && (
                     <span title={`同一人物とみなせる重複レコード ${mergedCount} 件を1件に集約して表示しています（イニシャル＋スキル8割以上＋単価＋所属/登録元が一致）。${r.dupNos?.length ? "対象: " + r.dupNos.map((n: number) => "P-" + String(n).padStart(5, "0")).join(", ") : ""}`} style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", lineHeight: 1.5, flexShrink: 0 }}>統合 {mergedCount}件</span>

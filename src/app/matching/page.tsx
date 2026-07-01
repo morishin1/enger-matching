@@ -12,6 +12,7 @@ import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type M
 import { relatedSearchLabels } from "@/lib/skills";
 import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
+import { getLineOriginIds } from "@/lib/line-origin";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { PartnerMatching } from "@/components/PartnerMatching";
 import { ConfirmJobButton } from "@/components/ConfirmJobButton";
@@ -313,6 +314,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const proposedCandIds = new Set<string>();  // この案件で既に提案済みの人材id（案件→人材モード）
   const proposalIdByJob = new Map<string, string>();   // job_id → proposal_id
   const proposalIdByCand = new Map<string, string>();  // candidate_id → proposal_id
+  // LINE 由来の案件/人材（signup_source='line' もしくは proposals.source='line'）。名前の横にLINEアイコンを表示する。
+  const lineJobIds = new Set<string>();
+  const lineCandIds = new Set<string>();
+  if (dbConfigured) {
+    try { const lo = await getLineOriginIds(); for (const id of lo.jobIds) lineJobIds.add(id); for (const id of lo.candidateIds) lineCandIds.add(id); } catch { /* fail-soft */ }
+  }
   // 「誰がいつ提案したか」を表示するための補助マップ。承認状態（pending/approved/rejected/null=旧データ）も保持し、
   // 「承認依頼」ボタンを承認後に「承認済み（下書きへ）」へ自動で切替える表示にも使う。
   const proposalInfoByJob = new Map<string, { proposer: string | null; createdAt: string | null; approvalStatus: string | null }>();
@@ -744,6 +751,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               selJobNo={sel?.job.job_no}
               ranked={rankedJobs}
               proposedJobIds={proposedJobIds}
+              lineJobIds={lineJobIds}
               candForAI={{
                 candidate_no: person.candidate_no, name: person.name, title: person.title,
                 skills: person.skills, rate: person.rate, exp: person.exp, remote_pref: person.remote_pref,
@@ -759,7 +767,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} row={person} />
                   <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {rankedJobs.length}件</span>
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{lineCandIds.has(person.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
                 <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                   {person.title && <span className="tag">{person.title}</span>}
                   {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
@@ -794,7 +802,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                     </div>
                     <div style={{ padding: 20 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{lineJobIds.has(j.id) && <span title="LINE経由の案件" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
                       {/* クライアント名・職種・リモート・勤務地・単価に加え、商流・年代制限・国籍要件も表示（要望③）。
                           年代制限/国籍要件は案件本文(detail+title)から判定（一覧の表示ロジックと同じ）。 */}
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[
@@ -976,7 +984,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             {job && (
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
-          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds}
+          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds}
             jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
 
           {/* 右: 詳細パネル */}
