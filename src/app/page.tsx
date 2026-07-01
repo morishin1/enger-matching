@@ -4,6 +4,7 @@ import { TalentHome } from "@/components/TalentHome";
 import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { DashboardNews } from "@/components/DashboardNews";
+import { DashboardKgiSummary } from "@/components/DashboardKgiSummary";
 import { KpiDashboardClient } from "@/components/KpiDashboardClient";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction } from "@/lib/roles";
@@ -53,7 +54,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <div className="page" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* ① 新着ニュース（やるべきこと・日報・新規登録者などのメッセージ） */}
       <DashboardNews alerts={alerts} notifications={notifications} />
-      {/* ② KPIダッシュボード（KGI達成率の4ボックスは KpiDashboardClient 内の「選択した日…」直上に表示） */}
+      {/* ② 今月のKGI/KPI サマリー（/kgi のデータと連動：売上目標・稼働/面談/提案/打合せ の達成率＋仕入れKGI） */}
+      <DashboardKgiSummary />
+      {/* ③ KPIダッシュボード（KGI達成率の4ボックスは KpiDashboardClient 内の「選択した日…」直上に表示） */}
       {kpiData?.kpi ? (
         <div className="card flush" style={{ overflow: "hidden" }}>
           <KpiDashboardClient {...(kpiData.kpi as React.ComponentProps<typeof KpiDashboardClient>)} />
