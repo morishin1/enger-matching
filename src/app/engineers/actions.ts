@@ -681,7 +681,7 @@ export type FreelancePrefill = {
   freelance_id: string;            // 元のE番号（E-XXXXX）
   name: string;                    // 氏名＝フリーランス側のイニシャル（例：FT）。未登録なら空欄。
   title: string;                   // 職種（希望職種）
-  affiliation: string;             // 所属区分（会社）＝一律 "BP"
+  affiliation: string;             // 所属区分＝既定「弊社所属フリーランス」（#262・編集可）
   skills: string[];                // スキルカードの技術スタック
   rate: string;                    // 希望単価（"50万〜" / "50万〜60万"）
   rate_num: number | null;
@@ -748,7 +748,7 @@ export async function prepareCandidateFromFreelancer(engineerId: string): Promis
       freelance_id: freelanceShortId(id),
       name: initials,                                  // 氏名＝イニシャル（空欄ならそのまま空欄）
       title: f.desiredJob,
-      affiliation: "BP",                               // 一律 BP
+      affiliation: "弊社所属フリーランス",              // 既定（#262・フォームで編集可）
       skills,
       rate: formatRateRange(f.rateMin, f.rateMax),
       rate_num: f.rateMin ?? f.rateMax ?? null,
@@ -773,6 +773,8 @@ export async function registerCandidateFromFreelancer(input: {
   name: string;
   title?: string | null;
   affiliation?: string | null;
+  source_company?: string | null;  // #262 所属会社（既定「ENGERフリーランス」）→ 人材一覧の所属会社欄に反映
+  avail?: string | null;           // #262 稼働開始（例「2026年8月1日〜」）→ 人材一覧の稼働開始欄に反映
   skills?: string[];
   rate?: string | null;
   rate_num?: number | null;
@@ -805,7 +807,13 @@ export async function registerCandidateFromFreelancer(input: {
     name,
     initials: name,                                      // イニシャルそのものを氏名/イニシャルに使う
     title: input.title?.trim() || null,
-    affiliation: (input.affiliation?.trim() || "BP"),    // 所属区分（会社）＝BP 固定
+    affiliation: (input.affiliation?.trim() || "弊社所属フリーランス"),  // 所属区分（#262 既定）
+    // #262 所属会社：人材一覧の「所属会社」欄は source_company 優先・company フォールバックで
+    //   表示されるため両方に保存（既定「ENGERフリーランス」）。
+    source_company: (input.source_company?.trim() || "ENGERフリーランス"),
+    company: (input.source_company?.trim() || "ENGERフリーランス"),
+    // #262 稼働開始：カレンダー選択値（表示用テキスト）。人材一覧の「稼働開始」欄に反映。
+    avail: input.avail?.trim() || null,
     skills: normalizeSkills(input.skills ?? []),
     rate: input.rate?.trim() || null,
     rate_num: input.rate_num ?? null,
