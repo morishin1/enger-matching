@@ -4,21 +4,52 @@
 //   ① LINE WORKS … LINE で来た情報を ENGER のマッチングへつなげ、即レスする運用の入口。
 //   ② フリーランスチャット … 企業×フリーランスの担当仲介チャット（/chat）への入口。
 //   どちらもボタンを押すと「操作説明モーダル」を表示し、最後に実際の遷移ボタンを置く。
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
+import { autoIngestFromGmail } from "@/lib/actions";
 
 // LINE WORKS の Web クライアント URL。ワークスペース固有 URL があれば
 //   環境変数 NEXT_PUBLIC_LINEWORKS_URL で上書きする（未設定なら共通 Web クライアント）。
 const LINEWORKS_URL = process.env.NEXT_PUBLIC_LINEWORKS_URL || "https://talk.worksmobile.com/";
 
-export function QuickAccessButtons({ compact = false }: { compact?: boolean }) {
+export function QuickAccessButtons({ compact = false, canImport = false }: { compact?: boolean; canImport?: boolean }) {
   const [modal, setModal] = useState<null | "lineworks" | "chat">(null);
+  const router = useRouter();
+  const [busy, start] = useTransition();
+  const [importMsg, setImportMsg] = useState<string | null>(null);
   const btn = "btn ghost" + (compact ? " btn-xs" : "");
+
+  // Gmail 自動取込：同期 → AI分類 → 案件/人材を自動登録（直近1日・1回あたり少量）。
+  const runImport = () => {
+    if (busy) return;
+    if (typeof window !== "undefined" && !window.confirm("Gmailの新着（直近1日）をAIで解析し、案件/人材を自動登録します。実行しますか？")) return;
+    setImportMsg("🤖 Gmail取込中…（同期→AI分類→自動登録。30秒〜1分ほどかかります）");
+    start(async () => {
+      try {
+        const r = await autoIngestFromGmail();
+        if (!r.ok) { setImportMsg(`取込失敗: ${r.error ?? "不明なエラー"}`); return; }
+        setImportMsg(`✓ 同期${r.synced ?? 0}・AI抽出${r.extracted ?? 0}・案件${r.autoJobs ?? 0}・人材${r.autoCandidates ?? 0}・要確認${r.needsReview ?? 0}${r.errors ? `・エラー${r.errors}` : ""}`);
+        router.refresh();
+      } catch (e) {
+        setImportMsg(`取込失敗: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setTimeout(() => setImportMsg(null), 20000);
+      }
+    });
+  };
 
   return (
     <>
       <div style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {canImport && (
+          <button type="button" className={"btn brand" + (compact ? " btn-xs" : "")} onClick={runImport} disabled={busy}
+            title="Gmailの新着（直近1日）をAIで解析し、案件/人材として自動登録します。" style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: compact ? 16 : 18, lineHeight: 1 }}>{busy ? "sync" : "mark_email_unread"}</span>
+            {busy ? "取込中…" : "Gmail取込"}
+          </button>
+        )}
         <button type="button" className={btn} onClick={() => setModal("lineworks")}
           title="LINE WORKS の使い方（LINE→ENGER→即レス）を表示" style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
           <span style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={compact ? 16 : 18} /></span>
@@ -62,6 +93,17 @@ export function QuickAccessButtons({ compact = false }: { compact?: boolean }) {
           ]}
           action={{ href: "/chat", label: "フリーランスチャットを開く", external: false }}
         />
+      )}
+
+      {/* Gmail取込の進捗/結果トースト（右下・自動で消える） */}
+      {importMsg && (
+        <div style={{ position: "fixed", right: 16, bottom: 16, zIndex: 500, maxWidth: 380, background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 12, boxShadow: "0 6px 24px rgba(0,0,0,.14)", padding: "12px 14px" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>mark_email_read</span>
+            <div style={{ minWidth: 0, fontSize: 12.5, lineHeight: 1.6, color: "var(--color-ink)" }}>{importMsg}</div>
+            <button type="button" className="btn ghost btn-xs" onClick={() => setImportMsg(null)} style={{ marginLeft: "auto", flexShrink: 0 }}>×</button>
+          </div>
+        </div>
       )}
     </>
   );

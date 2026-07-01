@@ -14,6 +14,7 @@ import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getLineOriginIds } from "@/lib/line-origin";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
+import { gmailConfigured } from "@/lib/gmail-api";
 import { PartnerMatching } from "@/components/PartnerMatching";
 import { ConfirmJobButton } from "@/components/ConfirmJobButton";
 import { MatchingPeerTabs } from "@/components/MatchingTabs";
@@ -928,7 +929,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           <div className="sub">案件を選ぶと、スキル一致を主軸（単価・職種・リモートで補正）に候補をランキング表示します。</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
-          <QuickAccessButtons />
+          <QuickAccessButtons canImport={scope.isInternal && gmailConfigured()} />
           {job && sel?.candidate && (
             <SendToLineButton
               targets={lwTargets}
