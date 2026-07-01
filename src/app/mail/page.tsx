@@ -81,14 +81,19 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
       };
 
       if (tab === "import") {
-        let qb: any = sb.from("inbox_emails")
-          .select("id, gmail_message_id, subject, from_email, from_name, body, has_attachment, attachment_names, received_at, synced_at, extracted_at, extracted_kind, extracted_summary, extracted_data, registered_at, registered_job_no, registered_candidate_no, is_archived")
-          .order("received_at", { ascending: false }).limit(500);
-        if (importFilter === "unprocessed") qb = qb.is("extracted_at", null).eq("is_archived", false);
-        else if (importFilter === "extracted") qb = qb.not("extracted_at", "is", null).is("registered_at", null).eq("is_archived", false);
-        else if (importFilter === "registered") qb = qb.not("registered_at", "is", null);
-        else if (importFilter === "archived") qb = qb.eq("is_archived", true);
-        const r: any = await qb;
+        // attachments 列は追加マイグレーション（inbox-emails-attachments.sql）依存。
+        //   未適用でもタブが壊れないよう、列ありで引いて失敗したら列なしで再取得する。
+        const COLS_BASE = "id, gmail_message_id, subject, from_email, from_name, body, has_attachment, attachment_names, received_at, synced_at, extracted_at, extracted_kind, extracted_summary, extracted_data, registered_at, registered_job_no, registered_candidate_no, is_archived";
+        const buildQ = (cols: string) => {
+          let q: any = sb.from("inbox_emails").select(cols).order("received_at", { ascending: false }).limit(500);
+          if (importFilter === "unprocessed") q = q.is("extracted_at", null).eq("is_archived", false);
+          else if (importFilter === "extracted") q = q.not("extracted_at", "is", null).is("registered_at", null).eq("is_archived", false);
+          else if (importFilter === "registered") q = q.not("registered_at", "is", null);
+          else if (importFilter === "archived") q = q.eq("is_archived", true);
+          return q;
+        };
+        let r: any = await buildQ(COLS_BASE + ", attachments");
+        if (r.error) r = await buildQ(COLS_BASE); // attachments 列が無い環境へのフォールバック
         if (r.error) needSetup = true; else importRows = r.data ?? [];
       } else {
         let qb: any = sb.from("mail_sent")
