@@ -45,9 +45,14 @@ function PipeStat({ label, n, tone }: { label: string; n: number; tone: string }
   );
 }
 
-export default async function MailPage({ searchParams }: { searchParams: Promise<{ tab?: string; filter?: string; q?: string; sender?: string }> }) {
+// Gmail取込タブのページング：1ページ1000件 × 最大20ページ（要望：500件では追いつかない）。
+const IMPORT_PER_PAGE = 1000;
+const IMPORT_MAX_PAGES = 20;
+
+export default async function MailPage({ searchParams }: { searchParams: Promise<{ tab?: string; filter?: string; q?: string; sender?: string; page?: string }> }) {
   const sp = await searchParams;
   const tab: Tab = (["import", "sent"] as const).includes(sp.tab as any) ? (sp.tab as Tab) : "import";
+  const pageN = Math.max(1, Math.min(IMPORT_MAX_PAGES, Math.floor(Number(sp.page) || 1)));
 
   let dbError: string | null = null;
   let needSetup = false;
@@ -87,8 +92,10 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
         // attachments 列は追加マイグレーション（inbox-emails-attachments.sql）依存。
         //   未適用でもタブが壊れないよう、列ありで引いて失敗したら列なしで再取得する。
         const COLS_BASE = "id, gmail_message_id, subject, from_email, from_name, body, has_attachment, attachment_names, received_at, synced_at, extracted_at, extracted_kind, extracted_summary, extracted_data, registered_at, registered_job_no, registered_candidate_no, is_archived";
+        // ページング：1000件/ページ（range は両端含む）。フィルタ別の総数は上の pipelineCounts を利用。
+        const from = (pageN - 1) * IMPORT_PER_PAGE;
         const buildQ = (cols: string) => {
-          let q: any = sb.from("inbox_emails").select(cols).order("received_at", { ascending: false }).limit(500);
+          let q: any = sb.from("inbox_emails").select(cols).order("received_at", { ascending: false }).range(from, from + IMPORT_PER_PAGE - 1);
           if (importFilter === "unprocessed") q = q.is("extracted_at", null).eq("is_archived", false);
           else if (importFilter === "extracted") q = q.not("extracted_at", "is", null).is("registered_at", null).eq("is_archived", false);
           else if (importFilter === "registered") q = q.not("registered_at", "is", null);
@@ -188,7 +195,17 @@ export default async function MailPage({ searchParams }: { searchParams: Promise
           <PipeStat label="アーカイブ" n={pipelineCounts.archived} tone="#94a3b8" />
         </div>
       )}
-      {tab === "import" && !needSetup && <MailboxClient rows={importRows} filter={importFilter} gmailReady={gmailConfigured()} />}
+      {tab === "import" && !needSetup && (() => {
+        // フィルタ別の総数（ページ数計算用）。集計済みの pipelineCounts を再利用。
+        const totalForFilter = !pipelineCounts ? importRows.length
+          : importFilter === "unprocessed" ? pipelineCounts.unprocessed
+          : importFilter === "extracted" ? pipelineCounts.extracted
+          : importFilter === "registered" ? pipelineCounts.registered
+          : importFilter === "archived" ? pipelineCounts.archived
+          : pipelineCounts.total;
+        return <MailboxClient rows={importRows} filter={importFilter} gmailReady={gmailConfigured()}
+          page={pageN} total={totalForFilter} perPage={IMPORT_PER_PAGE} maxPages={IMPORT_MAX_PAGES} />;
+      })()}
       {tab === "sent" && !needSetup && <MailLogClient rows={sentRows} initialQ={sentQ} initialSender={sentSender} />}
     </div>
   );

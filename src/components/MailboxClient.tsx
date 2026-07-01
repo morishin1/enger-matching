@@ -167,7 +167,11 @@ type Row = {
   is_archived: boolean;
 };
 
-export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filter: string; gmailReady: boolean }) {
+export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, perPage = 1000, maxPages = 20 }: {
+  rows: Row[]; filter: string; gmailReady: boolean;
+  /** ページング（1ページ perPage 件・最大 maxPages ページ）。total はフィルタ別の総件数。 */
+  page?: number; total?: number; perPage?: number; maxPages?: number;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [pending, start] = useTransition();
@@ -405,7 +409,33 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
         </table>
       </div>
 
-      <div className="muted" style={{ fontSize: 11.5 }}>{filtered.length} 件 / 全 {rows.length} 件</div>
+      {/* ページャ：1ページ perPage 件・最大 maxPages ページ（要望：500件では追いつかない→1000件×ページ送り）。 */}
+      {(() => {
+        const pages = Math.min(maxPages, Math.max(1, Math.ceil((total || 0) / perPage)));
+        const href = (n: number) => `/mail?tab=import&filter=${encodeURIComponent(filter)}&page=${n}`;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span className="muted" style={{ fontSize: 11.5 }}>
+              表示 {filtered.length.toLocaleString()} 件（このページ {rows.length.toLocaleString()} 件 ／ 全 {Math.max(total, rows.length).toLocaleString()} 件）
+            </span>
+            {pages > 1 && (
+              <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                {page > 1 && <a className="btn ghost btn-xs" href={href(page - 1)} style={{ textDecoration: "none" }}>← 前へ</a>}
+                {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
+                  <a key={n} href={href(n)} style={{
+                    padding: "3px 9px", borderRadius: 7, textDecoration: "none", fontSize: 12,
+                    fontWeight: n === page ? 800 : 600,
+                    background: n === page ? "var(--color-brand-600)" : "transparent",
+                    color: n === page ? "#fff" : "var(--color-ink-2)",
+                    border: n === page ? "1px solid var(--color-brand-600)" : "1px solid var(--color-border)",
+                  }}>{n}</a>
+                ))}
+                {page < pages && <a className="btn ghost btn-xs" href={href(page + 1)} style={{ textDecoration: "none" }}>次へ →</a>}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {active && <MailboxDetailModal r={active} onClose={() => setActive(null)} />}
     </div>

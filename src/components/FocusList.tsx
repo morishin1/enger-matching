@@ -4,15 +4,19 @@ import { useState, type ReactNode } from "react";
 import Link from "@/components/AppLink";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
+import { LineShareButton } from "./LineShareButton";
+import { jobLineTemplate, candidateLineTemplate } from "@/lib/line-templates";
+import type { LineworksTarget } from "@/lib/lineworks-targets";
 
 const dt = (d: string | null | undefined) => (d ? new Date(d).toLocaleString("ja-JP", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const remoteLabel = (r: string | null) => r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 const salaryLabel = (lo: number | null, hi: number | null) => { if (lo && hi) return lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`; if (hi) return `〜¥${hi}万`; if (lo) return `¥${lo}万〜`; return "スキル見合い"; };
 
-export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnUnheart }: {
+export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnUnheart, lineTargets }: {
   kind: "jobs" | "people"; items: any[];
   headerTitle?: ReactNode; unit?: string; emptyText?: ReactNode;
   removeOnUnheart?: boolean; // 注力リストでハートを外したら即座に行を消し、件数を減らす
+  lineTargets?: LineworksTarget[]; // 渡すと詳細モーダルに「LINEに送る」（雛形の確認・編集→送信/コピー）を表示
 }) {
   const [detail, setDetail] = useState<any | null>(null);
   const [list, setList] = useState<any[]>(items);
@@ -69,8 +73,13 @@ export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnU
             </div>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <Link href={matchHref(detail)} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
+          {lineTargets && (
+            <LineShareButton targets={lineTargets}
+              text={isJob ? jobLineTemplate(detail) : candidateLineTemplate(detail)}
+              buttonTitle={isJob ? "この案件情報をLINE向け雛形で確認・編集して送信/コピー" : "この人材情報（匿名）をLINE向け雛形で確認・編集して送信/コピー"} />
+          )}
           {!isJob && <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページ</Link>}
         </div>
       </div>
