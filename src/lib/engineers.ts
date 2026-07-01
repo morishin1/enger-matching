@@ -113,6 +113,8 @@ export type Engineer = {
   withdrawal_requested_at: string | null;
   withdrawal_reason: string | null;
   withdrawal_completed_at: string | null;
+  // #263 ログイン停止（凍結）。NULL=通常 / タイムスタンプあり=停止中（一覧バッジ・停止/解除ボタンの判定に使用）。
+  login_suspended_at: string | null;
   source: EngineerSource;     // 派生フィールド（UIバッジ用）
 };
 
@@ -170,6 +172,10 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     // まず skill_sheets（複数スキルシート）込みで取得を試し、列が無い環境では列なしにフォールバック。
     //   skillsheets-multi.sql 適用済み環境では先頭の variant が成功し skill_sheets を取得できる。
     const richVariants = [
+      // login_suspended_at（#263・profiles-login-suspension.sql）適用済み環境ではフル取得。
+      //   未適用でも既存チェーンにフォールバックして一覧は表示される（停止バッジのみ非表示）。
+      `${baseVariants[0]}, skill_sheets, login_suspended_at`,
+      `${baseVariants[0]}, login_suspended_at`,
       ...baseVariants.map((v) => `${v}, skill_sheets`),
       ...baseVariants,
     ];
@@ -216,6 +222,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       withdrawal_requested_at: r.withdrawal_requested_at ?? null,
       withdrawal_reason: r.withdrawal_reason ?? null,
       withdrawal_completed_at: r.withdrawal_completed_at ?? null,
+      login_suspended_at: r.login_suspended_at ?? null,
       source: classifySource(r),
     })) as Engineer[];
     return { rows, available: true };

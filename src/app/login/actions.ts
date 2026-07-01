@@ -16,7 +16,11 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
 
   const supabase = await authServerClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: "メールアドレスまたはパスワードが正しくありません" };
+  if (error) {
+    // #263 ログイン停止（Auth の ban）中は固定文言で遮断（要件どおり）。
+    if (/banned/i.test(error.message ?? "")) return { error: "このアカウントはログインできません" };
+    return { error: "メールアドレスまたはパスワードが正しくありません" };
+  }
 
   // アカウント(role/status)チェック
   const access = await resolveAccess(email);
