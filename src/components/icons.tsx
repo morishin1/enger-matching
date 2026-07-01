@@ -64,6 +64,18 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   loc: makeIcon("location_on"),
   clock: makeIcon("schedule"),
   doc: makeIcon("description"),
+  // Gmail ブランドマーク（4色の封筒M）。Gmail取込の導線で「Gmail」を一目で分かりやすく示す。
+  gmail: function Gmail({ size = 18 }: IconProps = {}) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden style={{ verticalAlign: "middle", flexShrink: 0 }}>
+        <path fill="#4285F4" d="M6 38h6V22.3L4 16.5V36c0 1.1.9 2 2 2z" />
+        <path fill="#34A853" d="M36 38h6c1.1 0 2-.9 2-2V16.5l-8 5.8V38z" />
+        <path fill="#FBBC04" d="M36 12.8V22.3l8-5.8v-3.7c0-3-3.4-4.7-5.8-2.9L36 12.8z" />
+        <path fill="#EA4335" d="M12 22.3v-9.5l12 9 12-9v9.5l-12 9z" />
+        <path fill="#C5221F" d="M4 12.8v3.7l8 5.8v-9.5L9.8 9.9C7.4 8.1 4 9.8 4 12.8z" />
+      </svg>
+    );
+  },
   // LINE ブランドマーク（緑の角丸＋吹き出し）。コピペ取り込みの導線で「LINE/メールから」を分かりやすく示す。
   line: function Line({ size = 18 }: IconProps = {}) {
     return (

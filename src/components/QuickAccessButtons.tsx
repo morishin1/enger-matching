@@ -24,8 +24,8 @@ export function QuickAccessButtons({ compact = false, canImport = false }: { com
   // Gmail 自動取込：同期 → AI分類 → 案件/人材を自動登録（直近1日・1回あたり少量）。
   const runImport = () => {
     if (busy) return;
-    if (typeof window !== "undefined" && !window.confirm("Gmailの新着（直近1日）をAIで解析し、案件/人材を自動登録します。実行しますか？")) return;
-    setImportMsg("🤖 Gmail取込中…（同期→AI分類→自動登録。30秒〜1分ほどかかります）");
+    if (typeof window !== "undefined" && !window.confirm("Gmailの新着（直近1日）を同期し、AI（低コストのHaiku）が案件/人材メールを判別して自動登録します。実行しますか？")) return;
+    setImportMsg("Gmail取込中…（同期 → AI判別 → 自動登録。30秒〜1分ほどかかります）");
     start(async () => {
       try {
         const r = await autoIngestFromGmail();
@@ -44,9 +44,18 @@ export function QuickAccessButtons({ compact = false, canImport = false }: { com
     <>
       <div style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {canImport && (
-          <button type="button" className={"btn brand" + (compact ? " btn-xs" : "")} onClick={runImport} disabled={busy}
-            title="Gmailの新着（直近1日）をAIで解析し、案件/人材として自動登録します。" style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: compact ? 16 : 18, lineHeight: 1 }}>{busy ? "sync" : "mark_email_unread"}</span>
+          // Gmail を意識したデザイン：白ベース＋薄いボーダー＋4色のGmailロゴ（Googleボタン風）。
+          <button type="button" onClick={runImport} disabled={busy}
+            className={compact ? "btn-xs" : ""}
+            title="Gmailの新着（直近1日）を同期し、AI（低コストのHaiku）が案件/人材メールを判別して自動登録します。"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", cursor: busy ? "wait" : "pointer",
+              background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", borderRadius: 8,
+              padding: compact ? "4px 10px" : "7px 14px", fontSize: compact ? 12 : 13, fontWeight: 700,
+              color: "var(--color-ink-2)", boxShadow: "0 1px 2px rgba(60,64,67,.12)", fontFamily: "inherit",
+              opacity: busy ? 0.7 : 1,
+            }}>
+            <span style={{ lineHeight: 0, display: "inline-flex" }}><Icons.gmail size={compact ? 15 : 17} /></span>
             {busy ? "取込中…" : "Gmail取込"}
           </button>
         )}
