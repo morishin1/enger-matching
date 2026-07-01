@@ -1,15 +1,19 @@
 // KGI/KPI ダッシュボード。
-//   月間売上目標（手動）→ AIが逆算して 稼働人数/面談/提案/打ち合わせ の月次KPIに割り振り、
-//   当月の営業日数で週次・日次に按分して「チームで達成する」目標として表示する。
-//   実績（提案/面談/稼働）は proposals 由来（getKpiSnapshot）で達成率を併記。
+//   月間売上目標（手動）＋ 人員配分（インサイド/アウトサイド）→ AIが逆算して
+//   稼働人数/面談/提案/打ち合わせ の月次KPIに割り振り、営業日数で週次・日次に按分して
+//   「チームで達成する」目標として表示する。打ち合わせは人員容量（1人1日3件）で実現性を判定。
+//   実績（提案/面談/稼働）は proposals 由来（getKpiSnapshot）で達成率＋リカバリー必要ペースを併記。
 import type { CSSProperties } from "react";
 import Link from "@/components/AppLink";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { businessDaysInMonth } from "@/lib/person-kgi";
-import { getKgiSalesPlan, type KgiMonthly } from "@/lib/kgi-plan";
+import {
+  getKgiSalesPlan, meetingCapacityMonth, recoveryPace,
+  DEFAULT_MTG_PER_PERSON_DAY, type KgiMonthly,
+} from "@/lib/kgi-plan";
 import { KgiPlanControls } from "@/components/KgiPlanControls";
-import { getKpiSnapshot, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, businessDaysInRange, jstStartOfDay, addDays, type Metric } from "@/lib/kpi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -43,10 +47,24 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
 
   const planRow = await getKgiSalesPlan(mk);
   const salesTarget = planRow?.salesTargetMan ?? null;
+  const headcount = planRow?.headcount ?? { inside: 0, outside: 0 };
   const plan = planRow?.plan ?? null;
 
-  // チーム実績（今月・全社）：提案/面談/稼働 の件数。
-  let actualByMetric: Partial<Record<Metric, number>> = {};
+  // 打ち合わせ容量（現在の人員配分ベース）と、当月の打ち合わせ目標の実現性。
+  const capacity = meetingCapacityMonth(headcount, bizDays, DEFAULT_MTG_PER_PERSON_DAY);
+  const apptTarget = plan?.monthly.appointment ?? 0;
+  const feasible = capacity <= 0 ? null : apptTarget <= capacity; // 人員未入力なら判定なし
+
+  // 「今日まで」に経過した営業日数（過去月＝満了、未来月＝0、当月＝今日を含む）。
+  const monthStart = new Date(`${mk}T00:00:00+09:00`);
+  const monthEndExcl = new Date(`${(m === 12 ? y + 1 : y)}-${two(m === 12 ? 1 : m + 1)}-01T00:00:00+09:00`);
+  const todayEndExcl = addDays(jstStartOfDay(now), 1);
+  const elapsedEnd = new Date(Math.min(monthEndExcl.getTime(), Math.max(monthStart.getTime(), todayEndExcl.getTime())));
+  const bizElapsed = businessDaysInRange(monthStart, elapsedEnd);
+  const isCurrentMonth = y === now.getFullYear() && m === now.getMonth() + 1;
+
+  // チーム実績（今月・全社）：提案/面談/稼働 の件数（月内累計＝今日までの実績）。
+  const actualByMetric: Partial<Record<Metric, number>> = {};
   try {
     const snap = await getKpiSnapshot({ ownerName: null, type: "month", base: new Date(`${mk}T12:00:00+09:00`) });
     for (const k of ["proposal", "schedule", "deal"] as Metric[]) actualByMetric[k] = snap.snapshot[k]?.actual ?? 0;
@@ -63,12 +81,13 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
     <div className="page">
       {/* ヘッダ */}
       <div className="page-head" style={{ alignItems: "flex-start" }}>
-        <div style={{ maxWidth: 820 }}>
+        <div style={{ maxWidth: 860 }}>
           <div className="meta">KGI / KPI · ダッシュボード</div>
           <h1><span className="material-symbols-outlined" aria-hidden style={{ fontSize: 28, verticalAlign: "-5px", marginRight: 8, color: "var(--color-brand-700)" }}>insights</span>KGI/KPI ダッシュボード</h1>
           <div className="sub">
-            <b>月間の売上目標を手動で設定</b>すると、達成に必要な<b>提案数・面談数・稼働人数・打ち合わせ数</b>をAIが逆算し、
-            当月の営業日数で<b>週次・日次</b>に割り振ります。これをチームで達成する方式です。
+            <b>月間の売上目標</b>と<b>人員配分（インサイド/アウトサイド）</b>を設定すると、達成に必要な
+            <b>提案数・面談数・稼働人数・打ち合わせ数</b>をAIが逆算し、営業日数で<b>週次・日次</b>に割り振ります。
+            打ち合わせは<b>1人1日{DEFAULT_MTG_PER_PERSON_DAY}件</b>を上限に実現性を判定し、遅れは<b>必要日次ペース</b>で取り戻します。
           </div>
         </div>
       </div>
@@ -91,15 +110,27 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
         </span>
       </div>
 
-      {/* 売上目標（手動）＋ AI計算 */}
-      <KgiPlanControls month={mk} initialTarget={salesTarget} hasPlan={!!plan} canEdit={canEdit} />
+      {/* 売上目標・人員配分（手動）＋ AI計算 */}
+      <KgiPlanControls month={mk} initialTarget={salesTarget} initialInside={headcount.inside} initialOutside={headcount.outside} hasPlan={!!plan} canEdit={canEdit} />
 
-      {/* サマリー：売上目標＆前提 */}
+      {/* サマリー：売上目標・人員/容量・AI前提 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
         <div className="card" style={{ padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>月間売上目標</div>
           <div className="mono" style={{ fontSize: 28, fontWeight: 800 }}>{salesTarget != null ? `${salesTarget.toLocaleString("ja-JP")}万` : "未設定"}</div>
           <div className="muted" style={{ fontSize: 11 }}>当月の営業日 {bizDays}日（土日除く）</div>
+        </div>
+        <div className="card" style={{ padding: "16px 18px" }}>
+          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>人員配分・打ち合わせ容量</div>
+          <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2 }}>
+            IN {headcount.inside}名 ／ OUT {headcount.outside}名
+            <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>（計{headcount.inside + headcount.outside}名）</span>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.6 }}>
+            {capacity > 0
+              ? <>月間打ち合わせ容量 <b>約{capacity.toLocaleString("ja-JP")}件</b>（{headcount.inside + headcount.outside}名×{DEFAULT_MTG_PER_PERSON_DAY}件/日×{bizDays}日）</>
+              : <>人員を入力すると容量を試算します</>}
+          </div>
         </div>
         {plan && (
           <div className="card" style={{ padding: "16px 18px" }}>
@@ -112,11 +143,27 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
         )}
       </div>
 
+      {/* 実現性の判定＆打ち手（AIの実現条件） */}
+      {plan && feasible === false && (
+        <div className="card" style={{ background: "#fef3f2", borderColor: "#fecdca", color: "#b42318", fontSize: 12.5, lineHeight: 1.7 }}>
+          <b>⚠ 打ち合わせ目標が人員容量を超えています。</b>
+          目標 <b>{apptTarget.toLocaleString("ja-JP")}件</b> ＞ 容量 <b>約{capacity.toLocaleString("ja-JP")}件</b>（1人1日{DEFAULT_MTG_PER_PERSON_DAY}件換算）。
+          数を追うより<b>単価↑・転換率↑・増員</b>、または<b>エンド直案件の獲得</b>・<b>フリーランス/BP人材の確保</b>で必要数を圧縮してください。
+          {plan.advice && <div style={{ marginTop: 6, color: "#7a271a" }}>AIの提案：{plan.advice}</div>}
+        </div>
+      )}
+      {plan && feasible === true && plan.advice && (
+        <div className="card" style={{ background: "#eefbf3", borderColor: "#bbe8cd", color: "#067647", fontSize: 12.5, lineHeight: 1.7 }}>
+          <b>✓ 打ち合わせ目標は現在の人員容量に収まります。</b>
+          <div style={{ marginTop: 4, color: "#05603a" }}>AIの提案：{plan.advice}</div>
+        </div>
+      )}
+
       {!plan && (
         <div className="card" style={{ background: "#fff6e0", borderColor: "#fde9b0", color: "#9a7b12", fontSize: 12.5 }}>
           {salesTarget == null
-            ? <><b>まず月間売上目標を入力してください。</b> その後「AIで週次/日次KPIを計算」を押すと、必要な提案数・面談数・稼働人数・打ち合わせ数が割り振られます。</>
-            : <><b>「AIで週次/日次KPIを計算」を押してください。</b> 売上目標 {salesTarget?.toLocaleString("ja-JP")}万円 から逆算します。</>}
+            ? <><b>まず月間売上目標と人員配分を入力してください。</b> その後「AIで週次/日次KPIを計算」を押すと、必要な提案数・面談数・稼働人数・打ち合わせ数が割り振られます。</>
+            : <><b>「AIで週次/日次KPIを計算」を押してください。</b> 売上目標 {salesTarget?.toLocaleString("ja-JP")}万円 と人員配分から逆算します。</>}
         </div>
       )}
 
@@ -143,9 +190,10 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
                   const monthlyN = plan.monthly[key] ?? 0;
                   const act = actual ? (actualByMetric[actual] ?? 0) : null;
                   const p = act != null ? pctOf(act, monthlyN) : null;
+                  const over = key === "appointment" && capacity > 0 && monthlyN > capacity;
                   return (
                     <tr key={key}>
-                      <td style={td}><b>{label}</b></td>
+                      <td style={td}><b>{label}</b>{over && <span style={{ marginLeft: 6, fontSize: 10.5, color: "#b42318", fontWeight: 800 }}>容量超過</span>}</td>
                       <td style={tdR} className="mono">{fmt(monthlyN)}件</td>
                       <td style={tdR} className="mono">{fmt(weekly(monthlyN))}件</td>
                       <td style={tdR} className="mono">{fmt(daily(monthlyN))}件</td>
@@ -164,9 +212,62 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
         </div>
       )}
 
+      {/* 今日までの進捗とリカバリー（毎日→週→月のゴールに接続） */}
+      {plan && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>trending_up</span>
+            <b style={{ fontSize: 13.5 }}>今日までの進捗とリカバリー</b>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+              営業日 {bizElapsed}/{bizDays}日 経過 ・ 残り {Math.max(0, bizDays - bizElapsed)}日{isCurrentMonth ? "（当月）" : (bizElapsed >= bizDays ? "（終了月）" : "（未来月）")}
+            </span>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
+              <thead><tr>
+                <th style={th}>KPI</th>
+                <th style={{ ...th, textAlign: "right" }}>月次目標</th>
+                <th style={{ ...th, textAlign: "right" }}>今日までの想定</th>
+                <th style={{ ...th, textAlign: "right" }}>実績</th>
+                <th style={{ ...th, textAlign: "right" }}>差分</th>
+                <th style={{ ...th, textAlign: "right" }}>当初の日次</th>
+                <th style={{ ...th, textAlign: "right" }}>これから必要な日次</th>
+              </tr></thead>
+              <tbody>
+                {KPI_DEFS.filter((d) => d.actual != null).map(({ key, label, actual }) => {
+                  const monthlyN = plan.monthly[key] ?? 0;
+                  const act = actualByMetric[actual as Metric] ?? 0;
+                  const r = recoveryPace(monthlyN, bizDays, bizElapsed, act);
+                  return (
+                    <tr key={key}>
+                      <td style={td}><b>{label}</b></td>
+                      <td style={tdR} className="mono">{fmt(monthlyN)}件</td>
+                      <td style={tdR} className="mono">{fmt(r.expectedToDate)}件</td>
+                      <td style={tdR} className="mono">{act}件</td>
+                      <td style={{ ...tdR, fontWeight: 800, color: r.gap >= 0 ? "#067647" : "#b42318" }} className="mono">
+                        {r.gap >= 0 ? "+" : "−"}{fmt(Math.abs(r.gap))}
+                      </td>
+                      <td style={tdR} className="mono">{fmt(r.normalDaily)}件</td>
+                      <td style={{ ...tdR, fontWeight: 800, color: r.catchUp ? "#b42318" : "#067647" }} className="mono">
+                        {r.remainingDays > 0 ? `${fmt(r.requiredDaily)}件` : (monthlyN - act > 0 ? "未達" : "達成")}
+                        {r.catchUp && r.remainingDays > 0 && <span style={{ marginLeft: 4, fontSize: 10 }}>↑要加速</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
+            ※ 「今日までの想定」＝月次目標×経過営業日÷総営業日（線形按分）。「差分」＝実績−想定（＋は貯金／−は遅れ）。
+            「これから必要な日次」＝残（月次−実績）÷残営業日。<b>当初の日次を上回る＝遅れており加速（リカバリー）が必要</b>です。打ち合わせは実績集計対象外のため除外しています。
+          </div>
+        </div>
+      )}
+
       <div className="muted" style={{ fontSize: 11, lineHeight: 1.7 }}>
-        ※ 初版は<b>全社（チーム）ビュー</b>です。売上目標は月ごとに手動設定、KPIの割り振りはAIが逆算します（AIキー未設定時は既定の転換率で逆算）。
-        部署別・個人別、日次カレンダー（予定×実績）、リカバリー自動配分は今後の拡張予定です。
+        ※ 初版は<b>全社（チーム）ビュー</b>です。売上目標・人員配分は月ごとに手動設定、KPIの割り振りと実現条件はAIが逆算します（AIキー未設定時は既定の転換率で逆算）。
+        部署別・個人別、日次カレンダー（予定×実績）、案件/人材の仕入れKPI（エンド直・FL・BP・PP採用）は今後の拡張予定です。
       </div>
     </div>
   );
