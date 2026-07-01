@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { freelanceShortId, hasJapanese, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { Icons } from "./icons";
 
@@ -606,6 +606,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
   const [scoutErr, setScoutErr] = useState<string | null>(null);
   const [logPage, setLogPage] = useState(0);            // 対応履歴ページャ（5件/ページ）
   const [appPage, setAppPage] = useState(0);            // 応募した案件ページャ（5件/ページ）
+  const [registerOpen, setRegisterOpen] = useState(false); // #250：人材マスタへ新規登録モーダル
   const [chatBusy, setChatBusy] = useState<string | null>(null); // チャット起動中の scout_id
 
   // 「スカウト送信」の対応履歴行に、対応するスカウト(scouts)を突合（scout_id/job_title を引く）。
@@ -718,6 +719,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
   };
 
   return (
+    <>
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -747,7 +749,15 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
               {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
             </div>
           </div>
-          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+            <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+            {/* #250：人材マスタ（人材一覧）へ新規登録。クリックで流し込み用データを初期セットしたフォームを開く。 */}
+            <button type="button" className="btn btn-xs" onClick={() => setRegisterOpen(true)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 15, lineHeight: 1 }}>person_add</span>
+              人材マスタへ新規登録
+            </button>
+          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
           {[["想定単価", pay(detail)], ["★ Stars", detail.total_stars], ["リポジトリ", detail.total_repos]].map(([l, v], i) => (
@@ -967,6 +977,158 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
           )}
         </div>
 
+      </div>
+    </div>
+    {registerOpen && <RegisterToMasterModal engineer={detail} onClose={() => setRegisterOpen(false)} />}
+    </>
+  );
+}
+
+// #250 登録モーダルのフィールド（モジュール直下に置き、入力ごとの再マウント＝フォーカス喪失を防ぐ）。
+const REG_FIELD: CSSProperties = { fontSize: 12.5, padding: "6px 9px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", color: "var(--color-ink)", fontFamily: "inherit" };
+const REG_LABEL: CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)" };
+function RegField({ label, value, onChange, full, placeholder }: { label: string; value: string; onChange: (v: string) => void; full?: boolean; placeholder?: string }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: full ? "1 / -1" : undefined }}>
+      <span style={REG_LABEL}>{label}</span>
+      <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={REG_FIELD} />
+    </label>
+  );
+}
+
+// #250：人材マスタへ新規登録モーダル。開いた瞬間に対象フリーランスのデータを流し込み（初期セット）、
+//   管理者が確認・編集して確定すると、新しいP番号で人材一覧に作成され、E↔P 紐付けが有効化される。
+function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onClose: () => void }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<{ no?: number } | null>(null);
+  const [pre, setPre] = useState<FreelancePrefill | null>(null);
+  // 編集可能なフォーム値（流し込み後に管理者が確認・修正できる）。
+  const [f, setF] = useState({
+    name: "", title: "", affiliation: "BP", skills: "", rate: "",
+    location: "", remote_pref: "", age_band: "", nationality: "", email: "",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    prepareCandidateFromFreelancer(engineer.id).then((r) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!r.ok || !r.data) { setErr(r.error ?? "データの取得に失敗しました"); return; }
+      const d = r.data;
+      setPre(d);
+      setF({
+        name: d.name, title: d.title, affiliation: d.affiliation || "BP",
+        skills: (d.skills ?? []).join(", "), rate: d.rate, location: d.location,
+        remote_pref: d.remote_pref, age_band: d.age_band, nationality: d.nationality, email: d.email,
+      });
+    }).catch((e) => { if (!cancelled) { setLoading(false); setErr(e instanceof Error ? e.message : "取得に失敗しました"); } });
+    return () => { cancelled = true; };
+  }, [engineer.id]);
+
+  const set = (k: keyof typeof f) => (v: string) => setF((s) => ({ ...s, [k]: v }));
+  const labelStyle = REG_LABEL;
+
+  const submit = () => {
+    if (!f.name.trim()) { setErr("氏名（イニシャル）を入力してください"); return; }
+    setErr(null);
+    start(async () => {
+      const r = await registerCandidateFromFreelancer({
+        engineer_id: engineer.id,
+        name: f.name, title: f.title || null, affiliation: f.affiliation || "BP",
+        skills: f.skills ? f.skills.split(/[,、\/／]+/).map((s) => s.trim()).filter(Boolean) : [],
+        rate: f.rate || null, rate_num: pre?.rate_num ?? null,
+        location: f.location || null, remote_pref: f.remote_pref || null,
+        age_band: f.age_band || null, nationality: f.nationality || null, email: f.email || null,
+        skill_sheets: pre?.skill_sheets ?? [],
+      });
+      if (!r.ok) { setErr(r.error ?? "登録に失敗しました"); return; }
+      setDone({ no: r.candidate_no });
+      router.refresh();
+    });
+  };
+
+  const pNo = done?.no ?? pre?.already_no ?? pre?.predicted_no ?? null;
+
+  return (
+    <div onClick={() => { if (!pending) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", display: "grid", placeItems: "center", zIndex: 340, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 19, color: "var(--color-brand-700)" }}>person_add</span>
+            人材マスタへ新規登録
+          </h3>
+          <button className="btn ghost btn-xs" onClick={onClose} disabled={pending}>閉じる</button>
+        </div>
+
+        {loading ? (
+          <div className="muted" style={{ fontSize: 13, padding: 20, textAlign: "center" }}>流し込みデータを準備中…</div>
+        ) : done ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 4px" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#067647" }}>✓ 人材マスタへ登録しました</div>
+            {done.no != null && <div style={{ fontSize: 13 }}>人材ID（P番号）：<b className="mono">P-{String(done.no).padStart(5, "0")}</b></div>}
+            <div className="muted" style={{ fontSize: 11.5 }}>元のフリーランス（{pre?.freelance_id}）と紐付け済み。応募が来ると提案ボードへ自動反映されます。</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+              <Link href="/people" className="btn btn-xs" onClick={onClose}>人材一覧を開く →</Link>
+              <button type="button" className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 人材ID（P番号）：保存時に自動採番。既にマスタ登録済みならその番号を表示。 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, padding: "8px 10px", borderRadius: 8, background: "var(--color-surface-inset)", border: "1px solid var(--color-border)" }}>
+              <span style={labelStyle}>人材ID（P番号）</span>
+              <b className="mono">{pNo != null ? `P-${String(pNo).padStart(5, "0")}` : "（保存時に自動採番）"}</b>
+              {pre?.already_no == null && <span className="muted" style={{ fontSize: 10.5 }}>※ 見込み番号。確定保存時に採番されます。</span>}
+              <span className="muted" style={{ marginLeft: "auto", fontSize: 10.5 }}>元: {pre?.freelance_id}</span>
+            </div>
+            {pre?.already_no != null && (
+              <div style={{ fontSize: 12, color: "#b45309", background: "#fff7ed", border: "1px solid #f5b97f", borderRadius: 8, padding: "8px 10px" }}>
+                このフリーランスは既に人材マスタへ登録済みです（P-{String(pre.already_no).padStart(5, "0")}）。再登録はされません。
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+              <RegField label="氏名（イニシャル）" value={f.name} onChange={set("name")} placeholder="例：FT（空欄可）" />
+              <RegField label="所属区分（会社）" value={f.affiliation} onChange={set("affiliation")} placeholder="BP" />
+              <RegField label="職種" value={f.title} onChange={set("title")} />
+              <RegField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：50万〜60万" />
+              <RegField label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代後半（空欄可）" />
+              <RegField label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="日本国籍 / 外国籍 / 不明" />
+              <RegField label="最寄駅" value={f.location} onChange={set("location")} />
+              <RegField label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} />
+              <RegField label="連絡先（メール）" value={f.email} onChange={set("email")} full />
+              <RegField label="スキルタグ（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
+            </div>
+
+            {/* スキルシート（署名URL・ログイン不要で閲覧/DL可）。引き継ぎ対象を表示。 */}
+            {(pre?.skill_sheets?.length ?? 0) > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={labelStyle}>スキルシート（引き継ぎ・共有リンク）</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {(pre?.skill_sheets ?? []).map((s, i) => (
+                    <a key={i} href={s.url} target="_blank" rel="noreferrer" title={s.name || `スキルシート${i + 1}`}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600, textDecoration: "none", border: "1px solid var(--color-border)", borderRadius: 8, padding: "4px 8px" }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>description</span>{s.name || `スキルシート${i + 1}`}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>
+              ※ 空欄の項目はそのまま空欄で登録されます（初期テキストは入りません）。所属区分は一律「BP」。
+              確定すると人材一覧に新しいP番号で作成され、元のフリーランス（E番号）と紐付きます。
+            </div>
+            {err && <div style={{ fontSize: 12, color: "var(--color-danger)" }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={onClose} disabled={pending}>キャンセル</button>
+              <button type="button" className="btn brand" onClick={submit} disabled={pending || pre?.already_no != null}>{pending ? "登録中…" : "この内容で登録"}</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

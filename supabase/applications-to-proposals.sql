@@ -15,18 +15,42 @@
 create or replace function enger.application_to_proposal() returns trigger
   language plpgsql security definer as $$
 declare
-  v_company text;
-  v_title   text;
+  v_company   text;
+  v_title     text;
+  v_cand_id   uuid;
+  v_cand_name text;
+  v_cand_init text;
 begin
   v_title := coalesce(nullif(btrim(new.job_title), ''), '（応募）');
 
-  -- 既に同一応募（人材名×案件名×LP直接応募）の提案があればスキップ（二重作成防止）。
-  if exists (
-    select 1 from enger.proposals p
-    where coalesce(p.candidate_name, '') = coalesce(new.engineer_name, '')
-      and coalesce(p.job_title, '') = v_title
-      and coalesce(p.next_action, '') like '%直接応募%'
-  ) then
+  -- #250：応募者(engineer_id)が人材マスタへ登録済み（E番号↔P番号 紐付けあり）なら、その P番号(candidate)を判別。
+  --   迷子にならないよう、提案レコードに candidate_id / 人材名(マスタ) / イニシャル を結びつける。
+  begin
+    select l.candidate_id, c.name, coalesce(c.initials, left(coalesce(c.name,''),2))
+      into v_cand_id, v_cand_name, v_cand_init
+      from enger.freelance_candidate_links l
+      join enger.candidates c on c.id = l.candidate_id
+     where l.engineer_id = new.engineer_id
+     limit 1;
+  exception when others then v_cand_id := null;
+  end;
+
+  -- 表示用の人材名は、マスタ登録済みなら P番号側の氏名を優先、無ければ応募スナップショット名。
+  v_cand_name := coalesce(v_cand_name, new.engineer_name);
+  v_cand_init := coalesce(v_cand_init, left(coalesce(new.engineer_name, ''), 2));
+
+  -- 既に同一応募の提案があればスキップ（二重作成防止）。
+  --   マスタ紐付けがあれば candidate_id×案件名 で、無ければ 人材名×案件名×LP直接応募 で判定。
+  if (v_cand_id is not null and exists (
+        select 1 from enger.proposals p
+        where p.candidate_id = v_cand_id and coalesce(p.job_title,'') = v_title
+          and coalesce(p.next_action,'') like '%直接応募%'))
+     or exists (
+        select 1 from enger.proposals p
+        where coalesce(p.candidate_name, '') = coalesce(new.engineer_name, '')
+          and coalesce(p.job_title, '') = v_title
+          and coalesce(p.next_action, '') like '%直接応募%')
+  then
     return new;
   end if;
 
@@ -39,12 +63,13 @@ begin
   end;
 
   -- 提案ボードへ記録（所属確認フォルダ）。next_action に「直接応募」を含め LP直接応募バッジを点ける。
+  --   マスタ登録済みなら candidate_id（P番号）を結びつけて一元管理できるようにする。
   begin
     insert into enger.proposals
       (job_id, candidate_id, stage, job_title, company, candidate_name, c_init, proposer, ai, next_action)
     values
-      (new.job_id, null, '所属確認', v_title, v_company, new.engineer_name,
-       left(coalesce(new.engineer_name, ''), 2), null, false, 'エンジニア直接応募（LP）');
+      (new.job_id, v_cand_id, '所属確認', v_title, v_company, v_cand_name,
+       v_cand_init, null, false, 'エンジニア直接応募（LP）');
   exception when others then
     -- 列差異等で失敗しても応募自体は成立させる（best-effort）。
     null;

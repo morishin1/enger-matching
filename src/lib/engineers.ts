@@ -20,7 +20,7 @@ export const hasJapanese = (s: string | null | undefined): boolean =>
  *  ・name : 表示用ファイル名（本名回避のためイニシャル運用）
  *  ・path : バケット内パス（将来、署名URL方式へ切り替える場合に使用）
  *  1人につき最大3件。 */
-export type SkillSheet = { url: string; name?: string | null; path?: string | null; uploaded_at?: string | null };
+export type SkillSheet = { url: string; name?: string | null; path?: string | null; uploaded_at?: string | null; expires_at?: string | null };
 
 /**
  * 登録元の判別ルール（将来のLP追加に備え、ラベル文字列で持つ）。
