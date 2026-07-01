@@ -8,14 +8,17 @@
 //
 //   メリット：マネージャー/担当が『今日の提案だけ』『今週の動きだけ』を即時に切り替えられる。
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { saveKpiTargets } from "@/lib/actions";
+import { STAGE_TEAM_METRICS } from "@/lib/stage-metrics";
+import { toast } from "@/components/toast";
 import { ProposalBoardSwitcher } from "./ProposalBoardSwitcher";
 import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
 import { KpiDashboardClient } from "./KpiDashboardClient";
-import { TeamActivityBoard, TargetEditModal } from "./TeamActivityBoard";
+import { TeamActivityBoard } from "./TeamActivityBoard";
 import { KpiPeriodBar } from "./KpiPeriodBar";
 import { KgiFunnelBanner } from "./KgiFunnelBanner";
 import { StageTargetBoard } from "./StageTargetBoard";
@@ -41,7 +44,7 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, reportsView,
+  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, stageTeamWeekly, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
@@ -51,6 +54,8 @@ export function ProposalsWorkspace({
   teamFunnel?: any;
   // ステージ別 担当者目標（{owner:{stage:target}}）と メンバー別KGI（稼働化目標）。
   stageTargets?: Record<string, Record<string, number>>;
+  // #234①：ステージ目標ボードのチーム週次目標（週次・生値）。期間按分はこのコンポーネントで行う。
+  stageTeamWeekly?: Record<string, number>;
   kgiByMember?: Record<string, { placementTarget: number | null }>;
   // 役割別KPI/KGI：メンバー名→役割（outside/inside/telapo）と、チームのファネル目標（面談率/合格率）。
   roleByMember?: Record<string, string>;
@@ -218,6 +223,33 @@ export function ProposalsWorkspace({
     }
     return out;
   }, [meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, teamActivity, stageBoardMembers, kpiKp, kpiFrom, kpiTo]);
+
+  // #234①：チーム週次目標を「現在の期間」に按分（サーバの scaleWeeklyTarget と同じ計算をクライアントで再現）。
+  //   実績（stageCurrentOverrides／提案系）が期間連動しているので、目標も同じ期間に合わせて按分する。
+  const teamStageTarget = useMemo(() => {
+    const scale = (weekly: number): number => {
+      if (!weekly || weekly <= 0) return 0;
+      if (kpiFrom || kpiTo) {
+        // 任意期間：範囲内の営業日数(月〜金) ÷ 5。from/to は inclusive。
+        const s = new Date(`${kpiFrom || kpiTo}T00:00:00+09:00`);
+        const e = new Date(`${kpiTo || kpiFrom}T00:00:00+09:00`);
+        let bd = 0;
+        for (let t = s.getTime(); t <= e.getTime(); t += 86400000) {
+          const dow = new Date(t + 9 * 3600000).getUTCDay(); // JST 曜日
+          if (dow >= 1 && dow <= 5) bd++;
+        }
+        return Math.round((weekly * bd) / 5);
+      }
+      if (kpiKp === "week") return weekly;
+      if (kpiKp === "today" || kpiKp === "yesterday") return Math.round(weekly / 5);
+      if (kpiKp === "month") return Math.round(weekly * 4.33);
+      if (kpiKp === "quarter") return weekly * 13;
+      return weekly;
+    };
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(stageTeamWeekly ?? {})) out[k] = scale(Number(v) || 0);
+    return out;
+  }, [stageTeamWeekly, kpiKp, kpiFrom, kpiTo]);
 
   // 役割別KGI：インサイド＝面談率（提案→面談）／アウトサイド＝合格率（面談→稼働）。
   //   ・インサイドは提案者責任：面談到達(面談列) ÷ 提案数(アクティビティの proposal)。
@@ -421,10 +453,10 @@ export function ProposalsWorkspace({
                         <KpiPeriodBar current={kpiProps?.period} card={false} note="" />
                       </div>
                     </div>
+                    {/* #234①：この表のステージ指標（架電/打ち合わせ/案件の仕入れ/面談/合格）の週次チーム目標を編集。 */}
                     {stageTeamEdit && teamActivity?.weekStart && (
-                      <TargetEditModal scope="team" weekStart={teamActivity.weekStart}
-                        title="チーム目標を編集（週次）" subtitle="会社全体（its）の週次目標。期間に応じて按分されます。"
-                        initial={teamActivity.teamWeeklyTarget ?? {}} onClose={() => setStageTeamEdit(false)} />
+                      <StageTeamTargetModal weekStart={teamActivity.weekStart}
+                        initial={stageTeamWeekly ?? {}} onClose={() => setStageTeamEdit(false)} />
                     )}
                     <div className="muted" style={{ fontSize: 11, marginBottom: 12 }}>打ち合わせ → 案件の仕入れ → 提案中 → 面談 → 合格（稼働決定） の目標/現在/達成率</div>
                     {/* ②③ メンバー編集・追加・削除（チーム：アウトサイド/インサイド/テレアポ）。打ち合わせ記録の自社担当にも連動。 */}
@@ -438,6 +470,7 @@ export function ProposalsWorkspace({
                       roleByMember={roleByMember ?? {}}
                       roleKgiByMember={roleKgiByMember}
                       kpiPctByMember={kpiPctByMember}
+                      teamStageTarget={teamStageTarget}
                       currentUserName={currentUserName}
                       canEdit={!!privileged}
                     />
@@ -507,6 +540,65 @@ export function ProposalsWorkspace({
           </div>
         )
       )}
+    </div>
+  );
+}
+
+// #234①：ステージ目標ボードの「チーム目標を編集（週次）」モーダル。
+//   入力＝この表の指標（架電/打ち合わせ/案件の仕入れ/面談/合格）の週次目標。
+//   保存は kpi_targets（scope=team, team_key=stage）を saveKpiTargets で共用。
+//   表示側（チーム合計行）で選択期間に按分して「現在/目標/達成率」に反映する。
+const STAGE_TEAM_LABEL: Record<string, string> = {
+  "架電": "架電", "打ち合わせ": "打ち合わせ", "案件の仕入れ": "案件の仕入れ", "面談": "面談", "合格": "合格（稼働決定）",
+};
+function StageTeamTargetModal({ weekStart, initial, onClose }: { weekStart: string; initial: Record<string, number>; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [vals, setVals] = useState<Record<string, string>>(() => {
+    const o: Record<string, string> = {};
+    for (const k of STAGE_TEAM_METRICS) o[k] = initial?.[k] != null ? String(initial[k]) : "";
+    return o;
+  });
+
+  const submit = () => {
+    const targets: Record<string, number> = {};
+    for (const k of STAGE_TEAM_METRICS) {
+      const n = Math.max(0, Math.floor(Number(vals[k]) || 0));
+      targets[k] = n; // 0 も送る（クリアできるように）
+    }
+    start(async () => {
+      const r = await saveKpiTargets({ scope: "team", teamKey: "stage", weekStart, targets: targets as any });
+      if (!r.ok) { toast(r.error ?? "目標の保存に失敗しました", "error"); return; }
+      toast("チーム目標（週次）を保存しました", "success");
+      router.refresh();
+      onClose();
+    });
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,36,64,.45)", display: "grid", placeItems: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(460px, 96vw)", padding: 0, background: "var(--color-surface)" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--color-border)" }}>
+          <div style={{ fontSize: 15, fontWeight: 800 }}>チーム目標を編集（週次）</div>
+          <div className="muted" style={{ fontSize: 11.5, marginTop: 3 }}>会社全体の週次目標（1週間あたり）。表の期間に応じて自動で按分表示されます（本日=÷5 / 今週=そのまま / 今月=×4.33 など）。</div>
+        </div>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+          {STAGE_TEAM_METRICS.map((k) => (
+            <label key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{STAGE_TEAM_LABEL[k] ?? k}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <input type="number" min={0} value={vals[k] ?? ""} onChange={(e) => setVals((p) => ({ ...p, [k]: e.target.value }))}
+                  style={{ width: 90, fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", textAlign: "right", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                <span className="muted" style={{ fontSize: 12 }}>件/週</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div style={{ padding: "12px 20px", borderTop: "1px solid var(--color-border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn ghost" onClick={onClose} disabled={pending}>キャンセル</button>
+          <button type="button" className="btn brand" onClick={submit} disabled={pending}>{pending ? "保存中…" : "保存"}</button>
+        </div>
+      </div>
     </div>
   );
 }

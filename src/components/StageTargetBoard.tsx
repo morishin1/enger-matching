@@ -74,6 +74,9 @@ type Props = {
   roleByMember?: Record<string, string>;
   roleKgiByMember?: Record<string, RoleKgi>;
   kpiPctByMember?: Record<string, number | null>;
+  // #234①：チーム週次目標を選択期間に按分した値（列キー→目標数）。チーム合計行の目標に反映する。
+  //   未設定の列はメンバー個別目標の合計にフォールバック。
+  teamStageTarget?: Record<string, number>;
   currentUserName?: string | null;   // 「個人」フィルタ用
   canEdit: boolean;
 };
@@ -81,7 +84,7 @@ type Props = {
 const pctTone = (pct: number | null) => pct == null ? "var(--color-ink-4)" : pct >= 100 ? "#067647" : pct >= 60 ? "#9a7b12" : "#b42318";
 const roleOf = (owner: string, roleKgi: Record<string, RoleKgi>): string | null => roleKgi[owner]?.role ?? null;
 
-export function StageTargetBoard({ proposals, members, stageTargets, currentOverrides = {}, kgiByMember, roleByMember = {}, roleKgiByMember = {}, kpiPctByMember = {}, currentUserName, canEdit }: Props) {
+export function StageTargetBoard({ proposals, members, stageTargets, currentOverrides = {}, kgiByMember, roleByMember = {}, roleKgiByMember = {}, kpiPctByMember = {}, teamStageTarget = {}, currentUserName, canEdit }: Props) {
   const router = useRouter();
   const [, start] = useTransition();
   const [edits, setEdits] = useState<Record<string, string>>({}); // `${owner}|${stage}` -> 入力中の値
@@ -302,7 +305,12 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
               <div style={{ fontSize: 9.5, fontWeight: 500, color: "var(--color-ink-5)" }}>{shownMembers.length}名の合計</div>
             </td>
             {STAGE_COLUMNS.map((c) => {
-              const { cur, tg } = teamTotals[c.key] ?? { cur: 0, tg: 0 };
+              const tot = teamTotals[c.key] ?? { cur: 0, tg: 0 };
+              const cur = tot.cur;
+              // #234①：チーム週次目標（期間按分済み）が設定されていればそれを目標に採用。
+              //   未設定（0）の列は従来どおりメンバー個別目標の合計にフォールバック。
+              const teamTg = teamStageTarget[c.key] ?? 0;
+              const tg = teamTg > 0 ? teamTg : tot.tg;
               const pct = tg > 0 ? Math.round((cur / tg) * 100) : null;
               return (
                 <td key={c.key} style={{ ...td, fontWeight: 800 }}>
@@ -323,6 +331,7 @@ export function StageTargetBoard({ proposals, members, stageTargets, currentOver
         <b>面談</b>＝「面談」フォルダに入ったことのある提案の件数（提案者・累計／別フォルダや失注へ移っても減らず、削除のみ減算）。
         <b>合格（稼働決定）</b>＝「合格」ステージの件数（クロージング担当者で集計）。
         いずれも上部の期間に連動します。
+        <br />※ <b>チーム合計</b>の目標は「チーム目標を編集（週次）」で設定した週次目標を選択期間に按分した値です（未設定の列はメンバー個別目標の合計）。
         <br /><b>KGI達成率（役割別）</b>＝<b style={{ color: ROLE_BADGE.outside.fg }}>アウトサイド</b>は合格率（面談→合格/稼働）、<b style={{ color: ROLE_BADGE.inside.fg }}>インサイド</b>は面談率（提案→面談）。テレアポは独自KGIなし。目標率はチームのファネル目標。役割と目標は「KPI＆KGI」ページで割当・設定できます（未設定は従来の合格÷稼働化目標）。
         <br />上部の役割フィルタ（チーム全体/アウト/イン/テレアポ/個人）で絞り込み。役割に該当しない列は<b>対象外</b>（グレー）表示です。
         {canEdit && <><br />※ 各列の数値（/の右）が目標。直接入力して変更できます（フォーカスを外すと保存）。</>}

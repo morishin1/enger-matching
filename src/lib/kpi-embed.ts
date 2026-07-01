@@ -6,7 +6,7 @@ import { engerAdmin, dbConfigured } from "@/lib/supabase";
 import {
   getKpiSnapshot, getKpiHistory, getKpiHistoryTable, getWeeklyTargets,
   jstStartOfWeek, jstStartOfDay, jstStartOfMonth, addDays, addMonths, businessDaysInRange,
-  resolveRange, scaleWeeklyTarget, METRIC_ORDER, type PeriodType, type Metric,
+  resolveRange, scaleWeeklyTarget, getStageTeamWeekly, METRIC_ORDER, type PeriodType, type Metric,
 } from "@/lib/kpi";
 import { funnelTargetCounts } from "@/lib/kpi-roles";
 import { getTeamActivity } from "@/lib/team-activity";
@@ -127,6 +127,10 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
 
     // ステージ別の担当者目標 と メンバー別KGI（月次稼働化目標）。
     let stageTargets: Record<string, Record<string, number>> = {};
+    // #234①：ステージ目標ボードの「チーム週次目標」（架電/打ち合わせ/案件の仕入れ/面談/合格の週次・生値）。
+    //   期間按分はクライアント側（ProposalsWorkspace）で行い、チーム合計行の目標に反映する。
+    let stageTeamWeekly: Record<string, number> = {};
+    try { stageTeamWeekly = await getStageTeamWeekly(weekStart); } catch { /* 未設定でも表示は継続 */ }
     let kgiByMember: Record<string, { placementTarget: number | null }> = {};
     try {
       stageTargets = await getStageTargets();
@@ -300,7 +304,7 @@ export async function loadKpiClientProps(access: KpiAccess, sp: KpiSearch) {
       }
     } catch { /* 取得失敗時は空配列のまま（他のKPIは表示） */ }
 
-    return { kpi, teamActivity, teamFunnel, funnelsByRole, stageTargets, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents };
+    return { kpi, teamActivity, teamFunnel, funnelsByRole, stageTargets, stageTeamWeekly, kgiByMember, roleByMember, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents };
   } catch {
     return null;
   }

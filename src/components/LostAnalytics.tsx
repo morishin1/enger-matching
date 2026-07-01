@@ -1443,10 +1443,18 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
                 <td style={td}>{r.closer && r.closer !== "—" ? r.closer : "—"}</td>
                 <td style={td}>
                   <div style={{ fontWeight: 600 }}>{r.company}</div>
-                  <div className="muted" style={{ fontSize: 11 }}>{r.job_title}</div>
+                  {/* #251：案件名の付近に案件IDを表示（house style: 案件#番号）。 */}
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    {r.job_title}
+                    {r.job_no != null && <span className="mono" style={{ marginLeft: 6, color: "var(--color-ink-5)" }}>案件#{r.job_no}</span>}
+                  </div>
                 </td>
                 <td style={{ ...td, textAlign: "center" }}><StarsView value={r.job_rating} size={13} /></td>
-                <td style={td}>{r.candidate_name}</td>
+                {/* #251：人材名の付近に人材IDを表示（house style: 人材#番号）。 */}
+                <td style={td}>
+                  <div>{r.candidate_name}</div>
+                  {r.candidate_no != null && <div className="mono muted" style={{ fontSize: 11, color: "var(--color-ink-5)" }}>人材#{r.candidate_no}</div>}
+                </td>
                 <td style={{ ...td, textAlign: "center" }}><StarsView value={r.cand_rating} size={13} /></td>
                 <td style={td}>
                   <div>{r.reason}</div>
