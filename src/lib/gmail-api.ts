@@ -36,6 +36,8 @@ async function getAccessToken(): Promise<string | null> {
   return cachedToken.token;
 }
 
+export type GmailAttachmentMeta = { filename: string; attachmentId: string; mimeType: string; size: number };
+
 export type GmailMessage = {
   id: string;
   threadId: string;
@@ -47,6 +49,7 @@ export type GmailMessage = {
   bodyHtml: string;
   hasAttachment: boolean;
   attachmentNames: string[];
+  attachments: GmailAttachmentMeta[];
   receivedAt: string | null;
 };
 
@@ -103,12 +106,17 @@ function decodeBase64Url(b64: string): string {
   catch { return ""; }
 }
 
-function extractParts(payload: any, out: { plain: string[]; html: string[]; attachments: string[] }): void {
+function extractParts(payload: any, out: { plain: string[]; html: string[]; attachments: GmailAttachmentMeta[] }): void {
   if (!payload) return;
   const mime = String(payload.mimeType ?? "");
   if (mime === "text/plain" && payload.body?.data) out.plain.push(decodeBase64Url(payload.body.data));
   else if (mime === "text/html" && payload.body?.data) out.html.push(decodeBase64Url(payload.body.data));
-  else if (payload.filename && payload.body?.attachmentId) out.attachments.push(String(payload.filename));
+  else if (payload.filename && payload.body?.attachmentId) out.attachments.push({
+    filename: String(payload.filename),
+    attachmentId: String(payload.body.attachmentId),
+    mimeType: mime,
+    size: Number(payload.body.size ?? 0),
+  });
   for (const p of (payload.parts ?? [])) extractParts(p, out);
 }
 
@@ -191,7 +199,7 @@ export async function fetchMessage(id: string): Promise<{ ok: true; msg: GmailMe
   if (dateStr) { const t = new Date(dateStr); if (!isNaN(t.getTime())) receivedAt = t.toISOString(); }
   if (!receivedAt && data?.internalDate) receivedAt = new Date(Number(data.internalDate)).toISOString();
 
-  const parts: { plain: string[]; html: string[]; attachments: string[] } = { plain: [], html: [], attachments: [] };
+  const parts: { plain: string[]; html: string[]; attachments: GmailAttachmentMeta[] } = { plain: [], html: [], attachments: [] };
   extractParts(data?.payload, parts);
   const bodyHtml = parts.html.join("\n");
   let body = parts.plain.join("\n").trim();
@@ -207,8 +215,21 @@ export async function fetchMessage(id: string): Promise<{ ok: true; msg: GmailMe
       body,
       bodyHtml: bodyHtml.length > 32000 ? bodyHtml.slice(0, 32000) : bodyHtml,
       hasAttachment: parts.attachments.length > 0,
-      attachmentNames: parts.attachments,
+      attachmentNames: parts.attachments.map((a) => a.filename),
+      attachments: parts.attachments,
       receivedAt,
     },
   };
+}
+
+/** 添付1件の実データ（base64url）を取得する。スキルシートを Storage に保存するために使う。 */
+export async function fetchAttachment(messageId: string, attachmentId: string): Promise<{ ok: true; base64url: string; size: number } | { ok: false; error: string }> {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, error: "Gmail 認証情報が未設定です" };
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return { ok: false, error: `Gmail attachment HTTP ${r.status}` };
+  const data: any = await r.json();
+  if (!data?.data) return { ok: false, error: "添付データが空です" };
+  return { ok: true, base64url: String(data.data), size: Number(data.size ?? 0) };
 }

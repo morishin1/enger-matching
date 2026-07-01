@@ -2,7 +2,8 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { randomBytes } from "crypto";
-import { engerAdmin } from "./supabase";
+import { Buffer } from "node:buffer";
+import { engerAdmin, publicAdmin } from "./supabase";
 import { currentAccess } from "./accounts";
 import { canSeeMargin } from "./engagement-access";
 import { partnerOwnerCompany } from "./tenant";
@@ -2870,6 +2871,52 @@ export async function deleteProposalMemo(memoId: string) {
 //   - 登録: extracted_data から jobs/candidates テーブルに insert（既存 upsert*Manual を流用）
 // ────────────────────────────────────────────────────────
 
+// 受信メールの保存済み添付（スキルシート等）。inbox_emails.attachments(jsonb) に格納。
+export type InboxAttachment = { name: string; url: string; path: string; size: number; mime: string };
+
+// スキルシートらしい添付か（画像の署名/ロゴは除外、文書・PDF・圧縮を対象）。
+const SKILL_SHEET_EXT = /\.(pdf|xlsx?|xlsm|docx?|pptx?|csv|txt|zip|rtf|odt|ods)$/i;
+function isLikelySkillSheet(name: string, mime: string): boolean {
+  if (SKILL_SHEET_EXT.test(name || "")) return true;
+  const m = (mime || "").toLowerCase();
+  if (m.startsWith("image/")) return false;      // 署名画像・ロゴなどは対象外
+  return m.startsWith("application/") || m === "text/plain" || m === "text/csv";
+}
+// Storage キー用にファイル名を安全化（日本語等は _ に。表示名は元の filename を使う）。
+function sanitizeStorageName(name: string): string {
+  const base = String(name || "file").split(/[\\/]/).pop() || "file";
+  const cleaned = base.replace(/[^\w.\-]+/g, "_").replace(/_+/g, "_").slice(0, 120);
+  return cleaned && cleaned !== "_" ? cleaned : "file";
+}
+
+// メールの添付を Storage(skillsheets/inbox/<messageId>/...) に保存し、公開URL配列を返す。
+//   ・公開バケットなのでログイン不要の永続URL（本文にリンク表示・DL可）。
+//   ・スキルシート系（文書/PDF/圧縮）のみ・最大5件・25MB上限。失敗は握りつぶして続行。
+async function persistInboxAttachments(messageId: string, atts: Array<{ filename: string; attachmentId: string; mimeType: string; size: number }>): Promise<InboxAttachment[]> {
+  if (!Array.isArray(atts) || atts.length === 0) return [];
+  const { fetchAttachment } = await import("./gmail-api");
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return []; }
+  const docs = atts.filter((a) => isLikelySkillSheet(a.filename, a.mimeType)).slice(0, 5);
+  const out: InboxAttachment[] = [];
+  for (let i = 0; i < docs.length; i++) {
+    const a = docs[i];
+    if (a.size && a.size > 25 * 1024 * 1024) continue; // 25MB超はスキップ
+    try {
+      const got = await fetchAttachment(messageId, a.attachmentId);
+      if (!got.ok) continue;
+      const buf = Buffer.from(got.base64url.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+      const path = `inbox/${messageId}/${i}_${sanitizeStorageName(a.filename)}`;
+      const up: any = await pub.storage.from("skillsheets").upload(path, buf, { contentType: a.mimeType || "application/octet-stream", upsert: true });
+      if (up?.error) continue;
+      const url = pub.storage.from("skillsheets").getPublicUrl(path)?.data?.publicUrl;
+      if (!url) continue;
+      out.push({ name: a.filename, url, path, size: a.size || buf.length, mime: a.mimeType || "" });
+    } catch { /* 1件失敗しても続行 */ }
+  }
+  return out;
+}
+
 export async function syncInboxFromGmail(opts?: { query?: string; max?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; found?: number; account?: string | null; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
@@ -2918,6 +2965,14 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
       has_attachment: m.hasAttachment, attachment_names: m.attachmentNames.length ? m.attachmentNames : null,
       received_at: m.receivedAt,
     });
+    // 添付（スキルシート等）を Storage に保存し、公開URLを attachments 列へ。
+    //   ・列/バケット未整備や保存失敗でも取込自体は止めない（try/catch）。
+    if (m.attachments && m.attachments.length > 0) {
+      try {
+        const saved = await persistInboxAttachments(m.id, m.attachments);
+        if (saved.length > 0) await admin.from("inbox_emails").update({ attachments: saved }).eq("gmail_message_id", m.id);
+      } catch { /* attachments 列未整備・保存失敗は無視 */ }
+    }
     synced++;
   };
   const workers = Array.from({ length: Math.min(POOL, newIds.length) }, async () => {
@@ -3265,6 +3320,11 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
   const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
   if (!row) return { ok: false, error: "メールが見つかりません" };
   const d = row.extracted_data ?? {};
+  // スキルシートが添付で届いた会社向け：本文にリンクが無ければ、保存済み添付の公開URLを採用。
+  //   （リンクで送る会社は d.skill_sheet_url を優先、添付で送る会社は attachments[0].url を使う）
+  const attachUrl: string | null = Array.isArray(row.attachments)
+    ? (row.attachments.find((a: any) => a && typeof a.url === "string" && a.url)?.url ?? null)
+    : null;
   const input: CandidateInput = {
     name: override?.name ?? d.name ?? row.from_name ?? "(氏名未抽出)",
     title: override?.title ?? d.title ?? null,
@@ -3273,7 +3333,7 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
     rate: override?.rate ?? d.rate ?? null,
     exp: override?.exp ?? d.exp ?? null,
     remote_pref: override?.remote_pref ?? d.remote_pref ?? null,
-    skill_sheet_url: override?.skill_sheet_url ?? d.skill_sheet_url ?? null,
+    skill_sheet_url: override?.skill_sheet_url ?? d.skill_sheet_url ?? attachUrl ?? null,
     note: row.body?.slice(0, 1500) ?? null,
     contact_email: row.from_email ?? null,
     // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。

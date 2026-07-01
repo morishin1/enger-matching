@@ -159,6 +159,7 @@ type Row = {
   subject: string | null; from_email: string | null; from_name: string | null;
   body: string | null;
   has_attachment: boolean; attachment_names: string[] | null;
+  attachments?: { name: string; url: string; path?: string; size?: number; mime?: string }[] | null;
   received_at: string | null; synced_at: string;
   extracted_at: string | null; extracted_kind: string | null;
   extracted_summary: string | null; extracted_data: any;
@@ -518,9 +519,25 @@ function MailboxDetailModal({ r, onClose }: { r: Row; onClose: () => void }) {
           <div className="card" style={{ padding: 14 }}>
             <div className="muted" style={{ fontSize: 11.5, marginBottom: 8 }}>本文</div>
             <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", maxHeight: 320, overflowY: "auto", lineHeight: 1.7 }}>{r.body || "(本文なし)"}</div>
-            {r.attachment_names && r.attachment_names.length > 0 && (
-              <div style={{ marginTop: 10, fontSize: 11, color: "var(--color-ink-3)" }}>📎 添付: {r.attachment_names.join(" / ")}</div>
-            )}
+            {/* 添付：スキルシート等は保存済みの公開URLで表示・DL。未保存（列未整備/画像のみ）は名前だけ表示。 */}
+            {Array.isArray(r.attachments) && r.attachments.length > 0 ? (
+              <div style={{ marginTop: 12, borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>📎 添付（スキルシート等）</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {r.attachments.map((a, i) => (
+                    <a key={i} href={a.url} target="_blank" rel="noreferrer" download
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--color-brand-700)", textDecoration: "none", padding: "6px 10px", borderRadius: 8, background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", maxWidth: "100%" }}
+                      title={a.name}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 15, marginLeft: "auto" }}>download</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : r.attachment_names && r.attachment_names.length > 0 ? (
+              <div style={{ marginTop: 10, fontSize: 11, color: "var(--color-ink-3)" }}>📎 添付: {r.attachment_names.join(" / ")}（未保存：再同期すると保存されます）</div>
+            ) : null}
           </div>
 
           {msg && (
