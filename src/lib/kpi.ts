@@ -388,6 +388,81 @@ export async function getMeetingKgi(opts: {
   return { month, weeks };
 }
 
+// ── KGI数値の「根拠」ドリルダウン ─────────────────────────────────────
+//   ダッシュボード/KGIの各数値をクリックすると、その数を構成する実データ（提案/打合せ）を一覧する。
+//   集計側（getKpiSnapshot / getMeetingKgi）と同一の判定・レンジで抽出するため、件数は必ず一致する。
+export type KgiEvidenceItem = { id: string; primary: string; secondary: string | null; owner: string | null; at: string | null };
+export type KgiEvidence = { metric: string; label: string; count: number; items: KgiEvidenceItem[] };
+const KGI_EVIDENCE_LABEL: Record<string, string> = {
+  proposal: "提案", schedule: "面談", deal: "稼働（合格）",
+  meeting: "打ち合わせ", jobinfo: "案件情報の獲得", candinfo: "人材情報の獲得",
+};
+
+/** metric（proposal/schedule/deal/meeting/jobinfo/candinfo）× 期間[from,to]（'YYYY-MM-DD'・JST・両端含む）
+ *  を構成する実データ行を返す。ownerName 指定で担当（提案=proposer/面談・稼働=closer/打合せ=our_owner）に絞る。 */
+export async function listKgiEvidence(opts: { metric: string; fromISO: string; toISO: string; ownerName?: string | null }): Promise<KgiEvidence> {
+  const label = KGI_EVIDENCE_LABEL[opts.metric] ?? opts.metric;
+  const own = opts.ownerName ?? null;
+  let sb: ReturnType<typeof engerAdmin>;
+  try { sb = engerAdmin(); } catch { return { metric: opts.metric, label, count: 0, items: [] }; }
+
+  // 打ち合わせ記録（meetings）由来。
+  if (opts.metric === "meeting" || opts.metric === "jobinfo" || opts.metric === "candinfo") {
+    let r: any = await sb.from("meetings").select("id, company_name, our_owner, meeting_date, job_info_count, cand_info_count")
+      .gte("meeting_date", opts.fromISO).lte("meeting_date", opts.toISO).order("meeting_date", { ascending: true }).limit(3000);
+    if (r.error && /info_count|column/i.test(r.error.message ?? "")) {
+      r = await sb.from("meetings").select("id, company_name, our_owner, meeting_date").gte("meeting_date", opts.fromISO).lte("meeting_date", opts.toISO).limit(3000);
+    }
+    const rows: any[] = r.error ? [] : (r.data ?? []);
+    const items: KgiEvidenceItem[] = [];
+    for (const m of rows) {
+      if (own && !ownerMatches(own, m.our_owner)) continue;
+      const j = Math.max(0, Math.floor(Number(m.job_info_count) || 0));
+      const c = Math.max(0, Math.floor(Number(m.cand_info_count) || 0));
+      if (opts.metric === "jobinfo" && j <= 0) continue;
+      if (opts.metric === "candinfo" && c <= 0) continue;
+      const secondary = opts.metric === "jobinfo" ? `案件情報 ${j}件`
+        : opts.metric === "candinfo" ? `人材情報 ${c}件`
+        : `案件情報 ${j}件・人材情報 ${c}件`;
+      items.push({ id: String(m.id), primary: m.company_name ?? "（企業名なし）", secondary, owner: m.our_owner ?? null, at: m.meeting_date ?? null });
+    }
+    return { metric: opts.metric, label, count: items.length, items };
+  }
+
+  // 提案管理（proposals）由来（提案=created_at / 面談・稼働=stage_updated_at）。
+  const start = iso(new Date(`${opts.fromISO}T00:00:00+09:00`));
+  const endExcl = iso(addDays(new Date(`${opts.toISO}T00:00:00+09:00`), 1));
+  const inRange = (d: string | null) => !!d && d >= start && d < endExcl;
+  let r: any = await sb.from("proposals")
+    .select("id, job_title, candidate_name, company, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status, approval_status")
+    .or(`created_at.gte.${start},stage_updated_at.gte.${start},updated_at.gte.${start}`).limit(8000);
+  if (r.error && /approval_status|column/i.test(r.error.message ?? "")) {
+    r = await sb.from("proposals").select("id, job_title, candidate_name, company, proposer, closer, stage, created_at, stage_updated_at, updated_at, caller_status, job_notify_status, cand_notify_status")
+      .or(`created_at.gte.${start},stage_updated_at.gte.${start},updated_at.gte.${start}`).limit(8000);
+  }
+  if (r.error) r = await sb.from("proposals").select("id, job_title, candidate_name, company, proposer, closer, stage, created_at, stage_updated_at")
+    .or(`created_at.gte.${start},stage_updated_at.gte.${start}`).limit(8000);
+  const props: any[] = r.error ? [] : (r.data ?? []);
+  const a = metricFlags;
+  const isApproved = (p: any) => { const s = String(p?.approval_status ?? "").trim(); return s !== "pending" && s !== "rejected"; };
+  const items: KgiEvidenceItem[] = [];
+  for (const p of props) {
+    let hit = false, at: string | null = null, owner: string | null = null;
+    if (opts.metric === "proposal") {
+      if (isApproved(p) && a.isProposed(p) && (!own || ownerMatches(own, p.proposer)) && inRange(p.created_at)) { hit = true; at = p.created_at; owner = p.proposer ?? null; }
+    } else if (opts.metric === "schedule") {
+      const ev = p.stage_updated_at ?? p.updated_at ?? null;
+      if ((!own || ownerMatches(own, p.closer)) && a.isSchedule(p) && inRange(ev)) { hit = true; at = ev; owner = p.closer ?? null; }
+    } else if (opts.metric === "deal") {
+      const ev = p.stage_updated_at ?? p.updated_at ?? null;
+      if ((!own || ownerMatches(own, p.closer)) && a.isDeal(p) && inRange(ev)) { hit = true; at = ev; owner = p.closer ?? null; }
+    }
+    if (hit) items.push({ id: String(p.id), primary: p.job_title ?? "（案件名なし）", secondary: [p.candidate_name, p.company].filter(Boolean).join(" / ") || null, owner, at });
+  }
+  items.sort((x, y) => String(y.at ?? "").localeCompare(String(x.at ?? "")));
+  return { metric: opts.metric, label, count: items.length, items };
+}
+
 /** その週の週次目標を kpi_targets から取る。レコードがなければ ITS デフォルト。 */
 export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekStart: Date }): Promise<Partial<Record<Metric, number>>> {
   const sb = engerAdmin();
