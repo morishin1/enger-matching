@@ -297,6 +297,22 @@ export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekSt
   return got;
 }
 
+// #234①：ステージ目標ボード用の「チーム週次目標」（架電/打ち合わせ/案件の仕入れ/面談/合格）。
+//   kpi_targets を scope='team' / team_key='stage' で共用（アクティビティの 'its' とは別枠）。
+//   指標キーはステージ列キー（日本語・src/lib/stage-metrics）。未設定は空（表示側で per-member 合計にフォールバック）。
+export async function getStageTeamWeekly(weekStart: Date): Promise<Record<string, number>> {
+  const sb = engerAdmin();
+  const ws = weekStart.toISOString().slice(0, 10);
+  const r: any = await sb.from("kpi_targets")
+    .select("metric, target")
+    .eq("week_start", ws)
+    .eq("scope", "team")
+    .eq("team_key", "stage");
+  const out: Record<string, number> = {};
+  if (!r.error) for (const row of (r.data ?? [])) out[String(row.metric)] = Number(row.target) || 0;
+  return out;
+}
+
 // ── 履歴テーブル（全指標 × 期間の実績/目標） ───────────────────────
 export type KpiHistoryRow = {
   label: string;          // 期間ラベル（例: 6/9, 6/2〜, 2026/6）

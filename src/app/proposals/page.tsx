@@ -294,6 +294,7 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             teamActivity={kpiData?.teamActivity}
             teamFunnel={kpiData?.teamFunnel}
             stageTargets={kpiData?.stageTargets}
+            stageTeamWeekly={kpiData?.stageTeamWeekly}
             kgiByMember={kpiData?.kgiByMember}
             roleByMember={kpiData?.roleByMember}
             kpiMembers={kpiMembers}
