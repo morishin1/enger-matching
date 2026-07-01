@@ -20,6 +20,7 @@ create table if not exists enger.kgi_sales_plan (
 -- 既存テーブルへの後追い（列が無い環境向け）。
 alter table enger.kgi_sales_plan add column if not exists inside_count  int;
 alter table enger.kgi_sales_plan add column if not exists outside_count int;
+alter table enger.kgi_sales_plan add column if not exists avg_deal_man  numeric;  -- 平均単価（万円/名・月）＝手入力。逆算の分母。
 
 alter table enger.kgi_sales_plan enable row level security;
 grant select on enger.kgi_sales_plan to anon, authenticated;
