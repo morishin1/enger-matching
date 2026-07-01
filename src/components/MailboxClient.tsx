@@ -209,20 +209,24 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
 
   const sync = () => {
     if (!gmailReady) return;
-    // 直近500件（7日以内）を取り込む。以前は最大100件だったため、受信量が多いアカウントでは
-    //   「本日分（直近100通）」しか入らなかった。表示上限（500件）に合わせて最大500件に拡大。
-    setSyncMsg("Gmail と同期中…（直近500件／7日以内・数十秒かかることがあります）");
+    // 7日以内の件数を把握（最大3000件までID集計）しつつ、1回あたり最大500件を本文取込する。
+    //   受信量が多いアカウントは1回で入りきらないため、残り（remaining）があれば続けて押すと全件取り込める。
+    setSyncMsg("Gmail と同期中…（7日以内・1回最大500件・数十秒かかることがあります）");
     start(async () => {
-      const r = await syncInboxFromGmail({ max: 500 });
+      const r = await syncInboxFromGmail({ max: 3000, fetchCap: 500 });
       if (!r.ok) { setSyncMsg(`同期失敗: ${r.error}${r.account ? `（接続先: ${r.account}）` : ""}`); return; }
       const acc = r.account ? `接続先: ${r.account} ／ ` : "";
       if ((r.found ?? 0) === 0) {
         setSyncMsg(`${acc}直近7日で該当メール0通。アカウントが正しいか・期間内に受信があるか確認してください。`);
       } else {
-        setSyncMsg(`${acc}検索ヒット ${r.found}通 ／ 新規取込 ${r.synced ?? 0}通 ／ 既存スキップ ${r.skipped ?? 0}通`);
+        const remaining = r.remaining ?? 0;
+        const tail = remaining > 0
+          ? ` ／ 未取得 ${remaining}通（もう一度「Gmail 同期」で続きを取込）`
+          : "（7日以内は全件取込済み）";
+        setSyncMsg(`${acc}7日以内 ${r.found}通 ／ 新規取込 ${r.synced ?? 0}通 ／ 既存 ${r.skipped ?? 0}通${tail}`);
       }
       router.refresh();
-      setTimeout(() => setSyncMsg(null), 15000);
+      setTimeout(() => setSyncMsg(null), 20000);
     });
   };
 

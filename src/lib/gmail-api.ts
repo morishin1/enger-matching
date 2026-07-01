@@ -53,23 +53,34 @@ export type GmailMessage = {
   receivedAt: string | null;
 };
 
-/** メッセージID一覧を取得（既定: 直近1週間・最大100件）。 */
+/** メッセージID一覧を取得（既定: 直近1週間）。
+ *  Gmail の messages.list は1ページ最大500件のため、maxResults 到達まで nextPageToken を辿って
+ *  ページングする（＝7日以内の“実際の件数”を把握できる）。ID取得は軽量（本文は取らない）。
+ *  途中のページ取得に失敗しても、取得済みがあればそれを返す（初回ページ失敗のみエラー）。 */
 export async function listMessageIds(opts?: { q?: string; maxResults?: number }): Promise<{ ok: true; ids: string[] } | { ok: false; error: string }> {
   const token = await getAccessToken();
   if (!token) return { ok: false, error: "Gmail 認証情報が未設定です（GMAIL_CLIENT_ID/SECRET/REFRESH_TOKEN）" };
   const q = opts?.q ?? "newer_than:7d";
-  const max = Math.min(500, opts?.maxResults ?? 100);
-  const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
-  url.searchParams.set("q", q);
-  url.searchParams.set("maxResults", String(max));
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) {
-    let detail = "";
-    try { const e: any = await r.json(); detail = e?.error?.message ? `: ${e.error.message}` : ""; } catch { /* noop */ }
-    return { ok: false, error: `Gmail list HTTP ${r.status}${detail}` };
+  const want = Math.min(5000, Math.max(1, opts?.maxResults ?? 100)); // 総取得上限（ページングで到達）
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 20 && ids.length < want; page++) { // 最大20ページ(=最大1万)で安全弁
+    const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
+    url.searchParams.set("q", q);
+    url.searchParams.set("maxResults", String(Math.min(500, want - ids.length)));
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) {
+      if (ids.length > 0) break; // 途中失敗は取得済みで返す
+      let detail = "";
+      try { const e: any = await r.json(); detail = e?.error?.message ? `: ${e.error.message}` : ""; } catch { /* noop */ }
+      return { ok: false, error: `Gmail list HTTP ${r.status}${detail}` };
+    }
+    const data: any = await r.json();
+    for (const m of (data?.messages ?? [])) if (m?.id) ids.push(String(m.id));
+    pageToken = data?.nextPageToken;
+    if (!pageToken) break;
   }
-  const data: any = await r.json();
-  const ids: string[] = (data?.messages ?? []).map((m: any) => m.id).filter(Boolean);
   return { ok: true, ids };
 }
 

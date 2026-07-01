@@ -2917,7 +2917,7 @@ async function persistInboxAttachments(messageId: string, atts: Array<{ filename
   return out;
 }
 
-export async function syncInboxFromGmail(opts?: { query?: string; max?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; found?: number; account?: string | null; error?: string }> {
+export async function syncInboxFromGmail(opts?: { query?: string; max?: number; fetchCap?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; found?: number; remaining?: number; account?: string | null; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const { gmailConfigured, listMessageIds, fetchMessage, getGmailProfile } = await import("./gmail-api");
@@ -2928,14 +2928,25 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   if (!prof.ok) return { ok: false, error: `Gmail 接続エラー ${prof.error}` };
   const account = prof.emailAddress;
 
-  const list = await listMessageIds({ q: opts?.query ?? `${INBOX_EXCLUDE_QUERY} newer_than:7d`, maxResults: opts?.max ?? 100 });
+  // windowMax：7日以内で「件数把握」する上限（ID取得は軽量なのでページングで多めに拾う）。
+  // fetchCap：1回の同期で本文取得する新規上限（Vercel 60s 制限内。超過分は remaining で次回に回す）。
+  const windowMax = Math.min(3000, Math.max(1, opts?.max ?? 500));
+  const fetchCap = Math.min(600, Math.max(1, opts?.fetchCap ?? 500));
+  const list = await listMessageIds({ q: opts?.query ?? `${INBOX_EXCLUDE_QUERY} newer_than:7d`, maxResults: windowMax });
   if (!list.ok) return { ok: false, error: list.error, account };
-  if (list.ids.length === 0) return { ok: true, synced: 0, skipped: 0, found: 0, account };
+  if (list.ids.length === 0) return { ok: true, synced: 0, skipped: 0, found: 0, remaining: 0, account };
 
-  // 既存の message_id を一括取得（重複保存をスキップ）
-  const existing = await admin.from("inbox_emails").select("gmail_message_id").in("gmail_message_id", list.ids);
-  const seen = new Set<string>((existing.data ?? []).map((r: any) => r.gmail_message_id));
-  const newIds = list.ids.filter((id) => !seen.has(id));
+  // 既存の message_id を取得（重複保存をスキップ）。IN句が長くなりすぎないよう分割して問い合わせ。
+  const seen = new Set<string>();
+  for (let i = 0; i < list.ids.length; i += 400) {
+    const chunk = list.ids.slice(i, i + 400);
+    const ex: any = await admin.from("inbox_emails").select("gmail_message_id").in("gmail_message_id", chunk);
+    for (const r of (ex.data ?? [])) seen.add(r.gmail_message_id);
+  }
+  // 新規（未取込）。list.ids は新しい順なので、今回は新しい方から fetchCap 件を取得し、残りは次回同期へ。
+  const newIdsAll = list.ids.filter((id) => !seen.has(id));
+  const newIds = newIdsAll.slice(0, fetchCap);
+  const remaining = newIdsAll.length - newIds.length;
 
   let synced = 0;
   let skippedBounce = 0;
@@ -3004,7 +3015,7 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number }
   } catch { /* is_archived / bounce_records 未整備でも続行 */ }
 
   revalidatePath("/inbox"); revalidatePath("/mail");
-  return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, account };
+  return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, remaining, account };
 }
 
 // 受信メールを期間指定でエクスポート（ローカル整形用のダウンロード）。
