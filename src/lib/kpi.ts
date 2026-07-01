@@ -334,6 +334,60 @@ export async function getWeeklyKgiActuals(opts: {
   });
 }
 
+// ── 打ち合わせ記録（meetings）由来の仕入れKGI ─────────────────────────
+//   打ち合わせ数（実績）と、その打ち合わせで「案件情報／人材情報」を獲得できたか（＝質の良い
+//   情報がもらえているか）を集計する。獲得率＝情報を1件以上得た打ち合わせ ÷ 打ち合わせ数。
+export type MeetingAgg = {
+  meetings: number;         // 打ち合わせ数（meeting_date が期間内）
+  jobInfoMeetings: number;  // 案件情報を1件以上獲得した打ち合わせ数
+  candInfoMeetings: number; // 人材情報を1件以上獲得した打ち合わせ数
+  jobInfoCount: number;     // 獲得した案件情報の合計件数
+  candInfoCount: number;    // 獲得した人材情報の合計件数
+};
+const emptyMeetingAgg = (): MeetingAgg => ({ meetings: 0, jobInfoMeetings: 0, candInfoMeetings: 0, jobInfoCount: 0, candInfoCount: 0 });
+
+/** 打ち合わせ記録から、月レンジ＋各週レンジの仕入れKGIを一括集計（DB往復は meetings×1）。
+ *  from/to は 'YYYY-MM-DD'（meeting_date と同じ date 型・両端含む）。ownerName 指定で担当(our_owner)で絞込。 */
+export async function getMeetingKgi(opts: {
+  ownerName?: string | null;
+  monthFromISO: string; monthToISO: string;
+  weeks: { fromISO: string; toISO: string }[];
+}): Promise<{ month: MeetingAgg; weeks: MeetingAgg[] }> {
+  const sb = engerAdmin();
+  let r: any = await sb.from("meetings").select("meeting_date, our_owner, job_info_count, cand_info_count")
+    .gte("meeting_date", opts.monthFromISO).lte("meeting_date", opts.monthToISO).limit(5000);
+  // *_info_count 列が未マイグレーションの環境では件数なしで集計（獲得数は0扱い）。
+  if (r.error && /job_info_count|cand_info_count|column/i.test(r.error.message ?? "")) {
+    r = await sb.from("meetings").select("meeting_date, our_owner")
+      .gte("meeting_date", opts.monthFromISO).lte("meeting_date", opts.monthToISO).limit(5000);
+  }
+  const rows: any[] = r.error ? [] : (r.data ?? []);
+  const own = opts.ownerName ?? null;
+  const match = (o: any) => !own || ownerMatches(own, o?.our_owner);
+  const add = (agg: MeetingAgg, row: any) => {
+    const j = Math.max(0, Math.floor(Number(row.job_info_count) || 0));
+    const c = Math.max(0, Math.floor(Number(row.cand_info_count) || 0));
+    agg.meetings++;
+    if (j > 0) agg.jobInfoMeetings++;
+    if (c > 0) agg.candInfoMeetings++;
+    agg.jobInfoCount += j;
+    agg.candInfoCount += c;
+  };
+  const month = emptyMeetingAgg();
+  const weeks = opts.weeks.map(() => emptyMeetingAgg());
+  for (const row of rows) {
+    if (!match(row)) continue;
+    const d = String(row.meeting_date ?? "");
+    if (!d) continue;
+    add(month, row);
+    for (let wi = 0; wi < opts.weeks.length; wi++) {
+      const w = opts.weeks[wi];
+      if (d >= w.fromISO && d <= w.toISO) { add(weeks[wi], row); break; }
+    }
+  }
+  return { month, weeks };
+}
+
 /** その週の週次目標を kpi_targets から取る。レコードがなければ ITS デフォルト。 */
 export async function getWeeklyTargets(opts: { ownerEmail: string | null; weekStart: Date }): Promise<Partial<Record<Metric, number>>> {
   const sb = engerAdmin();

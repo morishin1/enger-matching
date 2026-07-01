@@ -2035,7 +2035,10 @@ export type MeetingInput = {
   strategy?: string; next_action_us?: string; next_action_them?: string;
   competitors?: string[]; competitor_detail?: string; tags?: string[];
   transcript_url?: string; publishable?: string; follow_up_date?: string | null;
+  job_info_count?: number | null; cand_info_count?: number | null; // 仕入れKGI：案件/人材情報の獲得件数
 };
+
+const toCount0 = (v: unknown): number => (Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0);
 
 /** 打ち合わせ記録を作成 (service role)。 */
 export async function createMeeting(input: MeetingInput) {
@@ -2066,11 +2069,13 @@ export async function createMeeting(input: MeetingInput) {
     transcript_url: input.transcript_url?.trim() || null,
     publishable: input.publishable || null,
     follow_up_date: input.follow_up_date || null,
+    job_info_count: toCount0(input.job_info_count),
+    cand_info_count: toCount0(input.cand_info_count),
   };
   let { error } = await admin.from("meetings").insert(row);
-  // meeting_time / follow_up_date / company_type 列未追加でも落ちないようフォールバック
-  if (error && /meeting_time|follow_up_date|company_type|column/i.test(error.message)) {
-    const r2: any = { ...row }; delete r2.meeting_time; delete r2.follow_up_date; delete r2.company_type;
+  // meeting_time / follow_up_date / company_type / *_info_count 列未追加でも落ちないようフォールバック
+  if (error && /meeting_time|follow_up_date|company_type|info_count|column/i.test(error.message)) {
+    const r2: any = { ...row }; delete r2.meeting_time; delete r2.follow_up_date; delete r2.company_type; delete r2.job_info_count; delete r2.cand_info_count;
     ({ error } = await admin.from("meetings").insert(r2));
   }
   if (error) return { ok: false, error: error.message };
@@ -2095,9 +2100,11 @@ export async function updateMeeting(id: string, input: MeetingInput) {
   setStr("competitor_detail");
   if (input.tags !== undefined) patch.tags = input.tags;
   setStr("transcript_url"); setStr("publishable"); setStr("follow_up_date");
+  if (input.job_info_count !== undefined) patch.job_info_count = toCount0(input.job_info_count);
+  if (input.cand_info_count !== undefined) patch.cand_info_count = toCount0(input.cand_info_count);
   let { error } = await admin.from("meetings").update(patch).eq("id", id);
-  if (error && /meeting_time|follow_up_date|company_type|column/i.test(error.message)) {
-    const p2: any = { ...patch }; delete p2.meeting_time; delete p2.follow_up_date; delete p2.company_type;
+  if (error && /meeting_time|follow_up_date|company_type|info_count|column/i.test(error.message)) {
+    const p2: any = { ...patch }; delete p2.meeting_time; delete p2.follow_up_date; delete p2.company_type; delete p2.job_info_count; delete p2.cand_info_count;
     ({ error } = await admin.from("meetings").update(p2).eq("id", id));
   }
   if (error) return { ok: false, error: error.message };

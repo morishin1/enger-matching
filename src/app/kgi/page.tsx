@@ -16,7 +16,7 @@ import {
   weeksOfMonth, distributeMonthlyToWeeks, SEASON_PROFILES, SEASON_NOTES,
 } from "@/lib/kgi-week";
 import { KgiPlanControls } from "@/components/KgiPlanControls";
-import { getKpiSnapshot, getWeeklyKgiActuals, businessDaysInRange, jstStartOfDay, addDays, type Metric } from "@/lib/kpi";
+import { getKpiSnapshot, getWeeklyKgiActuals, getMeetingKgi, businessDaysInRange, jstStartOfDay, addDays, type Metric, type MeetingAgg } from "@/lib/kpi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -91,6 +91,21 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
     try { weekActuals = await getWeeklyKgiActuals({ ownerName: null, weeks: weeks.map((w) => ({ fromISO: w.fromISO, toISO: w.toISO })) }); }
     catch { /* 提案管理未整備でも続行 */ }
   }
+
+  // 打ち合わせ記録（meetings）連動：打ち合わせ数の実績＋仕入れKGI（案件/人材情報の獲得）を月＋週で集計。
+  const lastDom = new Date(y, m, 0).getDate();
+  const monthToISO = `${y}-${two(m)}-${two(lastDom)}`;
+  const emptyAgg = (): MeetingAgg => ({ meetings: 0, jobInfoMeetings: 0, candInfoMeetings: 0, jobInfoCount: 0, candInfoCount: 0 });
+  let meetingKgi: { month: MeetingAgg; weeks: MeetingAgg[] } = { month: emptyAgg(), weeks: weeks.map(() => emptyAgg()) };
+  if (weeks.length) {
+    try { meetingKgi = await getMeetingKgi({ ownerName: null, monthFromISO: mk, monthToISO, weeks: weeks.map((w) => ({ fromISO: w.fromISO, toISO: w.toISO })) }); }
+    catch { /* 打ち合わせ記録未整備でも続行 */ }
+  }
+  const apptActual = meetingKgi.month.meetings; // 打ち合わせ実績＝記録件数
+  const rateOf = (num: number, den: number): number | null => (den > 0 ? Math.round((num / den) * 100) : null);
+  // 各KPIの当月実績（打ち合わせは記録件数、それ以外は提案管理）。
+  const actualOf = (key: keyof KgiMonthly, metric: Metric | null): number | null =>
+    key === "appointment" ? apptActual : (metric ? (actualByMetric[metric] ?? 0) : null);
   // 週次表示の対象KPI（実績が取れる 提案/面談/稼働）と、目標のみの打ち合わせ。
   const WEEK_KPIS: { key: keyof KgiMonthly; label: string; act: "proposal" | "schedule" | "deal" }[] = [
     { key: "proposal", label: "提案", act: "proposal" },
@@ -158,6 +173,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
             {capacity > 0
               ? <>月間打ち合わせ容量 <b>約{capacity.toLocaleString("ja-JP")}件</b>（{headcount.inside + headcount.outside}名×{DEFAULT_MTG_PER_PERSON_DAY}件/日×{bizDays}日）</>
               : <>人員を入力すると容量を試算します</>}
+            <span> ／ 当月実績（記録）<b>{apptActual}件</b></span>
           </div>
         </div>
         {plan && (
@@ -216,7 +232,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
               <tbody>
                 {KPI_DEFS.map(({ key, label, actual }) => {
                   const monthlyN = plan.monthly[key] ?? 0;
-                  const act = actual ? (actualByMetric[actual] ?? 0) : null;
+                  const act = actualOf(key, actual);
                   const p = act != null ? pctOf(act, monthlyN) : null;
                   const over = key === "appointment" && capacity > 0 && monthlyN > capacity;
                   return (
@@ -234,7 +250,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
             </table>
           </div>
           <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
-            ※ 稼働人数＝合格（稼働決定）、面談・提案は proposals 由来の実績。打ち合わせは実績集計対象外のため目標のみ。
+            ※ 稼働人数＝合格（稼働決定）、面談・提案は proposals（提案管理）由来。<b>打ち合わせは打ち合わせ記録（meetings）と連動</b>した実績です。
             実績はチーム全体（全社）の今月分です。{planRow?.updatedByName && `／ 更新: ${planRow.updatedByName}`}
           </div>
         </div>
@@ -262,9 +278,9 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
                 <th style={{ ...th, textAlign: "right" }}>これから必要な日次</th>
               </tr></thead>
               <tbody>
-                {KPI_DEFS.filter((d) => d.actual != null).map(({ key, label, actual }) => {
+                {KPI_DEFS.filter((d) => actualOf(d.key, d.actual) != null).map(({ key, label, actual }) => {
                   const monthlyN = plan.monthly[key] ?? 0;
-                  const act = actualByMetric[actual as Metric] ?? 0;
+                  const act = actualOf(key, actual) ?? 0;
                   const r = recoveryPace(monthlyN, bizDays, bizElapsed, act);
                   return (
                     <tr key={key}>
@@ -288,7 +304,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
           </div>
           <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
             ※ 「今日までの想定」＝月次目標×経過営業日÷総営業日（線形按分）。「差分」＝実績−想定（＋は貯金／−は遅れ）。
-            「これから必要な日次」＝残（月次−実績）÷残営業日。<b>当初の日次を上回る＝遅れており加速（リカバリー）が必要</b>です。打ち合わせは実績集計対象外のため除外しています。
+            「これから必要な日次」＝残（月次−実績）÷残営業日。<b>当初の日次を上回る＝遅れており加速（リカバリー）が必要</b>です。打ち合わせも打ち合わせ記録と連動して集計します。
           </div>
         </div>
       )}
@@ -324,7 +340,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
                 <th style={th}>週</th>
                 <th style={{ ...th, textAlign: "right" }}>営業日</th>
                 {WEEK_KPIS.map((k) => <th key={k.key} style={{ ...th, textAlign: "right" }}>{k.label}</th>)}
-                <th style={{ ...th, textAlign: "right" }}>打合せ(目標)</th>
+                <th style={{ ...th, textAlign: "right" }}>打合せ</th>
               </tr></thead>
               <tbody>
                 {weeks.map((w, wi) => {
@@ -349,10 +365,18 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
                           </td>
                         );
                       })}
-                      <td style={tdR}>
-                        <div className="mono" style={{ fontWeight: 700 }}>{weekTargets.appointment[wi] ?? 0}</div>
-                        <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>日{fmt(w.bizDays > 0 ? (weekTargets.appointment[wi] ?? 0) / w.bizDays : 0)}</div>
-                      </td>
+                      {(() => {
+                        const tgt = weekTargets.appointment[wi] ?? 0;
+                        const act = meetingKgi.weeks[wi]?.meetings ?? 0;
+                        const p = pctOf(act, tgt);
+                        const dly = w.bizDays > 0 ? tgt / w.bizDays : 0;
+                        return (
+                          <td style={tdR}>
+                            <div className="mono" style={{ fontWeight: 700 }}><b style={{ color: toneOf(p) }}>{act}</b> / {tgt}</div>
+                            <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>{p == null ? "—" : `${p}%`}・日{fmt(dly)}</div>
+                          </td>
+                        );
+                      })()}
                     </tr>
                   );
                 })}
@@ -371,14 +395,87 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
                       </td>
                     );
                   })}
-                  <td style={{ ...tdR, fontWeight: 800 }} className="mono">{plan.monthly.appointment}</td>
+                  {(() => {
+                    const tgt = plan.monthly.appointment; const act = apptActual; const p = pctOf(act, tgt);
+                    return (
+                      <td style={tdR}>
+                        <div className="mono" style={{ fontWeight: 800 }}><b style={{ color: toneOf(p) }}>{act}</b> / {tgt}</div>
+                        <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)" }}>{p == null ? "—" : `${p}%`}</div>
+                      </td>
+                    );
+                  })()}
                 </tr>
               </tbody>
             </table>
           </div>
           <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
             ※ 週の合計は月次目標に一致します（<b>全週を達成すれば月間目標に到達</b>）。今週の残営業日が少ない週（例：月初の週）は、その分だけ週次目標も自動で小さく配分されます。
-            実績は proposals（提案管理）由来のチーム全体。打ち合わせは実績集計対象外のため目標のみです。
+            実績は proposals（提案管理）由来のチーム全体。<b>打ち合わせは打ち合わせ記録（meetings）と連動</b>した実績です。
+          </div>
+        </div>
+      )}
+
+      {/* 仕入れKGI：打ち合わせ → 案件情報／人材情報の獲得（＝質の良い案件・人材が集められているか） */}
+      {weeks.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>inventory_2</span>
+            <b style={{ fontSize: 13.5 }}>仕入れKGI｜打ち合わせ → 案件情報・人材情報の獲得</b>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>打ち合わせ記録（meetings）と連動 ／ 獲得率＝情報を得た打合せ÷打合せ数</span>
+          </div>
+          {/* 月次サマリー */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 0, borderBottom: "1px solid var(--color-border)" }}>
+            <div style={{ padding: "14px 18px", borderRight: "1px solid var(--color-border)" }}>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>打ち合わせ数（当月）</div>
+              <div className="mono" style={{ fontSize: 26, fontWeight: 800 }}>{meetingKgi.month.meetings}<span style={{ fontSize: 13, fontWeight: 600 }}>件</span></div>
+              {plan && <div className="muted" style={{ fontSize: 11 }}>目標 {plan.monthly.appointment}件 ／ 達成 {pctOf(apptActual, plan.monthly.appointment) ?? 0}%</div>}
+            </div>
+            <div style={{ padding: "14px 18px", borderRight: "1px solid var(--color-border)" }}>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>案件情報の獲得</div>
+              <div className="mono" style={{ fontSize: 26, fontWeight: 800, color: "#0e7490" }}>{meetingKgi.month.jobInfoCount}<span style={{ fontSize: 13, fontWeight: 600 }}>件</span></div>
+              <div className="muted" style={{ fontSize: 11 }}>獲得率 <b style={{ color: toneOf(rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings) ?? 0}%</b>（{meetingKgi.month.jobInfoMeetings}/{meetingKgi.month.meetings}打合せ）</div>
+            </div>
+            <div style={{ padding: "14px 18px" }}>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>人材情報の獲得</div>
+              <div className="mono" style={{ fontSize: 26, fontWeight: 800, color: "#7c3aed" }}>{meetingKgi.month.candInfoCount}<span style={{ fontSize: 13, fontWeight: 600 }}>件</span></div>
+              <div className="muted" style={{ fontSize: 11 }}>獲得率 <b style={{ color: toneOf(rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings) ?? 0}%</b>（{meetingKgi.month.candInfoMeetings}/{meetingKgi.month.meetings}打合せ）</div>
+            </div>
+          </div>
+          {/* 週次内訳 */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
+              <thead><tr>
+                <th style={th}>週</th>
+                <th style={{ ...th, textAlign: "right" }}>打合せ</th>
+                <th style={{ ...th, textAlign: "right" }}>案件情報（件／獲得率）</th>
+                <th style={{ ...th, textAlign: "right" }}>人材情報（件／獲得率）</th>
+              </tr></thead>
+              <tbody>
+                {weeks.map((w, wi) => {
+                  const a = meetingKgi.weeks[wi] ?? emptyAgg();
+                  const jr = rateOf(a.jobInfoMeetings, a.meetings);
+                  const cr = rateOf(a.candInfoMeetings, a.meetings);
+                  return (
+                    <tr key={w.index} style={{ background: w.isCurrent ? "rgba(0,149,217,0.06)" : undefined }}>
+                      <td style={td}><b>W{w.index}</b> <span className="muted" style={{ fontSize: 11 }}>{w.label}</span>{w.isCurrent && <span style={{ marginLeft: 6, fontSize: 10, color: "#0095D9", fontWeight: 800 }}>今週</span>}</td>
+                      <td style={tdR} className="mono">{a.meetings}件</td>
+                      <td style={tdR} className="mono">{a.jobInfoCount}件 <span style={{ color: toneOf(jr) }}>{jr == null ? "—" : `${jr}%`}</span></td>
+                      <td style={tdR} className="mono">{a.candInfoCount}件 <span style={{ color: toneOf(cr) }}>{cr == null ? "—" : `${cr}%`}</span></td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ background: "var(--color-surface-2, rgba(0,0,0,0.02))", borderTop: "2px solid var(--color-border)" }}>
+                  <td style={{ ...td, fontWeight: 800 }}>月合計</td>
+                  <td style={{ ...tdR, fontWeight: 800 }} className="mono">{meetingKgi.month.meetings}件</td>
+                  <td style={{ ...tdR, fontWeight: 800 }} className="mono">{meetingKgi.month.jobInfoCount}件 <span style={{ color: toneOf(rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings) ?? 0}%</span></td>
+                  <td style={{ ...tdR, fontWeight: 800 }} className="mono">{meetingKgi.month.candInfoCount}件 <span style={{ color: toneOf(rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings) ?? 0}%</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
+            ※ <b>これが本質的なKGI</b>です。打ち合わせ（1人1日3件が上限）の“数”ではなく、その打ち合わせで<b>質の良い案件情報・人材情報をどれだけ獲得できたか</b>を測ります。
+            件数は打ち合わせ記録（<code>/meetings</code>）の「案件情報 / 人材情報の獲得件数」入力から集計します。エンド直の案件やFL・BP・PPの人材情報が取れているほど、後工程（提案→面談→稼働）の質が上がります。
           </div>
         </div>
       )}
