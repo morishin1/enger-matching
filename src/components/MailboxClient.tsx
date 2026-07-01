@@ -209,9 +209,11 @@ export function MailboxClient({ rows, filter, gmailReady }: { rows: Row[]; filte
 
   const sync = () => {
     if (!gmailReady) return;
-    setSyncMsg("Gmail と同期中…（数秒〜数十秒）");
+    // 直近500件（7日以内）を取り込む。以前は最大100件だったため、受信量が多いアカウントでは
+    //   「本日分（直近100通）」しか入らなかった。表示上限（500件）に合わせて最大500件に拡大。
+    setSyncMsg("Gmail と同期中…（直近500件／7日以内・数十秒かかることがあります）");
     start(async () => {
-      const r = await syncInboxFromGmail({ max: 100 });
+      const r = await syncInboxFromGmail({ max: 500 });
       if (!r.ok) { setSyncMsg(`同期失敗: ${r.error}${r.account ? `（接続先: ${r.account}）` : ""}`); return; }
       const acc = r.account ? `接続先: ${r.account} ／ ` : "";
       if ((r.found ?? 0) === 0) {
