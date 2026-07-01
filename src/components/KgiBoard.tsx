@@ -161,7 +161,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                 月次 <b className="mono">{salesTarget != null ? salesTarget.toLocaleString("ja-JP") : "—"}万</b><br />
                 週次 <b className="mono">{weeklyMoney != null ? fmt(weeklyMoney) : "—"}万</b> ／ 日次 <b className="mono">{dailyMoney != null ? fmt(dailyMoney) : "—"}万</b>
               </div>
-              <div className="muted" style={{ fontSize: 10.5 }}>週次＝月次×5÷営業日、日次＝月次÷営業日</div>
+              <div className="muted" style={{ fontSize: 10.5 }}>平均単価 <b>{Math.round(plan.avgDealMan)}万/名</b>（稼働＝売上÷平均単価）・週次＝月次×5÷営業日</div>
             </div>
             {/* 本日の目標（日次KPI）＋現在地 */}
             <div>
@@ -388,24 +388,31 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>inventory_2</span>
-            <b style={{ fontSize: 13.5 }}>仕入れKGI｜打ち合わせ → 案件情報・人材情報の獲得</b>
-            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>打ち合わせ記録と連動 ／ 数値クリックで根拠データ</span>
+            <b style={{ fontSize: 13.5 }}>仕入れKGI｜打ち合わせ → 提案（レジュメ提出）への転換</b>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>打合せは提案を稼ぐ手段。数値クリックで根拠データ</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 0, borderBottom: "1px solid var(--color-border)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 0, borderBottom: "1px solid var(--color-border)" }}>
             <div style={{ padding: "14px 18px", borderRight: "1px solid var(--color-border)" }}>
-              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>打ち合わせ数（当月）</div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>打合せ数（活動KPI・毎日3件）</div>
               <div className="mono" style={{ fontSize: 22, fontWeight: 800 }}>{actCell("meeting", meetingKgi.month.meetings, mk, monthToISO, monthCtx, true)}</div>
               {plan && <div className="muted" style={{ fontSize: 11 }}>目標 {plan.monthly.appointment}件 ／ 達成 {pctOf(apptActual, plan.monthly.appointment) ?? 0}%</div>}
             </div>
+            <div style={{ padding: "14px 18px", borderRight: "1px solid var(--color-border)", background: "rgba(0,149,217,0.05)" }}>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>★ 打合せ→提案 転換（キモ）</div>
+              <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: toneOf(rateOf(actualByMetric.proposal ?? 0, meetingKgi.month.meetings)) }}>
+                {rateOf(actualByMetric.proposal ?? 0, meetingKgi.month.meetings) ?? 0}%
+              </div>
+              <div className="muted" style={{ fontSize: 11 }}>提案 {actCell("proposal", actualByMetric.proposal ?? 0, mk, monthToISO, monthCtx)} ÷ 打合せ {meetingKgi.month.meetings}件</div>
+            </div>
             <div style={{ padding: "14px 18px", borderRight: "1px solid var(--color-border)" }}>
-              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>案件情報の獲得</div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>①案件情報の獲得（提案の余白）</div>
               <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: "#0e7490" }}>{actCell("jobinfo", meetingKgi.month.jobInfoCount, mk, monthToISO, monthCtx, true)}</div>
-              <div className="muted" style={{ fontSize: 11 }}>獲得率 <b style={{ color: toneOf(rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings) ?? 0}%</b>（{meetingKgi.month.jobInfoMeetings}/{meetingKgi.month.meetings}打合せ）</div>
+              <div className="muted" style={{ fontSize: 11 }}>獲得率 <b style={{ color: toneOf(rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.jobInfoMeetings, meetingKgi.month.meetings) ?? 0}%</b></div>
             </div>
             <div style={{ padding: "14px 18px" }}>
-              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>人材情報の獲得</div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>②人材情報の獲得（空き要員）</div>
               <div className="mono" style={{ fontSize: 22, fontWeight: 800, color: "#7c3aed" }}>{actCell("candinfo", meetingKgi.month.candInfoCount, mk, monthToISO, monthCtx, true)}</div>
-              <div className="muted" style={{ fontSize: 11 }}>獲得率 <b style={{ color: toneOf(rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings) ?? 0}%</b>（{meetingKgi.month.candInfoMeetings}/{meetingKgi.month.meetings}打合せ）</div>
+              <div className="muted" style={{ fontSize: 11 }}>獲得率 <b style={{ color: toneOf(rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings)) }}>{rateOf(meetingKgi.month.candInfoMeetings, meetingKgi.month.meetings) ?? 0}%</b></div>
             </div>
           </div>
           <div style={{ overflowX: "auto" }}>
@@ -434,8 +441,9 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
               </tbody>
             </table>
           </div>
-          <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
-            ※ <b>本質的なKGI</b>：打ち合わせの“数”ではなく、その打ち合わせで<b>質の良い案件情報・人材情報をどれだけ獲得できたか</b>。件数は打ち合わせ記録（<code>/meetings</code>）の入力から集計。数値クリックで根拠データを表示。
+          <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.8 }}>
+            ※ 因果：<b>売上・粗利</b> ← 稼働・面談 ← <b style={{ color: "#0095D9" }}>提案（レジュメ提出）★キモ</b> ← 打合せ（毎日3件）。打合せは提案を稼ぐ<b>手段</b>で、KGIは「その打合せから何件の提案を生めたか（＝打合せ→提案 転換）」。
+            打合せで持ち帰るべき3成果物＝<b>①案件の“提案の余白”</b>（要件緩和/時期調整/競合・予算）／<b>②人材の“空き要員と強み”</b>（直近満了/レジュメにない強み/単価柔軟性）／<b>③ネクストアクションの確約</b>。①②の件数は打ち合わせ記録（<code>/meetings</code>）の入力から集計。数値クリックで根拠データ。
           </div>
         </div>
       )}

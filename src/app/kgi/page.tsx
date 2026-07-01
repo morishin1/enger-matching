@@ -31,6 +31,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
 
   const planRow = await getKgiSalesPlan(mk);
   const salesTarget = planRow?.salesTargetMan ?? null;
+  const avgDeal = planRow?.avgDealMan ?? null;
   const headcount = planRow?.headcount ?? { inside: 0, outside: 0 };
   const plan = planRow?.plan ?? null;
 
@@ -74,14 +75,16 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
       </div>
 
       {/* 売上目標・人員配分（手動）＋ AI計算 */}
-      <KgiPlanControls month={mk} initialTarget={salesTarget} initialInside={headcount.inside} initialOutside={headcount.outside} hasPlan={!!plan} canEdit={canEdit} />
+      <KgiPlanControls month={mk} initialTarget={salesTarget} initialAvgDeal={avgDeal} initialInside={headcount.inside} initialOutside={headcount.outside} hasPlan={!!plan} canEdit={canEdit} />
 
       {/* サマリー：売上目標・人員/容量・AI前提 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
         <div className="card" style={{ padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>月間売上目標</div>
           <div className="mono" style={{ fontSize: 28, fontWeight: 800 }}>{salesTarget != null ? `${salesTarget.toLocaleString("ja-JP")}万` : "未設定"}</div>
-          <div className="muted" style={{ fontSize: 11 }}>当月の営業日 {bizDays}日（土日除く）</div>
+          <div className="muted" style={{ fontSize: 11 }}>
+            平均単価 <b>{(avgDeal ?? plan?.avgDealMan) != null ? `${Math.round((avgDeal ?? plan?.avgDealMan)!)}万/名` : "未設定"}</b> ／ 当月の営業日 {bizDays}日
+          </div>
         </div>
         <div className="card" style={{ padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>人員配分・打ち合わせ容量</div>

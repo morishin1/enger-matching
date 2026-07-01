@@ -7,11 +7,12 @@ import { saveKgiSalesTarget, computeKgiPlan } from "@/lib/kgi-plan-actions";
 
 const numOrNull = (s: string): number | null => (s.trim() === "" ? null : Math.max(0, Math.floor(Number(s) || 0)));
 
-export function KgiPlanControls({ month, initialTarget, initialInside, initialOutside, hasPlan, canEdit }: {
-  month: string; initialTarget: number | null; initialInside: number; initialOutside: number; hasPlan: boolean; canEdit: boolean;
+export function KgiPlanControls({ month, initialTarget, initialAvgDeal, initialInside, initialOutside, hasPlan, canEdit }: {
+  month: string; initialTarget: number | null; initialAvgDeal: number | null; initialInside: number; initialOutside: number; hasPlan: boolean; canEdit: boolean;
 }) {
   const router = useRouter();
   const [val, setVal] = useState<string>(initialTarget != null ? String(initialTarget) : "");
+  const [avg, setAvg] = useState<string>(initialAvgDeal != null ? String(initialAvgDeal) : "");
   const [inside, setInside] = useState<string>(initialInside > 0 ? String(initialInside) : "");
   const [outside, setOutside] = useState<string>(initialOutside > 0 ? String(initialOutside) : "");
   const [pending, start] = useTransition();
@@ -22,9 +23,9 @@ export function KgiPlanControls({ month, initialTarget, initialInside, initialOu
     if (!canEdit) return;
     setMsg(null);
     start(async () => {
-      const r = await saveKgiSalesTarget({ month, salesTargetMan: numOrNull(val), insideCount: numOrNull(inside), outsideCount: numOrNull(outside) });
+      const r = await saveKgiSalesTarget({ month, salesTargetMan: numOrNull(val), avgDealMan: numOrNull(avg), insideCount: numOrNull(inside), outsideCount: numOrNull(outside) });
       if (!r.ok) { setMsg(`保存失敗: ${r.error}`); return; }
-      setMsg("売上目標・人員配分を保存しました。「AIで計算」で週次/日次KPIを割り振れます。");
+      setMsg("売上目標・平均単価・人員配分を保存しました。「AIで計算」で週次/日次KPIを割り振れます。");
       router.refresh();
     });
   };
@@ -56,6 +57,15 @@ export function KgiPlanControls({ month, initialTarget, initialInside, initialOu
           <input type="number" min={0} value={val} disabled={!canEdit || pending}
             onChange={(e) => setVal(e.target.value)} placeholder="例：4000"
             style={{ ...inputStyle, width: 140 }} />
+          <span style={{ fontSize: 14, fontWeight: 700 }}>万円</span>
+        </span>
+      </label>
+      <label style={labelWrap}>
+        <span style={labelText}>平均単価（万円/名・月）</span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <input type="number" min={0} value={avg} disabled={!canEdit || pending}
+            onChange={(e) => setAvg(e.target.value)} placeholder="例：60" style={inputStyle}
+            title="1名が1ヶ月に生む売上（万円）。この値で 稼働人数＝売上目標÷平均単価 を逆算します。" />
           <span style={{ fontSize: 14, fontWeight: 700 }}>万円</span>
         </span>
       </label>

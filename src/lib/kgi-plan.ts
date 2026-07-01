@@ -31,6 +31,7 @@ export type KgiPlan = {
 export type KgiSalesPlanRow = {
   month: string;
   salesTargetMan: number | null;
+  avgDealMan: number | null;       // 平均単価（万円/名・月）＝手入力。逆算の分母。
   headcount: KgiHeadcount;
   plan: KgiPlan | null;
   updatedByName: string | null;
@@ -94,9 +95,12 @@ export async function getKgiSalesPlan(month: string): Promise<KgiSalesPlanRow | 
   try {
     let sb: ReturnType<typeof engerClient>;
     try { sb = engerAdmin(); } catch { sb = engerClient(); }
-    // headcount 列（inside/outside）は後追いマイグレーション。無い環境でも動くようフォールバック。
-    const cols = "month, sales_target_man, inside_count, outside_count, plan, updated_by_name, updated_at";
+    // headcount / avg_deal_man 列は後追いマイグレーション。無い環境でも動くようフォールバック。
+    const cols = "month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, updated_by_name, updated_at";
     let r: any = await sb.from("kgi_sales_plan").select(cols).eq("month", month).maybeSingle();
+    if (r.error && /avg_deal_man|inside_count|outside_count|column/i.test(r.error.message ?? "")) {
+      r = await sb.from("kgi_sales_plan").select("month, sales_target_man, inside_count, outside_count, plan, updated_by_name, updated_at").eq("month", month).maybeSingle();
+    }
     if (r.error && /inside_count|outside_count|column/i.test(r.error.message ?? "")) {
       r = await sb.from("kgi_sales_plan").select("month, sales_target_man, plan, updated_by_name, updated_at").eq("month", month).maybeSingle();
     }
@@ -104,6 +108,7 @@ export async function getKgiSalesPlan(month: string): Promise<KgiSalesPlanRow | 
     return {
       month,
       salesTargetMan: r.data.sales_target_man != null ? Number(r.data.sales_target_man) : null,
+      avgDealMan: r.data.avg_deal_man != null ? Number(r.data.avg_deal_man) : null,
       headcount: {
         inside: r.data.inside_count != null ? Math.max(0, Math.floor(Number(r.data.inside_count))) : 0,
         outside: r.data.outside_count != null ? Math.max(0, Math.floor(Number(r.data.outside_count))) : 0,
