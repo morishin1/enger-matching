@@ -13,8 +13,8 @@ import { getKgiSalesPlan, meetingCapacityMonth, recoveryPace, DEFAULT_MTG_PER_PE
 import { weeksOfMonth, distributeMonthlyToWeeks, SEASON_PROFILES, SEASON_NOTES } from "@/lib/kgi-week";
 import { getKpiSnapshot, getWeeklyKgiActuals, getMeetingKgi, businessDaysInRange, jstStartOfDay, addDays, type Metric, type MeetingAgg } from "@/lib/kpi";
 
-export type KgiSection = "season" | "monthly" | "recovery" | "weekly" | "procurement";
-const ALL_SECTIONS: KgiSection[] = ["season", "monthly", "recovery", "weekly", "procurement"];
+export type KgiSection = "summary" | "season" | "monthly" | "recovery" | "weekly" | "procurement";
+const ALL_SECTIONS: KgiSection[] = ["summary", "season", "monthly", "recovery", "weekly", "procurement"];
 
 const two = (n: number) => String(n).padStart(2, "0");
 const toneOf = (pct: number | null) =>
@@ -50,6 +50,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
   const bizDays = businessDaysInMonth(mk);
 
   const planRow = await getKgiSalesPlan(mk);
+  const salesTarget = planRow?.salesTargetMan ?? null;
   const headcount = planRow?.headcount ?? { inside: 0, outside: 0 };
   const plan = planRow?.plan ?? null;
   const capacity = meetingCapacityMonth(headcount, bizDays, DEFAULT_MTG_PER_PERSON_DAY);
@@ -101,6 +102,24 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
   const actualOf = (key: keyof KgiMonthly, metric: Metric | null): number | null =>
     key === "appointment" ? apptActual : (metric ? (actualByMetric[metric] ?? 0) : null);
 
+  // 全体ステータス（当月の進捗ペース）：各KPIの「今日までの想定 vs 実績」で判定。
+  let statusBadge: { label: string; bg: string; fg: string; bd: string } | null = null;
+  let kgiPct: number | null = null;
+  if (plan) {
+    let behind = 0;
+    for (const d of KPI_DEFS) {
+      const r = recoveryPace(plan.monthly[d.key] ?? 0, bizDays, bizElapsed, actualOf(d.key, d.actual) ?? 0);
+      if (r.behind) behind++;
+    }
+    statusBadge = behind === 0 ? { label: "順調", bg: "#eefbf3", fg: "#067647", bd: "#bbe8cd" }
+      : behind <= 1 ? { label: "やや遅れ", bg: "#fff7ed", fg: "#b45309", bd: "#fed7aa" }
+        : { label: "遅れあり", bg: "#fef3f2", fg: "#b42318", bd: "#fecdca" };
+    kgiPct = pctOf(actualByMetric.deal ?? 0, plan.monthly.placement ?? 0);
+  }
+  // 売上KGI（金額）の週次/日次（営業日ベース）。
+  const weeklyMoney = salesTarget != null && bizDays > 0 ? (salesTarget * 5) / bizDays : null;
+  const dailyMoney = salesTarget != null && bizDays > 0 ? salesTarget / bizDays : null;
+
   const th: CSSProperties = { textAlign: "left", padding: "9px 12px", fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700, whiteSpace: "nowrap" };
   const td: CSSProperties = { padding: "10px 12px", fontSize: 13.5, borderTop: "1px solid var(--color-border)" };
   const tdR: CSSProperties = { ...td, textAlign: "right" };
@@ -116,6 +135,49 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
 
   return (
     <>
+      {/* KGIサマリー：月次進捗ゲージ ＋ 売上KGI(月/週/日) ＋ 本日の目標(日次KPI) ＋ 順調/遅れステータス */}
+      {show("summary") && plan && (
+        <div className="card" style={{ padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 20, color: "var(--color-brand-700)" }}>speed</span>
+            <b style={{ fontSize: 14 }}>KGIサマリー（{y}年{m}月）</b>
+            {statusBadge && <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 10px", borderRadius: 99, background: statusBadge.bg, color: statusBadge.fg, border: `1px solid ${statusBadge.bd}` }}>{statusBadge.label}</span>}
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>営業日 {bizElapsed}/{bizDays}日 経過・残り{Math.max(0, bizDays - bizElapsed)}日</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 16 }}>
+            {/* 月次KGI進捗ゲージ（稼働＝売上の源泉） */}
+            <div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>月次KGI進捗（稼働＝売上の源泉）</div>
+              <div className="mono" style={{ fontSize: 24, fontWeight: 800, color: toneOf(kgiPct) }}>{kgiPct == null ? "—" : `${kgiPct}%`}</div>
+              <div style={{ height: 8, borderRadius: 99, background: "var(--color-surface-inset)", overflow: "hidden", marginTop: 4 }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.max(0, kgiPct ?? 0))}%`, background: toneOf(kgiPct), borderRadius: 99 }} />
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>稼働 {actualByMetric.deal ?? 0} / {plan.monthly.placement}人</div>
+            </div>
+            {/* 売上KGI（金額）の月/週/日 */}
+            <div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>売上KGI（営業日ベース）</div>
+              <div style={{ fontSize: 13.5, lineHeight: 1.9, marginTop: 2 }}>
+                月次 <b className="mono">{salesTarget != null ? salesTarget.toLocaleString("ja-JP") : "—"}万</b><br />
+                週次 <b className="mono">{weeklyMoney != null ? fmt(weeklyMoney) : "—"}万</b> ／ 日次 <b className="mono">{dailyMoney != null ? fmt(dailyMoney) : "—"}万</b>
+              </div>
+              <div className="muted" style={{ fontSize: 10.5 }}>週次＝月次×5÷営業日、日次＝月次÷営業日</div>
+            </div>
+            {/* 本日の目標（日次KPI）＋現在地 */}
+            <div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 700 }}>本日の目標（日次KPI）</div>
+              <div style={{ fontSize: 13, lineHeight: 1.9, marginTop: 2 }}>
+                提案 <b>{fmt(daily(plan.monthly.proposal))}</b> ・ 面談 <b>{fmt(daily(plan.monthly.meeting))}</b> ・ 稼働 <b>{fmt(daily(plan.monthly.placement))}</b> ・ 打合せ <b>{fmt(daily(plan.monthly.appointment))}</b>
+              </div>
+              <div className="muted" style={{ fontSize: 10.5 }}>当月実績 提案{actualByMetric.proposal ?? 0}・面談{actualByMetric.schedule ?? 0}・稼働{actualByMetric.deal ?? 0}・打合せ{apptActual}</div>
+            </div>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.7 }}>
+            ※ ステータスは各KPIの「今日までの想定（月次×経過営業日÷総営業日）」と実績の比較で判定（<b>順調＝全KPIが想定以上</b>／遅れ＝下回るKPIあり）。詳細と根拠は下表・数値クリックから。
+          </div>
+        </div>
+      )}
+
       {/* 年間シーズナリティ */}
       {show("season") && season && (
         <div className="card" style={{ padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>

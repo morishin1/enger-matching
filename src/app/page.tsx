@@ -60,7 +60,7 @@ export default async function DashboardPage() {
         <b style={{ fontSize: 15 }}>今月のKGI/KPI</b>
         <a href="/kgi" style={{ marginLeft: "auto", textDecoration: "none" }} className="btn ghost btn-xs">詳細・目標設定 →</a>
       </div>
-      <KgiBoard month={mk} sections={["season", "monthly", "weekly"]} />
+      <KgiBoard month={mk} sections={["summary", "season", "monthly", "weekly"]} />
     </div>
   );
 }
