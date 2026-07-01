@@ -54,7 +54,10 @@ const REGISTRY: Entry[] = [
   // ── SES頻出（業務系・エンタープライズ・インフラ）─────────────────────────────
   //   案件本文や経歴に出やすい技術を網羅し、必須スキル照合の取りこぼしを減らす。
   { canon: "office365",   label: "Microsoft 365", aliases: ["office365", "office 365", "microsoft365", "microsoft 365", "m365", "msオフィス365", "オフィス365"] },
-  { canon: "activedirectory", label: "Active Directory", aliases: ["activedirectory", "active directory", "ad", "アクティブディレクトリ"] },
+  // 注意: 別名 "ad" は削除。広告(Ad)・Adobe 等と衝突し、動画/マーケ人材の「Ad」が
+  //   Active Directory に誤 canon 化 → インフラ案件に必須スキル100%で誤マッチする事故を防ぐ。
+  //   "AD" 単体表記の取りこぼしより、誤検出（別職種の高スコア提案）回避を優先する。
+  { canon: "activedirectory", label: "Active Directory", aliases: ["activedirectory", "active directory", "ad ds", "アクティブディレクトリ"] },
   { canon: "sharepoint",  label: "SharePoint", aliases: ["sharepoint", "シェアポイント"] },
   { canon: "teams",       label: "Microsoft Teams", aliases: ["msteams", "microsoftteams", "ms teams"] },
   { canon: "powerplatform", label: "Power Platform", aliases: ["powerplatform", "power platform", "powerautomate", "power automate", "powerbi", "power bi", "powerapps", "power apps"] },
