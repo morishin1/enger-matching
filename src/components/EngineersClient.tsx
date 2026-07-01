@@ -359,17 +359,16 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 <th>スキル</th>
                 <th style={{ width: 110 }}>主要言語</th>
                 <th style={{ width: 110 }} className="num">単価</th>
+                {/* #262：スキルシート列（詳細にリンク自動挿入済み）・連絡先列は削除。 */}
                 <th style={{ width: 100 }} className="num">GitHub</th>
-                <th style={{ width: 120 }}>スキルシート</th>
                 <th style={{ width: 132 }}>登録日時</th>
-                <th style={{ width: 96 }}>連絡先</th>
                 <th style={{ width: 80 }}>履歴</th>
                 <th style={{ width: 90, textAlign: "center" }}>面談済</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={13} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
               ) : pageRows.map((e) => {
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
@@ -426,9 +425,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td><span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{e.primary_language ?? "—"}</span></td>
                     <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
                     <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
-                    <td><SkillSheetMarks sheets={e.skill_sheets} /></td>
+                    {/* #262：スキルシート列・連絡先列は削除（スキルシートは詳細のプロフィールにリンク自動挿入済み）。 */}
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
-                    <td><ContactIcons e={e} chat={chatStatus[e.id]} /></td>
                     <td>
                       <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         {ap.length > 0 && <button type="button" title="応募した案件名を一覧で見る"
@@ -1047,11 +1045,11 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
 // #250 登録モーダルのフィールド（モジュール直下に置き、入力ごとの再マウント＝フォーカス喪失を防ぐ）。
 const REG_FIELD: CSSProperties = { fontSize: 12.5, padding: "6px 9px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", color: "var(--color-ink)", fontFamily: "inherit" };
 const REG_LABEL: CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--color-ink-3)" };
-function RegField({ label, value, onChange, full, placeholder }: { label: string; value: string; onChange: (v: string) => void; full?: boolean; placeholder?: string }) {
+function RegField({ label, value, onChange, full, placeholder, type = "text" }: { label: string; value: string; onChange: (v: string) => void; full?: boolean; placeholder?: string; type?: "text" | "date" }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: full ? "1 / -1" : undefined }}>
       <span style={REG_LABEL}>{label}</span>
-      <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={REG_FIELD} />
+      <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} style={REG_FIELD} />
     </label>
   );
 }
@@ -1066,8 +1064,9 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
   const [done, setDone] = useState<{ no?: number } | null>(null);
   const [pre, setPre] = useState<FreelancePrefill | null>(null);
   // 編集可能なフォーム値（流し込み後に管理者が確認・修正できる）。
+  //   #262：所属区分の既定＝「弊社所属フリーランス」、所属会社の既定＝「ENGERフリーランス」、稼働開始（カレンダー選択）を追加。
   const [f, setF] = useState({
-    name: "", title: "", affiliation: "BP", skills: "", rate: "",
+    name: "", title: "", affiliation: "弊社所属フリーランス", source_company: "ENGERフリーランス", avail_date: "", skills: "", rate: "",
     location: "", remote_pref: "", age_band: "", nationality: "", email: "",
   });
 
@@ -1079,11 +1078,12 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
       if (!r.ok || !r.data) { setErr(r.error ?? "データの取得に失敗しました"); return; }
       const d = r.data;
       setPre(d);
-      setF({
-        name: d.name, title: d.title, affiliation: d.affiliation || "BP",
+      setF((s) => ({
+        ...s,
+        name: d.name, title: d.title, affiliation: d.affiliation || "弊社所属フリーランス",
         skills: (d.skills ?? []).join(", "), rate: d.rate, location: d.location,
         remote_pref: d.remote_pref, age_band: d.age_band, nationality: d.nationality, email: d.email,
-      });
+      }));
     }).catch((e) => { if (!cancelled) { setLoading(false); setErr(e instanceof Error ? e.message : "取得に失敗しました"); } });
     return () => { cancelled = true; };
   }, [engineer.id]);
@@ -1094,10 +1094,17 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
   const submit = () => {
     if (!f.name.trim()) { setErr("氏名（イニシャル）を入力してください"); return; }
     setErr(null);
+    // 稼働開始：カレンダー選択（YYYY-MM-DD）→ 一覧・マッチングで読める「YYYY年M月D日〜」表記に変換。
+    const availText = (() => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(f.avail_date);
+      return m ? `${Number(m[1])}年${Number(m[2])}月${Number(m[3])}日〜` : null;
+    })();
     start(async () => {
       const r = await registerCandidateFromFreelancer({
         engineer_id: engineer.id,
-        name: f.name, title: f.title || null, affiliation: f.affiliation || "BP",
+        name: f.name, title: f.title || null, affiliation: f.affiliation || "弊社所属フリーランス",
+        source_company: f.source_company || "ENGERフリーランス",
+        avail: availText,
         skills: f.skills ? f.skills.split(/[,、\/／]+/).map((s) => s.trim()).filter(Boolean) : [],
         rate: f.rate || null, rate_num: pre?.rate_num ?? null,
         location: f.location || null, remote_pref: f.remote_pref || null,
@@ -1152,7 +1159,9 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
               <RegField label="氏名（イニシャル）" value={f.name} onChange={set("name")} placeholder="例：FT（空欄可）" />
-              <RegField label="所属区分（会社）" value={f.affiliation} onChange={set("affiliation")} placeholder="BP" />
+              <RegField label="所属区分" value={f.affiliation} onChange={set("affiliation")} placeholder="弊社所属フリーランス" />
+              <RegField label="所属会社" value={f.source_company} onChange={set("source_company")} placeholder="ENGERフリーランス" />
+              <RegField label="稼働開始" type="date" value={f.avail_date} onChange={set("avail_date")} />
               <RegField label="職種" value={f.title} onChange={set("title")} />
               <RegField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：50万〜60万" />
               <RegField label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代後半（空欄可）" />
@@ -1179,8 +1188,8 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
             )}
 
             <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>
-              ※ 空欄の項目はそのまま空欄で登録されます（初期テキストは入りません）。所属区分は一律「BP」。
-              確定すると人材一覧に新しいP番号で作成され、元のフリーランス（E番号）と紐付きます。
+              ※ 空欄の項目はそのまま空欄で登録されます（初期テキストは入りません）。所属区分の既定は「弊社所属フリーランス」・所属会社の既定は「ENGERフリーランス」（どちらも編集可）。
+              稼働開始はカレンダーで選択すると人材一覧の「稼働開始」欄に反映されます。確定すると人材一覧に新しいP番号で作成され、元のフリーランス（E番号）と紐付きます。
             </div>
             {err && <div style={{ fontSize: 12, color: "var(--color-danger)" }}>{err}</div>}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
