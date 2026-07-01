@@ -3218,7 +3218,7 @@ export async function parseEntityText(kind: "candidates" | "jobs", text: string)
   return extractEntityFields(kind, text);
 }
 
-export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; job_no?: number; error?: string }> {
+export async function registerInboxAsJob(inboxId: string, override?: Partial<JobInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; job_no?: number; action?: string; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
   const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
@@ -3256,10 +3256,10 @@ export async function registerInboxAsJob(inboxId: string, override?: Partial<Job
   }).eq("id", inboxId);
 
   revalidatePath("/inbox"); revalidatePath("/jobs"); bustCounts();
-  return { ok: true, job_no: (res as any).job_no };
+  return { ok: true, job_no: (res as any).job_no, action: (res as any).action };
 }
 
-export async function registerInboxAsCandidate(inboxId: string, override?: Partial<CandidateInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; candidate_no?: number; error?: string }> {
+export async function registerInboxAsCandidate(inboxId: string, override?: Partial<CandidateInput>, opts?: { updatePolicy?: UpdatePolicy }): Promise<{ ok: boolean; candidate_no?: number; action?: string; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー" }; }
   const row: any = (await admin.from("inbox_emails").select("*").eq("id", inboxId).maybeSingle()).data;
@@ -3296,7 +3296,168 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
   }).eq("id", inboxId);
 
   revalidatePath("/inbox"); revalidatePath("/people"); bustCounts();
-  return { ok: true, candidate_no: (res as any).candidate_no };
+  return { ok: true, candidate_no: (res as any).candidate_no, action: (res as any).action };
+}
+
+// ────────────────────────────────────────────────────────
+// CSV/JSONL 書き戻しインポート（ローカルで整形した抽出結果を DB へ反映）
+//   ・gmail_message_id で inbox_emails を突き合わせ、extracted_kind/data を書き戻してから
+//     既存の registerInboxAsJob/Candidate（＝upsert*Manual）で登録する。
+//   ・【二重登録防止（必須）】2層でガード：
+//       Layer A: 既に registered_at のあるメールは既定でスキップ（allowReregister で解除）。
+//       Layer B: upsert*Manual が title×client / name×company で既存に統合（新規重複を作らない）。
+//   ・dryRun=true で「実行せず結果だけ」を返す（インポート前の二重登録チェックに使う）。
+// ────────────────────────────────────────────────────────
+export type InboxImportRow = { gmail_message_id?: string; extracted_kind?: string; extracted_summary?: string; extracted_data?: any };
+export type InboxImportStatus =
+  | "job_new" | "job_merged" | "cand_new" | "cand_merged" | "archived"
+  | "already_registered" | "not_found" | "invalid" | "error";
+export type InboxImportResult = { gmail_message_id: string; status: InboxImportStatus; detail?: string };
+export type InboxImportSummary = {
+  total: number; jobNew: number; jobMerged: number; candNew: number; candMerged: number;
+  archived: number; alreadyRegistered: number; notFound: number; invalid: number; error: number;
+};
+
+function normalizeImportKind(v: unknown): "job" | "candidate" | "skip" | "spam" | null {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return null;
+  // 曖昧一致で誤判定しないよう限定（例：「求人」は案件、「人材」のみ人材。単独の「人」等は不採用）。
+  if (/^job$|案件|求人/.test(s)) return "job";
+  if (/^cand|^candidate$|人材/.test(s)) return "candidate";
+  if (/^spam$|スパム|迷惑/.test(s)) return "spam";
+  if (/^skip$|スキップ|除外|無関係/.test(s)) return "skip";
+  return null;
+}
+
+// 既存案件番号（title×client_name×owner_company で突合。upsertJobManual と同じキー）。read-only。
+async function findExistingJobNo(admin: ReturnType<typeof engerAdmin>, ownerCompany: string | null, title: string, client: string | null): Promise<number | null> {
+  let q: any = admin.from("jobs").select("job_no").eq("title", title);
+  q = client ? q.eq("client_name", client) : q.is("client_name", null);
+  if (ownerCompany != null) q = q.eq("owner_company", ownerCompany); else { try { q = q.is("owner_company", null); } catch { /* 列未整備 */ } }
+  const r: any = await q.order("job_no", { ascending: true }).limit(1);
+  return r.error ? null : (r.data?.[0]?.job_no ?? null);
+}
+
+// 既存人材番号（name×company×owner_company で突合。upsertCandidateManual と同じキー）。read-only。
+async function findExistingCandidateNo(admin: ReturnType<typeof engerAdmin>, ownerCompany: string | null, name: string, company: string | null): Promise<number | null> {
+  let q: any = admin.from("candidates").select("candidate_no").eq("name", name);
+  q = company ? q.eq("company", company) : q.is("company", null);
+  if (ownerCompany != null) q = q.eq("owner_company", ownerCompany); else { try { q = q.is("owner_company", null); } catch { /* 列未整備 */ } }
+  const r: any = await q.order("candidate_no", { ascending: true }).limit(1);
+  return r.error ? null : (r.data?.[0]?.candidate_no ?? null);
+}
+
+export async function importInboxExtractions(
+  rows: InboxImportRow[],
+  opts?: { dryRun?: boolean; allowReregister?: boolean },
+): Promise<{ ok: boolean; results?: InboxImportResult[]; summary?: InboxImportSummary; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  if (!Array.isArray(rows) || rows.length === 0) return { ok: false, error: "取り込む行がありません" };
+  if (rows.length > 5000) return { ok: false, error: "一度に取り込める上限（5000行）を超えています。分割してください。" };
+
+  const dryRun = !!opts?.dryRun;
+  const allowRe = !!opts?.allowReregister;
+  const ownerCompany = await partnerOwnerCompany();
+  const nowIso = new Date().toISOString();
+  const results: InboxImportResult[] = [];
+  // ファイル内重複を実行時と一致させるための追跡（特に dryRun は DB未書込のため自前で見る）。
+  const seenGids = new Set<string>();
+  const seenJobKeys = new Set<string>();
+  const seenCandKeys = new Set<string>();
+
+  for (const raw of rows) {
+    const gid = String(raw?.gmail_message_id ?? "").trim();
+    if (!gid) { results.push({ gmail_message_id: "(空)", status: "invalid", detail: "gmail_message_id がありません" }); continue; }
+    // 同一ファイル内で同じメールが複数行あれば、2件目以降は登録済み扱い（実行時と同じ挙動）。
+    if (seenGids.has(gid)) { results.push({ gmail_message_id: gid, status: "already_registered", detail: "同一ファイル内で重複（スキップ）" }); continue; }
+    const kind = normalizeImportKind(raw?.extracted_kind);
+    const data: any = (raw?.extracted_data && typeof raw.extracted_data === "object" && !Array.isArray(raw.extracted_data)) ? raw.extracted_data : {};
+    const summary = raw?.extracted_summary != null ? String(raw.extracted_summary) : null;
+
+    if (data && data._parse_error) { results.push({ gmail_message_id: gid, status: "invalid", detail: "extracted_data のJSONが不正です" }); continue; }
+    if (!kind) { results.push({ gmail_message_id: gid, status: "invalid", detail: "kind 不明（job/candidate/skip/spam を指定）" }); continue; }
+
+    // inbox_emails 突き合わせ
+    const em: any = (await admin.from("inbox_emails")
+      .select("id, subject, from_name, registered_at, registered_job_no, registered_candidate_no")
+      .eq("gmail_message_id", gid).maybeSingle()).data;
+    if (!em) { results.push({ gmail_message_id: gid, status: "not_found", detail: "未取込。先に Gmail 同期が必要です" }); continue; }
+
+    // Layer A: 既登録は既定でスキップ（二重登録防止）
+    if (em.registered_at && !allowRe) {
+      const d = em.registered_job_no ? `案件#${em.registered_job_no}` : em.registered_candidate_no ? `人材#${em.registered_candidate_no}` : "登録済";
+      results.push({ gmail_message_id: gid, status: "already_registered", detail: `${d}（スキップ）` });
+      continue;
+    }
+    // ここから実際に処理する行として記録（2件目以降の同一gidは上でスキップされる）。
+    seenGids.add(gid);
+    // 上書き方針：既登録メールの再登録(allowRe)のみ full（意図的な上書き）。新規メールの
+    //   既存統合は fill-empty（既存の入力値を壊さない）。allowRe と full を分離する。
+    const policy: UpdatePolicy = em.registered_at ? "full" : "fill-empty";
+
+    if (kind === "skip" || kind === "spam") {
+      if (!dryRun) {
+        await admin.from("inbox_emails").update({
+          extracted_kind: kind, extracted_summary: summary, extracted_data: data, extracted_at: nowIso, is_archived: true,
+        }).eq("id", em.id);
+      }
+      results.push({ gmail_message_id: gid, status: "archived", detail: kind === "spam" ? "スパム→アーカイブ" : "スキップ→アーカイブ" });
+      continue;
+    }
+
+    if (kind === "job") {
+      const title = String(data.title ?? em.subject ?? "").trim();
+      if (!title) { results.push({ gmail_message_id: gid, status: "invalid", detail: "案件名(title)が空" }); continue; }
+      const client = data.client_name ? String(data.client_name).trim() : null;
+      const existingNo = await findExistingJobNo(admin, ownerCompany, title, client);
+      if (dryRun) {
+        // ファイル内の先行行と同キーなら実行時は統合される → dryRun でも統合として表示。
+        const key = `${title} ${client ?? ""}`;
+        const merged = existingNo != null || seenJobKeys.has(key);
+        seenJobKeys.add(key);
+        results.push({ gmail_message_id: gid, status: merged ? "job_merged" : "job_new", detail: existingNo ? `既存 案件#${existingNo} に統合` : merged ? "ファイル内の先行行に統合" : `新規（${title}）` });
+        continue;
+      }
+      await admin.from("inbox_emails").update({ extracted_kind: "job", extracted_summary: summary, extracted_data: data, extracted_at: nowIso }).eq("id", em.id);
+      const res = await registerInboxAsJob(em.id, undefined, { updatePolicy: policy });
+      if (!res.ok) { results.push({ gmail_message_id: gid, status: "error", detail: res.error }); continue; }
+      results.push({ gmail_message_id: gid, status: res.action === "updated" ? "job_merged" : "job_new", detail: `案件#${res.job_no}` });
+      continue;
+    }
+
+    // kind === "candidate"
+    const name = String(data.name ?? em.from_name ?? "").trim();
+    if (!name) { results.push({ gmail_message_id: gid, status: "invalid", detail: "氏名(name)が空" }); continue; }
+    const company = data.company ? String(data.company).trim() : null;
+    const existingNo = await findExistingCandidateNo(admin, ownerCompany, name, company);
+    if (dryRun) {
+      const key = `${name} ${company ?? ""}`;
+      const merged = existingNo != null || seenCandKeys.has(key);
+      seenCandKeys.add(key);
+      results.push({ gmail_message_id: gid, status: merged ? "cand_merged" : "cand_new", detail: existingNo ? `既存 人材#${existingNo} に統合` : merged ? "ファイル内の先行行に統合" : `新規（${name}）` });
+      continue;
+    }
+    await admin.from("inbox_emails").update({ extracted_kind: "candidate", extracted_summary: summary, extracted_data: data, extracted_at: nowIso }).eq("id", em.id);
+    const res = await registerInboxAsCandidate(em.id, undefined, { updatePolicy: policy });
+    if (!res.ok) { results.push({ gmail_message_id: gid, status: "error", detail: res.error }); continue; }
+    results.push({ gmail_message_id: gid, status: res.action === "updated" ? "cand_merged" : "cand_new", detail: `人材#${res.candidate_no}` });
+  }
+
+  const summary: InboxImportSummary = {
+    total: results.length,
+    jobNew: results.filter((r) => r.status === "job_new").length,
+    jobMerged: results.filter((r) => r.status === "job_merged").length,
+    candNew: results.filter((r) => r.status === "cand_new").length,
+    candMerged: results.filter((r) => r.status === "cand_merged").length,
+    archived: results.filter((r) => r.status === "archived").length,
+    alreadyRegistered: results.filter((r) => r.status === "already_registered").length,
+    notFound: results.filter((r) => r.status === "not_found").length,
+    invalid: results.filter((r) => r.status === "invalid").length,
+    error: results.filter((r) => r.status === "error").length,
+  };
+  if (!dryRun) { revalidatePath("/mail"); revalidatePath("/jobs"); revalidatePath("/people"); bustCounts(); }
+  return { ok: true, results, summary };
 }
 
 // ────────────────────────────────────────────────────────
