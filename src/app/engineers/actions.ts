@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { engerAdmin, publicAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
-import { classifySource, listEngineers } from "@/lib/engineers";
+import { classifySource, listEngineers, freelanceShortId, type SkillSheet } from "@/lib/engineers";
+import { ageToBand, formatRateRange, normalizeRemote, normalizeNationality, extractFreelanceFields, extractSkillCard } from "@/lib/freelance-to-candidate";
 import { notifySlack, appUrl } from "@/lib/slack";
 
 type Result = { ok: boolean; error?: string };
@@ -275,12 +276,36 @@ export async function createApplication(input: { engineer_id: string; engineer_n
     //   この dx 側経路で確実に提案ボードへ載せる。next_action に「直接応募」を含め LP直接応募バッジを点ける。
     try {
       const engName = input.engineer_name?.trim() || null;
-      if (engName) {
-        const jobTitle = input.job_title?.trim() || null;
-        const { data: dupP } = await admin.from("proposals")
-          .select("id").eq("candidate_name", engName).eq("job_title", jobTitle ?? "")
-          .like("next_action", "%直接応募%").maybeSingle();
-        if (!dupP?.id) {
+      const jobTitle = input.job_title?.trim() || null;
+      // #250：マスタ登録済み(E↔P紐付けあり)なら、その P番号(candidate) を判別し、氏名/candidate_id を
+      //   DBトリガ(applications-to-proposals.sql)と一致させる。これで dx経路とLP経路で二重作成が起きない。
+      let candId: string | null = null;
+      let candName = engName;
+      let candInit = engName ? engName.slice(0, 2) : "";
+      try {
+        const lk: any = await admin.from("freelance_candidate_links").select("candidate_id").eq("engineer_id", input.engineer_id).maybeSingle();
+        if (lk?.data?.candidate_id) {
+          candId = String(lk.data.candidate_id);
+          const cr: any = await admin.from("candidates").select("name, initials").eq("id", candId).maybeSingle();
+          if (cr?.data) { candName = (cr.data.name ?? candName); candInit = (cr.data.initials || String(cr.data.name ?? "").slice(0, 2)); }
+        }
+      } catch { /* リンクテーブル未整備でも続行（従来どおり氏名で作成） */ }
+      if (candName) {
+        // 二重作成防止：紐付けありは candidate_id×案件名、無しは 人材名×案件名（＋従来の人材名でも念のため確認）。
+        let dupId: string | null = null;
+        if (candId) {
+          const d: any = await admin.from("proposals").select("id").eq("candidate_id", candId).eq("job_title", jobTitle ?? "").like("next_action", "%直接応募%").maybeSingle();
+          dupId = d?.data?.id ?? null;
+        }
+        if (!dupId) {
+          const d2: any = await admin.from("proposals").select("id").eq("candidate_name", candName).eq("job_title", jobTitle ?? "").like("next_action", "%直接応募%").maybeSingle();
+          dupId = d2?.data?.id ?? null;
+        }
+        if (!dupId && engName && candName !== engName) {
+          const d3: any = await admin.from("proposals").select("id").eq("candidate_name", engName).eq("job_title", jobTitle ?? "").like("next_action", "%直接応募%").maybeSingle();
+          dupId = d3?.data?.id ?? null;
+        }
+        if (!dupId) {
           // 案件先の会社名を補完（任意）。
           let company: string | null = null;
           if (input.job_id) {
@@ -288,8 +313,8 @@ export async function createApplication(input: { engineer_id: string; engineer_n
             company = jr?.data?.client_name ?? null;
           }
           await admin.from("proposals").insert({
-            job_id: input.job_id ?? null, candidate_id: null, stage: "所属確認",
-            job_title: jobTitle ?? "（応募）", company, candidate_name: engName, c_init: engName.slice(0, 2),
+            job_id: input.job_id ?? null, candidate_id: candId, stage: "所属確認",
+            job_title: jobTitle ?? "（応募）", company, candidate_name: candName, c_init: candInit,
             proposer: null, ai: false, next_action: "エンジニア直接応募（LP）",
           });
         }
@@ -576,4 +601,191 @@ export async function syncLpRegistrantsToCandidates(opts?: { limit?: number }): 
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+// ============================================================
+// #250 ENGERフリーランス → 人材マスタ（人材一覧）への新規登録
+// ============================================================
+
+export type FreelancePrefill = {
+  engineer_id: string;
+  freelance_id: string;            // 元のE番号（E-XXXXX）
+  name: string;                    // 氏名＝フリーランス側のイニシャル（例：FT）。未登録なら空欄。
+  title: string;                   // 職種（希望職種）
+  affiliation: string;             // 所属区分（会社）＝一律 "BP"
+  skills: string[];                // スキルカードの技術スタック
+  rate: string;                    // 希望単価（"50万〜" / "50万〜60万"）
+  rate_num: number | null;
+  location: string;                // 最寄駅
+  remote_pref: string;             // リモート希望（3区分）
+  age_band: string;                // 年代区分（年齢から自動変換：36→"30代後半"）
+  nationality: string;             // 国籍（3区分）
+  email: string;                   // 連絡先メール
+  skill_sheets: SkillSheet[];      // スキルシート（署名URL付き・ログイン不要で閲覧/DL可）
+  predicted_no: number | null;     // 表示用：次に振られる見込みのP番号
+  already_no: number | null;       // 既にマスタ登録済みなら そのP番号
+};
+
+/** 「人材マスタへ新規登録」フォーム用：対象フリーランスのプロフィールを読み、流し込み用データを返す。
+ *  ・LP の列名差異は select("*") ＋ 名前パターンの動的スキャンで吸収。空欄はそのまま空欄に倒す（#250）。
+ *  ・スキルシートはログイン不要で閲覧/DLできる署名URLに付け替える。 */
+export async function prepareCandidateFromFreelancer(engineerId: string): Promise<{ ok: boolean; data?: FreelancePrefill; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（ENGERスタッフのみ）" };
+  const id = (engineerId ?? "").trim();
+  if (!id) return { ok: false, error: "engineer_id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  let pub: ReturnType<typeof publicAdmin>;
+  try { admin = engerAdmin(); pub = publicAdmin(); } catch { return { ok: false, error: "サーバ設定エラー（SUPABASE_SERVICE_ROLE_KEY 未設定）" }; }
+
+  // 既にマスタ登録済みか（E↔P 紐付け）。
+  let already: number | null = null;
+  try {
+    const lk: any = await admin.from("freelance_candidate_links").select("candidate_no").eq("engineer_id", id).maybeSingle();
+    already = lk?.data?.candidate_no ?? null;
+  } catch { /* リンクテーブル未整備でも続行 */ }
+
+  // プロフィールを全列取得（LP 列名差異を吸収）。
+  let p: any = {};
+  try {
+    const r: any = await pub.from("profiles").select("*").eq("id", id).maybeSingle();
+    if (!r.error && r.data) p = r.data;
+  } catch { /* 取得失敗でも空で続行 */ }
+
+  const initials = String(p?.initial_display ?? p?.initial_auto ?? p?.initials ?? p?.initial ?? "").trim();
+  const f = extractFreelanceFields(p);
+  const skills = extractSkillCard(p);
+
+  // スキルシート：skill_sheets(jsonb) 優先、無ければ旧 skill_sheet_url を1件として扱う。
+  //   ※ 永続保存する側は「path＋公開URL（skillsheets バケットは公開＝ログイン不要・期限なし）」をそのまま持たせる。
+  //     期限切れで死ぬ署名URLは保存しない。期間限定の外部共有が必要な時は skill_sheets[].path から都度
+  //     署名URL を再発行できる（src/lib/skill-sheet-url.ts の signSkillSheets）。
+  const skill_sheets: SkillSheet[] = (Array.isArray(p?.skill_sheets)
+    ? (p.skill_sheets as any[]).filter((s) => s && (s.url || s.path)).slice(0, 3)
+    : (p?.skill_sheet_url ? [{ url: String(p.skill_sheet_url), name: p?.skill_sheet_name ?? null, path: null }] : [])
+  ).map((s: any) => ({ url: String(s.url ?? ""), name: s.name ?? null, path: s.path ?? null, uploaded_at: s.uploaded_at ?? null }));
+
+  // 表示用の次P番号（最新+1）。実際の採番は保存時（IDENTITY）に確定する。
+  let predicted: number | null = null;
+  try {
+    const mx: any = await admin.from("candidates").select("candidate_no").order("candidate_no", { ascending: false }).limit(1).maybeSingle();
+    predicted = (mx?.data?.candidate_no != null ? Number(mx.data.candidate_no) : 0) + 1;
+  } catch { /* 採番予測不可でも続行 */ }
+
+  return {
+    ok: true,
+    data: {
+      engineer_id: id,
+      freelance_id: freelanceShortId(id),
+      name: initials,                                  // 氏名＝イニシャル（空欄ならそのまま空欄）
+      title: f.desiredJob,
+      affiliation: "BP",                               // 一律 BP
+      skills,
+      rate: formatRateRange(f.rateMin, f.rateMax),
+      rate_num: f.rateMin ?? f.rateMax ?? null,
+      location: f.nearestStation,
+      remote_pref: normalizeRemote(f.remote),
+      age_band: ageToBand(f.age),
+      nationality: normalizeNationality(f.nationality),
+      email: String(p?.email ?? "").trim(),
+      skill_sheets,
+      predicted_no: predicted,
+      already_no: already,
+    },
+  };
+}
+
+/** 「人材マスタへ新規登録」確定：人材マスタ(enger.candidates)に新規作成し、E↔P 紐付けを有効化する。
+ *  ・name×company の既存統合は使わず直接 insert（イニシャル同名の別人を取り違えないため）。
+ *  ・既に紐付け済みなら二重作成せず既存P番号を返す。
+ *  ・空欄項目はそのまま空欄で保存（初期テキストで埋めない）。 */
+export async function registerCandidateFromFreelancer(input: {
+  engineer_id: string;
+  name: string;
+  title?: string | null;
+  affiliation?: string | null;
+  skills?: string[];
+  rate?: string | null;
+  rate_num?: number | null;
+  location?: string | null;
+  remote_pref?: string | null;
+  age_band?: string | null;
+  nationality?: string | null;
+  email?: string | null;
+  skill_sheets?: SkillSheet[];
+}): Promise<{ ok: boolean; candidate_no?: number; existed?: boolean; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（ENGERスタッフのみ）" };
+  const engId = (input.engineer_id ?? "").trim();
+  if (!engId) return { ok: false, error: "engineer_id がありません" };
+  const name = (input.name ?? "").trim();
+  if (!name) return { ok: false, error: "氏名（イニシャル）を入力してください" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー（SUPABASE_SERVICE_ROLE_KEY 未設定）" }; }
+
+  // 既に紐付け済みなら二重作成しない。
+  try {
+    const lk: any = await admin.from("freelance_candidate_links").select("candidate_no, candidate_id").eq("engineer_id", engId).maybeSingle();
+    if (lk?.data?.candidate_id) return { ok: true, candidate_no: lk.data.candidate_no ?? undefined, existed: true };
+  } catch { /* リンクテーブル未整備でも続行（作成にトライ） */ }
+
+  const now = new Date().toISOString();
+  const operator = access?.name || access?.email || null;
+  const sheets = (input.skill_sheets ?? []).filter((s) => s && s.url).slice(0, 3);
+  const row: Record<string, any> = {
+    name,
+    initials: name,                                      // イニシャルそのものを氏名/イニシャルに使う
+    title: input.title?.trim() || null,
+    affiliation: (input.affiliation?.trim() || "BP"),    // 所属区分（会社）＝BP 固定
+    skills: normalizeSkills(input.skills ?? []),
+    rate: input.rate?.trim() || null,
+    rate_num: input.rate_num ?? null,
+    location: input.location?.trim() || null,
+    remote_pref: input.remote_pref?.trim() || null,
+    age_band: input.age_band?.trim() || null,
+    nationality: input.nationality?.trim() || null,
+    email: input.email?.trim() || null,
+    skill_sheet_url: sheets[0]?.url || null,
+    skill_sheets: sheets.length ? sheets : null,
+    status: "提案可",
+    score: 0,
+    source_csv: "freelance",
+    signup_source: "enger",
+    operator,
+    imported_at: now,
+  };
+
+  // insert。列未整備の環境でも通るよう、エラーが指す列を落として再試行（最大8回・列名を動的に除去）。
+  let ins: any = await admin.from("candidates").insert(row).select("id, candidate_no").maybeSingle();
+  for (let i = 0; i < 8 && ins.error; i++) {
+    const msg = String(ins.error.message ?? "");
+    const m = msg.match(/Could not find the '([a-z_0-9]+)' column|column "?([a-z_0-9]+)"? of relation/i);
+    const col = m?.[1] || m?.[2];
+    if (!col || !(col in row)) break;
+    delete (row as any)[col];
+    ins = await admin.from("candidates").insert(row).select("id, candidate_no").maybeSingle();
+  }
+  if (ins.error || !ins.data?.id) return { ok: false, error: ins.error?.message ?? "人材マスタへの登録に失敗しました" };
+  const candidateId = String(ins.data.id);
+  const candidateNo = ins.data.candidate_no != null ? Number(ins.data.candidate_no) : undefined;
+
+  // E↔P 紐付けを作成（応募→提案ボードの自動結びつけのソース）。engineer_id は PK。
+  //   同時実行で別リクエストが先に紐付けた場合は一意制約違反 → こちらが作った重複候補を消し、
+  //   先勝ちの既存P番号を返す（1フリーランス→1マスタの不変条件を守る）。
+  const linkIns: any = await admin.from("freelance_candidate_links")
+    .insert({ engineer_id: engId, candidate_id: candidateId, candidate_no: candidateNo ?? null, linked_by: operator });
+  if (linkIns.error && /duplicate|unique|conflict|already exists/i.test(linkIns.error.message ?? "")) {
+    try { await admin.from("candidates").delete().eq("id", candidateId); } catch { /* noop */ }
+    let existingNo: number | undefined;
+    try {
+      const ex: any = await admin.from("freelance_candidate_links").select("candidate_no").eq("engineer_id", engId).maybeSingle();
+      existingNo = ex?.data?.candidate_no != null ? Number(ex.data.candidate_no) : undefined;
+    } catch { /* noop */ }
+    return { ok: true, candidate_no: existingNo, existed: true };
+  }
+  // duplicate 以外（例：リンクテーブル未整備）は候補作成のみ成立（紐付け未作成）。
+
+  revalidatePath("/people");
+  revalidatePath("/engineers");
+  return { ok: true, candidate_no: candidateNo };
 }
