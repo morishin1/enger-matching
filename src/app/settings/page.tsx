@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "@/components/AppLink";
 import { QualityRules, type Rule } from "@/components/QualityRules";
 import { FocusCriteriaEditor } from "@/components/FocusCriteriaEditor";
@@ -115,21 +116,38 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           // users タブには承認待ちバッジを表示（admin のみここに到達）
           const badge = t.key === "users" && usersPending > 0 ? usersPending : null;
           return (
-            <Link key={t.key} href={`/settings?tab=${t.key}`} role="tab" aria-selected={on} title={t.desc}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "9px 14px", borderRadius: 8, textDecoration: "none",
-                background: on ? "var(--color-surface)" : "transparent",
-                color: on ? "var(--color-ink)" : "var(--color-ink-3)",
-                boxShadow: on ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
-                fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
-              }}>
-              <Icon name={t.icon} size={18} />
-              <span>{t.label}</span>
-              {badge != null && (
-                <span className="badge hot" style={{ fontSize: 10 }}>{badge}</span>
+            <Fragment key={t.key}>
+              <Link href={`/settings?tab=${t.key}`} role="tab" aria-selected={on} title={t.desc}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "9px 14px", borderRadius: 8, textDecoration: "none",
+                  background: on ? "var(--color-surface)" : "transparent",
+                  color: on ? "var(--color-ink)" : "var(--color-ink-3)",
+                  boxShadow: on ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
+                  fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
+                }}>
+                <Icon name={t.icon} size={18} />
+                <span>{t.label}</span>
+                {badge != null && (
+                  <span className="badge hot" style={{ fontSize: 10 }}>{badge}</span>
+                )}
+              </Link>
+              {/* 「ログ」の隣に、各個人のKGI/KPIダッシュボード（/kpi）への入口を復元（要望）。
+                  /kpi は期間・対象メンバー等の固有URLパラメータを持つため別ページのまま、タブと同デザインのリンクで置く。 */}
+              {t.key === "logs" && (
+                <Link href="/kpi" role="tab" title="各メンバーのKGI/KPIダッシュボード（達成率・推移・メンバー別アクティビティ）"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "9px 14px", borderRadius: 8, textDecoration: "none",
+                    background: "transparent", color: "var(--color-ink-3)",
+                    fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap",
+                  }}>
+                  <Icon name="monitoring" size={18} />
+                  <span>KGI/KPIダッシュボード</span>
+                  <Icon name="open_in_new" size={13} />
+                </Link>
               )}
-            </Link>
+            </Fragment>
           );
         })}
       </nav>
