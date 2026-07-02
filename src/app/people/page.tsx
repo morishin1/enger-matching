@@ -291,8 +291,13 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const order = (qb: any) => qb.order("candidate_no", { ascending: false }).range(from, to);
 
       const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
-      let res: any = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source`, true, true, hideClosed));
+      // #257-1：signup_source はフォールバック変種にも含める（欠けると「ENGERフリーランス」バッジが
+      //   一覧から消えるデグレになるため）。source_csv も登録元判定の補助に取得する。
+      let res: any = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, true, hideClosed));
       if (res.error && /deleted_at|is_closed|column/i.test(res.error.message)) {
+        res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, false));
+      }
+      if (res.error && /signup_source|source_csv|column/i.test(res.error.message)) {
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false));
       }
       if (res.error) res = await order(buildBase(baseCols, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効

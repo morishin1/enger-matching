@@ -15,11 +15,12 @@
 create or replace function enger.application_to_proposal() returns trigger
   language plpgsql security definer as $$
 declare
-  v_company   text;
-  v_title     text;
-  v_cand_id   uuid;
-  v_cand_name text;
-  v_cand_init text;
+  v_company     text;
+  v_title       text;
+  v_cand_id     uuid;
+  v_cand_name   text;
+  v_cand_init   text;
+  v_proposal_id uuid;
 begin
   v_title := coalesce(nullif(btrim(new.job_title), ''), '（応募）');
 
@@ -39,39 +40,50 @@ begin
   v_cand_name := coalesce(v_cand_name, new.engineer_name);
   v_cand_init := coalesce(v_cand_init, left(coalesce(new.engineer_name, ''), 2));
 
-  -- 既に同一応募の提案があればスキップ（二重作成防止）。
+  -- 既に同一応募の提案があればその提案IDを使う（二重作成防止・#258①のメモ追記先）。
   --   マスタ紐付けがあれば candidate_id×案件名 で、無ければ 人材名×案件名×LP直接応募 で判定。
-  if (v_cand_id is not null and exists (
-        select 1 from enger.proposals p
-        where p.candidate_id = v_cand_id and coalesce(p.job_title,'') = v_title
-          and coalesce(p.next_action,'') like '%直接応募%'))
-     or exists (
-        select 1 from enger.proposals p
-        where coalesce(p.candidate_name, '') = coalesce(new.engineer_name, '')
+  select p.id into v_proposal_id from enger.proposals p
+   where (v_cand_id is not null and p.candidate_id = v_cand_id and coalesce(p.job_title,'') = v_title
+          and coalesce(p.next_action,'') like '%直接応募%')
+      or (coalesce(p.candidate_name, '') = coalesce(new.engineer_name, '')
           and coalesce(p.job_title, '') = v_title
           and coalesce(p.next_action, '') like '%直接応募%')
-  then
-    return new;
+   limit 1;
+
+  if v_proposal_id is null then
+    -- 案件先の会社名を補完（任意・取得失敗は null のまま）。
+    begin
+      if new.job_id is not null then
+        select client_name into v_company from enger.jobs where id = new.job_id;
+      end if;
+    exception when others then v_company := null;
+    end;
+
+    -- 提案ボードへ記録（所属確認フォルダ）。next_action に「直接応募」を含め LP直接応募バッジを点ける。
+    --   マスタ登録済みなら candidate_id（P番号）を結びつけて一元管理できるようにする。
+    begin
+      insert into enger.proposals
+        (job_id, candidate_id, stage, job_title, company, candidate_name, c_init, proposer, ai, next_action)
+      values
+        (new.job_id, v_cand_id, '所属確認', v_title, v_company, v_cand_name,
+         v_cand_init, null, false, 'エンジニア直接応募（LP）')
+      returning id into v_proposal_id;
+    exception when others then
+      -- 列差異等で失敗しても応募自体は成立させる（best-effort）。
+      v_proposal_id := null;
+    end;
   end if;
 
-  -- 案件先の会社名を補完（任意・取得失敗は null のまま）。
+  -- #258①：応募時の「事前に相談したいこと・ご希望」(applications.message) を提案のメモ履歴へ自動記録。
   begin
-    if new.job_id is not null then
-      select client_name into v_company from enger.jobs where id = new.job_id;
+    if v_proposal_id is not null and nullif(btrim(coalesce(new.message, '')), '') is not null then
+      insert into enger.proposal_memos (proposal_id, category, body, created_by_email, created_by_name)
+      values (v_proposal_id, '人材側→当社',
+              '【自動記録】応募時の事前相談・ご希望：' || E'\n' || left(btrim(new.message), 2000),
+              null, '自動記録（LP応募）');
     end if;
-  exception when others then v_company := null;
-  end;
-
-  -- 提案ボードへ記録（所属確認フォルダ）。next_action に「直接応募」を含め LP直接応募バッジを点ける。
-  --   マスタ登録済みなら candidate_id（P番号）を結びつけて一元管理できるようにする。
-  begin
-    insert into enger.proposals
-      (job_id, candidate_id, stage, job_title, company, candidate_name, c_init, proposer, ai, next_action)
-    values
-      (new.job_id, v_cand_id, '所属確認', v_title, v_company, v_cand_name,
-       v_cand_init, null, false, 'エンジニア直接応募（LP）');
   exception when others then
-    -- 列差異等で失敗しても応募自体は成立させる（best-effort）。
+    -- メモ記録失敗は応募を止めない（best-effort）。
     null;
   end;
 

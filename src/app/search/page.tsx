@@ -1,8 +1,14 @@
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { engerClient, dbConfigured } from "@/lib/supabase";
+import { listEngineers, freelanceShortId } from "@/lib/engineers";
+import { resolveEngineerProfileNames } from "@/lib/chat";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+// ひらがな→カタカナ（フリガナ検索をどちらの表記でも当てる）。
+const toKatakana = (s: string) => s.replace(/[ぁ-ゖ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 
 const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
@@ -15,6 +21,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const safe = term.replace(/[%,()]/g, " ").trim(); // ilike/or 用にサニタイズ
 
   let jobs: any[] = [], people: any[] = [], companies: { name: string; active_jobs: number; job_count: number }[] = [];
+  let freelancers: { id: string; shortId: string; label: string; sub: string }[] = [];
   let dbError: string | null = null;
 
   if (term && dbConfigured) {
@@ -74,9 +81,43 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
+
+    // #255：ENGERフリーランス（public.profiles）も横断検索。
+    //   E番号（E-XXXXX・部分一致可）／姓名（漢字・カタカナ、ひらがな入力もカナに寄せて部分一致）／
+    //   表示名・GitHub名・メールでもヒットさせる。profiles 未接続でも他の結果は出す（fail-soft）。
+    try {
+      const needle = safe.toLowerCase();
+      const needleKana = toKatakana(safe);
+      // "E-xxx" / "exxx" 形式は E番号のプレフィックス検索として扱う。
+      const em = /^e[\s\-‐ー]*([0-9a-fA-F]{1,5})$/i.exec(safe);
+      const eHex = em ? em[1].toUpperCase() : null;
+      const { rows } = await listEngineers();
+      if (rows.length > 0) {
+        const names = await resolveEngineerProfileNames(rows.map((r) => r.id));
+        for (const r of rows) {
+          const sid = freelanceShortId(r.id); // E-XXXXX
+          const nm = names.get(r.id);
+          const hay = [r.display_name, r.github_login, r.name, r.email, nm?.kanji, nm?.kana, nm?.initials]
+            .filter(Boolean).map((s) => String(s)).join(" ");
+          const hit =
+            (eHex != null && sid.replace("E-", "").startsWith(eHex)) ||
+            (!eHex && needle.length >= 1 && (
+              sid.toLowerCase().includes(needle) ||
+              hay.toLowerCase().includes(needle) ||
+              (needleKana !== safe && toKatakana(hay).includes(needleKana)) ||
+              toKatakana(hay).includes(needleKana)
+            ));
+          if (!hit) continue;
+          const label = nm?.kanji || r.display_name || r.github_login || r.name || "（表示名なし）";
+          const sub = [sid, nm?.kana, nm?.initials && `イニシャル ${nm.initials}`, r.primary_language].filter(Boolean).join(" · ");
+          freelancers.push({ id: r.id, shortId: sid, label, sub });
+          if (freelancers.length >= 20) break;
+        }
+      }
+    } catch { /* profiles 未接続でも続行 */ }
   }
 
-  const total = jobs.length + people.length + companies.length;
+  const total = jobs.length + people.length + companies.length + freelancers.length;
 
   return (
     <div className="page">
@@ -122,6 +163,24 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
                 <div className="muted" style={{ fontSize: 10.5 }}>{p.title ?? "—"} · {p.affiliation ?? p.source_company ?? ""} · {p.rate ?? ""}</div>
               </div>
               <span className="btn btn-xs">スキルシート</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* #255：ENGERフリーランス（E番号・漢字/カナ氏名の部分一致）。クリックで一覧に検索語を引き継ぐ。 */}
+      {freelancers.length > 0 && (
+        <div className="card flush">
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}><Icons.engerFreelance size={16} />フリーランス（ENGER登録者）</div><span className="tag brand">{freelancers.length}名</span>
+          </div>
+          {freelancers.map((f) => (
+            <Link key={f.id} href={`/engineers?q=${encodeURIComponent(f.shortId)}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted mono" style={{ marginRight: 6 }}>{f.shortId}</span>{f.label}</div>
+                <div className="muted" style={{ fontSize: 10.5 }}>{f.sub}</div>
+              </div>
+              <span className="btn ghost btn-xs">一覧で開く</span>
             </Link>
           ))}
         </div>

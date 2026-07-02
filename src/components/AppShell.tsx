@@ -135,7 +135,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
           ) : null}
           <form className="search" onSubmit={submit}>
             <span style={{ display: "grid", placeItems: "center" }}><Icons.search /></span>
-            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社（ID/No・名前・スキル）…Enterで検索" />
+            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社・フリーランス（ID/No・E番号・氏名）…Enterで検索" />
             <kbd>⌘K</kbd>
           </form>
           <HelpButton />

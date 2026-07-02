@@ -166,9 +166,9 @@ function SkillSheetMarks({ sheets }: { sheets: SkillSheet[] | null | undefined }
   );
 }
 
-export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus> }) {
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {}, initialQ = "" }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus>; initialQ?: string }) {
   const router = useRouter();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ); // #255：検索結果からの遷移で ?q= を初期反映
   // お気に入り案件一覧モーダル（履歴列のハートをクリックで開く）。
   const [favDetail, setFavDetail] = useState<Engineer | null>(null);
   // 履歴列の「応募」「スカ」クリックで開く案件名一覧モーダル。
@@ -1164,7 +1164,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
               <RegField label="稼働開始" type="date" value={f.avail_date} onChange={set("avail_date")} />
               <RegField label="職種" value={f.title} onChange={set("title")} />
               <RegField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：50万〜60万" />
-              <RegField label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代後半（空欄可）" />
+              <RegField label="年代（年齢幅つき）" value={f.age_band} onChange={set("age_band")} placeholder="例：30代後半（35~39歳）" />
               <RegField label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="日本国籍 / 外国籍 / 不明" />
               <RegField label="最寄駅" value={f.location} onChange={set("location")} />
               <RegField label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} />

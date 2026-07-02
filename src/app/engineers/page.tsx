@@ -10,7 +10,7 @@ import { asClientPeriod, hasCustomRange, inClientPeriod, inCustomRange, CLIENT_P
 
 export const dynamic = "force-dynamic";
 
-export default async function EngineersPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string }> }) {
+export default async function EngineersPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; q?: string }> }) {
   const sp = await searchParams;
   const access = await currentAccess();
   const [{ rows, available }, actions, scouts, applications, favorites, chatStatus] = await Promise.all([
@@ -58,7 +58,7 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} />
+      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} initialQ={sp.q ?? ""} />
     </div>
   );
 }

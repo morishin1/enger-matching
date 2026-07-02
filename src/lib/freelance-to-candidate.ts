@@ -3,13 +3,16 @@
 //   ・空欄（未登録）はそのまま空欄に倒す（初期テキストやエラーにしない）。
 import { classifyCandNationality, CAND_NAT_LABEL } from "./nationality";
 
-/** 年齢(数値) → 年代区分（例：36 → "30代後半"）。範囲外/不明は空文字。 */
+/** 年齢(数値) → 年代区分＋年齢幅（例：36 → "30代後半（35~39歳）"）。範囲外/不明は空文字。
+ *  #257-4：既存データの表示ルール（「40代前半（40~44歳）」）に合わせ、括弧書きの年齢幅を自動付与する。 */
 export function ageToBand(age: number | null | undefined): string {
   const n = Number(age);
   if (!Number.isFinite(n) || n < 10 || n > 99) return "";
   const decade = Math.floor(n / 10) * 10;
-  const half = (n % 10) < 5 ? "前半" : "後半";
-  return `${decade}代${half}`;
+  const early = (n % 10) < 5;
+  const lo = decade + (early ? 0 : 5);
+  const hi = decade + (early ? 4 : 9);
+  return `${decade}代${early ? "前半" : "後半"}（${lo}~${hi}歳）`;
 }
 
 /** 希望単価 下限/上限 → "50万〜" / "50万〜60万" / "〜60万" / 空文字。 */
@@ -24,14 +27,15 @@ export function formatRateRange(low: number | null | undefined, high: number | n
 }
 
 /** リモート希望を人材マスタの3区分に正規化（フル/一部/出社）。空/不明は空文字。
- *  boolean（true=リモート可）も受ける。 */
+ *  boolean（true=リモート可）も受ける。
+ *  #257-3：移行元が「〜希望」表記のときは文言をそのまま引き継ぐ（一部リモート希望→一部リモート希望）。 */
 export function normalizeRemote(raw: unknown): string {
   if (raw === true) return "一部リモート可";
   if (raw === false) return "出社可";
   const s = String(raw ?? "").trim();
   if (!s) return "";
   if (/フル|full|完全|フルリモート/i.test(s)) return "フルリモート希望";
-  if (/一部|hybrid|ハイブリッド|リモート|在宅|remote|可|ok/i.test(s)) return "一部リモート可";
+  if (/一部|hybrid|ハイブリッド|リモート|在宅|remote|可|ok/i.test(s)) return /希望/.test(s) ? "一部リモート希望" : "一部リモート可";
   if (/出社|常駐|onsite|office|不可|ng/i.test(s)) return "出社可";
   return "";
 }
