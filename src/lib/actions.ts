@@ -2764,6 +2764,7 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.age_band !== undefined) row.age_band = trim(fields.age_band);
   if (fields.exp !== undefined) row.exp = trim(fields.exp);
   if (fields.status !== undefined) row.status = trim(fields.status);
+  if (fields.note !== undefined) row.note = trim(fields.note); // #276③：人材詳細の備考欄（インライン編集）
   if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
   if ((fields as any).email !== undefined) row.email = trim((fields as any).email);
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);

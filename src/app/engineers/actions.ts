@@ -441,21 +441,60 @@ export async function setEngineerMeetingDone(input: { engineer_id: string; engin
   return { ok: true };
 }
 
-/** LP登録者（public.profiles）を複数まとめて削除（admin / agent）。
- *  削除対象は profiles のみに限定（app_users 等の内部アカウントは触らない＝権限昇格防止）。
- *  ※ OAuth(GitHub/Google)の auth ユーザーは残るため、本人が再ログインすると LP 側で再生成される
- *    可能性がある。一覧からの除去（重複アプローチ防止・整理）が目的。 */
-export async function bulkDeleteEngineers(ids: string[]): Promise<{ ok: boolean; deleted?: number; error?: string }> {
+/** LP登録者を複数まとめて完全削除（admin / agent）。#277
+ *  「フリーランス（E番号）としてのアカウント・プロフィールの完全リセット」が目的：
+ *   ① E番号側の完全削除（物理削除）
+ *      ・public.profiles（プロフィール本体）
+ *      ・enger.freelance_candidate_links（P番号との紐付け＝リレーション解除。P側は残す）
+ *      ・enger.freelance_name_snapshots / engineer_actions / scouts / applications / job_favorites
+ *        （フリーランス詳細画面のプロフィール構築に使う E番号キーの関連データ）
+ *      ・Supabase Auth のユーザー（メール/Google とも再登録できるようにクリーンアップ）
+ *   ② P番号側（enger.candidates）は絶対に削除しない（人材一覧に専用の削除機能があるため）。
+ *      リンクテーブルは FK 制約なし（CASCADE なし）で、削除クエリも E番号キーのみに限定している。
+ *   ③ 削除後は同じメールアドレス/Googleアカウントで LP へ最初から新規登録（再登録）できる。
+ *  ※ チャット履歴（enger.chat_threads）はやり取りの記録として残す（プロフィール構築データではないため）。
+ *  ※ app_users 等の内部アカウントは触らない（権限昇格防止）。 */
+export async function bulkDeleteEngineers(ids: string[]): Promise<{ ok: boolean; deleted?: number; authDeleted?: number; authErrors?: number; error?: string }> {
   const access = await currentAccess();
   if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
   const clean = Array.from(new Set((ids ?? []).map((s) => String(s ?? "").trim()).filter(Boolean)));
   if (clean.length === 0) return { ok: false, error: "削除対象がありません" };
   try {
     const pub = publicAdmin();
+    // Auth 削除に使う email を、profiles を消す前に控えておく。
+    const pre: any = await pub.from("profiles").select("id, email").in("id", clean);
+    const targets: { id: string; email: string | null }[] = (pre.data ?? []).map((r: any) => ({ id: String(r.id), email: r.email ?? null }));
+
+    // ① enger 側の E番号キー関連データを先に削除（candidates＝P番号側には一切触れない）。
+    //    テーブル未作成の環境でも本体削除を止めないよう、個別に握りつぶす。
+    const admin = engerAdmin();
+    for (const table of ["freelance_candidate_links", "freelance_name_snapshots", "engineer_actions", "scouts", "applications", "job_favorites"]) {
+      try { await admin.from(table).delete().in("engineer_id", clean); } catch { /* 未整備テーブルは無視 */ }
+    }
+
+    // ② プロフィール本体（public.profiles）を削除。
     const r: any = await pub.from("profiles").delete().in("id", clean).select("id");
     if (r.error) return { ok: false, error: r.error.message };
+    const deleted = Array.isArray(r.data) ? r.data.length : clean.length;
+
+    // ③ 認証基盤（Supabase Auth）のユーザーを削除 → 同じメール/Googleで再登録可能にする。
+    //    消し残りがあると「既に登録済みのメールアドレスです」で再登録できないため必ず実施。
+    let authDeleted = 0, authErrors = 0;
+    let auth: ReturnType<typeof authAdmin> | null = null;
+    try { auth = authAdmin(); } catch { auth = null; }
+    if (auth) {
+      for (const t of targets.length > 0 ? targets : clean.map((id) => ({ id, email: null as string | null }))) {
+        try {
+          const uid = await resolveAuthUserId(auth, t.id, t.email);
+          if (!uid) continue; // auth ユーザーが元々居ない（＝再登録に支障なし）
+          const dr: any = await auth.auth.admin.deleteUser(uid);
+          if (dr.error) authErrors++; else authDeleted++;
+        } catch { authErrors++; }
+      }
+    }
+
     revalidatePath("/engineers");
-    return { ok: true, deleted: Array.isArray(r.data) ? r.data.length : clean.length };
+    return { ok: true, deleted, authDeleted, authErrors };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

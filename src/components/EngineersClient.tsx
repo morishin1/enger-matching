@@ -166,7 +166,7 @@ function SkillSheetMarks({ sheets }: { sheets: SkillSheet[] | null | undefined }
   );
 }
 
-export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {}, initialQ = "" }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus>; initialQ?: string }) {
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {}, initialQ = "", candidateNos = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus>; initialQ?: string; candidateNos?: Record<string, number> }) {
   const router = useRouter();
   const [q, setQ] = useState(initialQ); // #255：検索結果からの遷移で ?q= を初期反映
   // お気に入り案件一覧モーダル（履歴列のハートをクリックで開く）。
@@ -237,13 +237,32 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
     });
   }, [q, filters, engineers, meetingDoneIds]);
 
+  // #275④ 日時ソート（登録日時／最終ログイン日時）。クリックで昇順/降順を切替。
+  const [sortKey, setSortKey] = useState<"created" | "login">("created");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const toggleSort = (key: "created" | "login") => {
+    if (sortKey === key) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+  const sorted = useMemo(() => {
+    const ts = (v: string | null | undefined) => { const t = v ? new Date(v).getTime() : NaN; return isNaN(t) ? null : t; };
+    return [...filtered].sort((a, b) => {
+      const ta = ts(sortKey === "created" ? a.created_at : a.last_login_at);
+      const tb = ts(sortKey === "created" ? b.created_at : b.last_login_at);
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1; // 未ログイン（—）は昇順/降順に関わらず末尾へ
+      if (tb == null) return -1;
+      return sortDir === "desc" ? tb - ta : ta - tb;
+    });
+  }, [filtered, sortKey, sortDir]);
+
   // ページング
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(0);
   useEffect(() => { setPage(0); }, [q, filters, pageSize]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
+  const pageRows = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize);
   // 表示中（このページ）の全選択トグル
   const visibleIds = pageRows.map((e) => e.id);
   const allChecked = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
@@ -262,7 +281,9 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       setBulkBusy(false); setConfirmDel(false);
       if (!res.ok) { setMatchingMsg(res.error || "削除に失敗しました"); return; }
       setSelected(new Set());
-      setMatchingMsg(`✓ ${res.deleted ?? ids.length} 名を削除しました`);
+      // #277：認証（Auth）側のクリーンアップ結果も表示（再登録可否の確認材料）。
+      const authNote = (res.authErrors ?? 0) > 0 ? `（認証削除 ${res.authDeleted ?? 0}件・失敗${res.authErrors}件）` : "";
+      setMatchingMsg(`✓ ${res.deleted ?? ids.length} 名を削除しました（再登録可能）${authNote}`);
       router.refresh();
     });
   };
@@ -353,22 +374,31 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     ref={(el) => { if (el) el.indeterminate = !allChecked && someChecked; }}
                     onChange={toggleAll} style={{ accentColor: "var(--color-brand-600)" }} />
                 </th>
-                <th style={{ width: 96 }}>人材ID</th>
-                <th style={{ width: 104 }}>ステータス</th>
+                {/* #275①②：E番号のIDは「フリーランスID」表記に統一（人材ID＝P番号と区別）。 */}
+                <th style={{ width: 100 }}>フリーランスID</th>
+                <th style={{ width: 92 }}>ステータス</th>
                 <th>氏名</th>
                 <th>スキル</th>
-                <th style={{ width: 110 }}>主要言語</th>
-                <th style={{ width: 110 }} className="num">単価</th>
+                <th style={{ width: 92 }}>主要言語</th>
+                <th style={{ width: 96 }} className="num">単価</th>
                 {/* #262：スキルシート列（詳細にリンク自動挿入済み）・連絡先列は削除。 */}
-                <th style={{ width: 100 }} className="num">GitHub</th>
-                <th style={{ width: 132 }}>登録日時</th>
-                <th style={{ width: 80 }}>履歴</th>
-                <th style={{ width: 90, textAlign: "center" }}>面談済</th>
+                <th style={{ width: 76 }} className="num">GitHub</th>
+                {/* #275④：登録日時・最終ログイン日時はクリックで昇順/降順ソート。 */}
+                <th style={{ width: 118, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => toggleSort("created")}
+                  title="クリックで登録日時の昇順/降順を切替" aria-sort={sortKey === "created" ? (sortDir === "desc" ? "descending" : "ascending") : undefined}>
+                  登録日時 {sortKey === "created" ? (sortDir === "desc" ? "▼" : "▲") : <span style={{ opacity: .35 }}>▽</span>}
+                </th>
+                <th style={{ width: 118, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => toggleSort("login")}
+                  title="クリックで最終ログイン日時の昇順/降順を切替（未ログインは末尾）" aria-sort={sortKey === "login" ? (sortDir === "desc" ? "descending" : "ascending") : undefined}>
+                  最終ログイン {sortKey === "login" ? (sortDir === "desc" ? "▼" : "▲") : <span style={{ opacity: .35 }}>▽</span>}
+                </th>
+                <th style={{ width: 76 }}>履歴</th>
+                <th style={{ width: 76, textAlign: "center" }}>面談済</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={11} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+                <tr><td colSpan={12} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
               ) : pageRows.map((e) => {
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
@@ -427,6 +457,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
                     {/* #262：スキルシート列・連絡先列は削除（スキルシートは詳細のプロフィールにリンク自動挿入済み）。 */}
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
+                    {/* #275④：最終ログイン日時（ENGERフリーランスへの最終ログイン）。未ログインは「—」。 */}
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={e.last_login_at ? `最終ログイン：${fmtDateTime(e.last_login_at)}` : "ログイン履歴なし"}>{e.last_login_at ? fmtDateTime(e.last_login_at) : "—"}</span></td>
                     <td>
                       <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         {ap.length > 0 && <button type="button" title="応募した案件名を一覧で見る"
@@ -510,14 +542,15 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
           </div>
         )}
 
-        {/* 削除確認モーダル */}
+        {/* 削除確認モーダル（#277：E番号側のみ完全削除・P番号は残す・再登録可能）。 */}
         {confirmDel && (
           <div onClick={() => !bulkBusy && setConfirmDel(false)} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(15,36,64,.5)", display: "grid", placeItems: "center", padding: 20 }}>
-            <div onClick={(ev) => ev.stopPropagation()} className="card" style={{ width: "min(440px, 96vw)", padding: 20 }}>
-              <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 800 }}>{selected.size} 名のLP登録者を削除します</h3>
+            <div onClick={(ev) => ev.stopPropagation()} className="card" style={{ width: "min(460px, 96vw)", padding: 20 }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 800 }}>選択した {selected.size} 名のユーザーを削除しますか？</h3>
               <p style={{ fontSize: 12.5, color: "var(--color-ink-3)", lineHeight: 1.7, margin: "0 0 14px" }}>
-                この操作は取り消せません。LP登録（public.profiles）から該当行を削除します。
-                <br />※ 取込済みの候補者（人材一覧）データは削除されません。
+                この操作を実行すると、フリーランスのプロフィール情報（アカウント・認証情報を含む）は全て削除され、<b>元に戻せません</b>。
+                <br />（※このフリーランスに紐づいているP番号の人材データは削除されません）
+                <br />削除後、本人は同じメールアドレス／Googleアカウントで ENGERフリーランスへ最初から新規登録（再登録）できます。
               </p>
               {matchingMsg && <div style={{ fontSize: 12, color: "var(--color-danger)", marginBottom: 10 }}>{matchingMsg}</div>}
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -550,7 +583,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       </div>
 
       {detail && (
-        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} profile={profileNames[detail.id]} onClose={() => setDetail(null)} />
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} profile={profileNames[detail.id]} candidateNo={candidateNos[detail.id] ?? null} onClose={() => setDetail(null)} />
       )}
 
       {favDetail && (
@@ -650,7 +683,7 @@ function FavoritesModal({ engineer, favorites, profile, onClose }: { engineer: E
   );
 }
 
-function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; profile?: EngineerProfileName; onClose: () => void }) {
+function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candidateNo = null, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; profile?: EngineerProfileName; candidateNo?: number | null; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [action, setAction] = useState<string>("");
@@ -830,14 +863,19 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, onClose
             ))}
           </div>
         </div>
-        {/* 連絡先（メール・電話・メッセージ）と登録日時 */}
+        {/* 連絡先（メール・電話）と登録情報。
+            #275③：「メッセージ」項目は「人材ID」に変更し、人材マスタ登録済み（P番号発行済み）なら P番号を表示。 */}
         <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>連絡先・登録情報</div>
-          <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "4px 10px", fontSize: 12.5 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: "4px 10px", fontSize: 12.5 }}>
+            {/* #275①：E番号は「フリーランスID」表記（人材ID＝P番号と区別）。 */}
+            <span className="muted">フリーランスID</span><span className="mono">{shortId(detail.id)}</span>
             <span className="muted">登録日時</span><span className="mono">{fmtDateTime(detail.created_at)}</span>
             <span className="muted">メール</span><span>{detail.email ? <a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a> : <span className="muted">—</span>}</span>
             <span className="muted">電話</span><span>{detail.phone ? <a href={`tel:${detail.phone}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.phone}</a> : <span className="muted">—</span>}</span>
-            <span className="muted">メッセージ</span><span>{detail.contact_line ? detail.contact_line : <span className="muted">—</span>}</span>
+            <span className="muted">人材ID</span><span>{candidateNo != null
+              ? <a href={`/people/${candidateNo}`} target="_blank" rel="noopener noreferrer" className="mono" style={{ fontWeight: 700, color: "var(--color-brand-700,#0b5cab)" }} title="人材詳細（P番号）を開く">P-{String(candidateNo).padStart(5, "0")}</a>
+              : <span className="muted" title="「人材マスタへ登録」で P番号を発行すると表示されます">未登録</span>}</span>
           </div>
         </div>
 

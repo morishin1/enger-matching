@@ -6,6 +6,7 @@ import { MailButton } from "@/components/MailButton";
 import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { CloseToggleButton } from "@/components/CloseToggleButton";
+import { CandidateNoteEditor } from "@/components/CandidateNoteEditor";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
@@ -144,7 +145,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
           ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={candCompany} approved={candApproved} badge badgeSize="sm" />{c.affiliation ? <span className="muted" style={{ fontSize: 12 }}>（{c.affiliation}）</span> : null}</span>
           : (c.affiliation ?? null)} />
         <Row label="連絡先" value={c.email ?? c.contact_email} />
-        <Row label="備考" value={c.note} />
+        {/* #276③：備考は常設のインライン編集欄に（ENGERフリーランス経由の人材＝note空でも書き込める）。 */}
+        <CandidateNoteEditor candidateNo={c.candidate_no} initial={c.note ?? ""} />
       </div>
     </div>
   );
