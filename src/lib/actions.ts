@@ -3047,25 +3047,40 @@ export type InboxExportRow = {
   is_archived: boolean | null;
 };
 
-const INBOX_EXPORT_MAX = 5000;
+const INBOX_EXPORT_MAX = 20000;      // 安全上限（暴走防止）。実用上は期間内全件が落ちる。
+const INBOX_EXPORT_BATCH = 1000;     // PostgREST の max-rows 上限に切られないよう range() で分割取得。
+
+// from/to は「YYYY-MM-DD」（当日境界）または「YYYY-MM-DDTHH:mm」（時刻指定・JST）を受ける。
+//   例：2026-06-28T17:00 〜 2026-06-29T13:30 → その時刻範囲のメールだけを書き出す。
+function inboxRangeIso(v: string | undefined, side: "from" | "to"): string | null {
+  const s = String(v ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return side === "from" ? `${s}T00:00:00+09:00` : `${s}T23:59:59.999+09:00`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return side === "from" ? `${s}:00+09:00` : `${s}:59.999+09:00`;
+  return null;
+}
 
 export async function exportInboxEmails(opts: { from?: string; to?: string; includeArchived?: boolean }): Promise<{ ok: boolean; rows?: InboxExportRow[]; count?: number; capped?: boolean; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
-  // YYYY-MM-DD を JST の当日境界に変換（to は当日いっぱいを含む）。不正な値は無視。
-  const ymd = /^\d{4}-\d{2}-\d{2}$/;
-  const fromIso = opts.from && ymd.test(opts.from) ? `${opts.from}T00:00:00+09:00` : null;
-  const toIso = opts.to && ymd.test(opts.to) ? `${opts.to}T23:59:59.999+09:00` : null;
-  let qb: any = admin.from("inbox_emails")
-    .select("gmail_message_id, received_at, from_name, from_email, subject, body, has_attachment, attachment_names, extracted_kind, extracted_summary, extracted_data, registered_job_no, registered_candidate_no, is_archived")
-    .order("received_at", { ascending: false })
-    .limit(INBOX_EXPORT_MAX);
-  if (fromIso) qb = qb.gte("received_at", fromIso);
-  if (toIso) qb = qb.lte("received_at", toIso);
-  if (!opts.includeArchived) qb = qb.eq("is_archived", false);
-  const r: any = await qb;
-  if (r.error) return { ok: false, error: r.error.message };
-  const rows: InboxExportRow[] = r.data ?? [];
+  const fromIso = inboxRangeIso(opts.from, "from");
+  const toIso = inboxRangeIso(opts.to, "to");
+  // 1回のクエリだと PostgREST の応答行数上限（既定1000前後）で黙って切られるため、
+  // range() で1000件ずつページングして期間内を全件収集する（上限 INBOX_EXPORT_MAX）。
+  const rows: InboxExportRow[] = [];
+  for (let offset = 0; offset < INBOX_EXPORT_MAX; offset += INBOX_EXPORT_BATCH) {
+    let qb: any = admin.from("inbox_emails")
+      .select("gmail_message_id, received_at, from_name, from_email, subject, body, has_attachment, attachment_names, extracted_kind, extracted_summary, extracted_data, registered_job_no, registered_candidate_no, is_archived")
+      .order("received_at", { ascending: false })
+      .range(offset, offset + INBOX_EXPORT_BATCH - 1);
+    if (fromIso) qb = qb.gte("received_at", fromIso);
+    if (toIso) qb = qb.lte("received_at", toIso);
+    if (!opts.includeArchived) qb = qb.eq("is_archived", false);
+    const r: any = await qb;
+    if (r.error) return { ok: false, error: r.error.message };
+    const batch: InboxExportRow[] = r.data ?? [];
+    rows.push(...batch);
+    if (batch.length < INBOX_EXPORT_BATCH) break; // 期間内を取り切った
+  }
   return { ok: true, rows, count: rows.length, capped: rows.length >= INBOX_EXPORT_MAX };
 }
 
