@@ -184,6 +184,14 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [effStage, setEffStage] = useState<string>(p.stage);
   useEffect(() => { setEffStage(p.stage); }, [p.stage]);
 
+  // #271: 通知ステータス（案件側/人材側）。ドットのクリック直後にラベル・色を即時反映するため
+  //   モーダル側でも状態を持つ（effStage と同じ「古い p を保持し続ける」問題への対応）。
+  const normNotify = (v: any): NotifyStatus => (v === "in_progress" || v === "done") ? v : "pending";
+  const [jobNotify, setJobNotify] = useState<NotifyStatus>(normNotify(p.job_notify_status));
+  const [candNotify, setCandNotify] = useState<NotifyStatus>(normNotify(p.cand_notify_status));
+  useEffect(() => { setJobNotify(normNotify(p.job_notify_status)); }, [p.job_notify_status]);
+  useEffect(() => { setCandNotify(normNotify(p.cand_notify_status)); }, [p.cand_notify_status]);
+
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(effStage)));
   // 「どの会社の誰が担当か」が空なら入力を促す（勝率分析に直結。見送りには必須）。
@@ -648,13 +656,13 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>案件</span>
-                  <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={14} />
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.job_notify_status === "in_progress" || p.job_notify_status === "done") ? p.job_notify_status : "pending") as NotifyStatus]}</span>
+                  <NotifyDot status={jobNotify} side="job" proposalId={p.id} size={14} onChange={setJobNotify} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[jobNotify]}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>人材</span>
-                  <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={14} />
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[((p.cand_notify_status === "in_progress" || p.cand_notify_status === "done") ? p.cand_notify_status : "pending") as NotifyStatus]}</span>
+                  <NotifyDot status={candNotify} side="cand" proposalId={p.id} size={14} onChange={setCandNotify} />
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[candNotify]}</span>
                 </div>
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>

@@ -3359,6 +3359,13 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
   const attachUrl: string | null = Array.isArray(row.attachments)
     ? (row.attachments.find((a: any) => a && typeof a.url === "string" && a.url)?.url ?? null)
     : null;
+  const skillSheetUrl = override?.skill_sheet_url ?? d.skill_sheet_url ?? attachUrl ?? null;
+  // #268: 添付で届いたスキルシートは本文にURLが載っていないため、人材の本文（note）にも
+  //   リンクを追記して「本文で誰でもリンクが見られる」状態にする（リンク送付の会社は本文に既にある）。
+  const baseNote = row.body?.slice(0, 1500) ?? null;
+  const noteWithSheet = skillSheetUrl && !(baseNote ?? "").includes(skillSheetUrl)
+    ? `${baseNote ?? ""}${baseNote ? "\n\n" : ""}スキルシート：\n${skillSheetUrl}`
+    : baseNote;
   const input: CandidateInput = {
     name: override?.name ?? d.name ?? row.from_name ?? "(氏名未抽出)",
     title: override?.title ?? d.title ?? null,
@@ -3367,8 +3374,8 @@ export async function registerInboxAsCandidate(inboxId: string, override?: Parti
     rate: override?.rate ?? d.rate ?? null,
     exp: override?.exp ?? d.exp ?? null,
     remote_pref: override?.remote_pref ?? d.remote_pref ?? null,
-    skill_sheet_url: override?.skill_sheet_url ?? d.skill_sheet_url ?? attachUrl ?? null,
-    note: row.body?.slice(0, 1500) ?? null,
+    skill_sheet_url: skillSheetUrl,
+    note: noteWithSheet,
     contact_email: row.from_email ?? null,
     // 受信アカウント(authuser)付きの正しい原本URLを保存（u/0 固定だと別アカウントで開けない）。
     source_mail_url: gmailMessageUrl(row.gmail_message_id),

@@ -446,8 +446,13 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (ind.match.length > 0) bonus += 1;
   // ② 尚可スキル：充足ぶんを加点（最大 +4）。必須に次ぐ歓迎要件。
   if (niceMatched.length > 0) bonus += Math.min(4, niceMatched.length);
-  // ③ 経験業務カテゴリ一致 +2 / 不一致は減点せず注意のみ。
-  if (expCat.match) bonus += 2;
+  // ③ 経験業務カテゴリ：重み1.2倍（#269②）。
+  //   ・一致 → 加点 +2.4（従来 +2 の1.2倍）
+  //   ・双方のカテゴリが判明していて不一致（例: 案件 frontend / 候補 mobile）→ 減点 -2.4
+  //   ・どちらか一方でも不明（空欄・判定不能）→ 調整なし（0）
+  const expCatBothKnown = !!expCat.jobCat && !!expCat.candCat;
+  if (expCat.match) bonus += 2.4;
+  else if (expCatBothKnown && expCat.jobCat !== expCat.candCat) bonus -= 2.4;
 
   // ---- ハードフィルター ----
   //   baseScore: 5次元のみのスコア（0-100）。ボーナスを含めない。
@@ -459,7 +464,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // 100% は「全次元 known かつ全て満点」のときだけ許す。それ以外は最大99に丸める。
   let baseScore = Math.round(weighted);
   if (!allKnown && baseScore >= 100) baseScore = 99;
-  let score = Math.round(Math.min(100, baseScore + bonus));
+  // ボーナスは負値もあり得る（経験業務カテゴリ不一致の減点）ため 0-100 にクランプ。
+  let score = Math.round(Math.max(0, Math.min(100, baseScore + bonus)));
   if (!allKnown && score >= 100) score = 99;
   if (ngNat || ngRemote) { score = 0; baseScore = 0; }
   // ① 必須スキルゲート（最優先・多重チェック）：
@@ -513,8 +519,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   // ② 尚可スキル：充足があれば緑で加点理由を明示
   if (niceMatched.length > 0) notes.push({ level: "green", text: `尚可スキル一致（${niceMatched.slice(0, 4).join("・")}）` });
   // ③ 経験業務カテゴリ
-  if (expCat.match) notes.push({ level: "green", text: `経験業務カテゴリ一致（${expCat.jobCat}）` });
-  else if (expCat.jobCat && expCat.candCat && expCat.jobCat !== expCat.candCat) notes.push({ level: "yellow", text: `経験業務カテゴリに差（案件: ${expCat.jobCat} / 候補: ${expCat.candCat}）要確認` });
+  if (expCat.match) notes.push({ level: "green", text: `経験業務カテゴリ一致（${expCat.jobCat}）加点` });
+  else if (expCat.jobCat && expCat.candCat && expCat.jobCat !== expCat.candCat) notes.push({ level: "yellow", text: `経験業務カテゴリに差（案件: ${expCat.jobCat} / 候補: ${expCat.candCat}）減点・要確認` });
 
   if (overage != null && overage > 20) notes.push({ level: "red", text: `単価が予算より約${overage}万円高く調整困難` });
   else if (overage != null && overage > 10) notes.push({ level: "yellow", text: `単価が予算より約${overage}万円高い（要交渉）` });
@@ -662,6 +668,10 @@ export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
     .filter((r) => !r.excluded)
     // 既存ロジックを通過した候補に、案件側の追加ルール（勤務形態・単価マージン）を適用。
     .filter((r) => passesJobSideFilters(job, r.candidate))
+    // #269①: 商流制限「貴社まで」「貴社正社員まで」の案件では、「二社下以降」の人材を
+    //   ランキングに出さない（上限35点で残す通常の商流NGと違い、ここは完全非表示）。
+    //   人材側の商流が不明(unknown)な場合は除外しない（確認のうえ判断できるよう表示は残す）。
+    .filter((r) => !((r.flow?.jobCat === "jp_to_self" || r.flow?.jobCat === "jp_to_self_seishain") && r.flow?.candCat === "vendor2plus"))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       // 同点 → 新しい登録を優先（created_at 降順）。created_at 無しは後ろへ。
