@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { currentAccess } from "@/lib/accounts";
 import { getShareLink, loadShareView, shareLinkState, bumpShareView, shareCookieName, shareCookieValue, shareUrl, shareViewText } from "@/lib/share";
 import { verifySharePasscode, recordShareResponse } from "@/lib/share-actions";
 import { ShareToolbar } from "./ShareToolbar";
@@ -51,10 +52,21 @@ function Notice({ title, body }: { title: string; body: string }) {
 
 export default async function SharePage({ params, searchParams }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ err?: string; done?: string }>;
+  searchParams: Promise<{ err?: string; done?: string; preview?: string }>;
 }) {
   const { token } = await params;
   const sp = await searchParams;
+
+  // 社内プレビュー（?preview=1）：ログイン中の社内ユーザー（admin/agent）に限り、
+  //   パスコード入力を省略して「先方に見える画面」をそのまま確認できる（発行モーダルの iframe 用）。
+  //   外部の閲覧者には効かない（未ログイン→通常のパスコードゲート）。
+  let isPreview = false;
+  if (sp.preview) {
+    try {
+      const access = await currentAccess();
+      isPreview = !!access && (access.role === "admin" || access.role === "agent");
+    } catch { /* 未ログイン等 → 通常表示 */ }
+  }
 
   const link = await getShareLink(token);
   if (!link) return <Notice title="リンクが無効です" body="この共有リンクは存在しないか、削除されています。共有元の担当者にご確認ください。" />;
@@ -67,8 +79,8 @@ export default async function SharePage({ params, searchParams }: {
     return <Notice title="リンクの有効期限が切れています" body="この共有リンクは有効期限切れ、または無効化されています。共有元の担当者に再発行をご依頼ください。" />;
   }
 
-  // パスコード付きリンク：Cookie（検証済みの印）が無ければ入力フォームを出す。
-  if (link.passcode) {
+  // パスコード付きリンク：Cookie（検証済みの印）が無ければ入力フォームを出す（社内プレビューは省略）。
+  if (link.passcode && !isPreview) {
     const store = await cookies();
     const cv = store.get(shareCookieName(link.token))?.value;
     if (cv !== shareCookieValue(link.token, link.passcode)) {
@@ -95,13 +107,18 @@ export default async function SharePage({ params, searchParams }: {
   const view = await loadShareView(link);
   if (!view) return <Notice title="情報が見つかりません" body="共有対象の情報が見つかりませんでした（削除された可能性があります）。共有元の担当者にご確認ください。" />;
 
-  await bumpShareView(link);
+  if (!isPreview) await bumpShareView(link); // 社内プレビューは閲覧数に数えない
   const url = shareUrl(link.token);
   const copyText = shareViewText(view, url);
   const kindLabel = view.kind === "job" ? "案件のご案内" : "人材のご紹介（匿名）";
 
   return (
     <Frame>
+      {isPreview && (
+        <div className="no-print" style={{ fontSize: 12, fontWeight: 700, color: "#92400e", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          社内プレビュー：外部の閲覧者には{link.passcode ? "パスコード入力後に" : ""}この画面が表示されます（回答ボタンはプレビューでは押せません）。
+        </div>
+      )}
       <div className="card share-card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "16px 24px", background: "var(--color-brand-25)", borderBottom: "1px solid var(--color-brand-100)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", color: "var(--color-brand-700)" }}>{kindLabel}</span>
@@ -150,13 +167,13 @@ export default async function SharePage({ params, searchParams }: {
         <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 12 }}>ご確認のうえ、いずれかをお選びください</div>
         <form action={recordShareResponse} style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <input type="hidden" name="token" value={link.token} />
-          <button type="submit" name="choice" value="interested"
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: "#fff", background: "linear-gradient(90deg,#16a34a,#0d9488)", border: "none", borderRadius: 999, padding: "12px 26px", cursor: "pointer", boxShadow: "0 4px 12px rgba(22,163,74,.25)" }}>
+          <button type="submit" name="choice" value="interested" disabled={isPreview}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: "#fff", background: "linear-gradient(90deg,#16a34a,#0d9488)", border: "none", borderRadius: 999, padding: "12px 26px", cursor: isPreview ? "not-allowed" : "pointer", opacity: isPreview ? 0.6 : 1, boxShadow: "0 4px 12px rgba(22,163,74,.25)" }}>
             <span style={{ display: "inline-grid", placeItems: "center", width: 18, height: 18, borderRadius: 99, background: "#fff", color: "#16a34a", fontSize: 12, fontWeight: 900, lineHeight: 1 }}>✓</span>
             興味あります
           </button>
-          <button type="submit" name="choice" value="declined"
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: "#dc2626", background: "#fff", border: "1.5px solid #fca5a5", borderRadius: 999, padding: "12px 26px", cursor: "pointer" }}>
+          <button type="submit" name="choice" value="declined" disabled={isPreview}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "inherit", fontSize: 14, fontWeight: 800, color: "#dc2626", background: "#fff", border: "1.5px solid #fca5a5", borderRadius: 999, padding: "12px 26px", cursor: isPreview ? "not-allowed" : "pointer", opacity: isPreview ? 0.6 : 1 }}>
             <span style={{ display: "inline-grid", placeItems: "center", width: 18, height: 18, borderRadius: 99, background: "#dc2626", color: "#fff", fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✕</span>
             見送り
           </button>
