@@ -15,7 +15,7 @@ const fmtDate = (s?: string | null) => {
   return isNaN(d.getTime()) ? null : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
 };
 
-export function ShareExternalButton({ kind, no, compact = false }: { kind: "job" | "candidate"; no: number; compact?: boolean }) {
+export function ShareExternalButton({ kind, no, compact = false, label = "外部共有" }: { kind: "job" | "candidate"; no: number; compact?: boolean; label?: string }) {
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [usePass, setUsePass] = useState(true);
@@ -64,7 +64,7 @@ export function ShareExternalButton({ kind, no, compact = false }: { kind: "job"
         title={`ログイン不要で見られる${kindLabel}の共有リンクを発行（匿名サマリ・有効期限つき）`}
       >
         <span className="material-symbols-outlined" style={{ fontSize: compact ? 14 : 16, verticalAlign: "-3px", marginRight: 3 }}>ios_share</span>
-        外部共有
+        {label}
       </button>
 
       {open && (
