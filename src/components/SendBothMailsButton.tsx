@@ -53,8 +53,10 @@ export function SendBothMailsButton({
 }
 
 function buildHtmlBody(text: string, buttonHtml: string): string {
-  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const wrapStyle = `white-space:pre-wrap;font-family:sans-serif;font-size:14px;color:#1e293b`;
+  // 改行は <br> に変換して送る。Gmail は inline style の white-space を無視（除去）するため、
+  // pre-wrap 頼みだと受信側で改行が全て潰れて1行のベタ文になる（先方指摘の不具合）。
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r?\n/g, "<br>");
+  const wrapStyle = `font-family:sans-serif;font-size:14px;line-height:1.75;color:#1e293b`;
   const parts = text.split(BUTTON_PLACEHOLDER);
   if (parts.length === 1) {
     return `<div style="${wrapStyle}">${escape(text)}</div>\n${buttonHtml}`;

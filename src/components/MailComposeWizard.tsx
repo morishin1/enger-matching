@@ -17,27 +17,39 @@ function generateToken(): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+// 「話を進める／見送り」ボタンのHTML（メール埋め込み用）。
+//   ・ENGERのレインボーカラーの帯＋ピル型ボタンで、どのメールクライアントでも崩れにくい
+//     テーブル組み＋インラインスタイルで構成（bulletproof button）。
+//   ・アイコン：メールでは Material Symbols のフォント/SVGが使えない（Gmailが除去する）ため、
+//     check_circle / cancel と同じ見た目になる「丸地＋✓/✕」のテキストグリフで表現する。
+//   ・グラデ非対応クライアント向けに background-color のフォールバックを併記。
 function buildButtonHtml(siteUrl: string, token: string): string {
   const agreeUrl  = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("話を進める")}`;
   const rejectUrl = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("見送り")}`;
-  return `<table cellpadding="0" cellspacing="0" border="0" style="margin:16px 0">
-  <tr>
-    <td style="padding-right:12px">
-      <a href="${agreeUrl}" target="_blank"
-         style="display:inline-block;padding:12px 24px;background:#16a34a;color:#ffffff;font-weight:bold;font-size:14px;border-radius:8px;text-decoration:none;border:2px solid #15803d">
-        話を進める
-      </a>
-    </td>
-    <td>
-      <a href="${rejectUrl}" target="_blank"
-         style="display:inline-block;padding:12px 24px;background:#dc2626;color:#ffffff;font-weight:bold;font-size:14px;border-radius:8px;text-decoration:none;border:2px solid #b91c1c">
-        見送り
-      </a>
-    </td>
-  </tr>
-</table>
-<div style="font-size:11px;color:#1e293b;width:fit-content;max-width:100%;">
-こちらは料金は発生しません。<br>進捗があり次第、担当者よりご連絡させていただきます。
+  const rainbow = "linear-gradient(90deg,#e94141 0%,#f5a623 22%,#ffd93d 42%,#38c172 62%,#0095D9 82%,#7c3aed 100%)";
+  return `<div style="margin:20px 0 0;max-width:420px">
+  <div style="height:5px;border-radius:99px;background:#0095D9;background-image:${rainbow}"></div>
+  <div style="font-size:12.5px;color:#334155;font-weight:bold;margin:10px 0 10px">ご確認のうえ、いずれかをお選びください</div>
+  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 10px">
+    <tr>
+      <td style="padding-right:12px">
+        <a href="${agreeUrl}" target="_blank"
+           style="display:inline-block;padding:13px 26px;background-color:#16a34a;background-image:linear-gradient(135deg,#16a34a,#0095D9);color:#ffffff;font-weight:bold;font-size:14px;border-radius:999px;text-decoration:none;box-shadow:0 3px 10px rgba(22,163,74,.35)">
+          <span style="display:inline-block;width:18px;height:18px;line-height:18px;background:#ffffff;color:#16a34a;border-radius:50%;text-align:center;font-size:12px;font-weight:bold;margin-right:8px;vertical-align:-3px">&#10003;</span>話を進める
+        </a>
+      </td>
+      <td>
+        <a href="${rejectUrl}" target="_blank"
+           style="display:inline-block;padding:11px 24px;background-color:#ffffff;color:#b42318;font-weight:bold;font-size:14px;border-radius:999px;text-decoration:none;border:2px solid #f2b8b5">
+          <span style="display:inline-block;width:18px;height:18px;line-height:18px;background:#b42318;color:#ffffff;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;margin-right:8px;vertical-align:-3px">&#10005;</span>見送り
+        </a>
+      </td>
+    </tr>
+  </table>
+  <div style="font-size:11px;color:#64748b;line-height:1.7">
+  こちらは料金は発生しません。<br>進捗があり次第、担当者よりご連絡させていただきます。
+  </div>
+  <div style="height:5px;border-radius:99px;background:#0095D9;background-image:${rainbow};margin-top:12px"></div>
 </div>`;
 }
 
@@ -83,14 +95,16 @@ function MailPreviewCard({ title, dotColor, body, origMailUrl, proposer, buttonH
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // 改行は <br> に変換（Gmail は white-space スタイルを無視するため、貼り付け/受信側で改行が潰れる対策）。
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r?\n/g, "<br>");
+    const wrap = `font-family:sans-serif;font-size:14px;line-height:1.75`;
     const parts = body.split(BUTTON_PLACEHOLDER);
     const plainText = parts.join("").replace(/\n{3,}/g, "\n\n").trim();
     try {
       if (buttonHtml && typeof (window as any).ClipboardItem !== "undefined") {
         const htmlContent = parts.length === 2
-          ? `<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(parts[0])}</div>\n${buttonHtml}\n<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(parts[1].replace(/^\n/, ""))}</div>`
-          : `<div style="white-space:pre-wrap;font-family:sans-serif;font-size:14px">${esc(body)}</div>\n${buttonHtml}`;
+          ? `<div style="${wrap}">${esc(parts[0])}</div>\n${buttonHtml}\n<div style="${wrap}">${esc(parts[1].replace(/^\n/, ""))}</div>`
+          : `<div style="${wrap}">${esc(body)}</div>\n${buttonHtml}`;
         await navigator.clipboard.write([new (window as any).ClipboardItem({
           "text/html": new Blob([htmlContent], { type: "text/html" }),
           "text/plain": new Blob([plainText], { type: "text/plain" }),
