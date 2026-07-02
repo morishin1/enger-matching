@@ -8,14 +8,26 @@ import { createProposal, undoProposal, recordProposal } from "@/lib/actions";
 import { MailBodyModal } from "./MailBodyModal";
 import { SendMailModalButton } from "./SendMailModalButton";
 import { LineShareButton } from "./LineShareButton";
+import { ShareExternalButton } from "./ShareExternalButton";
 import { matchLineTemplate } from "@/lib/line-templates";
 import type { LineworksTarget } from "@/lib/lineworks-targets";
 
 type Job = any;
 type Cand = any;
 
+// アクション行のグループラベル（送信/共有/管理）。ボタンが多く見づらいという要望に対し、
+// 役割ごとに行を分けて左端に小さなラベルを付ける（ボタン自体のデザインは変えない）。
+function ActionGroup({ label, tone, children }: { label: string; tone: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <span style={{ flexShrink: 0, width: 42, textAlign: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", color: tone, background: `${tone}0d`, border: `1px solid ${tone}44`, borderRadius: 6, padding: "3px 0" }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
 export function ProposalComposer({
-  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, approvalStatus = null, members = [], lineTargets,
+  job, cand, matchedSkills, missingSkills, score, alreadyProposed = false, proposalId = null, proposedBy = null, proposedAt = null, approvalStatus = null, members = [], lineTargets, shareJobNo = null, shareCandNo = null,
 }: {
   job: Job; cand: Cand; matchedSkills: string[]; missingSkills?: string[]; score: number;
   alreadyProposed?: boolean;
@@ -30,6 +42,9 @@ export function ProposalComposer({
   members?: string[];
   /** 渡すと「LINEに送る」ボタン（マッチ共有雛形の確認・編集→送信/コピー）を表示。 */
   lineTargets?: LineworksTarget[];
+  /** 外部共有（ログイン不要リンク発行）ボタンの対象番号。null なら非表示（社内ロールのみ渡す）。 */
+  shareJobNo?: number | null;
+  shareCandNo?: number | null;
 }) {
   // 承認者の選択は MailComposeWizard（メール送信モーダル）側に集約済みのため、
   // ここでは持たない。提案者は本人（sender）を既定。
@@ -244,18 +259,13 @@ export function ProposalComposer({
       {/* 件名行と本文プレビューはここでは出さない（実際の編集は /mail-compose 全画面ウィザードで行う）。
           「📄 本文コピー」は下のアクション行から使える（コピーされるのは tpl.body 既定文面）。 */}
 
-      {/* ① 元メールを開く（読む用）：案件・人材それぞれの原本 */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingBottom: 4, borderBottom: "1px dashed var(--color-border)" }}>
-        <span style={{ fontSize: 10.5, color: "var(--color-ink-4)", fontWeight: 700 }}>元メールを開く：</span>
-        <MailBodyModal body={job?.detail ?? job?.description ?? null} title={job?.title} sub={job?.client_name} mailUrl={origMailUrl} />
-        <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで案件の元メールを開く">↗ 案件の元メール</button>
-        {candMailUrl && (
-          <button type="button" className="btn ghost btn-xs" onClick={openCandidateOriginal} title="Gmailで人材の元メール（取込元）を開く">↗ 人材の元メール</button>
-        )}
-      </div>
+      {/* アクションは役割ごとに3行へグルーピング（要望：ボタンが多く見づらい）。
+            送信＝提案の記録〜メール送信〜承認の業務動線
+            共有＝社内外への共有（LINE / 外部共有リンク）
+            管理＝元メールの確認・提案管理への導線・記録情報 */}
 
-      {/* ② シンプル送信操作：1つのメインCTAで両方送信＋確認プレビュー */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      {/* 送信：①提案する → ②送信する → 承認依頼（＋提案済み状態） */}
+      <ActionGroup label="送信" tone="#0b5cab">
         {/* 手順を明示するため、①提案する → ②送信する の順序で番号付き。
             未保存(=未提案)時は「①📋 提案する」を最初に出し、提案管理に記録してから送信に進む。 */}
         {!saved && (
@@ -317,20 +327,37 @@ export function ProposalComposer({
             </Link>
           );
         })()}
-        {/* LINEに送る：マッチ共有の雛形を確認・編集して LINE WORKS へ送信（またはコピーでシェア）。 */}
-        {lineTargets && (
-          <LineShareButton targets={lineTargets}
-            text={matchLineTemplate({ job, cand, score, matchedSkills })}
-            buttonTitle="このマッチ（人材×案件）をLINE向け雛形で確認・編集して送信/コピー" />
+      </ActionGroup>
+
+      {/* 共有：LINE（社内）／外部共有リンク（ログイン不要・匿名サマリ） */}
+      {(lineTargets || shareJobNo != null || shareCandNo != null) && (
+        <ActionGroup label="共有" tone="#067647">
+          {/* LINEに送る：マッチ共有の雛形を確認・編集して LINE WORKS へ送信（またはコピーでシェア）。 */}
+          {lineTargets && (
+            <LineShareButton targets={lineTargets}
+              text={matchLineTemplate({ job, cand, score, matchedSkills })}
+              buttonTitle="このマッチ（人材×案件）をLINE向け雛形で確認・編集して送信/コピー" />
+          )}
+          {shareJobNo != null && <ShareExternalButton kind="job" no={shareJobNo} label="外部共有：案件" />}
+          {shareCandNo != null && <ShareExternalButton kind="candidate" no={shareCandNo} label="外部共有：人材" />}
+        </ActionGroup>
+      )}
+
+      {/* 管理：元メールの確認・提案管理への導線・記録情報 */}
+      <ActionGroup label="管理" tone="#6b7280">
+        <MailBodyModal body={job?.detail ?? job?.description ?? null} title={job?.title} sub={job?.client_name} mailUrl={origMailUrl} />
+        <button type="button" className="btn ghost btn-xs" onClick={openOriginal} title="Gmailで案件の元メールを開く">↗ 案件の元メール</button>
+        {candMailUrl && (
+          <button type="button" className="btn ghost btn-xs" onClick={openCandidateOriginal} title="Gmailで人材の元メール（取込元）を開く">↗ 人材の元メール</button>
         )}
+        <Link href="/proposals" className="btn ghost btn-xs" style={{ textDecoration: "none" }} title="提案管理（一覧）を開く">提案管理を開く</Link>
         {saved && (proposedBy || proposedAt) && (
           <span className="muted" style={{ fontSize: 11, color: "var(--color-ink-3)", marginLeft: 4 }}>
             {proposedBy ? <>提案者：<b style={{ color: "var(--color-ink-2)" }}>{proposedBy}</b></> : null}
             {proposedAt ? <>{proposedBy ? " ／ " : ""}{new Date(proposedAt).toLocaleString("ja-JP", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</> : null}
           </span>
         )}
-        {saved && <Link href="/proposals" className="muted" style={{ fontSize: 10.5, textDecoration: "underline", marginLeft: 4 }}>提案管理を開く</Link>}
-      </div>
+      </ActionGroup>
       {msg && <div style={{ fontSize: 11.5, color: "var(--color-ink-3)" }}>{msg}</div>}
 
       {/* 送信プレビュー（クライアント宛＋人材宛の両方を確認） */}
