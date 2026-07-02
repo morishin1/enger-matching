@@ -6,6 +6,7 @@ import { MatchChecklist } from "@/components/MatchChecklist";
 import { RankList } from "@/components/RankList";
 import { RankJobList } from "@/components/RankJobList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
+import { ShareExternalButton } from "@/components/ShareExternalButton";
 import { FocusList } from "@/components/FocusList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
@@ -715,6 +716,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           </div>
           {/* ヘッダの「LINEに送る」は廃止（マッチ結果カード内の LINEに送る＝雛形確認つき に集約）。 */}
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {/* 外部共有：ログイン不要の匿名サマリページのURLを発行（社内向けURLコピーとは別物・社内ロールのみ） */}
+            {scope.isInternal && person && <ShareExternalButton kind="candidate" no={person.candidate_no} />}
             <CopyLinkButton />
             <Link href="/people" className="btn ghost" style={{ textDecoration: "none" }}>← 人材一覧へ</Link>
           </div>
@@ -792,6 +795,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
                         <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
+                        {/* この案件をログイン不要ページで外部に共有（クライアント名・本文は出ない・社内ロールのみ） */}
+                        {scope.isInternal && <ShareExternalButton kind="job" no={j.job_no} compact />}
                       </div>
                     </div>
                     <div style={{ padding: 20 }}>
@@ -977,7 +982,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                 <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
                 <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} row={job} />
-                <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {ranked.length}名</span>
+                <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
+                  {/* この案件をログイン不要ページで外部に共有（クライアント名・本文は出ない・社内ロールのみ） */}
+                  {scope.isInternal && <ShareExternalButton kind="job" no={job.job_no} compact />}
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {ranked.length}名</span>
+                </span>
               </div>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
               <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
@@ -1011,6 +1020,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（必須スキル {skillPct}%）</div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      {/* この人材をログイン不要ページで外部に共有（匿名：イニシャル＋スキル＋単価・社内ロールのみ） */}
+                      {scope.isInternal && <ShareExternalButton kind="candidate" no={c.candidate_no} compact />}
                       {(() => { const v = verdictStyle(sel.verdict); return (<span style={{ fontWeight: 700, fontSize: 11.5, padding: "3px 10px", borderRadius: 99, background: v.bg, color: v.fg, border: `1px solid ${v.bd}` }}>{sel.verdict}</span>); })()}
                       <span className="tag brand" style={{ fontWeight: 700 }}>マッチ度 {sel.score}%</span>
                       {sel.flow && (() => {

@@ -27,6 +27,7 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/reset-password") ||
     pathname.startsWith("/respond") ||           // メール回答リンク（トークン認証）
+    pathname.startsWith("/share") ||             // 外部共有リンク（トークン＋任意パスコード認証・匿名サマリ）
     pathname.startsWith("/api/")
   ) return NextResponse.next();
 
