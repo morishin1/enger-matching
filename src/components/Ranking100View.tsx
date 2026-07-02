@@ -7,41 +7,7 @@
 
 import Link from "@/components/AppLink";
 import { useEffect, useState } from "react";
-import type { RankedPair, DimStatus } from "@/lib/ranking100";
-
-/** 5次元(スキル/単価/時期/年代/勤務)の充足を細いバーで表示。
- *   ・known=false（情報不明）はグレー表示にし、満点に届かない理由を視覚化する。
- *   ・ボーナスがあれば右に「+N」を付与（営業支援/業界経験/尚可スキル等）。 */
-function DimMiniBar({ dims, bonus }: { dims: { skill: DimStatus; salary: DimStatus; remote: DimStatus; timing: DimStatus; age: DimStatus }; bonus: number }) {
-  const items: { label: string; full: string; d: DimStatus }[] = [
-    { label: "ス", full: "必須スキル", d: dims.skill },
-    { label: "単", full: "単価",       d: dims.salary },
-    { label: "時", full: "稼働時期",   d: dims.timing },
-    { label: "年", full: "年代",       d: dims.age },
-    { label: "勤", full: "勤務形態",   d: dims.remote },
-  ];
-  const colorOf = (d: DimStatus) => {
-    if (!d.known) return "#cbd5e1";        // 不明：グレー
-    if (d.pct >= 95) return "#067647";     // ほぼ満点：緑
-    if (d.pct >= 70) return "#0b5cab";     // 良好：青
-    if (d.pct >= 40) return "#b45309";     // 注意：黄褐色
-    return "#b42318";                      // 不一致：赤
-  };
-  return (
-    <div title={`内訳：${items.map((it) => `${it.full} ${it.d.known ? `${it.d.pct}%` : "不明"}`).join(" / ")}${bonus > 0 ? ` ／ ボーナス +${bonus}` : ""}`}
-      style={{ display: "inline-flex", gap: 2, alignItems: "center", marginTop: 3, justifyContent: "flex-end" }}>
-      {items.map((it) => (
-        <span key={it.label} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
-          <span style={{ display: "block", width: 12, height: 4, borderRadius: 2, background: colorOf(it.d), opacity: it.d.known ? 1 : 0.5 }} />
-          <span style={{ fontSize: 8.5, color: it.d.known ? "var(--color-ink-4)" : "#9aa7b4", fontWeight: 600 }}>{it.label}</span>
-        </span>
-      ))}
-      {bonus > 0 && (
-        <span style={{ fontSize: 10, fontWeight: 800, color: "#0095D9", marginLeft: 3, padding: "1px 5px", borderRadius: 4, background: "#e0f2fe" }}>+{bonus}</span>
-      )}
-    </div>
-  );
-}
+import type { RankedPair } from "@/lib/ranking100";
 
 const salaryLabel = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -116,10 +82,8 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                   style={{ cursor: "pointer", opacity: r.proposed ? 0.62 : 1, background: r.proposed ? "var(--color-surface-inset)" : undefined }}>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "center" }}><RankBadge n={r.rank} /></td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right" }}>
+                    {/* 内訳（5次元ミニバー＋ボーナス）は撤去し、総合スコアのみのシンプル表示（要望対応）。 */}
                     <span className="display tnum" style={{ fontSize: 17, fontWeight: 800, color: r.score >= 80 ? "#067647" : r.score >= 60 ? "#0b5cab" : "#9a5b1a" }}>{r.score}</span><span className="muted" style={{ fontSize: 10 }}>%</span>
-                    {/* 内訳ミニバー：スキル/単価/時期/年代/勤務 の5次元の充足を視覚化。
-                        グレー=情報不明（不明は満点扱いしないため、100% と表示されている場合でも黒バーは1本足りないことがある）。 */}
-                    <DimMiniBar dims={r.dims} bonus={r.bonus} />
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)" }}>
                     <div className="tnum" style={{ fontSize: 13, fontWeight: 800, color: r.skillPct >= 100 ? "#067647" : "#0b5cab" }}>{r.matchedCount}/{r.jobSkillCount}</div>

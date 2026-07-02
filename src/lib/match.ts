@@ -454,6 +454,10 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
   if (expCat.match) bonus += 2.4;
   else if (expCatBothKnown && expCat.jobCat !== expCat.candCat) bonus -= 2.4;
 
+  // ボーナスは 2.4 等の小数を含むため、浮動小数点誤差（0.6000000000000001 のような表示）を
+  // 出さないよう小数第1位に丸めて確定する。
+  bonus = Math.round(bonus * 10) / 10;
+
   // ---- ハードフィルター ----
   //   baseScore: 5次元のみのスコア（0-100）。ボーナスを含めない。
   //   score    : baseScore + ボーナス を 0-100 にキャップ。

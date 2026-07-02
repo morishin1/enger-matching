@@ -6,6 +6,7 @@ import { MatchChecklist } from "@/components/MatchChecklist";
 import { RankList } from "@/components/RankList";
 import { RankJobList } from "@/components/RankJobList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
+import { ShareExternalButton } from "@/components/ShareExternalButton";
 import { FocusList } from "@/components/FocusList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
@@ -761,7 +762,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} row={person} />
                   <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {rankedJobs.length}件</span>
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{lineCandIds.has(person.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span>{flCandIds.has(person.id) && <span title="ENGERフリーランスで登録された人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginLeft: 4, display: "inline-flex" }}><Icons.engerFreelance size={15} /></span>}</div>
+                {/* 人材名クリック＝外部共有ページのプレビュー（デザイン確認＋URLコピー）。社内ロールのみ。 */}
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{lineCandIds.has(person.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{scope.isInternal ? (
+                  <ShareExternalButton kind="candidate" no={person.candidate_no}>
+                    {person.name}
+                    <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, color: "var(--color-brand-700)", marginLeft: 4, verticalAlign: "-2px" }}>ios_share</span>
+                  </ShareExternalButton>
+                ) : person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span>{flCandIds.has(person.id) && <span title="ENGERフリーランスで登録された人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginLeft: 4, display: "inline-flex" }}><Icons.engerFreelance size={15} /></span>}</div>
                 <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                   {person.title && <span className="tag">{person.title}</span>}
                   {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
@@ -796,7 +803,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                     </div>
                     <div style={{ padding: 20 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{lineJobIds.has(j.id) && <span title="LINE経由の案件" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
+                      {/* 案件名クリック＝外部共有ページのプレビュー（デザイン確認＋URLコピー）。社内ロールのみ。 */}
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{lineJobIds.has(j.id) && <span title="LINE経由の案件" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{scope.isInternal ? (
+                        <ShareExternalButton kind="job" no={j.job_no}>
+                          {j.title}
+                          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, color: "var(--color-brand-700)", marginLeft: 4, verticalAlign: "-2px" }}>ios_share</span>
+                        </ShareExternalButton>
+                      ) : j.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(j.job_no).padStart(5, "0")}</span></div>
                       {/* クライアント名・職種・リモート・勤務地・単価に加え、商流・年代制限・国籍要件も表示（要望③）。
                           年代制限/国籍要件は案件本文(detail+title)から判定（一覧の表示ロジックと同じ）。 */}
                       <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>{[
@@ -982,7 +995,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 <FocusHeart table="jobs" idField="job_no" idValue={job.job_no} initial={!!job.is_focus} revalidate="/matching" size={16} row={job} />
                 <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {ranked.length}名</span>
               </div>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
+              {/* 案件名クリック＝外部共有ページのプレビュー（デザイン確認＋URLコピー）。社内ロールのみ。 */}
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{scope.isInternal ? (
+                <ShareExternalButton kind="job" no={job.job_no}>
+                  {job.title}
+                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, color: "var(--color-brand-700)", marginLeft: 4, verticalAlign: "-2px" }}>ios_share</span>
+                </ShareExternalButton>
+              ) : job.title} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>No.{String(job.job_no).padStart(5, "0")}</span></div>
               <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                 <span>{job.client_name ?? "—"}</span>
                 {job.role_label && <span className="tag">{job.role_label}</span>}
@@ -1038,7 +1057,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       <div>
                         {/* #260②：人材IDの隣に登録元アイコン（LINE経由=LINEマーク／ENGERフリーランス=Eマーク）。 */}
                         <div style={{ fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          <span>{c.name}</span>
+                          {/* 人材名クリック＝外部共有ページのプレビュー（デザイン確認＋URLコピー）。社内ロールのみ。 */}
+                          {scope.isInternal ? (
+                            <ShareExternalButton kind="candidate" no={c.candidate_no}>
+                              <span>{c.name}</span>
+                              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 14, color: "var(--color-brand-700)", marginLeft: 4, verticalAlign: "-2px" }}>ios_share</span>
+                            </ShareExternalButton>
+                          ) : <span>{c.name}</span>}
                           <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
                           {lineCandIds.has(c.id) && <span title="LINE経由で登録された人材" style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={15} /></span>}
                           {flCandIds.has(c.id) && <span title="ENGERフリーランスで登録された人材" style={{ lineHeight: 0, display: "inline-flex" }}><Icons.engerFreelance size={15} /></span>}
