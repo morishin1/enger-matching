@@ -5,7 +5,7 @@
 //   - in_progress(処理中): 青・固定
 //   - done(完了): 表示しない（クリックで再表示できるよう小さな灰色点）
 //   クリックで pending → in_progress → done → pending と循環。
-import { useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateProposalFields } from "@/lib/actions";
 
@@ -36,16 +36,22 @@ const normalize = (s: NotifyStatus | string | null | undefined): NotifyStatus =>
   (s === "in_progress" || s === "done") ? s : "pending";
 
 /** ドット単体（カードなどスペース無い場所向け）。ツールチップで何の・なぜ赤いかを伝える。 */
-export function NotifyDot({ status, side, proposalId, size = 10, inline = false }: {
+export function NotifyDot({ status, side, proposalId, size = 10, inline = false, onChange }: {
   status?: NotifyStatus | string | null;
   side: "job" | "cand";
   proposalId: string;
   size?: number;
   inline?: boolean;
+  onChange?: (next: NotifyStatus) => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const s = normalize(status);
+  // #271: クリック時に楽観的更新。router.refresh を待たず（詳細モーダルは親が古い p を
+  //   保持し続けるため refresh でも色が変わらない）、その場で色を切り替える。
+  //   親から新しい status が渡ってきたらそれに追従する。
+  const [local, setLocal] = useState<NotifyStatus>(normalize(status));
+  useEffect(() => { setLocal(normalize(status)); }, [status]);
+  const s = local;
   const tone = TONE[s];
   const sideLabel = SIDE_LABEL_FULL[side];
   const title = s === "pending"
@@ -59,8 +65,11 @@ export function NotifyDot({ status, side, proposalId, size = 10, inline = false 
     if (pending) return;
     const next = NEXT[s];
     const field = side === "job" ? "job_notify_status" : "cand_notify_status";
+    setLocal(next); // 楽観的更新：即座に色を切り替える
+    onChange?.(next);
     start(async () => {
-      await updateProposalFields(proposalId, { [field]: next });
+      const r = await updateProposalFields(proposalId, { [field]: next });
+      if (!r?.ok) { setLocal(s); onChange?.(s); } // 失敗時は元に戻す
       router.refresh();
     });
   };
@@ -85,14 +94,18 @@ export function NotifyDot({ status, side, proposalId, size = 10, inline = false 
 }
 
 /** ラベル付きチップ（案/人 + ドット）。リスト等のスペースがある場所で意味を明示するために使う。 */
-export function NotifyChip({ status, side, proposalId }: {
+export function NotifyChip({ status, side, proposalId, onChange }: {
   status?: NotifyStatus | string | null;
   side: "job" | "cand";
   proposalId: string;
+  onChange?: (next: NotifyStatus) => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const s = normalize(status);
+  // #271: ドット単体と同じく楽観的更新（クリック直後にラベル・色を切り替える）。
+  const [local, setLocal] = useState<NotifyStatus>(normalize(status));
+  useEffect(() => { setLocal(normalize(status)); }, [status]);
+  const s = local;
   const tone = TONE[s];
   const sideFull = SIDE_LABEL_FULL[side];
   const sideShort = SIDE_LABEL[side];
@@ -107,8 +120,11 @@ export function NotifyChip({ status, side, proposalId }: {
     if (pending) return;
     const next = NEXT[s];
     const field = side === "job" ? "job_notify_status" : "cand_notify_status";
+    setLocal(next); // 楽観的更新：即座に色・ラベルを切り替える
+    onChange?.(next);
     start(async () => {
-      await updateProposalFields(proposalId, { [field]: next });
+      const r = await updateProposalFields(proposalId, { [field]: next });
+      if (!r?.ok) { setLocal(s); onChange?.(s); } // 失敗時は元に戻す
       router.refresh();
     });
   };
