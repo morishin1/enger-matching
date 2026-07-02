@@ -224,7 +224,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const applyNoProposal = (qb: any) => (fNoProposal && proposedIds.length) ? qb.not("id", "in", `(${proposedIds.join(",")})`) : qb;
 
       // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
-      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false) => {
+      //   withSourceCsv：source_csv 列が無い環境のフォールバック時は false（登録元=ENGER の判定条件から外す）。
+      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false, withSourceCsv = true) => {
         let qb: any = sb.from("candidates").select(selectCols, { count: "exact" });
         // ゴミ箱（deleted_at not null）は一覧に出さない。未マイグレ環境では includeTrashFilter=false で外す。
         if (includeTrashFilter) qb = qb.is("deleted_at", null);
@@ -242,7 +243,18 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         //   LINE: signup_source='line' / ENGER: enger 系 / 通常: それ以外（null含む）。
         if (fSignupSource === "line") qb = qb.eq("signup_source", "line");
         else if (fSignupSource === "line_works") qb = qb.eq("signup_source", "line_works");
-        else if (fSignupSource === "enger") qb = qb.in("signup_source", ENGER_SOURCES);
+        else if (fSignupSource === "enger") {
+          // #276②：ENGERフリーランスは signup_source だけだと誰もヒットしない（人材マスタ登録経由は
+          //   signup_source が空のまま）。一覧バッジ（PeopleTable.isEnger）と同じ判定に合わせ、
+          //   source_csv=freelance／所属会社テキスト=ENGERフリーランス でもヒットさせる。
+          const parts = [
+            `signup_source.in.(${ENGER_SOURCES.join(",")})`,
+            "company.ilike.ENGERフリーランス",
+            "source_company.ilike.ENGERフリーランス",
+          ];
+          if (withSourceCsv) parts.push("source_csv.ilike.freelance");
+          qb = qb.or(parts.join(","));
+        }
         else if (fSignupSource === "normal") qb = qb.or(`signup_source.is.null,and(signup_source.neq.line,signup_source.neq.line_works,signup_source.not.in.(${ENGER_SOURCES.join(",")}))`);
         // リモート希望は自由テキストのため ilike バケットで判定（PeopleTable.remotePrefLabel と同じ優先順位）
         if (fRemote === "remote") {
@@ -298,9 +310,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, false));
       }
       if (res.error && /signup_source|source_csv|column/i.test(res.error.message)) {
-        res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false));
+        res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false, false, false));
       }
-      if (res.error) res = await order(buildBase(baseCols, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
+      if (res.error) res = await order(buildBase(baseCols, false, true, false, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
       people = res.data ?? [];
       total = res.count ?? people.length;
       pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));

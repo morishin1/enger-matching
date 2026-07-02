@@ -1,5 +1,6 @@
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
+import { MailButton } from "@/components/MailButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { listEngineers, freelanceShortId } from "@/lib/engineers";
 import { resolveEngineerProfileNames } from "@/lib/chat";
@@ -57,12 +58,19 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 
       // メイン検索（テキスト ilike）。非公開も含めて拾うため is_published 制約は外す。
       const jobCols = "job_no, title, client_name, role_label, remote_type, salary_min, salary_max, is_published";
-      const candCols = "candidate_no, name, initials, title, affiliation, source_company, rate";
+      // #276①：検索結果の人材行にも通常一覧と同じ操作ボタン（マッチング/元メール/スキルシート）を
+      //   出すため、必要な列を追加。列が無い旧環境ではベース列にフォールバック。
+      let candCols = "candidate_no, name, initials, title, affiliation, source_company, rate, source_mail_url, skill_sheet_url, is_closed";
+      const candColsBase = "candidate_no, name, initials, title, affiliation, source_company, rate";
       let [jr, cr, co] = await Promise.all([
         sb.from("jobs").select(jobCols).or(orJob).order("created_at", { ascending: false }).limit(20),
         sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20),
         sb.rpc("company_overview"),
       ]);
+      if ((cr as any).error) {
+        candCols = candColsBase;
+        cr = await sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20) as any;
+      }
       // ID/番号の直打ち（数値入力時）。重複は後段で uniq する
       if (asInt != null) {
         const [jr2, cr2] = await Promise.all([
@@ -157,14 +165,20 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div style={{ fontSize: 14, fontWeight: 700 }}>人材</div><span className="tag brand">{people.length}名</span>
           </div>
           {people.map((p) => (
-            <Link key={p.candidate_no} href={`/people/${p.candidate_no}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
-              <div style={{ minWidth: 0 }}>
+            <div key={p.candidate_no} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
+              <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none", color: "inherit", minWidth: 0 }}>
                 {/* #267①：人材名（イニシャル）を必ず表示（name 空は initials 補完・異なる場合は併記）。 */}
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{p.candidate_no}</span>{p.name || p.initials || "—"}{p.name && p.initials && p.name !== p.initials ? <span className="muted">（{p.initials}）</span> : null}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{p.title ?? "—"} · {p.affiliation ?? p.source_company ?? ""} · {p.rate ?? ""}</div>
+              </Link>
+              {/* #276①：通常の人材一覧（PeopleTable）と同じ操作ボタンを表示。
+                  マッチング（クローズ済は非表示）／元メール（URLあるときのみ）／スキルシート（URLあるときのみ）。 */}
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {!p.is_closed && <Link href={`/matching?person=${p.candidate_no}`} className="btn btn-xs" title="マッチング" aria-label="マッチング" style={{ textDecoration: "none", background: "#DC143C", borderColor: "#DC143C", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>auto_awesome</span></Link>}
+                {p.source_mail_url && <MailButton url={p.source_mail_url} />}
+                {p.skill_sheet_url && <a href={p.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート" style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>description</span></a>}
               </div>
-              <span className="btn btn-xs">スキルシート</span>
-            </Link>
+            </div>
           ))}
         </div>
       )}

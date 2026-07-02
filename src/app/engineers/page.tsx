@@ -6,6 +6,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { listEngineers, listEngineerActions, listScouts, listApplications, listJobFavorites } from "@/lib/engineers";
 import { listEngineerChatStatus, resolveEngineerProfileNames, type EngineerProfileName } from "@/lib/chat";
 import { currentAccess } from "@/lib/accounts";
+import { engerAdmin } from "@/lib/supabase";
 import { asClientPeriod, hasCustomRange, inClientPeriod, inCustomRange, CLIENT_PERIOD_KEYS, type ClientPeriod } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,24 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
   const profileNames = Object.fromEntries(
     (await resolveEngineerProfileNames(rows.map((r) => r.id))).entries(),
   ) as Record<string, EngineerProfileName>;
+
+  // #275③：人材マスタ連携リンク（E番号→P番号）。詳細の「人材ID」表示に使う。
+  //   candidate_no が未保存の古いリンクは candidates を引いて補完する。未整備テーブルでも一覧は出す。
+  const candidateNos: Record<string, number> = {};
+  try {
+    const admin = engerAdmin();
+    const lr: any = await admin.from("freelance_candidate_links").select("engineer_id, candidate_id, candidate_no").limit(5000);
+    const missing: { engineer_id: string; candidate_id: string }[] = [];
+    for (const l of (lr.data ?? [])) {
+      if (l.candidate_no != null) candidateNos[String(l.engineer_id)] = Number(l.candidate_no);
+      else if (l.candidate_id) missing.push({ engineer_id: String(l.engineer_id), candidate_id: String(l.candidate_id) });
+    }
+    if (missing.length > 0) {
+      const cr: any = await admin.from("candidates").select("id, candidate_no").in("id", missing.map((m) => m.candidate_id)).limit(missing.length);
+      const byId = new Map<string, number>((cr.data ?? []).filter((c: any) => c.candidate_no != null).map((c: any) => [String(c.id), Number(c.candidate_no)]));
+      for (const m of missing) { const no = byId.get(m.candidate_id); if (no != null) candidateNos[m.engineer_id] = no; }
+    }
+  } catch { /* リンクテーブル未整備でも一覧表示は継続 */ }
 
   // 期間セレクタ（統一デザイン）。登録日(created_at)で一覧を絞り込む。既定=全期間。
   const mPeriod = asClientPeriod(sp.period, "all");
@@ -58,7 +77,7 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} initialQ={sp.q ?? ""} />
+      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} initialQ={sp.q ?? ""} candidateNos={candidateNos} />
     </div>
   );
 }
