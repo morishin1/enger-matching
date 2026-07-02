@@ -57,7 +57,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
 
       // メイン検索（テキスト ilike）。非公開も含めて拾うため is_published 制約は外す。
       const jobCols = "job_no, title, client_name, role_label, remote_type, salary_min, salary_max, is_published";
-      const candCols = "candidate_no, name, title, affiliation, source_company, rate";
+      const candCols = "candidate_no, name, initials, title, affiliation, source_company, rate";
       let [jr, cr, co] = await Promise.all([
         sb.from("jobs").select(jobCols).or(orJob).order("created_at", { ascending: false }).limit(20),
         sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20),
@@ -159,7 +159,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
           {people.map((p) => (
             <Link key={p.candidate_no} href={`/people/${p.candidate_no}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{p.candidate_no}</span>{p.name}</div>
+                {/* #267①：人材名（イニシャル）を必ず表示（name 空は initials 補完・異なる場合は併記）。 */}
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{p.candidate_no}</span>{p.name || p.initials || "—"}{p.name && p.initials && p.name !== p.initials ? <span className="muted">（{p.initials}）</span> : null}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{p.title ?? "—"} · {p.affiliation ?? p.source_company ?? ""} · {p.rate ?? ""}</div>
               </div>
               <span className="btn btn-xs">スキルシート</span>

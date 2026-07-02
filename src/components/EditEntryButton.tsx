@@ -183,7 +183,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     name: c.name ?? "",
     title: c.title ?? "",
     source_company: c.source_company ?? c.company ?? "",
-    affiliation: c.affiliation ?? "",
+    // #261：旧表記「BP」の既存データは新表記の選択肢にマッピング（保存すると新表記へ移行）。
+    affiliation: c.affiliation === "BP" ? "弊社所属フリーランス" : (c.affiliation ?? ""),
     skills: Array.isArray(c.skills) ? c.skills.join(", ") : "",
     rate: c.rate ?? "",
     exp: c.exp ?? "",
@@ -261,7 +262,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               <Select label="所属区分" value={f.affiliation} onChange={set("affiliation")} options={[
                 { value: "", label: "未設定" },
                 { value: "エイト社員",   label: "エイト社員（自社正社員）" },
-                { value: "BP",          label: "BP（自社のBP/FL）" },
+                { value: "弊社所属フリーランス", label: "弊社所属フリーランス（自社のBP/FL）" },  // #261：旧「BP」から文言変更
                 { value: "一社下社員",   label: "一社下社員" },
                 { value: "一社下フリーランス", label: "一社下フリーランス" },
                 { value: "二社下以降",  label: "二社下以降" },

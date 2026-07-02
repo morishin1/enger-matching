@@ -365,7 +365,11 @@ export function PeopleTable({
 
   const mailFor = (r: any) => ({ url: r.source_mail_url, search: [r.name, r.source_company].filter(Boolean).join(" ") || r.name, to: r.email ?? r.contact_email });
   const matchHref = (r: any) => `/matching?person=${r.candidate_no}`;
-  const titleOf = (r: any) => r.name ?? `人材#${r.candidate_no}`;
+  // #267①：人材名（イニシャル）を必ず表示。name が空なら initials で補完、両方あって異なる場合は併記。
+  const titleOf = (r: any) => {
+    const base = r.name || r.initials || `人材#${r.candidate_no}`;
+    return r.name && r.initials && r.name !== r.initials ? `${base}（${r.initials}）` : base;
+  };
 
   const buildPages = (cur1: number, count: number) => {
     const win = [1, 2, cur1 - 1, cur1, cur1 + 1, count - 1, count].filter((n) => n >= 1 && n <= count);
