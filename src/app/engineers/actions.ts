@@ -312,11 +312,26 @@ export async function createApplication(input: { engineer_id: string; engineer_n
             const jr: any = await admin.from("jobs").select("client_name").eq("id", input.job_id).maybeSingle();
             company = jr?.data?.client_name ?? null;
           }
-          await admin.from("proposals").insert({
+          const insP: any = await admin.from("proposals").insert({
             job_id: input.job_id ?? null, candidate_id: candId, stage: "所属確認",
             job_title: jobTitle ?? "（応募）", company, candidate_name: candName, c_init: candInit,
             proposer: null, ai: false, next_action: "エンジニア直接応募（LP）",
-          });
+          }).select("id").maybeSingle();
+          dupId = insP?.data?.id ?? null;
+        }
+        // #258①：応募時の「事前に相談したいこと・ご希望」を提案レコードのメモ履歴へ自動記録。
+        //   新規作成・既存（重複防止で再利用）どちらの提案にも、本文があれば追記する。fail-soft。
+        const consult = String(input.message ?? "").trim();
+        if (dupId && consult) {
+          try {
+            await admin.from("proposal_memos").insert({
+              proposal_id: dupId,
+              category: "人材側→当社",
+              body: `【自動記録】応募時の事前相談・ご希望：\n${consult.slice(0, 2000)}`,
+              created_by_email: null,
+              created_by_name: "自動記録（LP応募）",
+            });
+          } catch { /* メモ記録失敗は応募を止めない */ }
         }
       }
     } catch { /* proposals 未整備でも応募は成立させる */ }

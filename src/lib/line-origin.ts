@@ -37,3 +37,23 @@ export async function getLineOriginIds(): Promise<LineOriginIds> {
 
   return { jobIds: [...jobIds], candidateIds: [...candidateIds] };
 }
+
+/** ENGERフリーランス由来の人材ID集合（#260②）。
+ *  ・freelance_candidate_links（E↔P 紐付け）＝「人材マスタへ新規登録」経由（確定的）
+ *  ・candidates.signup_source が enger 系（LP登録の取り込み）
+ *  いずれもテーブル/列が無い環境では fail-soft（空集合側に倒す）。 */
+export async function getFreelanceCandidateIds(): Promise<string[]> {
+  const ids = new Set<string>();
+  if (!dbConfigured) return [];
+  let sb: ReturnType<typeof engerClient>;
+  try { sb = engerAdmin(); } catch { try { sb = engerClient(); } catch { return []; } }
+  try {
+    const r: any = await sb.from("freelance_candidate_links").select("candidate_id").limit(5000);
+    if (!r.error && Array.isArray(r.data)) for (const row of r.data) if (row.candidate_id) ids.add(String(row.candidate_id));
+  } catch { /* リンクテーブル未整備は無視 */ }
+  try {
+    const r: any = await sb.from("candidates").select("id").in("signup_source", ["enger", "enger_lp", "engerjp"]).limit(5000);
+    if (!r.error && Array.isArray(r.data)) for (const row of r.data) if (row.id) ids.add(String(row.id));
+  } catch { /* signup_source 列なしは無視 */ }
+  return [...ids];
+}

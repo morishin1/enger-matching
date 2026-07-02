@@ -64,6 +64,15 @@ export const Icons: Record<string, (p?: IconProps) => ReactNode> = {
   loc: makeIcon("location_on"),
   clock: makeIcon("schedule"),
   doc: makeIcon("description"),
+  // ENGERフリーランス マーク（青の角丸＋E）。ENGERフリーランス（LP）由来の人材を一目で示す。
+  engerFreelance: function EngerFreelance({ size = 18 }: IconProps = {}) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden style={{ verticalAlign: "middle", flexShrink: 0 }}>
+        <rect width="24" height="24" rx="6" fill="#0b5cab" />
+        <path d="M8 6h9v3h-6v2.5h5.4v3H11V15h6v3H8V6z" fill="#fff" />
+      </svg>
+    );
+  },
   // Gmail ブランドマーク（4色の封筒M）。Gmail取込の導線で「Gmail」を一目で分かりやすく示す。
   gmail: function Gmail({ size = 18 }: IconProps = {}) {
     return (

@@ -12,7 +12,7 @@ import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type M
 import { relatedSearchLabels } from "@/lib/skills";
 import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
-import { getLineOriginIds } from "@/lib/line-origin";
+import { getLineOriginIds, getFreelanceCandidateIds } from "@/lib/line-origin";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
 import { gmailConfigured } from "@/lib/gmail-api";
 import { PartnerMatching } from "@/components/PartnerMatching";
@@ -315,10 +315,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const proposalIdByJob = new Map<string, string>();   // job_id → proposal_id
   const proposalIdByCand = new Map<string, string>();  // candidate_id → proposal_id
   // LINE 由来の案件/人材（signup_source='line' もしくは proposals.source='line'）。名前の横にLINEアイコンを表示する。
+  // ENGERフリーランス由来の人材（#260②）は人材IDの横に E マークを表示する。
   const lineJobIds = new Set<string>();
   const lineCandIds = new Set<string>();
+  const flCandIds = new Set<string>();
   if (dbConfigured) {
     try { const lo = await getLineOriginIds(); for (const id of lo.jobIds) lineJobIds.add(id); for (const id of lo.candidateIds) lineCandIds.add(id); } catch { /* fail-soft */ }
+    try { for (const id of await getFreelanceCandidateIds()) flCandIds.add(id); } catch { /* fail-soft */ }
   }
   // 「誰がいつ提案したか」を表示するための補助マップ。承認状態（pending/approved/rejected/null=旧データ）も保持し、
   // 「承認依頼」ボタンを承認後に「承認済み（下書きへ）」へ自動で切替える表示にも使う。
@@ -757,7 +760,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <FocusHeart table="candidates" idField="candidate_no" idValue={person.candidate_no} initial={!!person.is_focus} revalidate="/matching" size={16} row={person} />
                   <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)" }}>候補 {rankedJobs.length}件</span>
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{lineCandIds.has(person.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span></div>
+                <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--color-ink)" }}>{lineCandIds.has(person.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 4, display: "inline-flex" }}><Icons.line size={15} /></span>}{person.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(person.candidate_no).padStart(5, "0")}</span>{flCandIds.has(person.id) && <span title="ENGERフリーランスで登録された人材" style={{ lineHeight: 0, verticalAlign: "-2px", marginLeft: 4, display: "inline-flex" }}><Icons.engerFreelance size={15} /></span>}</div>
                 <div style={{ display: "flex", gap: 10, marginTop: 6, fontSize: 12, color: "var(--color-ink-3)", flexWrap: "wrap", alignItems: "center" }}>
                   {person.title && <span className="tag">{person.title}</span>}
                   {(person.source_company || person.company) && <span className="tag">{person.source_company || person.company}</span>}
@@ -964,7 +967,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             {job && (
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応） */}
-          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds}
+          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
             jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
 
           {/* 右: 詳細パネル */}
@@ -994,9 +997,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   {job.skills.slice(0, 12).map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 10.5 }}>{s}</span>)}
                 </div>
               )}
-              {cleanDetail(job.detail) && (
-                <div className="muted" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.6, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{cleanDetail(job.detail)}</div>
-              )}
+              {/* #260①：メール本文（detail）のプレビューは非表示（必須スキルの下に生の本文が出て見づらいため）。
+                  本文は「元メールを開く」から確認できる。 */}
             </div>
 
             {/* 選択候補 詳細 */}
@@ -1031,7 +1033,13 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
                       <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: 15 }}>{c.name} <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span></div>
+                        {/* #260②：人材IDの隣に登録元アイコン（LINE経由=LINEマーク／ENGERフリーランス=Eマーク）。 */}
+                        <div style={{ fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span>{c.name}</span>
+                          <span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
+                          {lineCandIds.has(c.id) && <span title="LINE経由で登録された人材" style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={15} /></span>}
+                          {flCandIds.has(c.id) && <span title="ENGERフリーランスで登録された人材" style={{ lineHeight: 0, display: "inline-flex" }}><Icons.engerFreelance size={15} /></span>}
+                        </div>
                         <div className="muted" style={{ fontSize: 11.5 }}>{[c.source_company || c.company, c.age_band, c.affiliation, candRemoteLabel(c.remote_pref), c.location, c.title].filter(Boolean).join(" / ")}</div>
                         <div style={{ fontSize: 11.5, marginTop: 2, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span>希望単価 <b style={{ color: "var(--color-ink)" }}>{c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</b></span>

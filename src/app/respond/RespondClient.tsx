@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { isWeekendOrJpHoliday } from "@/lib/jp-holidays";
 
 type ProposalInfo = {
     side: "job" | "cand";
@@ -58,6 +59,17 @@ export function RespondClient({ token, action }: { token: string; action: string
     const [slots, setSlots] = useState<{ date: string; time: string }[]>([
         { date: "", time: "" }, { date: "", time: "" }, { date: "", time: "" }, { date: "", time: "" },
     ]);
+    // #259：土日祝は選択不可。選ばれた場合はクリアして注意を表示する。
+    const [dateWarn, setDateWarn] = useState<string | null>(null);
+    const pickDate = (i: number, value: string) => {
+        if (value && isWeekendOrJpHoliday(value)) {
+            setDateWarn("土日祝はご指定いただけません。平日の日付をお選びください。");
+            setSlots((prev) => prev.map((p, j) => (j === i ? { ...p, date: "" } : p)));
+            return;
+        }
+        setDateWarn(null);
+        setSlots((prev) => prev.map((p, j) => (j === i ? { ...p, date: value } : p)));
+    };
 
     const isValidAction = action === "話を進める" || action === "見送り";
     const isProceed = action === "話を進める";
@@ -170,8 +182,9 @@ export function RespondClient({ token, action }: { token: string; action: string
                     <div style={{ marginBottom: 24, textAlign: "left" }}>
                         <div style={{ fontSize: 13, color: "#334155", fontWeight: 700, marginBottom: 4 }}>面談ご希望日時（任意・最大4件）</div>
                         <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 12, lineHeight: 1.6 }}>
-                            ご希望があればご入力ください。未入力のままでも送信いただけます。
+                            ご希望があればご入力ください。未入力のままでも送信いただけます。<br />※ 土日祝はご指定いただけません（平日のみ）。
                         </div>
+                        {dateWarn && <div style={{ fontSize: 12, color: "#b42318", background: "#fdecef", border: "1px solid #f7c5cf", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>{dateWarn}</div>}
                         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                             {slots.map((s, i) => (
                                 <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -180,7 +193,7 @@ export function RespondClient({ token, action }: { token: string; action: string
                                         type="date"
                                         min={minDate}
                                         value={s.date}
-                                        onChange={(e) => setSlots((prev) => prev.map((p, j) => (j === i ? { ...p, date: e.target.value } : p)))}
+                                        onChange={(e) => pickDate(i, e.target.value)}
                                         style={{ flex: 1, minWidth: 0, padding: "10px 12px", border: "1px solid #d6dce5", borderRadius: 8, fontSize: 14, fontFamily: "inherit", background: "#fff", color: "#1e293b" }}
                                     />
                                     <select

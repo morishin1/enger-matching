@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { engerAdmin } from "@/lib/supabase";
+import { isWeekendOrJpHoliday } from "@/lib/jp-holidays";
 
 const VALID_ACTIONS = ["話を進める", "見送り"] as const;
 type ActionType = (typeof VALID_ACTIONS)[number];
@@ -41,9 +42,15 @@ export async function POST(req: NextRequest) {
     const reqBody = await req.json().catch(() => ({}));
     const { token, action } = reqBody;
     // 面談希望日時（「2026/06/28 10:00」形式の文字列配列）。話を進める時のみ送られる想定。
-    const meetingCandidates: string[] = Array.isArray(reqBody?.meetingCandidates)
+    //   #259：土日祝はサーバー側でも除外（UI回避の防波堤）。
+    const meetingCandidates: string[] = (Array.isArray(reqBody?.meetingCandidates)
         ? reqBody.meetingCandidates.filter((x: unknown) => typeof x === "string" && x.trim()).map((x: string) => x.trim())
-        : [];
+        : []
+    ).filter((s: string) => {
+        const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(s);
+        if (!m) return true; // 形式外はそのまま（従来挙動）
+        return !isWeekendOrJpHoliday(`${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`);
+    });
     if (!token || !VALID_ACTIONS.includes(action)) {
         await logRespondError("POST", "invalid request (token/action missing or unknown)", { token, action });
         return NextResponse.json({ ok: false, error: "invalid request" }, { status: 400 });

@@ -21,8 +21,8 @@ type Ranked = { candidate: any; score: number; dupCount?: number; dupNos?: numbe
 const AI_STORE_KEY = (jobNo: number) => `enger.match.ai.v1.${jobNo}`;
 const VIEW_STORE_KEY = (jobNo: number) => `enger.match.view.v1.${jobNo}`;
 
-export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, lineCandIds, jobForAI }: {
-  jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; lineCandIds?: Set<string>; jobForAI: any;
+export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandIds, lineCandIds, flCandIds, jobForAI }: {
+  jobAbbr: string; jobNo: number; tab: string; selCandNo?: number; ranked: Ranked[]; proposedCandIds?: Set<string>; lineCandIds?: Set<string>; flCandIds?: Set<string>; jobForAI: any;
 }) {
   const [ai, setAi] = useState<Map<number, { score: number; reason: string }> | null>(null);
   const [view, setView] = useState<"rule" | "ai">("rule"); // 既定はルール順（AI未使用＝コスト0）
@@ -157,6 +157,7 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
                   {jobAbbr} ↔ {lineCandIds?.has(c.id) && <span title="LINE経由の人材" style={{ lineHeight: 0, display: "inline-flex", flexShrink: 0 }}><Icons.line size={12} /></span>}{c.name}
                   <span className="mono" style={{ fontSize: 10, color: "var(--color-ink-4)", fontWeight: 400, flexShrink: 0 }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
+                  {flCandIds?.has(c.id) && <span title="ENGERフリーランスで登録された人材" style={{ lineHeight: 0, display: "inline-flex", flexShrink: 0 }}><Icons.engerFreelance size={12} /></span>}
                   {mergedCount > 1 && (
                     <span title={`同一人物とみなせる重複レコード ${mergedCount} 件を1件に集約して表示しています（イニシャル＋スキル8割以上＋単価＋所属/登録元が一致）。${r.dupNos?.length ? "対象: " + r.dupNos.map((n: number) => "P-" + String(n).padStart(5, "0")).join(", ") : ""}`} style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", lineHeight: 1.5, flexShrink: 0 }}>統合 {mergedCount}件</span>
                   )}

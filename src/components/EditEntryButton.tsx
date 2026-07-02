@@ -203,6 +203,13 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
   const [f, setF] = useState<FormState>(initial);
   const set = (k: string) => (v: string) => setF((s) => ({ ...s, [k]: v }));
   const close = () => { if (!pending) { setOpen(false); setMsg(null); setF(initial); } };
+  // #237②（追加対策）：保存に成功したフォーム値を保持し、親から渡る行データ(props)の更新が
+  //   遅延/欠落しても、再編集時は「最後に保存した値」を優先表示する（国籍・経験年数の巻き戻り防止）。
+  //   別の人材に切り替わったら破棄する。
+  const [savedF, setSavedF] = useState<FormState | null>(null);
+  const candKey = String(c.candidate_no ?? c.id ?? "");
+  const [prevCandKey, setPrevCandKey] = useState(candKey);
+  if (prevCandKey !== candKey) { setPrevCandKey(candKey); setSavedF(null); }
 
   const submit = () => {
     setMsg(null);
@@ -230,17 +237,16 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
         source_mail_url: f.source_mail_url,
         flow_depth: f.flow_depth === "" ? null : Number(f.flow_depth),
       } as any);
-      if (res.ok) { setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
+      if (res.ok) { setSavedF(f); setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
       else setMsg({ ok: false, text: res.error || "保存に失敗しました" });
     });
   };
 
   return (
     <>
-      {/* #237②：開くたびに最新の candidate から初期化し直す（保存後に再編集すると旧値へ戻る不具合の対策）。
-          useState(initial) は初回マウント時のみ反映され、close の setF(initial) は保存クリック時のクロージャ（旧値）を
-          掴むため、開くたびに最新 props でリセットして常に保存済みの最新値を表示する。 */}
-      <button type="button" className="btn ghost" onClick={() => { setF(initial); setMsg(null); setOpen(true); }}>✎ 編集</button>
+      {/* #237②：開くたびに「最後に保存した値（savedF）」→ 無ければ最新 props（initial）で初期化し直す。
+          行データの再取得が遅延しても、保存済みの国籍・経験年数等が巻き戻って見えないようにする。 */}
+      <button type="button" className="btn ghost" onClick={() => { setF(savedF ?? initial); setMsg(null); setOpen(true); }}>✎ 編集</button>
       {open && (
         <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 720, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
