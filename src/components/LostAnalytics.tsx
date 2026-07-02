@@ -1343,6 +1343,8 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
   const [proposerFilter, setProposerFilter] = useState("");
   const [closerFilter, setCloserFilter] = useState("");
   const [reasonFilter, setReasonFilter] = useState("");
+  // #267②：案件ID / 人材ID での検索（数字の部分一致。「P-17352」「#45509」等の接頭辞・記号は無視）。
+  const [idFilter, setIdFilter] = useState("");
   const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(1);
   const proposers = useMemo(() => Array.from(new Set(rows.map((r) => r.proposer).filter((v) => v && v !== "—"))).sort(), [rows]);
@@ -1355,11 +1357,13 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
     if (proposerFilter) r = r.filter((x) => x.proposer === proposerFilter);
     if (closerFilter) r = r.filter((x) => x.closer === closerFilter);
     if (reasonFilter) r = r.filter((x) => x.reason === reasonFilter);
+    const idDigits = idFilter.replace(/\D/g, "");
+    if (idDigits) r = r.filter((x: any) => String(x.job_no ?? "").includes(idDigits) || String(x.candidate_no ?? "").includes(idDigits));
     return [...r].sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0));
-  }, [rows, proposerFilter, closerFilter, reasonFilter]);
+  }, [rows, proposerFilter, closerFilter, reasonFilter, idFilter]);
 
   // フィルタ・表示件数が変わったら1ページ目へ戻す。
-  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, pageSize]);
+  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, idFilter, pageSize]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -1408,6 +1412,12 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
             <option value="">すべて</option>
             {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
+        </label>
+        {/* #267②：案件ID / 人材ID で検索（数字部分一致。P-17352 / #45509 等の記号は無視して照合）。 */}
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          案件ID / 人材ID
+          <input type="text" value={idFilter} onChange={(e) => setIdFilter(e.target.value)} placeholder="例：45509 / P-17352"
+            style={{ ...sel, width: 150 }} />
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
           表示件数

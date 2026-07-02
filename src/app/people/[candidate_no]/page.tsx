@@ -99,7 +99,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
       <div className="page-head">
         <div>
           <div className="meta">Skill Sheet · スキルシート</div>
-          <h1>{c.name} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span> {c.is_closed && <ClosedBadge />}</h1>
+          {/* #267①：人材名（イニシャル）を必ず表示。name が空でも initials で補完し、両方あって異なる場合は併記する。 */}
+          <h1>{c.name || c.initials || `人材#${c.candidate_no}`}{c.initials && c.name && c.initials !== c.name ? <span style={{ fontSize: 16, fontWeight: 600, color: "var(--color-ink-3)" }}>（{c.initials}）</span> : null} <span className="mono" style={{ fontSize: 14, color: "var(--color-ink-4)", fontWeight: 400 }}>P-{String(c.candidate_no).padStart(5, "0")}</span> {c.is_closed && <ClosedBadge />}</h1>
           <div className="sub">{(() => { const co = c.source_company || c.company; const com = co && c.affiliation ? `${co}（${c.affiliation}）` : (co || c.affiliation); return [c.title, com].filter(Boolean).join(" · ") || "—"; })()}</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>

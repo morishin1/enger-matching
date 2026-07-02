@@ -76,7 +76,7 @@ const NATIONALITY_OPTIONS = [
 // 所属区分フィルタ：新マトリックス（5カテゴリ）固定リスト＋同義語の包含マッチ。
 const CAND_AFF_TO_LABELS: Record<string, string[]> = {
   self_emp:    ["エイト社員"],
-  self_bp:     ["BP"],
+  self_bp:     ["BP", "弊社所属フリーランス"],  // #261：新表記＋旧データ（BP）両方をヒットさせる
   vendor1_emp: ["一社下社員"],
   vendor1_fl:  ["一社下FL", "一社下フリーランス"],
   vendor2plus: ["二社下以降"],

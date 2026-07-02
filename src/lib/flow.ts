@@ -164,7 +164,7 @@ export const JOB_FLOW_OPTIONS: { value: Exclude<JobFlowCategory, "unknown">; lab
 
 export const CAND_FLOW_OPTIONS: { value: Exclude<CandFlowCategory, "unknown">; label: string }[] = [
   { value: "self_emp",    label: "エイト社員" },
-  { value: "self_bp",     label: "BP" },
+  { value: "self_bp",     label: "弊社所属フリーランス" },  // #261：旧表記「BP」から文言変更（分類キー・判定は不変）
   { value: "vendor1_emp", label: "一社下社員" },
   { value: "vendor1_fl",  label: "一社下FL" },
   { value: "vendor2plus", label: "二社下以降" },
@@ -182,7 +182,7 @@ export const JOB_FLOW_LABEL: Record<JobFlowCategory, string> = {
 };
 export const CAND_FLOW_LABEL: Record<CandFlowCategory, string> = {
   self_emp: "エイト社員",
-  self_bp: "BP",
+  self_bp: "弊社所属フリーランス",  // #261：旧表記「BP」から文言変更
   vendor1_emp: "一社下社員",
   vendor1_fl: "一社下FL",
   vendor2plus: "二社下以降",
