@@ -10,11 +10,12 @@
 //   列ヘッダクリックで並び替え。提案以外は CL担当に加算される。
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import type { ActivityRow } from "@/lib/team-activity";
 import { METRIC_LABELS, METRIC_ORDER, type Metric } from "@/lib/kpi";
 import { saveKpiTargets } from "@/lib/actions";
 import { saveProposalOwners } from "@/app/settings/permission-actions";
+import { KpiPeriodBar } from "./KpiPeriodBar";
 
 type SortKey = Metric;
 
@@ -30,7 +31,7 @@ export type TeamMemberMeta = { name: string; email: string | null };
 export function TeamActivityBoard({
   rows, periodLabel, teamTarget = {} as Partial<Record<Metric, number>>,
   teamWeeklyTarget = {} as Partial<Record<Metric, number>>,
-  viewer, weekStart, proposalOwners,
+  viewer, weekStart, proposalOwners, showPeriodFilter = false,
 }: {
   rows: ActivityRow[];
   periodLabel: string;
@@ -39,7 +40,11 @@ export function TeamActivityBoard({
   viewer?: TeamActivityViewer;
   weekStart?: string;        // 'YYYY-MM-DD'（編集モーダル用。未指定なら編集不可）
   proposalOwners?: { proposers: string[]; closers: string[] }; // メンバー編集用の現在値
+  /** #290②：表内に期間フィルタ（本日/昨日/今週/先週/今月/3ヶ月/期間指定）を表示（KPI推移ページ用）。
+   *   切替は URL（?period/?from/?to/?kp）経由の再集計・scroll維持＝表が見えたまま数値が変わる。 */
+  showPeriodFilter?: boolean;
 }) {
+  const pathname = usePathname();
   const [sortKey, setSortKey] = useState<SortKey>("proposal");
   const valOf = (r: ActivityRow, k: SortKey) => r.actual[k];
   const sorted = useMemo(() => [...rows].sort((a, b) => valOf(b, sortKey) - valOf(a, sortKey) || b.total - a.total), [rows, sortKey]);
@@ -95,6 +100,13 @@ export function TeamActivityBoard({
           )}
         </div>
       </div>
+
+      {/* #290②：表内の期間フィルタ。押してもページ位置は動かず（scroll維持）、この表の数値が切り替わる。 */}
+      {showPeriodFilter && (
+        <div style={{ marginBottom: 12 }}>
+          <KpiPeriodBar basePath={pathname || "/kpi"} card={false} note="選択した期間でメンバー別アクティビティと下のKPI・KGIを集計します" />
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div className="muted" style={{ fontSize: 12 }}>対象メンバーがいません。</div>
@@ -167,9 +179,14 @@ export function TeamActivityBoard({
           </table>
         </div>
       )}
-      <div className="muted" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.6 }}>
-        ※ 各セルは上段=実績（達成時は<b style={{ color: "#067647" }}>緑</b>）／下段=目標。提案=新規提案（提案者）。コンタクト/調整中/面談/合格は<b>CL担当</b>に加算（架電・通知・面談・合格に連動）。
-        目標は各メンバーの週次目標を期間に按分。<b>達成率＝チーム合計実績 ÷ チーム目標 × 100</b>。
+      {/* #290③：指標の集計定義（目立たないよう小さめのグレー文字で設置）。 */}
+      <div className="muted" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.7 }}>
+        提案＝新規に提案した数（ステータスが提案管理になったら）提案者にプラス1
+        ／ コンタクト＝架電状況が「未架電・空白」以外になった（＝接触した）数。CL担当にプラス1
+        ／ 調整中＝案件・人材の通知がどちらも「未処理」でなくなった（着手/完了）数。CL担当にプラス1
+        ／ 日程確定＝ステータスが「面談」になった数。CL担当にプラス1
+        ／ 成約数＝ステータスが「合格」になった数。CL担当にプラス1
+        <br />目標は各メンバーの週次目標を期間に按分。<b>達成率＝チーム合計実績 ÷ チーム目標 × 100</b>。
       </div>
 
       {modal === "members" && weekStart && (

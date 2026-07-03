@@ -24,7 +24,7 @@ const PERIOD_LABEL: Record<PeriodType, string> = { day: "今日", week: "今週"
 
 export const dynamic = "force-dynamic";
 
-export default async function KpiDashboardPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; owner?: string }> }) {
+export default async function KpiDashboardPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; owner?: string; kp?: string }> }) {
   const access = await currentAccess();
   if (!access) return <div style={{ padding: 24 }}>ログインが必要です。</div>;
   if (!dbConfigured) return <div style={{ padding: 24 }}>DB 接続が設定されていません。</div>;
@@ -164,11 +164,16 @@ export default async function KpiDashboardPage({ searchParams }: { searchParams:
               day → 本日、week → 今週、month → 今月（＝月初〜末日。実質「月初からの累計」）、
               quarter → 今四半期、custom → 指定期間。 */}
           <TeamActivityBoard rows={activity} periodLabel={
-            isYesterday ? "前日"
+            // #290②：表内フィルタのチップ（?kp）が選ばれていればそのラベルを優先（先週/3ヶ月等）。
+            sp.kp === "lastweek" ? "先週"
+            : sp.kp === "quarter" ? "3ヶ月"
+            : sp.kp === "custom" ? "指定期間"
+            : isYesterday ? "前日"
             : period === "day" ? "本日"
             : period === "month" ? "今月（月初からの累計）"
             : PERIOD_LABEL[period]
           }
+            showPeriodFilter
             teamTarget={teamTarget}
             teamWeeklyTarget={teamWeeklyForBoard as Partial<Record<Metric, number>>}
             weekStart={weekStart.toISOString().slice(0, 10)}

@@ -73,7 +73,8 @@ export function KpiPeriodBar({ current, basePath = "/proposals", card = true, no
     if (f) u.set("from", f); else u.delete("from");
     if (t) u.set("to", t); else u.delete("to");
     if (chip) u.set("kp", chip); else u.delete("kp");
-    router.push(`${basePath}?${u.toString()}`);
+    // #290：期間切替時に画面がトップへスクロールしないよう位置を保持（表やグラフが見えたまま数値が変わる）。
+    router.push(`${basePath}?${u.toString()}`, { scroll: false });
   };
   const go = (key: string) => { const r = rangeFor(key as KpiChip); push(r.period, r.from, r.to, key); };
   const onRange = (f: string, t: string) => push("custom", f || undefined, t || undefined, "custom");
