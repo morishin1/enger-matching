@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authServerClient, publicOrigin } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
 import { isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
+import { hasFreelanceProfile } from "@/lib/auth-apps";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,10 @@ export async function GET(req: Request) {
     // ENGER business に未登録のアカウント（Google 等の OAuth 初回や、app_users に無いメール）は入室不可。
     //   ③の方針：Google 認証は「登録済み＆承認済み」のみ通す。新規はメール＋パスワードで登録してもらう
     //   （登録後は管理者の承認でログイン可能）。自動でアカウントを作らない＝なりすまし/誤分類を防ぐ。
+    //   原因がわかるようメッセージを出し分け：フリーランス（profiles）として登録済みのメールなら明示する。
+    if (await hasFreelanceProfile(email)) {
+      return await deny("このメールアドレスは ENGERフリーランス（個人）として登録されています。フリーランスの方は enger.jp からログインしてください。ビジネス（企業・社内）として利用する場合は、新規登録から申請してください（管理者の承認後にログインできます）。");
+    }
     return await deny("このアカウントは ENGER business に登録されていません。メールアドレスとパスワードで新規登録してください（登録後、管理者の承認でログインできます）。");
   }
   // フリーランス（人材）は法人ログイン不可。Google 認証に成功してもここで締め出す。

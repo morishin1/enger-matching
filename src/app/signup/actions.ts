@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { authServerClient } from "@/lib/supabase-auth";
 import { createPendingAccount } from "@/lib/accounts";
+import { markBusinessAuthApp } from "@/lib/auth-apps";
 import {
   shouldBlockSignupAttempt, isValidEmail, isDisposableEmail,
   passwordStrengthError, isCommonPassword, sanitizeName, coerceSelfSignupRole,
@@ -98,6 +99,11 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   // 6) 承認待ちアカウント（既存なら冪等）
   const acc = await createPendingAccount({ email: rawEmail, name, role, companyName: company });
   if (!acc.ok) return { error: `アカウント登録に失敗しました：${acc.error ?? "不明なエラー"}` };
+
+  // 6.5) 所属サービスの正準フラグ：app_metadata.apps に "business" を付与。
+  //   フリーランスLP（enger.jp）と Auth を共有しているため、「このユーザーはビジネス側」と
+  //   サーバー管理領域に明示しておく（LP側のログイン後ルーティング判定に使用）。失敗しても登録は成立。
+  try { await markBusinessAuthApp(rawEmail); } catch { /* noop */ }
 
   // 7) 承認前はログインさせない
   try { await supabase.auth.signOut(); } catch { /* noop */ }
