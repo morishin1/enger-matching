@@ -9,9 +9,12 @@
 //   - 担当者別 失注理由
 // 「そもそも連絡する意味あるのか？」を score = 勝率×0.7 + 接触の新しさ×0.3 で判定。
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { StarsView } from "./Stars";
+import { restoreProposal } from "@/lib/actions";
+import { toast } from "./toast";
 
 type HItem = {
   id: string;
@@ -1340,6 +1343,20 @@ function Header({ title, hint }: { title: string; hint?: string }) {
 
 // 失注ログテーブル：担当者・理由・タイムラグを一覧。担当者/期間で絞り込み可能。
 function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
+  const router = useRouter();
+  const [pending, startRestore] = useTransition();
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  // #291：見送りになる直前のステージへ復元し、提案ボードのいずれかのフォルダに戻す（失注一覧からは消える）。
+  const doRestore = (id: string, label: string) => {
+    if (!confirm(`「${label}」を提案ボードに戻しますか？（見送りになる直前の状態に戻ります）`)) return;
+    setRestoringId(id);
+    startRestore(async () => {
+      const r = await restoreProposal(id);
+      setRestoringId(null);
+      if (r.ok) { toast(`提案ボードに戻しました${r.stage ? `（${r.stage}）` : ""}`, "success"); router.refresh(); }
+      else toast(r.error ?? "戻すのに失敗しました", "error");
+    });
+  };
   const [proposerFilter, setProposerFilter] = useState("");
   const [closerFilter, setCloserFilter] = useState("");
   const [reasonFilter, setReasonFilter] = useState("");
@@ -1429,7 +1446,7 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>全{total}件中 {total === 0 ? 0 : (cur - 1) * pageSize + 1}〜{Math.min(cur * pageSize, total)}件</span>
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 880 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, minWidth: 1000 }}>
           <thead>
             <tr>
               <th style={th}>失注日</th>
@@ -1441,6 +1458,7 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
               <th style={th}>人材</th>
               <th style={{ ...th, textAlign: "center" }}>人材★</th>
               <th style={th}>失注理由</th>
+              <th style={{ ...th, textAlign: "center" }}>操作</th>
               <th style={{ ...th, textAlign: "right" }}>再提案</th>
             </tr>
           </thead>
@@ -1469,6 +1487,14 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
                 <td style={td}>
                   <div>{r.reason}</div>
                   {r.note && <div style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginTop: 2, whiteSpace: "pre-wrap" }}>「{r.note}」</div>}
+                </td>
+                {/* #291：見送りになる直前の状態へ復元し、提案ボードのいずれかのフォルダに戻す。 */}
+                <td style={{ ...td, textAlign: "center", whiteSpace: "nowrap" }}>
+                  <button type="button" className="btn ghost btn-xs" disabled={pending && restoringId === r.id}
+                    onClick={() => doRestore(r.id, `${r.company} / ${r.candidate_name}`)}
+                    title="見送りになる直前の状態に戻し、提案ボードへ再表示します">
+                    {pending && restoringId === r.id ? "戻しています…" : "↩ 提案ボードに戻す"}
+                  </button>
                 </td>
                 <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                   {/* 上位/下位企業から再提案・再エントリーがあったとき、提案画面（マッチング）へ直行 */}

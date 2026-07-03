@@ -336,6 +336,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     // どの会社の誰が担当か（会社名・先方担当者・提案者・クロージング担当）も失注記録に残す。
     company: lostCompany.trim() || null, client_contact: lostClientContact.trim() || null,
     proposer: proposer || null, closer: closer || null,
+    // #291：見送りになる直前のステージを記録し、「提案ボードに戻す」で正確に復元できるようにする。
+    pre_lost_stage: p.stage ?? null,
   }));
   // 提案削除：承認制は廃止。admin / agent とも理由を入力して即削除（操作ログに記録される）。
   const removeProposal = () => {

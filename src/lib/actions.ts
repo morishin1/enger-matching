@@ -531,10 +531,12 @@ export async function updateProposalFields(id: string, fields: Record<string, an
     // 案件側 企業担当 / 人材側 会社名・企業担当・先方担当（proposals-contacts.sql）
     "company_contact", "cand_company", "cand_company_contact", "cand_contact",
     // 失注時の★評価（proposals-lost-rating-delete.sql）
-    "cand_rating", "job_rating"];
-  // 上記のうち proposals-contacts.sql / proposals-lost-rating-delete.sql 未適用の環境で存在しない可能性がある列。
-  // 書込みで「column ... does not exist」になったら、その列を外して再試行する。
-  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact", "cand_rating", "job_rating"];
+    "cand_rating", "job_rating",
+    // #291：見送り/失注になる直前のステージ（proposals-pre-lost-stage.sql）。「提案ボードに戻す」で復元に使う。
+    "pre_lost_stage"];
+  // 上記のうち proposals-contacts.sql / proposals-lost-rating-delete.sql / proposals-pre-lost-stage.sql
+  // 未適用の環境で存在しない可能性がある列。書込みで「column ... does not exist」になったら列を外して再試行する。
+  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact", "cand_rating", "job_rating", "pre_lost_stage"];
   const now = new Date().toISOString();
   const patch: Record<string, any> = { updated_at: now };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
@@ -553,6 +555,9 @@ export async function updateProposalFields(id: string, fields: Record<string, an
       // 失注時の★評価も、失注以外へ戻すときはクリア（失注分析に誤って残らないように）。
       if (!("cand_rating" in fields))      patch.cand_rating      = null;
       if (!("job_rating" in fields))       patch.job_rating       = null;
+      // #291：見送り直前ステージも、失注以外へ移したら不要になるためクリア（restoreProposalFromLost が
+      //   明示的に pre_lost_stage:null を渡す場合はそちらを優先＝上書きしない）。
+      if (!("pre_lost_stage" in fields))   patch.pre_lost_stage   = null;
     }
   }
   let { error } = await admin.from("proposals").update(patch).eq("id", id);
@@ -1336,22 +1341,42 @@ export async function undoProposal(id: string) {
   return { ok: true };
 }
 
-/** 見送り/失注/稼働化した提案をボードに戻す（ステージを「返信待ち」へ）。 */
+/** 見送り/失注/稼働化した提案をボードに戻す。
+ *  #291：見送り/失注の場合は「見送りになる直前のステージ」(pre_lost_stage) へ復元し、
+ *    提案ボードのいずれかのフォルダに再表示・失注一覧からは消える。
+ *    記録が無い（この機能追加より前の失注、または pre_lost_stage 未整備環境）場合は
+ *    従来どおり「所属確認」へ戻す。 */
 export async function restoreProposal(id: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   if (!id) return { ok: false, error: "id がありません" };
   // 稼働化済みなら稼働も取り消し
   try { await admin.from("engagements").delete().eq("proposal_id", id); } catch { /* 続行 */ }
+
+  // #291：見送り直前のステージ（pre_lost_stage）が有効なステージ名なら復元先に採用。
+  let targetStage = "所属確認";
+  try {
+    const { PROPOSAL_STAGES } = await import("./proposal-constants");
+    const row: any = (await admin.from("proposals").select("pre_lost_stage").eq("id", id).maybeSingle()).data;
+    const pls = String(row?.pre_lost_stage ?? "").trim();
+    if (pls && (PROPOSAL_STAGES as readonly string[]).includes(pls)) targetStage = pls;
+  } catch { /* pre_lost_stage 列未整備でも従来どおり「所属確認」で続行 */ }
+
   const now = new Date().toISOString();
-  let rr: any = await admin.from("proposals").update({ stage: "所属確認", lost_reason: null, lost_phase: null, lost_reason_note: null, updated_at: now, stage_updated_at: now }).eq("id", id);
+  const fullPatch = { stage: targetStage, lost_reason: null, lost_phase: null, lost_reason_note: null, pre_lost_stage: null, updated_at: now, stage_updated_at: now };
+  let rr: any = await admin.from("proposals").update(fullPatch).eq("id", id);
+  if (rr.error && /pre_lost_stage|column/i.test(rr.error.message)) {
+    const { pre_lost_stage: _p, ...rest } = fullPatch;
+    rr = await admin.from("proposals").update(rest).eq("id", id);
+  }
   if (rr.error && /stage_updated_at|lost_reason_note|column/i.test(rr.error.message)) {
-    rr = await admin.from("proposals").update({ stage: "所属確認", lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
+    rr = await admin.from("proposals").update({ stage: targetStage, lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
   }
   const error = rr.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals"); revalidatePath("/analytics"); bustCounts(); revalidatePath("/progress");
-  return { ok: true };
+  await logProposalActivity(id, "提案ボードに戻す", `→ ${targetStage}`);
+  return { ok: true, stage: targetStage };
 }
 
 /** 成約した提案を稼働(engagements)へ変換。提案は「成約」に更新。 */
