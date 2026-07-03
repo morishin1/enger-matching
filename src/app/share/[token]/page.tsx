@@ -23,9 +23,9 @@ function Frame({ children }: { children: React.ReactNode }) {
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff !important; } .share-card { box-shadow: none !important; border: none !important; } }`}</style>
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "36px 20px 64px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+          {/* ロゴはワードマーク（横長）なので高さのみ指定（正方形に押し込むと崩れる）。 */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/enger-logo.png" alt="ENGER" width={26} height={26} style={{ borderRadius: 6 }} />
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 17, color: "var(--color-ink)" }}>ENGER</span>
+          <img src="/enger-logo.png" alt="ENGER" style={{ height: 26, width: "auto", objectFit: "contain" }} />
           <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "var(--color-brand-25)", color: "var(--color-brand-700)", border: "1px solid var(--color-brand-100)" }}>business</span>
           <span className="muted" style={{ marginLeft: "auto", fontSize: 11.5 }}>外部共有ページ</span>
         </div>
@@ -121,6 +121,8 @@ export default async function SharePage({ params, searchParams }: {
       )}
       <div className="card share-card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "16px 24px", background: "var(--color-brand-25)", borderBottom: "1px solid var(--color-brand-100)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* ③ 種別マーク：案件＝work／人材＝groups（アプリ内の案件/人材メニューと同じマーク）。 */}
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 17, color: "var(--color-brand-700)" }}>{view.kind === "job" ? "work" : "groups"}</span>
           <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", color: "var(--color-brand-700)" }}>{kindLabel}</span>
           <span className="mono muted" style={{ marginLeft: "auto", fontSize: 11 }}>{view.subheading}</span>
         </div>
@@ -145,6 +147,16 @@ export default async function SharePage({ params, searchParams }: {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {view.skills.map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
               </div>
+            </div>
+          )}
+          {/* ② 案件概要：本文（精算・面談回数・備考等）を社名・氏名・連絡先・URLを伏字化して掲載。 */}
+          {view.summary && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 700, marginBottom: 8 }}>案件概要</div>
+              <div style={{ fontSize: 12.5, lineHeight: 1.85, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--color-ink-2)", background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "12px 16px", maxHeight: 440, overflowY: "auto" }}>
+                {view.summary}
+              </div>
+              <div className="muted" style={{ fontSize: 10.5, marginTop: 6 }}>※ 企業名・担当者名・連絡先・URL は自動で伏せています。</div>
             </div>
           )}
           <div className="muted" style={{ fontSize: 11.5, marginTop: 18, lineHeight: 1.7 }}>
