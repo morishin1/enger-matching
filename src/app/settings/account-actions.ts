@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { engerAdmin, authAdmin, publicAdmin } from "@/lib/supabase";
 import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
+import { markBusinessAuthApp } from "@/lib/auth-apps";
 
 type Result = { ok: boolean; error?: string };
 
@@ -205,7 +206,11 @@ export async function approveAccount(formData: FormData): Promise<Result> {
       const { data: u } = await sb.from("app_users").select("email, name").eq("id", id).maybeSingle();
       const emailRow = (u as any)?.email as string | undefined;
       const nameRow = (u as any)?.name as string | undefined;
-      if (emailRow) await ensureAuthUser(emailRow, { name: nameRow ?? null });
+      if (emailRow) {
+        await ensureAuthUser(emailRow, { name: nameRow ?? null });
+        // 所属サービスの正準フラグ：app_metadata.apps に "business" を付与（LP側のルーティング判定用）。
+        await markBusinessAuthApp(emailRow);
+      }
     } catch { /* auth 連携失敗でも app_users 承認自体は成功扱い */ }
 
     await audit(id, null, "approve", `role=${upd.role}${company ? ` company=${company}` : ""}`, actor);
@@ -539,6 +544,7 @@ export async function resetAccountPassword(email: string): Promise<Result & { pa
       const { error } = await authAdmin().auth.admin.updateUserById(uid, { password });
       if (error) return { ok: false, error: error.message };
     }
+    await markBusinessAuthApp(e); // 所属サービスの正準フラグ（LP側のルーティング判定用）
     return { ok: true, password, created };
   } catch (err: any) {
     return { ok: false, error: String(err?.message ?? err) };
@@ -560,11 +566,11 @@ export async function backfillAuthForActiveAccounts(): Promise<{ ok: boolean; re
       const e = (u.email ?? "").trim().toLowerCase();
       if (!e) continue;
       const existing = await findAuthUserIdByEmail(e);
-      if (existing) continue; // 既に居る → スキップ（既存パスワードを上書きしない）
+      if (existing) { await markBusinessAuthApp(e); continue; } // 既存はフラグのみ付与（パスワードは触らない）
       const password = genTempPassword();
       const ens = await ensureAuthUser(e, { password, name: u.name });
       if (ens.error) results.push({ email: e, created: false, error: ens.error });
-      else results.push({ email: e, password, created: ens.created });
+      else { await markBusinessAuthApp(e); results.push({ email: e, password, created: ens.created }); }
     }
     bustMembers();
     return { ok: true, results };

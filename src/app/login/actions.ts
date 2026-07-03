@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { authServerClient } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
 import { isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
+import { hasFreelanceProfile } from "@/lib/auth-apps";
 
 export type LoginState = { error?: string } | null;
 
@@ -26,6 +27,10 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   const access = await resolveAccess(email);
   if (!access) {
     await supabase.auth.signOut();
+    // 原因がわかるようメッセージを出し分け：フリーランス（profiles）として登録済みのメールなら明示する。
+    if (await hasFreelanceProfile(email)) {
+      return { error: "このメールアドレスは ENGERフリーランス（個人）として登録されています。フリーランスの方は enger.jp からログインしてください。ビジネス利用は「新規登録」から申請してください（管理者の承認後にログインできます）。" };
+    }
     return { error: "このアカウントには dx へのアクセス権限がありません（管理者に登録を依頼してください）" };
   }
   // フリーランス（人材）は法人ログイン不可。Auth を LP と共有しているため、
