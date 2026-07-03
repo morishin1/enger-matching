@@ -340,7 +340,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
               </div>
             )}
             <button type="button" className="btn ghost btn-xs" style={{ color: "var(--color-danger)", opacity: lostReady ? 1 : 0.5 }} disabled={busy || !lostReady}
-              onClick={() => onLose(p.id, lostPhase, lostReason, lostNote.trim() || null, { company: company.trim() || null, client_contact: clientContact.trim() || null, proposer: proposer || null, closer: closer || null })}>見送りにする</button>
+              onClick={() => onLose(p.id, lostPhase, lostReason, lostNote.trim() || null, { company: company.trim() || null, client_contact: clientContact.trim() || null, proposer: proposer || null, closer: closer || null, pre_lost_stage: p.stage ?? null })}>見送りにする</button>
           </div>
         </div>
       )}
