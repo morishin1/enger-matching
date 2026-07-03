@@ -412,10 +412,12 @@ export async function deleteEngineerAction(id: string): Promise<Result> {
 }
 
 /** エンジニアの「面談済」を設定／解除する。
- *  専用列を増やさず、対応履歴(engineer_actions) の action="面談済" の有無で表現する。
- *    done=true  : 既に無ければ1件 insert（重複は作らない）
- *    done=false : action="面談済" の行をすべて delete
- *  これで未マイグレ環境でも動作し、対応履歴とも整合する。 */
+ *  対応履歴(engineer_actions) の action="面談済" の有無で表現しつつ、
+ *  LP（ENGERフリーランス）側の閲覧解禁判定用に public.profiles.agent_meeting_done_at も同期する。
+ *    done=true  : 履歴が無ければ1件 insert（重複は作らない）＋ profiles にタイムスタンプをセット
+ *    done=false : action="面談済" の行をすべて delete ＋ profiles を NULL に戻す（初期の制限表示へ）
+ *  2つのソースを常に一致させることで「チェックしたのにLP側で解禁されない／外したのに見えたまま」の
+ *  食い違いを防ぐ（profiles-agent-meeting.sql 適用済み環境で有効。未適用でも履歴側は従来どおり動作）。 */
 export async function setEngineerMeetingDone(input: { engineer_id: string; engineer_name?: string | null; done: boolean }): Promise<Result> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
@@ -437,6 +439,17 @@ export async function setEngineerMeetingDone(input: { engineer_id: string; engin
     const { error } = await admin.from("engineer_actions").delete().eq("engineer_id", input.engineer_id).eq("action", "面談済");
     if (error) return { ok: false, error: error.message };
   }
+  // profiles 側の正準フラグを同期（LP はこの1列で 案件詳細の全文閲覧/注意文非表示/応募解禁 を判定する）。
+  //   列未整備（migration 未実行）の環境ではスキップし、従来どおり履歴のみで記録する。
+  try {
+    const pub = publicAdmin();
+    const r: any = await pub.from("profiles")
+      .update({ agent_meeting_done_at: input.done ? new Date().toISOString() : null })
+      .eq("id", input.engineer_id);
+    if (r.error && !/agent_meeting_done_at|column|schema cache/i.test(r.error.message ?? "")) {
+      return { ok: false, error: `面談済は記録しましたが、LP連動フラグの更新に失敗しました：${r.error.message}` };
+    }
+  } catch { /* profiles 未接続でも履歴側の記録は成立させる */ }
   revalidatePath("/engineers");
   return { ok: true };
 }
