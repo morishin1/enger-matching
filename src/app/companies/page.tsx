@@ -38,10 +38,15 @@ export default async function CompaniesPage() {
     try {
       const sb = engerClient();
       // ① コア列＋打合せフラグ（meeting_done を最優先で確実に読む。is_ng 等には依存させない）
-      const core = "name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note";
+      //   #293：企業ID（company_no）も併せて取得。未マイグレ環境（列なし）ではフォールバックで外す。
+      const coreBase = "name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note";
+      const core = `${coreBase}, company_no`;
       let res: any = await sb.from("companies").select(`${core}, meeting_done, meeting_done_at`);
       if (res.error) res = await sb.from("companies").select(`${core}, meeting_done`);
       if (res.error) res = await sb.from("companies").select(core);
+      if (res.error) res = await sb.from("companies").select(`${coreBase}, meeting_done, meeting_done_at`);
+      if (res.error) res = await sb.from("companies").select(`${coreBase}, meeting_done`);
+      if (res.error) res = await sb.from("companies").select(coreBase);
       registered = res.data ?? [];
 
       // 人材数の集計（companies の所属企業＝source_company / company / affiliation）。

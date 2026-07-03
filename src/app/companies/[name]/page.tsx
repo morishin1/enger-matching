@@ -6,6 +6,7 @@ import { ClosedBadge } from "@/components/ClosedBadge";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getViewerScope } from "@/lib/tenant";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
+import { companyIdLabel } from "@/lib/companies";
 
 export const dynamic = "force-dynamic";
 
@@ -40,8 +41,10 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      // 企業マスタ（登録情報）
-      let rr: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done").eq("name", name).maybeSingle();
+      // 企業マスタ（登録情報）。#293：企業ID（company_no）も取得（未マイグレ環境はフォールバックで外す）。
+      let rr: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done, company_no").eq("name", name).maybeSingle();
+      if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, company_no").eq("name", name).maybeSingle();
+      if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done").eq("name", name).maybeSingle();
       if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note").eq("name", name).maybeSingle();
       reg = rr.data ?? null;
 
@@ -97,6 +100,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
       {reg && (
         <div className="card">
           <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 6 }}>企業情報</div>
+          <Row label="企業ID" value={companyIdLabel(reg.company_no)} />
           <Row label="業種" value={reg.industry} />
           <Row label="ティア" value={reg.tier} />
           <Row label="ステータス" value={reg.status} />

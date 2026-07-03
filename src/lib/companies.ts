@@ -1,6 +1,13 @@
 import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "./supabase";
 
+/** 企業ID表示ラベル（例: C-00001）。companies.company_no（identity列・自動採番）から生成する。
+ *  #293：提案管理の「自社担当」自動表示を、会社名の表記ゆれに強い形で連携するための識別子。 */
+export function companyIdLabel(no: number | null | undefined): string | null {
+  if (no == null) return null;
+  return `C-${String(no).padStart(5, "0")}`;
+}
+
 export type CompanyRow = {
   name: string;
   job_count: number;
