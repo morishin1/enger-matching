@@ -209,7 +209,8 @@ export async function approveAccount(formData: FormData): Promise<Result> {
       if (emailRow) {
         await ensureAuthUser(emailRow, { name: nameRow ?? null });
         // 所属サービスの正準フラグ：app_metadata.apps に "business" を付与（LP側のルーティング判定用）。
-        await markBusinessAuthApp(emailRow);
+        //   LP人材(candidate)は business ではないため付与しない（/business に誤振り分けしない）。
+        if (finalRole !== "candidate") await markBusinessAuthApp(emailRow);
       }
     } catch { /* auth 連携失敗でも app_users 承認自体は成功扱い */ }
 
@@ -523,12 +524,14 @@ export async function resetAccountPassword(email: string): Promise<Result & { pa
   const e = (email || "").trim().toLowerCase();
   if (!e) return { ok: false, error: "メールがありません" };
   try {
-    // app_users の氏名を取得（auth.users 新規作成時の user_metadata に使う）
+    // app_users の氏名・ロールを取得（auth.users 新規作成の user_metadata／business フラグ判定に使う）
     let displayName: string | null = null;
+    let accRole: string | null = null;
     try {
       const sb = engerAdmin();
-      const { data: u } = await sb.from("app_users").select("name").ilike("email", e).maybeSingle();
+      const { data: u } = await sb.from("app_users").select("name, role").ilike("email", e).maybeSingle();
       displayName = ((u as any)?.name ?? null) as string | null;
+      accRole = ((u as any)?.role ?? null) as string | null;
     } catch { /* ignore */ }
 
     const password = genTempPassword();
@@ -544,7 +547,7 @@ export async function resetAccountPassword(email: string): Promise<Result & { pa
       const { error } = await authAdmin().auth.admin.updateUserById(uid, { password });
       if (error) return { ok: false, error: error.message };
     }
-    await markBusinessAuthApp(e); // 所属サービスの正準フラグ（LP側のルーティング判定用）
+    if (accRole !== "candidate") await markBusinessAuthApp(e); // 所属サービスの正準フラグ（LP人材は除外）
     return { ok: true, password, created };
   } catch (err: any) {
     return { ok: false, error: String(err?.message ?? err) };
@@ -558,22 +561,51 @@ export async function backfillAuthForActiveAccounts(): Promise<{ ok: boolean; re
   if (!guard.ok) return guard;
   try {
     const sb = engerAdmin();
-    const { data, error } = await sb.from("app_users").select("email, name, status").eq("status", "active");
+    const { data, error } = await sb.from("app_users").select("email, name, status, role").eq("status", "active");
     if (error) return { ok: false, error: error.message };
-    const list = (data ?? []) as { email: string | null; name: string | null; status: string }[];
+    const list = (data ?? []) as { email: string | null; name: string | null; status: string; role: string | null }[];
     const results: { email: string; password?: string; created: boolean; error?: string }[] = [];
     for (const u of list) {
       const e = (u.email ?? "").trim().toLowerCase();
       if (!e) continue;
+      const biz = u.role !== "candidate"; // LP人材(candidate)は business フラグ対象外
       const existing = await findAuthUserIdByEmail(e);
-      if (existing) { await markBusinessAuthApp(e); continue; } // 既存はフラグのみ付与（パスワードは触らない）
+      if (existing) { if (biz) await markBusinessAuthApp(e); continue; } // 既存はフラグのみ付与（パスワードは触らない）
       const password = genTempPassword();
       const ens = await ensureAuthUser(e, { password, name: u.name });
       if (ens.error) results.push({ email: e, created: false, error: ens.error });
-      else { await markBusinessAuthApp(e); results.push({ email: e, password, created: ens.created }); }
+      else { if (biz) await markBusinessAuthApp(e); results.push({ email: e, password, created: ens.created }); }
     }
     bustMembers();
     return { ok: true, results };
+  } catch (err: any) { return { ok: false, error: String(err?.message ?? err) }; }
+}
+
+/** 既存の全ビジネスアカウント（app_users の role≠candidate）の認証ユーザーに
+ *  app_metadata.apps=["business"] を一括付与する（LP側の「apps に business が無い→フリーランス画面」
+ *  という厳密ルーティングに備えたバックフィル）。
+ *   ・ロール candidate（LP人材）は business ではないため対象外。
+ *   ・auth.users が未作成のアカウントは付与できない（noAuth に計上。「ログイン不可を一括修復」で先に作成が必要）。
+ *   ・冪等：既に business が付いていれば marked に数えつつ再付与しない。 */
+export async function backfillBusinessAppMetadata(): Promise<{ ok: boolean; total?: number; marked?: number; noAuth?: number; failed?: number; failedEmails?: string[]; error?: string }> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  try {
+    const sb = engerAdmin();
+    const { data, error } = await sb.from("app_users").select("email, role").neq("role", "candidate");
+    if (error) return { ok: false, error: error.message };
+    const emails = Array.from(new Set(((data ?? []) as { email: string | null }[])
+      .map((u) => (u.email ?? "").trim().toLowerCase()).filter(Boolean)));
+    let marked = 0, noAuth = 0, failed = 0;
+    const failedEmails: string[] = [];
+    for (const e of emails) {
+      const ok = await markBusinessAuthApp(e);
+      if (ok) { marked++; continue; }
+      // 付与できなかった＝auth ユーザーが居ない（noAuth）か API エラー（failed）。区別のため再確認。
+      const uid = await findAuthUserIdByEmail(e);
+      if (!uid) noAuth++; else { failed++; failedEmails.push(e); }
+    }
+    return { ok: true, total: emails.length, marked, noAuth, failed, failedEmails: failedEmails.slice(0, 20) };
   } catch (err: any) { return { ok: false, error: String(err?.message ?? err) }; }
 }
 

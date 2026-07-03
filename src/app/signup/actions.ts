@@ -103,7 +103,8 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   // 6.5) 所属サービスの正準フラグ：app_metadata.apps に "business" を付与。
   //   フリーランスLP（enger.jp）と Auth を共有しているため、「このユーザーはビジネス側」と
   //   サーバー管理領域に明示しておく（LP側のログイン後ルーティング判定に使用）。失敗しても登録は成立。
-  try { await markBusinessAuthApp(rawEmail); } catch { /* noop */ }
+  //   ※ LP人材(candidate)は business ではないため付与しない（誤って /business に振り分けないため）。
+  if (role !== "candidate") { try { await markBusinessAuthApp(rawEmail); } catch { /* noop */ } }
 
   // 7) 承認前はログインさせない
   try { await supabase.auth.signOut(); } catch { /* noop */ }

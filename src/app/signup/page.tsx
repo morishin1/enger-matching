@@ -38,11 +38,26 @@ export default function SignupPage() {
           </div>
 
           {state?.ok ? (
-            <div style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, boxShadow: "0 24px 70px rgba(0,0,0,.35)", textAlign: "center" }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>📨</div>
-              <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>確認メールを送信しました</h2>
-              <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}>ご登録のメールに届く「<b>メールアドレスを登録する</b>」リンクを開いて、メールアドレスの確認を完了してください。<br />その後、<b>管理者の承認</b>をもってログインできるようになります。</p>
-              <a href="/login" style={{ display: "inline-block", marginTop: 16, color: "#0095D9", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>ログイン画面へ戻る →</a>
+            <div style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>📨</div>
+                <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>ご登録ありがとうございます</h2>
+                <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}>ログインするには、次の<b>2つの認証</b>が必要です。完了までは<b>まだログインできません</b>。</p>
+              </div>
+              {/* 新規登録者に「認証（メール確認＋管理者承認）が必要」であることを明示（LP側の要望対応）。 */}
+              <ol style={{ margin: "14px 0 0", padding: "0 0 0 4px", listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
+                <li style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ flex: "0 0 22px", height: 22, borderRadius: 99, background: "#0095D9", color: "#fff", fontSize: 12, fontWeight: 800, display: "grid", placeItems: "center" }}>1</span>
+                  <span style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.7 }}><b>メールアドレスの確認</b><br />ご登録のメールに届く「メールアドレスを登録する」リンクを開いてください。</span>
+                </li>
+                <li style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ flex: "0 0 22px", height: 22, borderRadius: 99, background: "#0095D9", color: "#fff", fontSize: 12, fontWeight: 800, display: "grid", placeItems: "center" }}>2</span>
+                  <span style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.7 }}><b>管理者の承認</b><br />確認完了後、運営（管理者）が内容を確認して承認します。承認されるとログインできるようになります。</span>
+                </li>
+              </ol>
+              <div style={{ textAlign: "center" }}>
+                <a href="/login" style={{ display: "inline-block", marginTop: 18, color: "#0095D9", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>ログイン画面へ戻る →</a>
+              </div>
             </div>
           ) : (
             <form action={action} style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, display: "flex", flexDirection: "column", gap: 13, boxShadow: "0 24px 70px rgba(0,0,0,.35)", backdropFilter: "blur(6px)" }}>
