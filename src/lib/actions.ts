@@ -2978,21 +2978,31 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
       }
       return;
     }
-    await admin.from("inbox_emails").insert({
-      gmail_message_id: m.id, gmail_thread_id: m.threadId || null,
-      subject: m.subject, from_email: m.fromEmail, from_name: m.fromName, to_email: m.toEmail,
-      body: m.body, body_html: m.bodyHtml || null,
-      has_attachment: m.hasAttachment, attachment_names: m.attachmentNames.length ? m.attachmentNames : null,
-      received_at: m.receivedAt,
-    });
-    // 添付（スキルシート等）を Storage に保存し、公開URLを attachments 列へ。
+    // #292：添付（スキルシート等）を、取込画面に表示される前（＝insert する前）に Storage へ保存し、
+    //   公開URL（誰でも閲覧可能）を本文の末尾へ「スキルシート：[URL]」の形でテキスト挿入する。
+    //   ・添付が無い/スキルシートらしい添付が1つも保存できない場合は本文を一切変更しない（従来どおり）。
     //   ・列/バケット未整備や保存失敗でも取込自体は止めない（try/catch）。
+    let saved: InboxAttachment[] = [];
+    let bodyWithSheet = m.body;
     if (m.attachments && m.attachments.length > 0) {
       try {
-        const saved = await persistInboxAttachments(m.id, m.attachments);
-        if (saved.length > 0) await admin.from("inbox_emails").update({ attachments: saved }).eq("gmail_message_id", m.id);
-      } catch { /* attachments 列未整備・保存失敗は無視 */ }
+        saved = await persistInboxAttachments(m.id, m.attachments);
+        if (saved.length > 0) {
+          const links = saved.map((a) => `スキルシート：${a.url}`).join("\n");
+          bodyWithSheet = m.body ? `${m.body}\n\n${links}` : links;
+        }
+      } catch { /* attachments 列未整備・保存失敗は無視（本文は無変更） */ }
     }
+    const insertBase = {
+      gmail_message_id: m.id, gmail_thread_id: m.threadId || null,
+      subject: m.subject, from_email: m.fromEmail, from_name: m.fromName, to_email: m.toEmail,
+      body: bodyWithSheet, body_html: m.bodyHtml || null,
+      has_attachment: m.hasAttachment, attachment_names: m.attachmentNames.length ? m.attachmentNames : null,
+      received_at: m.receivedAt,
+    };
+    const ins: any = await admin.from("inbox_emails").insert({ ...insertBase, attachments: saved.length ? saved : null });
+    // attachments 列が未整備の環境（列なしDB）向けフォールバック。本文への追記（bodyWithSheet）は維持する。
+    if (ins.error && /attachments|column/i.test(ins.error.message ?? "")) await admin.from("inbox_emails").insert(insertBase);
     synced++;
   };
   const workers = Array.from({ length: Math.min(POOL, newIds.length) }, async () => {
