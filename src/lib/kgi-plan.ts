@@ -28,12 +28,15 @@ export type KgiPlan = {
   advice?: string;                 // 実現条件（増員/単価↑/転換率↑/エンド直・FL・BP・PP採用 など）
   rationale?: string;
 };
+// 週次カレンダーの目標上書き（KPIキー→週配列）。未保存の週インデックスは自動配分にフォールバック。
+export type KgiWeekOverrides = Partial<Record<keyof KgiMonthly, (number | null)[]>>;
 export type KgiSalesPlanRow = {
   month: string;
   salesTargetMan: number | null;
   avgDealMan: number | null;       // 平均単価（万円/名・月）＝手入力。逆算の分母。
   headcount: KgiHeadcount;
   plan: KgiPlan | null;
+  weekOverrides: KgiWeekOverrides | null;
   updatedByName: string | null;
   updatedAt: string | null;
 };
@@ -96,8 +99,11 @@ export async function getKgiSalesPlan(month: string): Promise<KgiSalesPlanRow | 
     let sb: ReturnType<typeof engerClient>;
     try { sb = engerAdmin(); } catch { sb = engerClient(); }
     // headcount / avg_deal_man 列は後追いマイグレーション。無い環境でも動くようフォールバック。
-    const cols = "month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, updated_by_name, updated_at";
+    const cols = "month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, week_overrides, updated_by_name, updated_at";
     let r: any = await sb.from("kgi_sales_plan").select(cols).eq("month", month).maybeSingle();
+    if (r.error && /week_overrides|column/i.test(r.error.message ?? "")) {
+      r = await sb.from("kgi_sales_plan").select("month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, updated_by_name, updated_at").eq("month", month).maybeSingle();
+    }
     if (r.error && /avg_deal_man|inside_count|outside_count|column/i.test(r.error.message ?? "")) {
       r = await sb.from("kgi_sales_plan").select("month, sales_target_man, inside_count, outside_count, plan, updated_by_name, updated_at").eq("month", month).maybeSingle();
     }
@@ -114,6 +120,7 @@ export async function getKgiSalesPlan(month: string): Promise<KgiSalesPlanRow | 
         outside: r.data.outside_count != null ? Math.max(0, Math.floor(Number(r.data.outside_count))) : 0,
       },
       plan: (r.data.plan ?? null) as KgiPlan | null,
+      weekOverrides: (r.data.week_overrides ?? null) as KgiWeekOverrides | null,
       updatedByName: r.data.updated_by_name ?? null,
       updatedAt: r.data.updated_at ?? null,
     };

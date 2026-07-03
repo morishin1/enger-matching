@@ -7,7 +7,7 @@ import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { callLLM, parseJsonLoose } from "@/lib/llm";
 import { businessDaysInMonth } from "@/lib/person-kgi";
-import { monthlyFromTarget, meetingCapacityMonth, clampDeal, clampRate, DEFAULT_AVG_DEAL_MAN, DEFAULT_CONV, DEFAULT_MTG_PER_PERSON_DAY, type KgiConv, type KgiHeadcount, type KgiPlan } from "@/lib/kgi-plan";
+import { monthlyFromTarget, meetingCapacityMonth, clampDeal, clampRate, DEFAULT_AVG_DEAL_MAN, DEFAULT_CONV, DEFAULT_MTG_PER_PERSON_DAY, type KgiConv, type KgiHeadcount, type KgiPlan, type KgiWeekOverrides } from "@/lib/kgi-plan";
 
 const MONTH_RE = /^\d{4}-\d{2}-01$/;
 
@@ -48,6 +48,42 @@ export async function saveKgiSalesTarget(input: { month: string; salesTargetMan:
   }
   if (r.error) {
     if (/relation|kgi_sales_plan|does not exist/i.test(r.error.message)) return { ok: false, error: "テーブル未作成です（supabase/kgi-sales-plan.sql を実行してください）" };
+    return { ok: false, error: r.error.message };
+  }
+  revalidatePath("/kgi");
+  return { ok: true };
+}
+
+/** 週次カレンダーの目標上書き（KPIキー→週配列）を保存。null/空で「自動配分に戻す」。
+ *  各セルは 0〜9999 の整数、または null（その週×KPIは自動配分にフォールバック）。 */
+export async function saveKgiWeekOverrides(input: { month: string; overrides: KgiWeekOverrides | null }): Promise<{ ok: boolean; error?: string }> {
+  const g = await requireManager();
+  if (!g.ok) return g;
+  if (!MONTH_RE.test(input.month)) return { ok: false, error: "月の指定が不正です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  // 入力を正規化：許可KPIのみ・各値は整数(0-9999) or null。空配列/全nullは省いて、全て空なら null にする。
+  let clean: KgiWeekOverrides | null = null;
+  if (input.overrides) {
+    const out: KgiWeekOverrides = {};
+    for (const key of ["proposal", "meeting", "placement", "appointment"] as (keyof KgiWeekOverrides)[]) {
+      const arr = input.overrides[key];
+      if (!Array.isArray(arr)) continue;
+      const norm = arr.map((v) => (v == null || !Number.isFinite(Number(v)) ? null : Math.max(0, Math.min(9999, Math.floor(Number(v))))));
+      if (norm.some((v) => v != null)) out[key] = norm;
+    }
+    if (Object.keys(out).length > 0) clean = out;
+  }
+
+  const row: Record<string, unknown> = {
+    month: input.month, week_overrides: clean,
+    updated_by_email: g.access.email, updated_by_name: g.access.name ?? null, updated_at: new Date().toISOString(),
+  };
+  const r: any = await admin.from("kgi_sales_plan").upsert(row, { onConflict: "month" });
+  if (r.error) {
+    if (/week_overrides|column/i.test(r.error.message ?? "")) return { ok: false, error: "週次目標の上書き列が未作成です（supabase/kgi-week-overrides.sql を実行してください）" };
+    if (/relation|kgi_sales_plan|does not exist/i.test(r.error.message ?? "")) return { ok: false, error: "テーブル未作成です（supabase/kgi-sales-plan.sql を実行してください）" };
     return { ok: false, error: r.error.message };
   }
   revalidatePath("/kgi");

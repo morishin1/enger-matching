@@ -11,6 +11,7 @@ import Link from "@/components/AppLink";
 import { businessDaysInMonth } from "@/lib/person-kgi";
 import { getKgiSalesPlan, meetingCapacityMonth, recoveryPace, DEFAULT_MTG_PER_PERSON_DAY, type KgiMonthly } from "@/lib/kgi-plan";
 import { weeksOfMonth, distributeMonthlyToWeeks, SEASON_PROFILES, SEASON_NOTES } from "@/lib/kgi-week";
+import { KgiWeekTargetEditor } from "@/components/KgiWeekTargetEditor";
 import { getKpiSnapshot, getWeeklyKgiActuals, getMeetingKgi, businessDaysInRange, jstStartOfDay, addDays, type Metric, type MeetingAgg } from "@/lib/kpi";
 
 export type KgiSection = "summary" | "season" | "monthly" | "recovery" | "weekly" | "procurement";
@@ -40,7 +41,7 @@ const WEEK_KPIS: { key: keyof KgiMonthly; label: string; act: "proposal" | "sche
   { key: "placement", label: "稼働", act: "deal" },
 ];
 
-export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = true }: { month: string; sections?: KgiSection[]; showPlanHint?: boolean }) {
+export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = true, canEdit = false }: { month: string; sections?: KgiSection[]; showPlanHint?: boolean; canEdit?: boolean }) {
   const show = (s: KgiSection) => sections.includes(s);
   const now = new Date();
   const [yy, mm] = month.split("-").map((x) => Number(x));
@@ -79,12 +80,20 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
   const weeks = weeksOfMonth(mk, todayYmd);
   const season = SEASON_NOTES[m];
 
+  // 週次目標＝月次×旬ウェイトの自動配分。ただし week_overrides に手動調整があればその週×KPIを上書き。
+  const ov = planRow?.weekOverrides ?? null;
+  const withOverride = (auto: number[], key: keyof KgiMonthly): number[] => {
+    const list = ov?.[key];
+    if (!Array.isArray(list)) return auto;
+    return auto.map((v, i) => { const o = list[i]; return (o == null || !Number.isFinite(Number(o))) ? v : Number(o); });
+  };
   const weekTargets = plan ? {
-    proposal: distributeMonthlyToWeeks(plan.monthly.proposal, weeks, SEASON_PROFILES.proposal),
-    meeting: distributeMonthlyToWeeks(plan.monthly.meeting, weeks, SEASON_PROFILES.meeting),
-    placement: distributeMonthlyToWeeks(plan.monthly.placement, weeks, SEASON_PROFILES.placement),
-    appointment: distributeMonthlyToWeeks(plan.monthly.appointment, weeks, SEASON_PROFILES.appointment),
+    proposal: withOverride(distributeMonthlyToWeeks(plan.monthly.proposal, weeks, SEASON_PROFILES.proposal), "proposal"),
+    meeting: withOverride(distributeMonthlyToWeeks(plan.monthly.meeting, weeks, SEASON_PROFILES.meeting), "meeting"),
+    placement: withOverride(distributeMonthlyToWeeks(plan.monthly.placement, weeks, SEASON_PROFILES.placement), "placement"),
+    appointment: withOverride(distributeMonthlyToWeeks(plan.monthly.appointment, weeks, SEASON_PROFILES.appointment), "appointment"),
   } : null;
+  const hasWeekOverrides = !!ov && Object.values(ov).some((a) => Array.isArray(a) && a.some((v) => v != null));
   let weekActuals: { proposal: number; schedule: number; deal: number }[] = weeks.map(() => ({ proposal: 0, schedule: 0, deal: 0 }));
   if (plan && weeks.length) {
     try { weekActuals = await getWeeklyKgiActuals({ ownerName: null, weeks: weeks.map((w) => ({ fromISO: w.fromISO, toISO: w.toISO })) }); }
@@ -202,7 +211,10 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
         </div>
       )}
 
-      {/* 売上目標から逆算したKPI（チーム目標） */}
+      {/* 売上目標から逆算したKPI（チーム目標）＋今日までの進捗とリカバリーを2列に並べて縦スクロールを短縮。
+          画面が狭いときは自動で1列に折り返す（minmax(min(100%,440px),1fr)）。 */}
+      {plan && (show("monthly") || show("recovery")) && (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 440px), 1fr))", gap: 14, alignItems: "start" }}>
       {show("monthly") && plan && (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8 }}>
@@ -211,7 +223,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
             <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>週次＝月次×5÷営業日、日次＝月次÷営業日（数値クリックで根拠データ）</span>
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 360 }}>
               <thead><tr>
                 <th style={th}>KPI</th>
                 <th style={{ ...th, textAlign: "right" }}>月次目標</th>
@@ -257,7 +269,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
             </span>
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 440 }}>
               <thead><tr>
                 <th style={th}>KPI</th>
                 <th style={{ ...th, textAlign: "right" }}>月次目標</th>
@@ -295,6 +307,8 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
           </div>
         </div>
       )}
+      </div>
+      )}
 
       {/* 週次カレンダー（実際のN週・提案管理連動） */}
       {show("weekly") && plan && weekTargets && weeks.length > 0 && (
@@ -302,8 +316,17 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>calendar_month</span>
             <b style={{ fontSize: 13.5 }}>週次カレンダー（{weeks.length}週）— 実績は提案管理と連動</b>
-            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>各週＝営業日数×旬ウェイトで配分（合計＝月次目標）／ セル：<b>実績/目標</b>（実績クリックで根拠）</span>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>各週＝営業日数×旬ウェイトで配分／ セル：<b>実績/目標</b>（実績クリックで根拠）。目標は手動調整可</span>
           </div>
+          {/* 週次目標の手動調整（管理者/マネージャーのみ）。保存すると下のカレンダー目標に反映。 */}
+          {canEdit && (
+            <KgiWeekTargetEditor
+              month={mk}
+              weeks={weeks.map((w) => ({ index: w.index, label: w.label }))}
+              effective={{ proposal: weekTargets.proposal, meeting: weekTargets.meeting, placement: weekTargets.placement, appointment: weekTargets.appointment }}
+              hasOverrides={hasWeekOverrides}
+            />
+          )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
               <thead><tr>
@@ -354,7 +377,8 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                   <td style={{ ...td, fontWeight: 800 }}>月合計</td>
                   <td style={tdR} className="mono">{bizDays}日</td>
                   {WEEK_KPIS.map((k) => {
-                    const tgt = plan.monthly[k.key] ?? 0;
+                    // 月合計の目標は「表示中の週次目標の合計」＝手動調整があればそれを反映（自動配分時は月次目標に一致）。
+                    const tgt = weekTargets[k.key].reduce((s, n) => s + n, 0);
                     const act = actualByMetric[k.act as Metric] ?? weekActuals.reduce((s, x) => s + x[k.act], 0);
                     const p = pctOf(act, tgt);
                     return (
@@ -365,7 +389,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                     );
                   })}
                   {(() => {
-                    const tgt = plan.monthly.appointment; const act = apptActual; const p = pctOf(act, tgt);
+                    const tgt = weekTargets.appointment.reduce((s, n) => s + n, 0); const act = apptActual; const p = pctOf(act, tgt);
                     return (
                       <td style={tdR}>
                         <div className="mono" style={{ fontWeight: 800 }}><b style={{ color: toneOf(p) }}>{actCell("meeting", act, mk, monthToISO, monthCtx, true)}</b> / {tgt}</div>

@@ -56,6 +56,20 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
         </div>
       </div>
 
+      {/* タブ：ダッシュボード（現在地）／メンバーKPI・KGI設定／チーム目標。
+          メンバーの設定はタブから遷移して行う（要望対応）。設定ページは既存の /settings 配下を使う。 */}
+      <nav aria-label="KGIタブ" style={{ display: "inline-flex", gap: 4, padding: 4, background: "var(--color-surface-inset)", borderRadius: 12, alignSelf: "flex-start", flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, background: "var(--color-surface)", color: "var(--color-brand-700)", boxShadow: "0 1px 3px rgba(15,23,42,0.10)", fontSize: 13.5, fontWeight: 800 }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18 }}>insights</span>ダッシュボード
+        </span>
+        <Link href="/settings/person-kgi" prefetch={false} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, textDecoration: "none", color: "var(--color-ink-3)", fontSize: 13.5, fontWeight: 600 }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18 }}>group</span>メンバーKPI・KGI設定
+        </Link>
+        <Link href="/settings/team-kgi" prefetch={false} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, textDecoration: "none", color: "var(--color-ink-3)", fontSize: 13.5, fontWeight: 600 }}>
+          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18 }}>flag</span>チーム目標
+        </Link>
+      </nav>
+
       {/* 年／月セレクタ */}
       <div className="card" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontWeight: 800, fontSize: 14, marginRight: 6 }}>{y}年</span>
@@ -135,7 +149,7 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
 
       {/* シーズナリティ・逆算KPI・リカバリー・週次カレンダー・仕入れKGI（数値クリックで根拠データ）。
           共通コンポーネント KgiBoard に集約（ダッシュボードと共用）。plan 未設定の案内は上のカードで表示するため抑制。 */}
-      <KgiBoard month={mk} showPlanHint={false} />
+      <KgiBoard month={mk} showPlanHint={false} canEdit={canEdit} />
 
       <div className="muted" style={{ fontSize: 11, lineHeight: 1.7 }}>
         ※ 初版は<b>全社（チーム）ビュー</b>です。売上目標・人員配分は月ごとに手動設定、KPIの割り振り・週配分・実現条件はAI/仮説モデルが算定します（AIキー未設定時は既定の転換率で逆算）。
