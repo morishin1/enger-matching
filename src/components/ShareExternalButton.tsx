@@ -32,6 +32,8 @@ export function ShareExternalButton({ kind, no, compact = false, label = "外部
   const [copied, setCopied] = useState<string | null>(null);
 
   const kindLabel = kind === "job" ? "案件" : "人材";
+  // ③ 種別マーク：案件＝work／人材＝groups（サイドバーの案件/人材メニューと同じマーク）。
+  const kindIcon = kind === "job" ? "work" : "groups";
 
   const copy = async (text: string, key: string) => {
     try {
@@ -87,7 +89,7 @@ export function ShareExternalButton({ kind, no, compact = false, label = "外部
           onClick={openModal}
           title={`ログイン不要で見られる${kindLabel}の共有リンクを発行（匿名サマリ・有効期限つき）。先方に見える画面をプレビューしてコピーできます`}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: compact ? 14 : 16, verticalAlign: "-3px", marginRight: 3 }}>ios_share</span>
+          <span className="material-symbols-outlined" style={{ fontSize: compact ? 14 : 16, verticalAlign: "-3px", marginRight: 3 }}>{kindIcon}</span>
           {label}
         </button>
       )}
@@ -96,7 +98,7 @@ export function ShareExternalButton({ kind, no, compact = false, label = "外部
         <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(15,36,64,.45)", display: "grid", placeItems: "center", padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "min(760px, 96vw)", padding: 20, background: "var(--color-surface)", maxHeight: "92vh", overflowY: "auto" }} role="dialog" aria-modal="true">
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 19, color: "var(--color-brand-700)" }}>ios_share</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 19, color: "var(--color-brand-700)" }}>{kindIcon}</span>
               <div style={{ fontSize: 14.5, fontWeight: 800 }}>{kindLabel}を外部に共有（ログイン不要リンク）</div>
               <button type="button" onClick={close} className="btn ghost btn-xs" aria-label="閉じる" style={{ marginLeft: "auto", fontSize: 15 }}>×</button>
             </div>

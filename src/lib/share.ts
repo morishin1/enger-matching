@@ -5,6 +5,7 @@
 //   ・パスコード通過を覚える Cookie の名前/値（sha256）
 import { createHmac } from "crypto";
 import { engerAdmin } from "@/lib/supabase";
+import { redactPii } from "@/lib/pii";
 import { classifyJobFlow, JOB_FLOW_LABEL } from "@/lib/flow";
 import {
   classifyCandNationality, CAND_NAT_LABEL,
@@ -118,8 +119,27 @@ export type ShareView = {
   subheading: string;     // 管理番号（No.xxxxx / P-xxxxx）
   rows: ShareRow[];
   skills: string[];
+  summary: string | null; // 概要（案件のみ：本文から社名・氏名・連絡先・URLを伏字化した抜粋）
   closed: boolean;        // 充足/クローズ済み（注意書きを出す）
 };
+
+/** 案件本文を外部掲載用に整形：取込タグ（[削除スキル: …] 以降）を落とし、
+ *  社名・氏名・連絡先・URL を伏字化して先頭 1200 文字を抜粋する。 */
+function jobDetailSummary(detail?: string | null): string | null {
+  if (!detail) return null;
+  let s = String(detail).replace(/\r\n/g, "\n");
+  const cut = s.search(/\[?\s*削除スキル[:：]/);
+  if (cut >= 0) s = s.slice(0, cut);
+  // 電話・メール・URL・「株式会社○○」は redactPii で伏字化。
+  //   氏名だけは redactPii の name ルールを使わない（「金額：」「精算：」等のラベル行まで
+  //   伏せてしまい本文が読めなくなるため）。誤検知の少ない下記2パターンに限定する。
+  s = redactPii(s, { phone: true, email: true, url: true, company: true, name: false }) ?? "";
+  s = s.replace(/[一-鿿々ヶ゠-ヿ]{2,6}\s*と申します/g, "[氏名は非表示]と申します"); // 自己紹介（○○と申します）
+  s = s.replace(/(担当|担当者|窓口|営業)\s*[:：]\s*[一-鿿々ヶ゠-ヿA-Za-zＡ-Ｚａ-ｚ]{2,12}/g, "$1：[氏名は非表示]"); // 担当：○○
+  s = s.replace(/\n{3,}/g, "\n\n").trim();
+  if (!s) return null;
+  return s.length > 1200 ? `${s.slice(0, 1200)}…` : s;
+}
 
 /** リンクの対象（案件 or 人材）を取得し、公開してよい形に変換する。 */
 export async function loadShareView(link: ShareLink): Promise<ShareView | null> {
@@ -145,14 +165,18 @@ export async function loadShareView(link: ShareLink): Promise<ShareView | null> 
     if (remote || j.work_location) rows.push({ label: "勤務", value: [remote, j.work_location].filter(Boolean).join(" / ") });
     if (j.start_date) rows.push({ label: "開始", value: String(j.start_date).slice(0, 10) });
     if (flowCat !== "unknown") rows.push({ label: "商流", value: JOB_FLOW_LABEL[flowCat] });
-    if (age) rows.push({ label: "年代", value: age });
-    if (nat) rows.push({ label: "国籍要件", value: nat });
+    // 「不明」の行は外部には出さない（情報が無いだけなのに制限があるように読めるため）。
+    if (age && age !== "不明") rows.push({ label: "年代", value: age });
+    if (nat && nat !== "不明") rows.push({ label: "国籍要件", value: nat });
     return {
       kind: "job",
       heading: j.title ?? "案件",
       subheading: `No.${String(j.job_no).padStart(5, "0")}`,
       rows,
       skills: Array.isArray(j.skills) ? j.skills.slice(0, 20) : [],
+      // 詳細が少なすぎる問題への対応：本文（精算・面談回数・備考等が書かれている）を
+      // 社名・氏名・連絡先・URLを伏字化したうえで「案件概要」として掲載する。
+      summary: jobDetailSummary(j.detail),
       closed: !!j.is_closed,
     };
   }
@@ -173,7 +197,9 @@ export async function loadShareView(link: ShareLink): Promise<ShareView | null> 
     const rows: ShareRow[] = [];
     if (c.title) rows.push({ label: "職種", value: String(c.title) });
     if (c.age_band) rows.push({ label: "年齢層", value: String(c.age_band) });
-    rows.push({ label: "国籍", value: CAND_NAT_LABEL[classifyCandNationality(c.nationality)] });
+    // 「不明」は外部には出さない（情報が無いだけのため）。
+    const natLabel = CAND_NAT_LABEL[classifyCandNationality(c.nationality)];
+    if (natLabel && natLabel !== "不明") rows.push({ label: "国籍", value: natLabel });
     rows.push({ label: "単価", value: c.rate ? String(c.rate) : salaryLabel(c.salary_min, c.salary_max) });
     if (remote) rows.push({ label: "リモート", value: remote });
     if (c.location) rows.push({ label: "最寄駅", value: String(c.location) });
@@ -187,6 +213,8 @@ export async function loadShareView(link: ShareLink): Promise<ShareView | null> 
       subheading: `P-${String(c.candidate_no).padStart(5, "0")}`,
       rows,
       skills: Array.isArray(c.skills) ? c.skills.slice(0, 20) : [],
+      // 人材は匿名規約（イニシャル＋スキル＋単価）のため、自由文の経歴・本文は掲載しない。
+      summary: null,
       closed: !!c.is_closed,
     };
   }
@@ -201,6 +229,7 @@ export function shareViewText(view: ShareView, url: string): string {
     head,
     ...view.rows.map((r) => `■${r.label}：${r.value}`),
     view.skills.length ? `■スキル：${view.skills.slice(0, 12).join(" / ")}` : "",
+    view.summary ? `\n■概要（社名・連絡先は非表示）\n${view.summary}` : "",
     "",
     view.kind === "candidate" ? "※氏名・連絡先・所属は ENGER 担当が仲介いたします。" : "※詳細は ENGER 担当までお問い合わせください。",
     `▼共有ページ（有効期限あり）`,
