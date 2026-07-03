@@ -8,7 +8,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Account, Role } from "@/lib/accounts";
-import { approveAccount, bulkDeleteAccounts, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity, createAgent, resetAccountPassword, backfillAuthForActiveAccounts, setAccountDepartment, setAccountTeamRole, setAccountFunctions, setAccountTimecard, deleteAccount } from "@/app/settings/account-actions";
+import { approveAccount, bulkDeleteAccounts, setAccountStatus, setAccountRole, setAccountMeetingDone, setAccountOwnerAgent, setAccountNote, getAccountActivity, createAgent, resetAccountPassword, backfillAuthForActiveAccounts, backfillBusinessAppMetadata, setAccountDepartment, setAccountTeamRole, setAccountFunctions, setAccountTimecard, deleteAccount } from "@/app/settings/account-actions";
 import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 import { detectSuspicion } from "@/lib/account-suspicion";
 import { FUNCTIONS, DEPARTMENTS, TEAM_ROLES, TEAM_ROLE_LABEL } from "@/lib/roles";
@@ -231,6 +231,23 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* 管理者向けツールバー */}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {/* LP側の「apps に business が無い→フリーランス画面」ルーティングに備え、既存の全法人
+            アカウントの認証情報に business フラグを一括付与（バックフィル）する。完了件数を表示。 */}
+        <button type="button" disabled={pending} onClick={() => {
+          if (!confirm("既存の全ビジネスアカウント（社内・企業・パートナー・副業）の認証情報に\n『business』フラグ（app_metadata.apps）を一括付与します。\n\nLP（enger.jp）が『business が無い→フリーランス画面』で振り分けるため、\n法人ユーザーが正しくビジネス側へ入るのに必要です。よろしいですか？")) return;
+          start(async () => {
+            const r = await backfillBusinessAppMetadata();
+            if (!r.ok) { setMsg({ ok: false, text: r.error ?? "付与に失敗しました" }); return; }
+            const parts = [`対象 ${r.total} 件中 ${r.marked} 件に付与完了`];
+            if ((r.noAuth ?? 0) > 0) parts.push(`未ログイン(auth未作成) ${r.noAuth} 件は「ログイン不可を一括修復」後に再実行を`);
+            if ((r.failed ?? 0) > 0) parts.push(`失敗 ${r.failed} 件`);
+            setMsg({ ok: (r.failed ?? 0) === 0, text: `🏷 businessフラグ：${parts.join(" ／ ")}` });
+          });
+        }}
+          title="既存の法人アカウントに business フラグ（apps）を一括付与。LP側の振り分けに必要"
+          style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #bae6fd", background: "#f0f9ff", color: "#0369a1", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+          🏷 businessフラグを一括付与
+        </button>
         <button type="button" disabled={pending} onClick={async () => {
           if (!confirm("ログイン用パスワードが未発行の有効アカウントについて、仮パスワードを一括発行します。\n発行直後のみ画面に表示されます。本人に共有後、各自で変更してもらってください。よろしいですか？")) return;
           start(async () => {
