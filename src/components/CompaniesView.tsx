@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { Icons } from "./icons";
-import { targetScore, prospectAction, type CompanyRow, type ProspectAction } from "@/lib/companies";
+import { targetScore, prospectAction, companyIdLabel, type CompanyRow, type ProspectAction } from "@/lib/companies";
 import { StarsView } from "./Stars";
 import type { CompanyRating } from "@/lib/company-ratings";
 import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, type CompanyDiagnosis } from "@/lib/actions";
@@ -14,6 +14,7 @@ type Registered = {
   owner_staff?: string | null; contact_name?: string | null; contact_email?: string | null;
   phone?: string | null; website?: string | null; address?: string | null; note?: string | null;
   meeting_done?: boolean | null; meeting_done_at?: string | null;
+  company_no?: number | null; // #293：企業ID（自動採番）。提案管理の自社担当連携のキー。
 };
 
 // 「打合せ済」判定：
@@ -409,6 +410,10 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
                       <td>
                         <div style={{ fontWeight: 700, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
                           <span>{c.name}</span>
+                          {/* #293：企業ID（company_no）。提案管理の自社担当連携の確認用。 */}
+                          {c.reg?.company_no != null && (
+                            <span className="mono" title="企業ID" style={{ fontSize: 9.5, fontWeight: 600, color: "var(--color-ink-5)" }}>{companyIdLabel(c.reg.company_no)}</span>
+                          )}
                           {/* LINE でやり取りしている企業は公式 LINE マークで識別 */}
                           {isLineCompany(c.name) && (
                             <span title="LINE でやり取りしている企業（LINE 経由の提案あり）" style={{ lineHeight: 0, flexShrink: 0 }}>
@@ -617,7 +622,15 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 640, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{isNew ? "企業を新規登録" : data!.name}</h3>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+            {isNew ? "企業を新規登録" : data!.name}
+            {/* #293：企業ID。提案管理の自社担当がこのIDで連携されていることの確認用。 */}
+            {!isNew && reg?.company_no != null && (
+              <span className="mono" title="企業ID（提案管理の自社担当連携キー）" style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-4)", padding: "1px 8px", borderRadius: 99, background: "var(--color-surface-inset)", border: "1px solid var(--color-border)" }}>
+                {companyIdLabel(reg.company_no)}
+              </span>
+            )}
+          </h3>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {data && <Link href={`/companies/${encodeURIComponent(data.name)}`} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>詳細（案件・人材）→</Link>}
             <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>

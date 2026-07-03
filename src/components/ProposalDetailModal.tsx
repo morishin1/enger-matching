@@ -16,6 +16,7 @@ import { ClosedBadge } from "./ClosedBadge";
 import { ProposalCloseControls } from "./ProposalCloseControls";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
+import { companyIdLabel } from "@/lib/companies";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
 import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, normalizeMemoCategory, CONTACT_CHANNELS, type ContactChannel } from "@/lib/proposal-constants";
@@ -39,12 +40,28 @@ function EditInfo({ label, value, onChange, placeholder }: { label: string; valu
 
 // 企業マスタ（企業メニュー）から自動表示する読み取り専用の行（自社担当など）。
 //   会社データに値があればそのまま表示し、空欄ならそのまま空欄で表示する（編集は企業メニュー側で）。
-function ReadInfo({ label, value, hint }: { label: string; value: string | null | undefined; hint?: string }) {
+//   badge：企業ID等、値の隣に添えるバッジ（#293：企業マスタとの連携を確認できるようにする）。
+function ReadInfo({ label, value, hint, badge }: { label: string; value: string | null | undefined; hint?: string; badge?: React.ReactNode }) {
   return (
     <div style={{ display: "flex", gap: 12, padding: "6px 0", borderBottom: "1px solid var(--color-border)", fontSize: 12.5, alignItems: "center" }}>
       <span style={{ width: 84, flexShrink: 0, color: "var(--color-ink-4)" }}>{label}</span>
-      <span style={{ flex: 1, minWidth: 0, color: "var(--color-ink)" }} title={hint}>{value || ""}</span>
+      <span style={{ flex: 1, minWidth: 0, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 8 }} title={hint}>
+        <span>{value || ""}</span>
+        {badge}
+      </span>
     </div>
+  );
+}
+
+// #293：企業ID（company_no）バッジ。企業マスタと同じ行に紐づいたことの確認用。未解決(null)なら非表示。
+function companyIdBadge(no: number | null | undefined): React.ReactNode {
+  const label = companyIdLabel(no ?? null);
+  if (!label) return null;
+  return (
+    <span className="mono" title="企業ID（企業メニューの会社データと同一）"
+      style={{ fontSize: 10, fontWeight: 700, color: "var(--color-ink-4)", padding: "1px 7px", borderRadius: 99, background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", flexShrink: 0 }}>
+      {label}
+    </span>
   );
 }
 
@@ -451,8 +468,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <EditInfo label="クライアント名" value={jobCompany} onChange={setJobCompany} placeholder="クライアント会社名" />
               <EditInfo label="企業担当" value={jobCompanyContact} onChange={setJobCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
               <EditInfo label="先方担当" value={jobClientContact} onChange={setJobClientContact} placeholder="（任意）" />
-              {/* 自社担当：企業メニューの会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。 */}
-              <ReadInfo label="自社担当" value={p.company_owner_staff} hint="企業メニューの会社データ（自社担当）と連携。編集は企業メニューで。" />
+              {/* 自社担当：企業メニューの会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。
+                  #293：企業ID（company_no）で紐づいていることが分かるようバッジを併記。 */}
+              <ReadInfo label="自社担当" value={p.company_owner_staff} hint="企業メニューの会社データ（自社担当）と連携。編集は企業メニューで。" badge={companyIdBadge(p.company_no)} />
             </div>
             <div className="card" style={{ padding: 16 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
@@ -479,8 +497,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <EditInfo label="会社名" value={candCompany} onChange={setCandCompany} placeholder="人材の所属会社（自動表示）" />
               <EditInfo label="企業担当" value={candCompanyContact} onChange={setCandCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
               <EditInfo label="先方担当" value={candContact} onChange={setCandContact} placeholder="（任意）" />
-              {/* 自社担当：人材の所属会社の会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。 */}
-              <ReadInfo label="自社担当" value={p.cand_company_owner_staff} hint="企業メニューの会社データ（自社担当）と連携。編集は企業メニューで。" />
+              {/* 自社担当：人材の所属会社の会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。
+                  #293：企業ID（company_no）で紐づいていることが分かるようバッジを併記。 */}
+              <ReadInfo label="自社担当" value={p.cand_company_owner_staff} hint="企業メニューの会社データ（自社担当）と連携。編集は企業メニューで。" badge={companyIdBadge(p.cand_company_no)} />
             </div>
           </div>
 

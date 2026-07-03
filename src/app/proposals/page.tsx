@@ -155,14 +155,17 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           ? await sb.from("companies").select("name, owner, owner_staff, contact_name, meeting_done, is_ng, caution, caution_count").in("name", allCompNames).limit(2000)
               .then((r: any) => r.error ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r2: any) => r2.error ? [] : nq(r2.data)) : nq(r.data))
           : [];
-        // #287：自社担当（owner_staff）は会社名の「完全一致」だけだと表記ゆれ（空白・記号・
-        //   担当者付きの変種名など）で引けないことがある。owner_staff が入力済みの企業を
-        //   全件取得しておき、正規化キー／変種名（親会社名＋区切り）でもマッチさせる。
-        let ownerStaffAll: { name: string; owner_staff: string }[] = [];
+        // #287/#293：自社担当（owner_staff）は会社名の「完全一致」だけだと表記ゆれ（空白・記号・
+        //   担当者付きの変種名など）で引けないことがある。企業を全件取得しておき、
+        //   完全一致→trim一致→正規化キー一致→変種名（親会社名＋区切り）の順でマッチさせる。
+        //   #293：企業ID（company_no）も同じ解決結果から取得する（owner_staff の有無に関わらず、
+        //   企業マスタに一致する行があれば企業IDは表示する。自社担当は空欄なら空欄のまま＝仕様どおり）。
+        let companyDirAll: { name: string; owner_staff: string | null; company_no: number | null }[] = [];
         try {
-          const r: any = await sb.from("companies").select("name, owner_staff").not("owner_staff", "is", null).neq("owner_staff", "").limit(20000);
-          if (!r.error) ownerStaffAll = (r.data ?? []).filter((c: any) => c?.name && String(c.owner_staff ?? "").trim());
-        } catch { /* owner_staff 列未整備は無視（自社担当は空欄のまま） */ }
+          let r: any = await sb.from("companies").select("name, owner_staff, company_no").limit(20000);
+          if (r.error) r = await sb.from("companies").select("name, owner_staff").limit(20000);
+          if (!r.error) companyDirAll = (r.data ?? []).filter((c: any) => c?.name).map((c: any) => ({ name: c.name, owner_staff: c.owner_staff ?? null, company_no: c.company_no ?? null }));
+        } catch { /* companies 未整備は無視（自社担当・企業IDは空欄のまま） */ }
         // 会社の「提案適性ランク」用に、各社の成約(稼働)・失注(見送り/失注)実績を集計する。
         //   ランク: NG（取引NG）/ A（実績あり）/ C（失注多・提案注意）/ B（通常・新規）。
         const wonByCompany: Record<string, number> = {};
@@ -207,39 +210,42 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
           const contactByCompany: Record<string, string> = {};
-          // 企業マスタの「自社担当（owner_staff）」を会社名で引くマップ（提案詳細の自社担当欄に表示）。
-          const ownerStaffByCompany: Record<string, string> = {};
           const meetingDoneByCompany: Record<string, boolean> = {};
           for (const c of companyRows as any[]) {
             if (c?.owner) ownerByCompany[c.name] = c.owner;
             if (c?.contact_name) contactByCompany[c.name] = c.contact_name;
-            if (c?.owner_staff) ownerStaffByCompany[c.name] = c.owner_staff;
             if (c?.name) meetingDoneByCompany[c.name] = !!c.meeting_done;
           }
-          // #287：自社担当の名寄せ解決。完全一致 → trim一致 → 正規化キー一致（空白・記号を無視）→
-          //   変種名（「株式会社トヨタ 営業部」→ 親「株式会社トヨタ」）の順で owner_staff を引く。
+          // #287/#293：企業マスタの行（自社担当・企業ID）を会社名で引く名寄せ解決。
+          //   完全一致 → trim一致 → 正規化キー一致（空白・記号を無視）→
+          //   変種名（「株式会社トヨタ 営業部」→ 親「株式会社トヨタ」）の順で1つの企業マスタ行に解決し、
+          //   その行から owner_staff と company_no（企業ID）を両方まとめて取り出す
+          //   （＝同じ企業IDに紐づいたデータとして自社担当を連携表示する）。
           //   企業マスタの自社担当が空欄なら、詳細側も空欄のまま（仕様どおり）。
-          const ownerStaffByTrim: Record<string, string> = {};
-          const ownerStaffByNorm: Record<string, string> = {};
-          for (const c of ownerStaffAll) {
+          type CompanyDirEntry = { owner_staff: string | null; company_no: number | null };
+          const companyDirByName: Record<string, CompanyDirEntry> = {};
+          const companyDirByTrim: Record<string, CompanyDirEntry> = {};
+          const companyDirByNorm: Record<string, CompanyDirEntry> = {};
+          for (const c of companyDirAll) {
             const nm = String(c.name).trim();
-            const staff = String(c.owner_staff).trim();
-            if (!nm || !staff) continue;
-            if (!ownerStaffByTrim[nm]) ownerStaffByTrim[nm] = staff;
+            if (!nm) continue;
+            const entry: CompanyDirEntry = { owner_staff: (c.owner_staff ? String(c.owner_staff).trim() : "") || null, company_no: c.company_no ?? null };
+            if (!companyDirByName[c.name]) companyDirByName[c.name] = entry;
+            if (!companyDirByTrim[nm]) companyDirByTrim[nm] = entry;
             const nk = normKey(nm);
-            if (nk && !ownerStaffByNorm[nk]) ownerStaffByNorm[nk] = staff;
+            if (nk && !companyDirByNorm[nk]) companyDirByNorm[nk] = entry;
           }
-          const staffFor = (name?: string | null): string | null => {
+          const companyRowFor = (name?: string | null): CompanyDirEntry | null => {
             const raw = String(name ?? "");
             const n = raw.trim();
             if (!n) return null;
-            if (ownerStaffByCompany[raw]) return ownerStaffByCompany[raw]; // 完全一致（従来）
-            if (ownerStaffByTrim[n]) return ownerStaffByTrim[n];           // trim 一致
+            if (companyDirByName[raw]) return companyDirByName[raw];       // 完全一致（従来）
+            if (companyDirByTrim[n]) return companyDirByTrim[n];           // trim 一致
             const nk = normKey(n);
-            if (nk && ownerStaffByNorm[nk]) return ownerStaffByNorm[nk];   // 正規化キー一致
-            // 変種名：owner_staff 入力済みの会社名が「親」として先頭に一致し、直後が区切りのとき引き継ぐ。
-            for (const c of ownerStaffAll) {
-              if (isCompanyVariantOf(String(c.name), n)) return String(c.owner_staff).trim();
+            if (nk && companyDirByNorm[nk]) return companyDirByNorm[nk];   // 正規化キー一致
+            // 変種名：企業マスタの会社名が「親」として先頭に一致し、直後が区切りのとき引き継ぐ。
+            for (const c of companyDirAll) {
+              if (isCompanyVariantOf(String(c.name), n)) return { owner_staff: (c.owner_staff ? String(c.owner_staff).trim() : "") || null, company_no: c.company_no ?? null };
             }
             return null;
           };
@@ -272,10 +278,15 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             p.company_contact = p.company_contact ?? (p.company ? contactByCompany[p.company] : null) ?? null;
             p.cand_company_contact = p.cand_company_contact ?? (candCompany ? contactByCompany[candCompany] : null) ?? null;
             // 自社担当：企業マスタ（企業メニュー）の owner_staff をそのまま表示（空欄ならそのまま空欄）。
-            //   案件側＝クライアント会社／人材側＝人材の所属会社。連携キーは会社名。
-            //   #287：完全一致 → trim一致 → 正規化キー一致 → 変種名（親会社名＋区切り）の順で解決。
-            p.company_owner_staff = staffFor(p.company);
-            p.cand_company_owner_staff = staffFor(candCompany);
+            //   案件側＝クライアント会社／人材側＝人材の所属会社。連携キーは会社名→企業ID。
+            //   #287/#293：完全一致 → trim一致 → 正規化キー一致 → 変種名（親会社名＋区切り）の順で
+            //   企業マスタの行を1つに解決し、その行の企業ID（company_no）と自社担当を併せて表示する。
+            const jobCompanyRow = companyRowFor(p.company);
+            const candCompanyRow = companyRowFor(candCompany);
+            p.company_owner_staff = jobCompanyRow?.owner_staff ?? null;
+            p.cand_company_owner_staff = candCompanyRow?.owner_staff ?? null;
+            p.company_no = jobCompanyRow?.company_no ?? null;
+            p.cand_company_no = candCompanyRow?.company_no ?? null;
             // 会社評価★（案件★の会社平均）。提案詳細のランクバッジ横に表示。
             p.company_star = (p.company ? companyRatings[p.company] : null) ?? null;
             p.cand_company_star = (candCompany ? companyRatings[candCompany] : null) ?? null;
