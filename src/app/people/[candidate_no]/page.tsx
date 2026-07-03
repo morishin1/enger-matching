@@ -7,6 +7,7 @@ import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { CandidateNoteEditor } from "@/components/CandidateNoteEditor";
+import { IntroLinkButton } from "@/components/IntroLinkButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
@@ -108,6 +109,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
           {!c.is_closed && <Link href={`/matching?person=${c.candidate_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>}
           {origMailUrl && <a href={origMailUrl} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>↗ 元メール</a>}
           {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
+          {/* 紹介リンク：ログイン経由でこの人材詳細に直行するURLをコピー（アカウントを持つ相手向け）。 */}
+          <IntroLinkButton path={`/people/${c.candidate_no}`} />
           <MailButton to={c.email ?? c.contact_email} subject={introMail.subject} body={introMail.body} label="メールで紹介" block />
           <EditCandidateButton candidate={c} />
           <CloseToggleButton kind="candidates" idValue={c.candidate_no} isClosed={!!c.is_closed} />

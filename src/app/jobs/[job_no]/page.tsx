@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Icons } from "@/components/icons";
 import { FlowSteps } from "@/components/FlowSteps";
 import { MailButton } from "@/components/MailButton";
+import { IntroLinkButton } from "@/components/IntroLinkButton";
 import { EditJobButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { CloseToggleButton } from "@/components/CloseToggleButton";
@@ -95,6 +96,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap" }}>
           {!j.is_closed && <Link href={`/matching?job=${j.job_no}`} className="btn brand" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>}
           {origMailUrl && <a href={origMailUrl} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>↗ 元メール</a>}
+          {/* 紹介リンク：ログイン経由でこの案件詳細に直行するURLをコピー（アカウントを持つ相手向け）。 */}
+          <IntroLinkButton path={`/jobs/${j.job_no}`} />
           <MailButton to={j.contact_email} subject={`Re: ${j.title}`} body={""} label="窓口にメール" block />
           <EditJobButton job={j} />
           <CloseToggleButton kind="jobs" idValue={j.job_no} isClosed={!!j.is_closed} />
