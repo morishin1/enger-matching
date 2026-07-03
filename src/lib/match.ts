@@ -693,6 +693,9 @@ export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
 //      ＝人材が出社可（出社/常駐の記載）の場合は除外しない。
 //   ② 利益確保：案件の提示上限が「人材の希望下限＋3万円」未満なら除外（最低3万円のマージン確保）。
 //      例）人材65万〜 → 案件上限68万以上のみ対象。〜60万 や 60万固定は除外。単価不明は判定しない。
+//   ③ 年齢制限（#285）：案件の年齢制限（上限）を人材の年齢が超える案件を除外。
+//      例）案件「30代まで」× 人材「40代後半」→ 除外。人材の年齢 or 案件の制限が「不明/空欄」なら
+//      判定をスキップして表示（案件側マッチングの passesJobSideFilters ③と同一ロジック）。
 function passesCandSideFilters(cand: Candidate, job: Job): boolean {
   // ① リモート希望に応じて案件を除外
   const cp = (cand.remote_pref ?? "").trim();
@@ -708,6 +711,18 @@ function passesCandSideFilters(cand: Candidate, job: Job): boolean {
   const cMin = candRange(cand).min;
   const jMax = job.salary_max ?? null;
   if (cMin != null && jMax != null && jMax < cMin + 3) return false;
+  // ③ 年齢・年代の上限（安全側＝条件オーバーは除外。どちらか不明なら除外しない）。
+  //   ・"〇〇歳まで" … 人材の年代グループの上限年齢が案件上限を超えるなら除外
+  //       例) 45歳まで：40代前半(〜44)=表示 / 40代後半(〜49)=除外
+  //   ・"〇〇代まで" … 指定年代より上の年代グループは一律除外（例: 30代まで→40代/50代は除外）
+  const { ageCap, decadeCap } = parseJobAgeLimit(job);
+  if (ageCap != null || decadeCap != null) {
+    const ar = candAgeRange(cand); // 人材の年齢不明(null)は除外対象にしない（スキップ）
+    if (ar) {
+      if (ageCap != null && ar.hi > ageCap) return false;
+      if (decadeCap != null && ar.decade > decadeCap) return false;
+    }
+  }
   return true;
 }
 
