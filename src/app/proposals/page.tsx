@@ -9,6 +9,8 @@ import { canManageDept } from "@/lib/roles";
 import { loadKpiClientProps } from "@/lib/kpi-embed";
 import { loadReportsView } from "@/lib/reports-embed";
 import { getCompanyRatings } from "@/lib/company-ratings";
+import { normKey } from "@/lib/actions/_shared";
+import { isCompanyVariantOf } from "@/lib/company-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -153,6 +155,14 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
           ? await sb.from("companies").select("name, owner, owner_staff, contact_name, meeting_done, is_ng, caution, caution_count").in("name", allCompNames).limit(2000)
               .then((r: any) => r.error ? sb.from("companies").select("name, owner, contact_name").in("name", allCompNames).limit(2000).then((r2: any) => r2.error ? [] : nq(r2.data)) : nq(r.data))
           : [];
+        // #287：自社担当（owner_staff）は会社名の「完全一致」だけだと表記ゆれ（空白・記号・
+        //   担当者付きの変種名など）で引けないことがある。owner_staff が入力済みの企業を
+        //   全件取得しておき、正規化キー／変種名（親会社名＋区切り）でもマッチさせる。
+        let ownerStaffAll: { name: string; owner_staff: string }[] = [];
+        try {
+          const r: any = await sb.from("companies").select("name, owner_staff").not("owner_staff", "is", null).neq("owner_staff", "").limit(20000);
+          if (!r.error) ownerStaffAll = (r.data ?? []).filter((c: any) => c?.name && String(c.owner_staff ?? "").trim());
+        } catch { /* owner_staff 列未整備は無視（自社担当は空欄のまま） */ }
         // 会社の「提案適性ランク」用に、各社の成約(稼働)・失注(見送り/失注)実績を集計する。
         //   ランク: NG（取引NG）/ A（実績あり）/ C（失注多・提案注意）/ B（通常・新規）。
         const wonByCompany: Record<string, number> = {};
@@ -206,6 +216,33 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             if (c?.owner_staff) ownerStaffByCompany[c.name] = c.owner_staff;
             if (c?.name) meetingDoneByCompany[c.name] = !!c.meeting_done;
           }
+          // #287：自社担当の名寄せ解決。完全一致 → trim一致 → 正規化キー一致（空白・記号を無視）→
+          //   変種名（「株式会社トヨタ 営業部」→ 親「株式会社トヨタ」）の順で owner_staff を引く。
+          //   企業マスタの自社担当が空欄なら、詳細側も空欄のまま（仕様どおり）。
+          const ownerStaffByTrim: Record<string, string> = {};
+          const ownerStaffByNorm: Record<string, string> = {};
+          for (const c of ownerStaffAll) {
+            const nm = String(c.name).trim();
+            const staff = String(c.owner_staff).trim();
+            if (!nm || !staff) continue;
+            if (!ownerStaffByTrim[nm]) ownerStaffByTrim[nm] = staff;
+            const nk = normKey(nm);
+            if (nk && !ownerStaffByNorm[nk]) ownerStaffByNorm[nk] = staff;
+          }
+          const staffFor = (name?: string | null): string | null => {
+            const raw = String(name ?? "");
+            const n = raw.trim();
+            if (!n) return null;
+            if (ownerStaffByCompany[raw]) return ownerStaffByCompany[raw]; // 完全一致（従来）
+            if (ownerStaffByTrim[n]) return ownerStaffByTrim[n];           // trim 一致
+            const nk = normKey(n);
+            if (nk && ownerStaffByNorm[nk]) return ownerStaffByNorm[nk];   // 正規化キー一致
+            // 変種名：owner_staff 入力済みの会社名が「親」として先頭に一致し、直後が区切りのとき引き継ぐ。
+            for (const c of ownerStaffAll) {
+              if (isCompanyVariantOf(String(c.name), n)) return String(c.owner_staff).trim();
+            }
+            return null;
+          };
           for (const p of all) {
             if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed; }
             if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed; }
@@ -236,8 +273,9 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             p.cand_company_contact = p.cand_company_contact ?? (candCompany ? contactByCompany[candCompany] : null) ?? null;
             // 自社担当：企業マスタ（企業メニュー）の owner_staff をそのまま表示（空欄ならそのまま空欄）。
             //   案件側＝クライアント会社／人材側＝人材の所属会社。連携キーは会社名。
-            p.company_owner_staff = (p.company ? ownerStaffByCompany[p.company] : null) ?? null;
-            p.cand_company_owner_staff = (candCompany ? ownerStaffByCompany[candCompany] : null) ?? null;
+            //   #287：完全一致 → trim一致 → 正規化キー一致 → 変種名（親会社名＋区切り）の順で解決。
+            p.company_owner_staff = staffFor(p.company);
+            p.cand_company_owner_staff = staffFor(candCompany);
             // 会社評価★（案件★の会社平均）。提案詳細のランクバッジ横に表示。
             p.company_star = (p.company ? companyRatings[p.company] : null) ?? null;
             p.cand_company_star = (candCompany ? companyRatings[candCompany] : null) ?? null;

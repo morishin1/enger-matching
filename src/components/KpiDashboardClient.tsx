@@ -7,7 +7,7 @@
 //   ・「目標を編集」モーダル（週次目標をフォームで保存）
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { METRIC_LABELS, METRIC_ORDER, type Metric, type PeriodType } from "@/lib/kpi";
 import { saveKpiTargets } from "@/lib/actions";
 import { KpiPeriodBar } from "./KpiPeriodBar";
@@ -65,6 +65,7 @@ export function KpiDashboardClient(props: {
   meetingKpi?: { actual: number; target: number } | null;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const isAdmin = props.access.role === "admin";
   const isManager = !!props.access.isManager;
   const isTeam = props.scope === "team";
@@ -73,7 +74,8 @@ export function KpiDashboardClient(props: {
   const setParam = (k: string, v: string | null) => {
     const u = new URL(window.location.href);
     if (v == null || v === "") u.searchParams.delete(k); else u.searchParams.set(k, v);
-    router.push(u.pathname + "?" + u.searchParams.toString());
+    // #290④：チーム/個人・対象メンバー切替でトップへスクロールしない（下の表・グラフが見えたまま更新）。
+    router.push(u.pathname + "?" + u.searchParams.toString(), { scroll: false });
   };
 
   const overall = useMemo(() => {
@@ -137,7 +139,9 @@ export function KpiDashboardClient(props: {
       {/* 期間バー（統一デザインの6チップ＋全期間カレンダー）。
           ダッシュボード(/)でのみ表示。提案管理のKPI推移は上位(ProposalsWorkspace)が
           KpiPeriodBar を別途出すため hidePeriodTabs=true で非表示にする。 */}
-      {!props.hidePeriodTabs && <KpiPeriodBar current={props.period} basePath="/" card={false} />}
+      {/* #290④：basePath は「今いるページ」。以前は "/" 固定だったため、/kpi で期間チップを押すと
+          ダッシュボードへ移動してしまっていた（期間を変えても同じ画面に留まり、下の表・グラフが更新される）。 */}
+      {!props.hidePeriodTabs && <KpiPeriodBar current={props.period} basePath={pathname || "/"} card={false} />}
 
       {/* 総合達成率 */}
       <div className="card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 16 }}>
