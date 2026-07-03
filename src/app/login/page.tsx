@@ -83,7 +83,7 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
                 <span style={{ flex: 1, height: 1, background: "#e5e9f0" }} /> または <span style={{ flex: 1, height: 1, background: "#e5e9f0" }} />
               </div>
               <a
-                href="/api/auth/google"
+                href={`/api/auth/google?next=${encodeURIComponent(redirect)}`}
                 style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "11px", border: "1px solid #d6dce5", borderRadius: 10, background: "#fff", color: "#3c4043", fontSize: 14, fontWeight: 600, textDecoration: "none" }}
               >
                 <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
@@ -94,6 +94,12 @@ export default function LoginPage({ searchParams }: { searchParams: Promise<{ re
               <div style={{ borderTop: "1px solid #eef2f7", marginTop: 6, paddingTop: 14, textAlign: "center" }}>
                 <span style={{ fontSize: 12.5, color: "#6b7280" }}>アカウントをお持ちでないですか？</span>
                 <a href="/signup" style={{ display: "block", marginTop: 8, padding: "11px", borderRadius: 10, border: "1.5px solid #cbd5e1", color: "#0F2440", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>新規登録</a>
+              </div>
+
+              {/* ログイン先の分離：こちらは法人・社内（ENGER business）専用。フリーランス（個人）は enger.jp へ誘導。 */}
+              <div style={{ marginTop: 4, fontSize: 11.5, color: "#6b7280", textAlign: "center", lineHeight: 1.8, background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 10, padding: "9px 10px" }}>
+                こちらは <b style={{ color: "#0F2440" }}>ENGER business（企業・社内）</b> 用のログインです。<br />
+                フリーランス（個人）の方は <a href="https://enger.jp" style={{ color: "#0095D9", fontWeight: 700, textDecoration: "none" }}>ENGERフリーランス（enger.jp）</a> からログインしてください。
               </div>
             </form>
           </div>

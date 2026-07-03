@@ -27,6 +27,24 @@ const TAB_META: Record<TabKey, { label: string; role: Role; hint: string }> = {
   freelance:  { label: "副業エージェント", role: "freelance", hint: "ag.enger.jp から登録した個人。自分＋共有でマッチング（他社は匿名表示で漏洩防止）。" },
 };
 
+// 新規登録一覧（承認待ちオーバービュー）用：区分ごとの表示バッジ。
+//   「企業アカウントか個人（フリーランス）アカウントか」を一目で判別できるよう、
+//   法人／個人／社内 の性質チップ＋区分名チップの2段構えで表示する。
+const KIND_BADGE: Record<TabKey, { label: string; type: "法人" | "個人" | "社内"; fg: string; bg: string; bd: string }> = {
+  client:     { label: "企業",              type: "法人", fg: "#0b5cab", bg: "#e7f0fb", bd: "#cfe0f5" },
+  partner:    { label: "パートナー企業",     type: "法人", fg: "#7c3aed", bg: "#f3e8ff", bd: "#ddd6fe" },
+  freelance:  { label: "副業エージェント",   type: "個人", fg: "#0d9488", bg: "#e6fffa", bd: "#99f6e4" },
+  candidate:  { label: "エンジニア（LP人材）", type: "個人", fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc" },
+  agent:      { label: "営業",              type: "社内", fg: "#0095D9", bg: "#e0f2fe", bd: "#bae6fd" },
+  backoffice: { label: "バックオフィス",     type: "社内", fg: "#6b7280", bg: "#f3f4f6", bd: "#e5e7eb" },
+  admin:      { label: "管理者",            type: "社内", fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf" },
+};
+const KIND_TYPE_TONE: Record<"法人" | "個人" | "社内", { fg: string; bg: string }> = {
+  法人: { fg: "#3730a3", bg: "#eef2ff" },
+  個人: { fg: "#065f46", bg: "#ecfdf5" },
+  社内: { fg: "#475569", bg: "#f8fafc" },
+};
+
 // 2階層タブ：プロパー（社内）／ビジネスパートナー（外部＝LP流入）。
 const GROUPS: { key: GroupKey; label: string; sub: string; tabs: TabKey[] }[] = [
   { key: "proper",  label: "プロパー（社内）",         sub: "社内メンバー（営業・バックオフィス・管理者）", tabs: ["agent", "backoffice", "admin"] },
@@ -297,6 +315,55 @@ export function ApprovalsView({ accounts, agents = [] }: { accounts: Account[]; 
           {showCreate ? "× 閉じる" : "＋ エージェント追加"}
         </button>
       </div>
+
+      {/* 新規登録（承認待ち）の一覧オーバービュー。
+          タブを行き来しなくても「誰が・どの種別（法人/個人/社内）で登録したか」を1箇所で確認でき、
+          その場で承認 or 該当タブへジャンプできる（要望：ユーザー管理がわかりづらい への対応）。 */}
+      {(() => {
+        const pendings = accounts
+          .filter((a) => a.status === "pending")
+          .sort((x, y) => new Date(y.created_at).getTime() - new Date(x.created_at).getTime());
+        if (pendings.length === 0) return null;
+        const jumpTo = (k: TabKey) => {
+          const g = GROUPS.find((gr) => gr.tabs.includes(k));
+          if (g) setGroup(g.key);
+          setTab(k);
+          setStatusFilter("pending");
+        };
+        return (
+          <div className="card" style={{ padding: 16, borderColor: "#fde9b0", background: "#fffdf5" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "#b45309" }}>notifications_active</span>
+              <b style={{ fontSize: 13.5 }}>新規登録（承認待ち）</b>
+              <span className="badge hot" style={{ fontSize: 11 }}>{pendings.length}</span>
+              <span className="muted" style={{ fontSize: 11.5 }}>登録が新しい順。バッジで「法人／個人／社内」と区分を確認し、その場で承認できます。</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {pendings.map((a) => {
+                const k = tabOf(a);
+                const b = KIND_BADGE[k];
+                const t = KIND_TYPE_TONE[b.type];
+                return (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 12px", borderRadius: 10, background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 99, background: t.bg, color: t.fg, border: "1px solid var(--color-border)", flexShrink: 0 }}>{b.type}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: "2px 9px", borderRadius: 99, background: b.bg, color: b.fg, border: `1px solid ${b.bd}`, flexShrink: 0 }}>{b.label}</span>
+                    <b style={{ fontSize: 12.5 }}>{a.name || "（名前未設定）"}</b>
+                    <span className="muted mono" style={{ fontSize: 11 }}>{a.email}</span>
+                    {a.company_name && <span className="muted" style={{ fontSize: 11 }}>{a.company_name}</span>}
+                    <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto", flexShrink: 0 }}>{fmtDateTime(a.created_at)}</span>
+                    <button type="button" className="btn btn-xs" disabled={busyId === a.id || pending} onClick={() => doApprove(a)}
+                      title={`${b.label}として承認します`}
+                      style={{ background: "#067647", borderColor: "#067647", color: "#fff", flexShrink: 0 }}>
+                      {busyId === a.id ? "処理中…" : "承認"}
+                    </button>
+                    <button type="button" className="btn ghost btn-xs" onClick={() => jumpTo(k)} title="該当タブで詳細（削除・区分変更など）を開く" style={{ flexShrink: 0 }}>詳細へ</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 仮パスワード（1回限り表示） */}
       {cred && (

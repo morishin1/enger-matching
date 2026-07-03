@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Icons } from "./icons";
 import { FocusHeart } from "./FocusHeart";
 import { MailButton } from "./MailButton";
+import { IntroLinkButton } from "./IntroLinkButton";
 import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { CloseToggleButton } from "./CloseToggleButton";
@@ -556,6 +557,8 @@ export function PeopleTable({
                 </Link>
               )}
               <Link href={`/people/${detail.candidate_no}`} className="btn ghost" style={{ textDecoration: "none" }}>人材ページへ</Link>
+              {/* 紹介リンク：ログイン経由でこの人材詳細に直行するURLをコピー（アカウントを持つ相手向け）。 */}
+              <IntroLinkButton path={`/people/${detail.candidate_no}`} />
               {detail.skill_sheet_url && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
