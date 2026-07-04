@@ -11,7 +11,7 @@ import { isMenuAllowed } from "@/lib/menu-permissions";
 import { ThemeToggle } from "./ThemeToggle";
 
 type NavChild = { href: string; id: string; label: string; desc?: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
-type NavItem = { href: string; id: string; label: string; desc?: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; dot?: keyof SidebarCounts; hot?: boolean; children?: NavChild[] };
+type NavItem = { href: string; id: string; label: string; desc?: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; dot?: keyof SidebarCounts; hot?: boolean; external?: boolean; children?: NavChild[] };
 
 // 営業フローに沿った並び（ダッシュボード→取込→マスタ→マッチング→提案→稼働の順）。
 // ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
@@ -68,12 +68,20 @@ const TENANT_NAV: NavItem[] = [
   { href: "/people", id: "t-people", label: "人材（自分・共有）", icon: "people" },
 ];
 
-// ユーザー企業(client)向けの専用メニュー
+// 企業↔運営のチャットは enger.jp（enger-lp）側の既存機能。シェル統一（enger-lp #96）後の
+//   企業メニューは dx 側のこの CLIENT_NAV が正になるため、チャットの導線は外部リンクで残す。
+//   ※ 実URLは環境変数 NEXT_PUBLIC_LP_CHAT_URL で上書き可（未設定時は下記の既定。要確認）。
+const LP_CHAT_URL = process.env.NEXT_PUBLIC_LP_CHAT_URL || "https://enger.jp/business/chat";
+
+// ユーザー企業(client)向けの専用メニュー。
+//   構成：ダッシュボード → 自社案件 → おすすめ人材 → 選考管理 → チャット(enger-lp外部) → 自社情報。
+//   「自社案件・自社情報が充実するほどマッチング率が上がる」導線を軸に、DXのマッチング機能と一致させる。
 const CLIENT_NAV: NavItem[] = [
-  { href: "/", id: "home", label: "ホーム", icon: "dashboard" },
+  { href: "/", id: "home", label: "ダッシュボード", icon: "dashboard" },
   { href: "/portal/jobs", id: "portal-jobs", label: "自社案件", icon: "jobs" },
   { href: "/portal/candidates", id: "portal-candidates", label: "おすすめ人材", icon: "people" },
   { href: "/portal/selection", id: "portal-selection", label: "選考管理", icon: "proposals" },
+  { href: LP_CHAT_URL, id: "portal-chat", label: "チャット", icon: "msg", external: true },
   { href: "/portal/company", id: "portal-company", label: "自社情報", icon: "company" },
 ];
 
@@ -212,6 +220,24 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
             const childOnPath = n.children?.some((c) => pathname === c.href || pathname.startsWith(c.href + "/")) ?? false;
             const parentActive = isActive(n.href) || childOnPath;
             const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
+            // 外部リンク（例: enger-lp のチャット）は Next Link ではなく素の <a> で別タブ遷移。
+            //   dx の force-dynamic 先読み対象外・アクティブ判定対象外にする。
+            if (n.external) {
+              return (
+                <Fragment key={n.id}>
+                  <a href={n.href} target="_blank" rel="noopener noreferrer" className="nav-item"
+                    style={{ display: "flex", alignItems: "center" }}>
+                    <span className="ico">{Ico && <Ico />}</span>
+                    <span className="nav-text">
+                      <span className="nav-label">{n.label}</span>
+                      {n.desc && <span className="nav-desc">{n.desc}</span>}
+                    </span>
+                    <span className="material-symbols-outlined" aria-label="外部サイト（別タブ）" title="別タブで開きます"
+                      style={{ fontSize: 14, marginLeft: "auto", color: "var(--color-ink-4)" }}>open_in_new</span>
+                  </a>
+                </Fragment>
+              );
+            }
             return (
               <Fragment key={n.id}>
                 {/* Link と トグルボタンを並べる（<a> 内に <button> を入れない＝HTML仕様準拠）。
