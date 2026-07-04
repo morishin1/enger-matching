@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions } from "@/lib/actions";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
+import { StarsInput } from "./Stars";
 import { ProposalCloseControls } from "./ProposalCloseControls";
 import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
@@ -172,6 +173,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
   const [lostNote, setLostNote] = useState(p.lost_reason_note ?? "");
+  // #296③：見送り時の企業評価（★）。案件★(job_rating)を企業評価に連動して記録する（任意）。
+  //   直前の失注記録を残す運用（#296①）に合わせ、既存値があれば初期表示する。
+  const [companyRating, setCompanyRating] = useState<number>(p.job_rating ?? 0);
   // 削除の申請/承認権限（admin=承認可・即削除 / agent=申請のみ）。
   const [delPerm, setDelPerm] = useState<{ canRequest: boolean; canApprove: boolean }>({ canRequest: false, canApprove: false });
   useEffect(() => { getProposalDeletePermissions().then(setDelPerm).catch(() => {}); }, []);
@@ -336,6 +340,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     // どの会社の誰が担当か（会社名・先方担当者・提案者・クロージング担当）も失注記録に残す。
     company: lostCompany.trim() || null, client_contact: lostClientContact.trim() || null,
     proposer: proposer || null, closer: closer || null,
+    // #296③：企業評価（★）＝案件★(job_rating)を企業評価に連動して保存（0は未評価＝null）。
+    job_rating: companyRating || null,
     // #291：見送りになる直前のステージを記録し、「提案ボードに戻す」で正確に復元できるようにする。
     pre_lost_stage: p.stage ?? null,
   }));
@@ -723,6 +729,11 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 <textarea value={lostNote} onChange={(e) => setLostNote(e.target.value)} rows={2} placeholder="具体的な事情を簡潔に（例: 他社が単価5万安く先に提示 / 担当変更で立ち消え 等）" style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 9px", borderRadius: 8, border: `1px solid ${lostNote.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}`, background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical" }} />
                 {!lostNote.trim() && <span style={{ color: "var(--color-danger)", fontSize: 10.5 }}>※ 失注理由メモは必須です。</span>}
               </label>
+              {/* #296③：企業評価（★）。失注時の会社への評価を任意で付ける。企業マスタの評価に連動する。 */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10 }}>
+                <span style={{ fontSize: 11, color: "var(--color-ink-4)" }}>企業評価（任意）<span className="muted" style={{ fontSize: 10, marginLeft: 4 }}>失注時の会社への★評価（企業マスタの評価に連動）</span></span>
+                <StarsInput value={companyRating} onChange={setCompanyRating} />
+              </div>
               {/* どの会社の誰が担当か（勝率分析に直結）。失注記録に確実に残す。
                   会社名・先方担当者は案件情報／人材情報（①）から選んで自動入力でき、手入力もできる。 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>

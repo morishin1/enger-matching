@@ -1345,7 +1345,10 @@ export async function undoProposal(id: string) {
  *  #291：見送り/失注の場合は「見送りになる直前のステージ」(pre_lost_stage) へ復元し、
  *    提案ボードのいずれかのフォルダに再表示・失注一覧からは消える。
  *    記録が無い（この機能追加より前の失注、または pre_lost_stage 未整備環境）場合は
- *    従来どおり「所属確認」へ戻す。 */
+ *    従来どおり「所属確認」へ戻す。
+ *  #296①：失注フェーズ／失注理由／理由メモ／★評価は消さずに残す（直前の記録をそのまま見られる状態）。
+ *    ステージが「見送り/失注」でなくなるため失注分析タブからは外れるが、値は保持され、
+ *    再度「見送りを確定」したときに直前の値がフォームに前入力される（最新の入力で上書き＝#296②）。 */
 export async function restoreProposal(id: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
@@ -1363,19 +1366,21 @@ export async function restoreProposal(id: string) {
   } catch { /* pre_lost_stage 列未整備でも従来どおり「所属確認」で続行 */ }
 
   const now = new Date().toISOString();
-  const fullPatch = { stage: targetStage, lost_reason: null, lost_phase: null, lost_reason_note: null, pre_lost_stage: null, updated_at: now, stage_updated_at: now };
+  // #296①：lost_reason/lost_phase/lost_reason_note/★評価はクリアしない（直前の記録を保持）。
+  //   pre_lost_stage だけは復元後に不要になるので null に戻す（列が無い環境向けにフォールバックあり）。
+  const fullPatch = { stage: targetStage, pre_lost_stage: null, updated_at: now, stage_updated_at: now };
   let rr: any = await admin.from("proposals").update(fullPatch).eq("id", id);
   if (rr.error && /pre_lost_stage|column/i.test(rr.error.message)) {
     const { pre_lost_stage: _p, ...rest } = fullPatch;
     rr = await admin.from("proposals").update(rest).eq("id", id);
   }
-  if (rr.error && /stage_updated_at|lost_reason_note|column/i.test(rr.error.message)) {
-    rr = await admin.from("proposals").update({ stage: targetStage, lost_reason: null, lost_phase: null, updated_at: now }).eq("id", id);
+  if (rr.error && /stage_updated_at|column/i.test(rr.error.message)) {
+    rr = await admin.from("proposals").update({ stage: targetStage, updated_at: now }).eq("id", id);
   }
   const error = rr.error;
   if (error) return { ok: false, error: error.message };
   revalidatePath("/proposals"); revalidatePath("/analytics"); bustCounts(); revalidatePath("/progress");
-  await logProposalActivity(id, "提案ボードに戻す", `→ ${targetStage}`);
+  await logProposalActivity(id, "提案ボードに戻す", `→ ${targetStage}（失注記録は保持）`);
   return { ok: true, stage: targetStage };
 }
 
