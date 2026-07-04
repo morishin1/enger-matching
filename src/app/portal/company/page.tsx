@@ -31,8 +31,8 @@ export default async function PortalCompanyPage() {
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
-          <div className="meta">企業プロフィール · {companyName ?? "—"}</div>
-          <h1>企業プロフィール / Mission</h1>
+          <div className="meta">自社情報 · {companyName ?? "—"}</div>
+          <h1>自社情報 / Mission</h1>
           <div className="sub">貴社の Mission・カルチャー・求める人物像を登録すると、スキルだけでなく<b>方向性に合う人材</b>のマッチング・訴求に活用されます。エンジニアにも貴社の魅力として表示されます。</div>
         </div>
       </div>

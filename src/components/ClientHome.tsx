@@ -6,6 +6,7 @@ import { MeetingGateBanner } from "./MeetingGateBanner";
 export async function ClientHome({ companyName, displayName, needGate = false }: { companyName: string | null; displayName?: string | null; needGate?: boolean }) {
   let jobs: any[] = [];
   let proposals: any[] = [];
+  let profile: { mission?: string | null; culture?: string | null; ideal_persona?: string | null; appeal?: string | null; website?: string | null } | null = null;
   let note: string | null = null;
 
   if (!companyName) {
@@ -14,20 +15,30 @@ export async function ClientHome({ companyName, displayName, needGate = false }:
     try {
       const sb = engerClient();
       const like = `%${companyName}%`;
-      const [jr, pr] = await Promise.all([
+      const [jr, pr, cp] = await Promise.all([
         sb.from("jobs").select("job_no, title, role_label, salary_min, salary_max, remote_type, status, created_at")
           .eq("is_published", true).ilike("client_name", like).order("created_at", { ascending: false }).limit(100),
         sb.from("proposals").select("id, job_title, c_init, rate, stage, created_at")
           .ilike("company", like).order("created_at", { ascending: false }).limit(100),
+        // 自社情報（Mission等）。充実度メーター（マッチング精度アップの動線）に使う。未作成でも続行。
+        sb.from("company_profiles").select("mission, culture, ideal_persona, appeal, website").eq("company", companyName).maybeSingle(),
       ]);
       jobs = jr.data ?? [];
       proposals = pr.data ?? [];
+      profile = (cp as any)?.data ?? null;
     } catch (e) {
       note = "データの取得に失敗しました。時間をおいて再度お試しください。";
     }
   } else {
     note = "システム設定が未完了です。";
   }
+
+  // 自社情報・自社案件の充実度。揃うほど AI マッチングの精度と提案数が上がるため、常時見える化して入力を促す。
+  //   5項目（Mission/カルチャー/求める人物像/魅力/サイト）＋案件1件以上 の計6ステップで算出。
+  const profileFilled = [profile?.mission, profile?.culture, profile?.ideal_persona, profile?.appeal, profile?.website]
+    .filter((v) => String(v ?? "").trim() !== "").length;
+  const hasJob = jobs.length > 0;
+  const readiness = Math.round(((profileFilled + (hasJob ? 1 : 0)) / 6) * 100);
 
   const salary = (a?: number | null, b?: number | null) => {
     if (!a && !b) return "—";
@@ -82,6 +93,38 @@ export async function ClientHome({ companyName, displayName, needGate = false }:
           </a>
         ))}
       </div>
+
+      {/* マッチング精度メーター：自社情報＋自社案件が揃うほど AI マッチの精度・提案数が上がる。
+          未完了の項目に直接リンクして入力を促す（100% のときは準備完了メッセージのみ）。 */}
+      {!note && (
+        <div className="card" style={{ margin: "0 0 16px", padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>マッチング精度を上げる</h3>
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>自社情報と自社案件が充実しているほど、AIマッチングの精度とご提案数が上がります。</div>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: readiness >= 100 ? "var(--color-brand-700)" : "var(--color-ink)" }}>{readiness}<span style={{ fontSize: 12, fontWeight: 700 }}>%</span></div>
+          </div>
+          <div style={{ height: 8, borderRadius: 99, background: "var(--color-border)", overflow: "hidden", margin: "10px 0 12px" }}>
+            <div style={{ width: `${readiness}%`, height: "100%", borderRadius: 99, background: "linear-gradient(90deg, var(--color-brand-500), var(--color-brand-700))" }} />
+          </div>
+          {readiness >= 100 ? (
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-brand-700)" }}>準備OK！ 貴社に合う人材を優先的にご提案します。</div>
+          ) : (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {[
+                { done: profileFilled >= 5, label: `自社情報を入力（${profileFilled}/5 項目）`, href: "/portal/company" },
+                { done: hasJob, label: hasJob ? `自社案件を掲載（${jobs.length}件）` : "自社案件を1件以上掲載", href: "/portal/jobs" },
+              ].map((s) => (
+                <a key={s.href} href={s.href} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 99, textDecoration: "none", border: "1px solid " + (s.done ? "var(--color-brand-100)" : "var(--color-border-strong)"), background: s.done ? "var(--color-brand-25)" : "var(--color-surface)", color: s.done ? "var(--color-brand-700)" : "var(--color-ink)" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{s.done ? "check_circle" : "arrow_circle_right"}</span>
+                  {s.label}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="kpi-grid" style={{ margin: "16px 0" }}>
         <div className="kpi brand"><div className="top"><div className="ico-box"><Icons.jobs /></div></div><div><div className="val tnum">{jobs.length}</div><div className="label">公開中の自社案件</div></div></div>
