@@ -47,7 +47,7 @@ export function OperatorBadge({ defaultName = "", email = "", compact = false, r
           { label: "🔔 お知らせ", href: "/notifications" },
         ] }]
       : [{ items: [
-          { label: "🏢 企業プロフィール", href: "/portal/company" },
+          { label: "🏢 自社情報", href: "/portal/company" },
         ] }];
 
   return (

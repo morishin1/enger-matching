@@ -41,7 +41,7 @@ const CRUMBS: Record<string, string[]> = {
   "/portal/jobs": ["ENGER", "自社案件"],
   "/portal/candidates": ["ENGER", "おすすめ人材"],
   "/portal/selection": ["ENGER", "選考管理"],
-  "/portal/company": ["ENGER", "企業プロフィール"],
+  "/portal/company": ["ENGER", "自社情報"],
 };
 
 // トップバーに出すページのタイトル＋説明（空きスペースを活用）。本文側の page-head タイトルは
