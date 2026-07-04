@@ -57,6 +57,7 @@ const TOOLS: NavItem[] = [
   { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending", children: [
     { href: "/mail",    id: "mail",    label: "メール取り込み", desc: "Gmail取込・期間指定でダウンロード" },
     { href: "/reports", id: "reports", label: "日報",           desc: "気づき・改善の記録" },
+    { href: "/settings/match-eval", id: "match-eval", label: "マッチング評価", desc: "成約/失注データでスコアを検証" },
   ] },
 ];
 
