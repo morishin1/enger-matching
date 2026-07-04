@@ -2,6 +2,8 @@ import { MeetingsClient } from "@/components/MeetingsClient";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getCompanyOverview } from "@/lib/companies";
 import { loadKpiMembers } from "@/lib/kpi-members";
+import { loadProposalOwners } from "@/lib/proposal-owners";
+import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +57,14 @@ export default async function MeetingsPage() {
   const overviewNames = ((await getCompanyOverview()) ?? []).map((c) => c.name);
   const companies = Array.from(new Set([...overviewNames, ...companyDir.map((c) => c.name)].filter(Boolean)));
   // 自社担当の選択肢：KPI推移のメンバーマスタ（編集可能）と連動。未設定時は定数フォールバック。
-  const owners = (await loadKpiMembers()).map((m) => m.name).filter(Boolean);
+  // #297③：打合せ記録の「自社担当者」は、提案管理の「クロージング担当者」と同じ選択肢にする。
+  //   ・提案者・クロージング担当は app_settings(proposal_owners) が正（未設定時はアカウント(app_users)由来）。
+  //   ・"未割当" は提案側の内部プレースホルダなので自社担当の候補からは除外。
+  //   ・後方互換で KPI推移のメンバーマスタ(kpi_members)の名前も併せて候補に含める（重複排除）。
+  const [proposalOwners, staff, kpiMembers] = await Promise.all([loadProposalOwners(), getStaff(), loadKpiMembers()]);
+  const closerNames = (proposalOwners?.closers && proposalOwners.closers.length ? proposalOwners.closers : staff.closers)
+    .filter((n) => n && n !== "未割当");
+  const owners = Array.from(new Set([...closerNames, ...kpiMembers.map((m) => m.name)].map((n) => String(n ?? "").trim()).filter(Boolean)));
 
   return (
     <div className="page">

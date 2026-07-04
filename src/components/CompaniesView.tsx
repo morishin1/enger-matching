@@ -171,6 +171,10 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
   }, [merged]);
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
+    // 企業ID検索用：入力が「IDらしい」（数字/ C / - / # / 空白のみ）ときだけ数字部分で company_no と部分一致。
+    //   これにより通常の社名検索（数字を含む社名など）まで巻き込まないようにする。
+    const idLike = needle !== "" && /^[\s#c\-0-9]+$/.test(needle);
+    const needleDigits = idLike ? needle.replace(/\D/g, "") : "";
     const rows = merged.filter((c) =>
       (tier === "ALL" || c.tier === tier)
       && (act === "ALL" || c.action?.key === act)
@@ -185,11 +189,14 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
       })())
       // LINE 絞り込み：ON のとき LINE でやり取りしている企業のみ表示
       && (!lineOnly || isLineCompany(c.name))
-      // 企業名・業種・窓口担当者でも検索できるように（企業検索を簡単に）
+      // 企業名・業種・窓口担当者・企業ID でも検索できるように（#297②：企業IDの部分一致も対象）。
+      //   企業IDは "C-00001" 表記でも数字だけ "1"/"00001" でも部分一致する（記号・接頭辞を無視して照合）。
       && (!needle || c.name.toLowerCase().includes(needle)
         || (c.reg?.industry ?? "").toLowerCase().includes(needle)
         || (c.reg?.contact_name ?? "").toLowerCase().includes(needle)
-        || (c.reg?.owner_staff ?? "").toLowerCase().includes(needle)));
+        || (c.reg?.owner_staff ?? "").toLowerCase().includes(needle)
+        || (companyIdLabel(c.reg?.company_no ?? null) ?? "").toLowerCase().includes(needle)
+        || (c.reg?.company_no != null && needleDigits !== "" && String(c.reg.company_no).includes(needleDigits))));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
   }, [merged, tier, act, search, sort, mtg, regF, kind, lineOnly]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
@@ -266,7 +273,7 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
             </button>
           ))}
         </div>
-        <div className="tbl-search" style={{ width: 240, flex: "0 0 240px" }}><Icons.search /><input placeholder="企業名・業種・担当者で検索…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        <div className="tbl-search" style={{ width: 240, flex: "0 0 240px" }}><Icons.search /><input placeholder="企業名・業種・担当者・企業IDで検索…" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
         {/* 登録状況フィルタ：企業マスタに手動登録済みか、案件からの自動集約のみか */}
         <div style={{ display: "flex", gap: 4, padding: 3, background: "var(--color-surface-inset)", borderRadius: 99 }}>
           {[

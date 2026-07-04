@@ -33,7 +33,7 @@ const NAV: NavItem[] = [
   ] },
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
   { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・案件/人材情報の仕入れ", icon: "inbox" },
-  { href: "/companies", id: "companies", label: "企業", desc: "取引先・商談の管理", icon: "company", count: "companies" },
+  { href: "/companies", id: "companies", label: "企業管理", desc: "取引先・商談の管理", icon: "company", count: "companies" },
   { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", count: "chatUnread", hot: true },
   // 稼働管理は当面使わないためサイドメニューから非表示（要望）。復活時は下のコメントを解除するだけ。
   //   ※ ページ自体（/progress・/documents）は URL では引き続きアクセス可能。
