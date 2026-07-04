@@ -158,6 +158,26 @@ const REGISTRY: Entry[] = [
   { canon: "centos",       label: "CentOS" },
   { canon: "ubuntu",       label: "Ubuntu" },
   { canon: "unix",         label: "Unix" },
+  // ── メール実データ分析による追補（1,849通で案件側・人材側の両方に出現した語彙）──────
+  //   両側で使われている語だけを追加する（片側のみの語はマッチに寄与しないため）。
+  //   ※ GraphQL/Snowflake/Elasticsearch/Kafka/RabbitMQ は登録済み。Power BI は powerplatform の
+  //     別名として既に両側が同一 canon に寄るため分離しない（分離すると過去データのタグと不一致になる）。
+  { canon: "githubcopilot", label: "GitHub Copilot", aliases: ["github copilot", "gh copilot", "ギットハブコパイロット"] },
+  { canon: "copilot",      label: "Copilot", aliases: ["microsoft copilot", "ms copilot", "m365 copilot", "microsoft 365 copilot", "copilot studio", "コパイロット"] },
+  { canon: "chatgpt",      label: "ChatGPT", aliases: ["chat gpt", "チャットgpt", "チャットジーピーティー"] },
+  { canon: "confluence",   label: "Confluence", aliases: ["atlassian confluence", "コンフルエンス", "コンフル"] },
+  { canon: "firebase",     label: "Firebase", aliases: ["firestore", "cloud firestore", "ファイアベース"] },
+  { canon: "notion",       label: "Notion", aliases: ["ノーション"] },
+  { canon: "kintone",      label: "kintone", aliases: ["cybozu kintone", "サイボウズkintone", "キントーン"] },
+  { canon: "grpc",         label: "gRPC" },
+  { canon: "looker",       label: "Looker", aliases: ["looker studio", "google looker", "ルッカー"] },
+  { canon: "databricks",   label: "Databricks", aliases: ["azure databricks", "データブリックス"] },
+  { canon: "sas",          label: "SAS" },
+  { canon: "supabase",     label: "Supabase" },
+  { canon: "vercel",       label: "Vercel" },
+  { canon: "opensearch",   label: "OpenSearch", aliases: ["amazon opensearch", "aws opensearch"] },
+  { canon: "miro",         label: "Miro", aliases: ["ミロ"] },
+  { canon: "smartdb",      label: "SmartDB", aliases: ["スマートdb"] },
 ];
 
 // 別名拡充：既存 canon に寄せる表記揺れ（バージョン付き・別表記）。REGISTRY を肥大させず追補する。
@@ -230,6 +250,9 @@ const IMPLIES_RAW: Record<string, string[]> = {
   ecs: ["aws"], eks: ["aws", "kubernetes"], cloudformation: ["aws"], redshift: ["aws"],
   // その他クラウド／DB 互換
   bigquery: ["googlecloud"], mariadb: ["mysql"],
+  // ツール系：GitHub Copilot 保有は汎用「Copilot」要件を満たす（逆は不成立）。
+  //   OpenSearch は Elasticsearch のフォークでスキルがほぼ共通のため内包扱い。
+  githubcopilot: ["copilot"], opensearch: ["elasticsearch"],
 };
 
 // 有向グラフの推移閉包（自身は含まない）。
