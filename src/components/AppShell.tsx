@@ -80,7 +80,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
   const router = useRouter();
 
   // ログイン/新規登録/公開LP/規約/メール回答/外部共有 はシェル(サイドバー/トップバー)なしで表示
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/agent" || pathname === "/terms" || pathname === "/privacy" || pathname.startsWith("/respond") || pathname.startsWith("/share")) return <>{children}</>;
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/agent" || pathname === "/terms" || pathname === "/privacy" || pathname.startsWith("/respond") || pathname.startsWith("/share") || pathname === "/ref" || pathname.startsWith("/ref/")) return <>{children}</>;
 
   const key = pathname === "/" ? "/" : (pathname.startsWith("/portal/") ? pathname : "/" + pathname.split("/")[1]);
   const crumbs = CRUMBS[key] ?? ["ENGER"];

@@ -8,6 +8,7 @@ import { targetScore, prospectAction, companyIdLabel, type CompanyRow, type Pros
 import { StarsView } from "./Stars";
 import type { CompanyRating } from "@/lib/company-ratings";
 import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, type CompanyDiagnosis } from "@/lib/actions";
+import { ReferralPortalSection } from "./ReferralPortalSection";
 
 type Registered = {
   name: string; industry?: string | null; tier?: string | null; status?: string | null;
@@ -716,6 +717,10 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
             )}
           </div>
         )}
+
+        {/* 紹介元ポータル：知り合い企業に会員登録なしの簡易ログイン(/ref)を発行し、
+            この会社が紹介した人材（source_company で紐付け）×マッチ案件だけを見せる。 */}
+        {data && <ReferralPortalSection company={data.name} />}
 
         {/* 編集フォーム */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
