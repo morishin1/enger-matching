@@ -1,7 +1,40 @@
 import { unstable_cache } from "next/cache";
 import { publicAdmin, engerClient, engerAdmin, dbConfigured } from "./supabase";
 
-export type EngineerSkill = { name: string; level?: string; ratio?: number };
+export type EngineerSkill = { name: string; level?: string; ratio?: number;
+  // フリーランスがプロフィールで登録した「スキルカード」の付加情報（LP=enger.jp 由来・任意）。
+  //   経験年数（例 "3〜5年" / "10年以上" / 5）と担当工程（例 ["要件定義","単体テスト"]）。
+  //   ※ LP 側のキー名は環境で異なりうるため、読み取りは skillTagLabel() で別名も吸収する。
+  experience?: string | number | null; processes?: string[] | string | null };
+
+/** スキルカードの経験年数ラベルを別名キーから取り出して整形（"5"→"5年" / "3〜5年"はそのまま）。 */
+function skillExperienceLabel(s: any): string {
+  const v = s?.experience ?? s?.exp ?? s?.experience_years ?? s?.exp_years ?? s?.years ?? s?.経験年数 ?? s?.経験;
+  if (v == null) return "";
+  const str = String(v).trim();
+  if (!str) return "";
+  return /^\d+$/.test(str) ? `${str}年` : str; // 数字だけなら「N年」、それ以外（"3〜5年"/"10年以上"）はそのまま
+}
+
+/** スキルカードの担当工程を別名キー（配列/カンマ文字列）から取り出して配列化。 */
+function skillProcesses(s: any): string[] {
+  const v = s?.processes ?? s?.process ?? s?.phases ?? s?.roles ?? s?.duties ?? s?.担当工程 ?? s?.工程;
+  const arr = Array.isArray(v) ? v : (typeof v === "string" ? v.split(/[、,／/]+/) : []);
+  return arr.map((x: any) => String(x ?? "").trim()).filter(Boolean);
+}
+
+/** スキルタグの表示ラベル。フリーランスがスキルカードに経験年数/担当工程を登録していれば
+ *  「VB.NET（経験3〜5年、要件定義、運用・保守）」の形で付記する。未登録なら従来どおり名前（＋GitHub level）。
+ *  ※ プロフィール詳細のスキル欄専用。登録者一覧・主要言語・人材マスタ取込では使わない（名前のみ）。 */
+export function skillTagLabel(s: EngineerSkill): string {
+  const name = String(s?.name ?? "").trim();
+  const parts: string[] = [];
+  const exp = skillExperienceLabel(s);
+  if (exp) parts.push(`経験${exp}`);
+  for (const p of skillProcesses(s)) parts.push(p);
+  if (parts.length > 0) return `${name}（${parts.join("、")}）`;
+  return `${name}${s?.level ? ` (${s.level})` : ""}`; // 付加情報なし＝従来表示（後方互換）
+}
 
 /** ENGERフリーランス登録者の「人材ID」（DX 登録者一覧 左端のID。例: E-C94D4）。
  *  public.profiles.id(UUID) の先頭5桁(16進)から導出する。名前未登録時の表示名フォールバックにも使う。

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
-import { freelanceShortId, hasJapanese, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
+import { freelanceShortId, hasJapanese, skillTagLabel, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
@@ -376,21 +376,21 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                 </th>
                 {/* #275①②：E番号のIDは「フリーランスID」表記に統一（人材ID＝P番号と区別）。 */}
                 <th style={{ width: 100 }}>フリーランスID</th>
-                <th style={{ width: 92 }}>ステータス</th>
+                {/* #300③：「ステータス」列を削除し、最終ログイン日時を左から2番目（ID の隣）へ移動。 */}
+                <th style={{ width: 118, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => toggleSort("login")}
+                  title="クリックで最終ログイン日時の昇順/降順を切替（未ログインは末尾）" aria-sort={sortKey === "login" ? (sortDir === "desc" ? "descending" : "ascending") : undefined}>
+                  最終ログイン {sortKey === "login" ? (sortDir === "desc" ? "▼" : "▲") : <span style={{ opacity: .35 }}>▽</span>}
+                </th>
                 <th>氏名</th>
                 <th>スキル</th>
                 <th style={{ width: 92 }}>主要言語</th>
                 <th style={{ width: 96 }} className="num">単価</th>
                 {/* #262：スキルシート列（詳細にリンク自動挿入済み）・連絡先列は削除。 */}
                 <th style={{ width: 76 }} className="num">GitHub</th>
-                {/* #275④：登録日時・最終ログイン日時はクリックで昇順/降順ソート。 */}
+                {/* #275④：登録日時はクリックで昇順/降順ソート。 */}
                 <th style={{ width: 118, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => toggleSort("created")}
                   title="クリックで登録日時の昇順/降順を切替" aria-sort={sortKey === "created" ? (sortDir === "desc" ? "descending" : "ascending") : undefined}>
                   登録日時 {sortKey === "created" ? (sortDir === "desc" ? "▼" : "▲") : <span style={{ opacity: .35 }}>▽</span>}
-                </th>
-                <th style={{ width: 118, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => toggleSort("login")}
-                  title="クリックで最終ログイン日時の昇順/降順を切替（未ログインは末尾）" aria-sort={sortKey === "login" ? (sortDir === "desc" ? "descending" : "ascending") : undefined}>
-                  最終ログイン {sortKey === "login" ? (sortDir === "desc" ? "▼" : "▲") : <span style={{ opacity: .35 }}>▽</span>}
                 </th>
                 <th style={{ width: 76 }}>履歴</th>
                 <th style={{ width: 76, textAlign: "center" }}>面談済</th>
@@ -398,7 +398,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={12} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
+                <tr><td colSpan={11} style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)" }}>条件に一致する行がありません。</td></tr>
               ) : pageRows.map((e) => {
                 const log = actions[e.id] ?? [];
                 const sc = scouts[e.id] ?? [];
@@ -421,7 +421,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                         style={{ accentColor: "var(--color-brand-600)" }} />
                     </td>
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-4)" }}>{shortId(e.id)}</span></td>
-                    <td><Fresh d={e.created_at} /></td>
+                    {/* #300③：最終ログイン日時を左から2番目（ID の隣）へ移動。ステータス（Fresh）列は削除。 */}
+                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={e.last_login_at ? `最終ログイン：${fmtDateTime(e.last_login_at)}` : "ログイン履歴なし"}>{e.last_login_at ? fmtDateTime(e.last_login_at) : "—"}</span></td>
                     <td>
                       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -456,9 +457,8 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
                     <td className="num"><span className="muted" style={{ fontSize: 11.5 }}>★{e.total_stars} · {e.total_repos}</span></td>
                     {/* #262：スキルシート列・連絡先列は削除（スキルシートは詳細のプロフィールにリンク自動挿入済み）。 */}
+                    {/* #300③：登録日時（最終ログインは ID の隣へ移動済み）。 */}
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
-                    {/* #275④：最終ログイン日時（ENGERフリーランスへの最終ログイン）。未ログインは「—」。 */}
-                    <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={e.last_login_at ? `最終ログイン：${fmtDateTime(e.last_login_at)}` : "ログイン履歴なし"}>{e.last_login_at ? fmtDateTime(e.last_login_at) : "—"}</span></td>
                     <td>
                       <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                         {ap.length > 0 && <button type="button" title="応募した案件名を一覧で見る"
@@ -856,10 +856,12 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
           ))}
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル（GitHub解析）</div>
+          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル</div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {/* #300②：フリーランスがスキルカードに経験年数・担当工程を登録していれば
+                「VB.NET（経験3〜5年、要件定義、運用・保守）」の形で付記する（詳細のスキル欄のみ）。 */}
             {skillNames(detail).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (detail.skills ?? []).slice(0, 20).map((s) => (
-              <span key={s.name} className="tag" style={{ fontSize: 11 }}>{s.name}{s.level ? ` (${s.level})` : ""}</span>
+              <span key={s.name} className="tag" style={{ fontSize: 11 }}>{skillTagLabel(s)}</span>
             ))}
           </div>
         </div>
@@ -978,7 +980,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
             <textarea value={scoutMsg} onChange={(e) => setScoutMsg(e.target.value)} rows={3} placeholder="スカウト本文：案件の魅力・なぜあなたか・次のステップを簡潔に" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)", resize: "vertical" }} />
             {scoutErr && <div style={{ fontSize: 11.5, color: "#b42318" }}>{scoutErr}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button type="button" className="btn btn-xs" disabled={pending || jobLookupMsg?.tone === "loading"} onClick={submitScout} style={{ opacity: (pending || jobLookupMsg?.tone === "loading") ? 0.6 : 1 }}>{pending ? "送信中…" : "スカウトを送る"}</button>
+              {/* #300④：外枠をブランド色で明示して見やすく（塗りつぶさず枠を強調・他デザインは維持）。 */}
+              <button type="button" className="btn btn-xs" disabled={pending || jobLookupMsg?.tone === "loading"} onClick={submitScout} style={{ opacity: (pending || jobLookupMsg?.tone === "loading") ? 0.6 : 1, border: "1.5px solid var(--color-brand-600)", color: "var(--color-brand-700)", fontWeight: 700 }}>{pending ? "送信中…" : "スカウトを送る"}</button>
             </div>
           </div>
 
@@ -999,7 +1002,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="メモ（任意）：温度感・次の一手など" style={{ fontSize: 12, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border)", background: "var(--color-surface)" }} />
             {err && <div style={{ fontSize: 11.5, color: "#b42318" }}>{err}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button type="button" className="btn btn-xs" disabled={pending} onClick={submit} style={{ opacity: pending ? 0.6 : 1 }}>{pending ? "記録中…" : "対応を記録"}</button>
+              {/* #300④：外枠をブランド色で明示して見やすく（塗りつぶさず枠を強調・他デザインは維持）。 */}
+              <button type="button" className="btn btn-xs" disabled={pending} onClick={submit} style={{ opacity: pending ? 0.6 : 1, border: "1.5px solid var(--color-brand-600)", color: "var(--color-brand-700)", fontWeight: 700 }}>{pending ? "記録中…" : "対応を記録"}</button>
             </div>
           </div>
 
