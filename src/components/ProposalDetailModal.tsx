@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "@/components/AppLink";
 import { toast } from "@/components/toast";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions, suggestLostReason } from "@/lib/actions";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { StarsInput } from "./Stars";
@@ -333,6 +333,24 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     }));
   };
   const engage = () => run("engage", () => convertToEngagement(p.id));
+  // #失注AI：メモ・元メールから失注理由コード/フェーズ/理由メモをAIが下書き推定し、フォームに前入力する。
+  //   保存はせず（見送りを確定は別ボタン）、担当が確認・修正できる。入力の手間を下げ「その他＋一行」を減らす狙い。
+  const [lostAiMsg, setLostAiMsg] = useState<string | null>(null);
+  const suggestLost = () => {
+    setLostAiMsg(null);
+    setBusy("lostAi");
+    start(async () => {
+      try {
+        const r = await suggestLostReason(p.id);
+        if (r.ok) {
+          if (r.reason) setLostReason(r.reason);
+          if (r.phase) setLostPhase(r.phase);
+          if (r.note) setLostNote(r.note);
+          setLostAiMsg("AIが推定しました。内容を確認・修正して「見送りを確定」してください。");
+        } else setLostAiMsg(r.error ?? "推定に失敗しました");
+      } finally { setBusy(null); }
+    });
+  };
   const lose = () => run("lose", () => updateProposalFields(p.id, {
     // 案件情報/人材情報の編集内容も保存しつつ、失注時の会社名・先方担当（選択/手入力）で上書き。
     ...contactFields(),
@@ -719,7 +737,19 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
           {/* 見送り（折りたたみ） */}
           {lostOpen && (
             <div id="lost-panel" className="card" style={{ padding: 16, borderColor: "var(--color-danger)" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--color-danger)", marginBottom: 10 }}>見送り（失注）にする</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--color-danger)" }}>見送り（失注）にする</span>
+                {/* 失注理由AI：メモ・元メールから理由コード/フェーズ/メモを推定して前入力（保存はしない）。 */}
+                <button type="button" onClick={suggestLost} disabled={busy === "lostAi"}
+                  title="やり取り記録から失注理由をAIが推定してフォームに前入力します（確認・修正できます）"
+                  style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit", background: "var(--color-brand-50)", color: "var(--color-brand-700)", border: "1px solid var(--color-brand-100)" }}>
+                  {busy === "lostAi"
+                    ? <span style={{ width: 11, height: 11, border: "2px solid var(--color-brand-200)", borderTopColor: "var(--color-brand-700)", borderRadius: "50%", display: "inline-block", animation: "spin .8s linear infinite" }} />
+                    : <span className="material-symbols-outlined" style={{ fontSize: 14 }}>auto_awesome</span>}
+                  {busy === "lostAi" ? "推定中…" : "AIで推定"}
+                </button>
+              </div>
+              {lostAiMsg && <div style={{ fontSize: 11, color: "var(--color-ink-3)", background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", borderRadius: 6, padding: "5px 8px", marginBottom: 8 }}>{lostAiMsg}</div>}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <SelField label="失注フェーズ" value={lostPhase} options={LOST_PHASES} onChange={setLostPhase} />
                 <SelField label="失注理由（必須）" value={lostReason} options={LOST_REASONS} onChange={setLostReason} />

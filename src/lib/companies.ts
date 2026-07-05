@@ -26,11 +26,45 @@ export type CompanyRow = {
   meeting_count: number;
 };
 
+/** 攻め先スコアの外部シグナル（企業マスタ・企業評価由来。CompanyRow に無い情報を注入する）。
+ *  ・caution：取引注意フラグ（明確な減点）。
+ *  ・want/mismatch：企業ポータルの「会いたい/ミスマッチ」評価の件数（決まりやすさに寄与）。 */
+export type TargetOpts = { caution?: boolean | null; want?: number; mismatch?: number };
+
+/**
+ * 企業ごとの「決まりやすさ係数」(0..1、実績が少ないときは中立0.5に寄る)。
+ *   ・成約率＝稼働 /(稼働+失注) を Laplace 平滑化（n=0 で 0.5 になり、スコアを歪めない）。
+ *   ・企業評価（会いたい want / ミスマッチ mismatch）を混ぜて、担当の肌感を数値に取り込む。
+ * ※ 失注理由の内訳（自社起因/競合負け等）まで見た精緻化は company_overview RPC 拡張が前提のため、
+ *   ここでは既に CompanyRow にある won/lost と、注入された企業評価だけで“回る”係数を返す。
+ */
+export function closability(c: CompanyRow, opts?: TargetOpts): { coef: number; reason?: string } {
+  const won = c.won ?? 0;
+  const lost = c.lost ?? 0;
+  const n = won + lost;
+  // Laplace 平滑化：実績ゼロなら 0.5（中立）。少数でも極端な 0/1 にならない。
+  let coef = (won + 1) / (n + 2);
+  const want = opts?.want ?? 0;
+  const mismatch = opts?.mismatch ?? 0;
+  const fbN = want + mismatch;
+  if (fbN > 0) coef = coef * 0.7 + (want / fbN) * 0.3; // 企業評価を3割ブレンド
+  coef = Math.max(0, Math.min(1, coef));
+  // ラベルは「材料が十分」なときだけ出す（n<3 かつ FB<2 の推測は黙る）。
+  let reason: string | undefined;
+  if (n >= 3 || fbN >= 2) {
+    const pct = Math.round(coef * 100);
+    if (coef >= 0.6) reason = `決まりやすい(${pct}%)`;
+    else if (coef <= 0.35) reason = `決まりにくい(${pct}%)`;
+  }
+  return { coef, reason };
+}
+
 /**
  * 「どの企業を狙うべきか」のスコア(0-100)。
- * 案件供給力 + 注力 + 稼働実績 + 打合せ温度感 + 関係性 + 鮮度 − 失注。
+ * 案件供給力 + 注力 + 稼働実績 + 打合せ温度感 + 関係性 + 鮮度 − 失注 ± 決まりやすさ − 取引注意。
+ * opts で企業マスタ/企業評価由来のシグナル（取引注意・会いたい/ミスマッチ件数）を注入できる。
  */
-export function targetScore(c: CompanyRow): { score: number; reasons: string[] } {
+export function targetScore(c: CompanyRow, opts?: TargetOpts): { score: number; reasons: string[] } {
   let s = 0;
   const reasons: string[] = [];
   s += Math.min(c.active_jobs ?? 0, 10) * 4;
@@ -56,6 +90,14 @@ export function targetScore(c: CompanyRow): { score: number; reasons: string[] }
 
   s -= Math.min(c.lost ?? 0, 5) * 2;
   if ((c.lost ?? 0) >= 3) reasons.push(`失注${c.lost}件`);
+
+  // 決まりやすさ係数：中立(0.5)からの差分を ±12 点まで反映（n=0 は 0.5＝無影響）。
+  const clos = closability(c, opts);
+  s += Math.round((clos.coef - 0.5) * 24);
+  if (clos.reason) reasons.push(clos.reason);
+
+  // 取引注意（属人知＝「電話つながらない/合わない」等）は明確な減点として全員に効かせる。
+  if (opts?.caution) { s -= 15; reasons.unshift("⚠取引注意"); }
 
   return { score: Math.max(0, Math.min(100, Math.round(s))), reasons: reasons.slice(0, 3) };
 }

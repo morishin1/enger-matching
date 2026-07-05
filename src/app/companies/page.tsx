@@ -67,7 +67,36 @@ export default async function CompaniesPage() {
           registered = registered.map((r: any) => ({ ...r, ...(em.get(r.name) ?? {}) }));
         }
       } catch { /* 任意列が無くても続行 */ }
+
+      // ③ CRMループ用の任意列（対応特性タグ・取引注意・WEB評判）。別クエリで fail-soft に取得してマージ。
+      //    supabase/companies-crm-loop.sql 未実行の環境でも一覧は壊れない。
+      try {
+        const crm: any = await sb.from("companies").select("name, caution, caution_reason, caution_at, contact_pref, response_speed, decision_speed, web_reputation, web_reputation_source, web_reputation_at");
+        if (!crm.error && Array.isArray(crm.data)) {
+          const cm = new Map<string, any>(crm.data.map((r: any) => [r.name, r]));
+          registered = registered.map((r: any) => ({ ...r, ...(cm.get(r.name) ?? {}) }));
+        }
+      } catch { /* CRMループ列が未整備でも続行 */ }
     } catch { /* companies-extend.sql 未実行などは無視 */ }
+  }
+
+  // 企業評価（会いたい/検討中/ミスマッチ）を企業ごとに集計 → 攻め先スコアの「決まりやすさ」に注入。
+  //   client_feedback は company で名寄せ。未整備でも fail-soft（空マップ）。
+  const feedbackByCompany: Record<string, { want: number; maybe: number; mismatch: number }> = {};
+  if (dbConfigured) {
+    try {
+      const sb = engerClient();
+      const fr: any = await sb.from("client_feedback").select("company, verdict").not("company", "is", null).limit(20000);
+      const nrm = (s: string) => (s ?? "").replace(/^[\s　]+|[\s　]+$/g, "");
+      for (const row of (fr.data ?? [])) {
+        const k = nrm(String(row.company ?? ""));
+        if (!k) continue;
+        const b = (feedbackByCompany[k] ??= { want: 0, maybe: 0, mismatch: 0 });
+        if (row.verdict === "want") b.want++;
+        else if (row.verdict === "maybe") b.maybe++;
+        else if (row.verdict === "mismatch") b.mismatch++;
+      }
+    } catch { /* client_feedback 未整備でも続行 */ }
   }
 
   // 人材数（candidates の所属企業＝source_company / company / affiliation）を集計。
@@ -186,7 +215,7 @@ export default async function CompaniesPage() {
       {/* タブで分割してスクロールを削減（既定＝企業一覧） */}
       <CompaniesTabs
         followCount={followups.length}
-        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} lineCompanies={lineCompanies} ratings={companyRatings} />}
+        list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} lineCompanies={lineCompanies} ratings={companyRatings} feedback={feedbackByCompany} />}
         target={
           <>
             {/* 🎯 狙うべき企業（提案管理結果 × 市場トレンド の根拠つき分類） */}

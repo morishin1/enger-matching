@@ -7,7 +7,7 @@ import { Icons } from "./icons";
 import { targetScore, prospectAction, companyIdLabel, type CompanyRow, type ProspectAction } from "@/lib/companies";
 import { StarsView } from "./Stars";
 import type { CompanyRating } from "@/lib/company-ratings";
-import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, type CompanyDiagnosis } from "@/lib/actions";
+import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, summarizeCompanyReputation, type CompanyDiagnosis } from "@/lib/actions";
 import { ReferralPortalSection } from "./ReferralPortalSection";
 
 type Registered = {
@@ -16,6 +16,11 @@ type Registered = {
   phone?: string | null; website?: string | null; address?: string | null; note?: string | null;
   meeting_done?: boolean | null; meeting_done_at?: string | null;
   company_no?: number | null; // #293：企業ID（自動採番）。提案管理の自社担当連携のキー。
+  // 対応特性タグ（属人知の資産化）＋取引注意（既存 caution 列を編集・表示）
+  contact_pref?: string | null; response_speed?: string | null; decision_speed?: string | null;
+  caution?: boolean | null; caution_reason?: string | null; caution_at?: string | null;
+  // WEB評判のAI要約（参考情報・要確認）
+  web_reputation?: string | null; web_reputation_source?: string | null; web_reputation_at?: string | null;
 };
 
 // 「打合せ済」判定：
@@ -42,7 +47,7 @@ const statusColor = (s: string) => s === "主要" ? "var(--color-brand-600)" : s
 
 type SortKey = "target" | "job_count" | "active_jobs" | "candidate_count" | "avg_rate" | "last_job_at";
 
-export function CompaniesView({ companies, registered = [], candidateCounts = {}, lineCompanies = [], ratings = {} }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number>; lineCompanies?: string[]; ratings?: Record<string, CompanyRating> }) {
+export function CompaniesView({ companies, registered = [], candidateCounts = {}, lineCompanies = [], ratings = {}, feedback = {} }: { companies: CompanyRow[]; registered?: Registered[]; candidateCounts?: Record<string, number>; lineCompanies?: string[]; ratings?: Record<string, CompanyRating>; feedback?: Record<string, { want: number; maybe: number; mismatch: number }> }) {
   // LINE でやり取りしている企業（正規化名の Set）。一覧で「💬 LINE」バッジを出すために使う。
   const lineSet = useMemo(() => new Set(lineCompanies.map((n) => (n ?? "").replace(/^[\s　]+|[\s　]+$/g, ""))), [lineCompanies]);
   const isLineCompany = (name: string) => lineSet.has((name ?? "").replace(/^[\s　]+|[\s　]+$/g, ""));
@@ -141,22 +146,28 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
   }, [candidateCounts]);
   const candCountOf = (name: string) => candCountByKey.get(normName(name)) ?? 0;
 
+  // 企業名(正規化) → 企業評価(会いたい/ミスマッチ)件数。決まりやすさ係数に注入する。
+  const fbOf = (name: string) => feedback[normName(name)] ?? feedback[name] ?? { want: 0, maybe: 0, mismatch: 0 };
+
   const merged: Merged[] = useMemo(() => {
     const list: Merged[] = companies.map((c) => {
       const reg = regMap.get(normName(c.name));
       const withReg = { ...c, tier: (reg?.tier as any) || c.tier, status: reg?.status || c.status } as CompanyRow;
       const candidate_count = candCountOf(c.name);
-      return { ...withReg, ...targetScore(withReg), action: prospectAction(withReg), reg, registered: !!reg, candidate_count };
+      const fb = fbOf(c.name);
+      const opts = { caution: reg?.caution ?? false, want: fb.want, mismatch: fb.mismatch };
+      return { ...withReg, ...targetScore(withReg, opts), action: prospectAction(withReg), reg, registered: !!reg, candidate_count };
     });
     // 案件が無い登録企業も表示
     const inDerived = new Set(companies.map((c) => normName(c.name)));
     for (const r of registered) {
       if (inDerived.has(normName(r.name))) continue;
       const base: CompanyRow = { name: r.name, job_count: 0, active_jobs: 0, focus_jobs: 0, last_job_at: null, avg_rate: null, tier: (r.tier as any) || "C", status: r.status || "新規", proposals_total: 0, won: 0, lost: 0, last_sentiment: null, last_relation: null, last_meeting_at: null, meeting_count: 0 };
-      list.push({ ...base, ...targetScore(base), action: prospectAction(base), reg: r, registered: true, candidate_count: candCountOf(r.name) });
+      const fb = fbOf(r.name);
+      list.push({ ...base, ...targetScore(base, { caution: r?.caution ?? false, want: fb.want, mismatch: fb.mismatch }), action: prospectAction(base), reg: r, registered: true, candidate_count: candCountOf(r.name) });
     }
     return list;
-  }, [companies, registered, regMap]);
+  }, [companies, registered, regMap, feedback]);
 
   const counts = useMemo(() => ({ ALL: merged.length, A: merged.filter((c) => c.tier === "A").length, B: merged.filter((c) => c.tier === "B").length, C: merged.filter((c) => c.tier === "C").length }), [merged]);
   const actCounts = useMemo(() => ({
@@ -572,9 +583,34 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
     name: data?.name ?? "", industry: reg?.industry ?? "", tier: (reg?.tier ?? data?.tier ?? "") as string, status: reg?.status ?? data?.status ?? "",
     owner_staff: reg?.owner_staff ?? "", contact_name: reg?.contact_name ?? "", contact_email: reg?.contact_email ?? "",
     phone: reg?.phone ?? "", website: reg?.website ?? "", address: reg?.address ?? "", note: reg?.note ?? "",
+    // 対応特性タグ（属人知の資産化）
+    contact_pref: reg?.contact_pref ?? "", response_speed: reg?.response_speed ?? "", decision_speed: reg?.decision_speed ?? "",
+    caution_reason: reg?.caution_reason ?? "",
   });
   const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
   const isNew = !data;
+  // 取引注意（既存 caution 列。ON にするなら理由必須）。
+  const [caution, setCaution] = useState<boolean>(reg?.caution === true);
+  // WEB評判AI要約（実行状態・結果）。
+  const [repBusy, setRepBusy] = useState(false);
+  const [repMsg, setRepMsg] = useState<string | null>(null);
+  const [repUrl, setRepUrl] = useState("");
+  // 返ってきた要約はローカル state に保持して即時表示する。
+  //   （モーダルはクリック時の client スナップショット data から描画されるため、
+  //    router.refresh() では開いたままのモーダルの reg.web_reputation は更新されない。）
+  const [repResult, setRepResult] = useState<{ summary: string; source?: string; at?: string } | null>(null);
+  const runReputation = async () => {
+    if (!data) return;
+    setRepBusy(true); setRepMsg(null);
+    try {
+      const r = await summarizeCompanyReputation(data.name, repUrl.trim() || undefined);
+      if (r.ok && r.summary) { setRepResult({ summary: r.summary, source: r.source, at: r.at }); router.refresh(); }
+      else setRepMsg(r.error ?? "要約に失敗しました");
+    } catch (e) { setRepMsg(e instanceof Error ? e.message : "要約に失敗しました"); }
+    finally { setRepBusy(false); }
+  };
+  // 表示は「今回の要約結果」優先、無ければ保存済み（reg）を使う。
+  const repView = repResult ?? (reg?.web_reputation ? { summary: reg.web_reputation, source: reg.web_reputation_source ?? undefined, at: reg.web_reputation_at ?? undefined } : null);
 
   // 打ち合わせ完了の手動フラグ。
   //   ・meeting_done=true → 常に「済」
@@ -612,8 +648,9 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
 
   const save = async () => {
     if (!f.name.trim()) { setMsg("企業名を入力してください"); return; }
+    if (caution && !f.caution_reason.trim()) { setMsg("取引注意にする場合は理由を入力してください"); return; }
     setSaving(true); setMsg(null);
-    const res = await saveCompany(f);
+    const res = await saveCompany({ ...f, caution });
     setSaving(false);
     if (res.ok) { router.refresh(); onClose(); } else setMsg(res.error || "保存に失敗しました");
   };
@@ -734,8 +771,49 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
           <div><L c="電話" /><input style={inp} value={f.phone} onChange={(e) => set("phone", e.target.value)} /></div>
           <div><L c="URL" /><input style={inp} value={f.website} onChange={(e) => set("website", e.target.value)} /></div>
           <div style={{ gridColumn: "1 / -1" }}><L c="所在地" /><input style={inp} value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
+          {/* 対応特性タグ：担当の勘（電話がつながらない/レスが遅い等）を構造化して全員で共有し、攻め先スコアにも反映。 */}
+          <div><L c="連絡手段の当たり" /><select style={inp as any} value={f.contact_pref} onChange={(e) => set("contact_pref", e.target.value)}><option value="">未設定</option><option>電話OK</option><option>電話NG</option><option>メール推奨</option><option>LINE推奨</option><option>担当者次第</option></select></div>
+          <div><L c="レス速度" /><select style={inp as any} value={f.response_speed} onChange={(e) => set("response_speed", e.target.value)}><option value="">未設定</option><option>速い</option><option>普通</option><option>遅い</option></select></div>
+          <div><L c="決裁速度" /><select style={inp as any} value={f.decision_speed} onChange={(e) => set("decision_speed", e.target.value)}><option value="">未設定</option><option>速い</option><option>普通</option><option>遅い</option></select></div>
           <div style={{ gridColumn: "1 / -1" }}><L c="メモ" /><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.note} onChange={(e) => set("note", e.target.value)} /></div>
         </div>
+
+        {/* 取引注意（属人知の資産化）：ON にすると理由必須。攻め先スコアが下がり、一覧に⚠が出る。 */}
+        <div style={{ border: `1px solid ${caution ? "#f7c5cf" : "var(--color-border)"}`, borderRadius: 10, padding: "10px 12px", background: caution ? "#fdecef" : "var(--color-surface)" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, fontWeight: 700, color: caution ? "#b42318" : "var(--color-ink-2)" }}>
+            <input type="checkbox" checked={caution} onChange={(e) => setCaution(e.target.checked)} style={{ width: 16, height: 16 }} />
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{caution ? "warning" : "flag"}</span>
+            取引注意にする
+            <span className="muted" style={{ fontSize: 10.5, fontWeight: 500, marginLeft: "auto" }}>{reg?.caution_at ? `最終更新 ${dateLabel(reg.caution_at)}` : "「電話つながらない/合わない」等を根拠つきで共有"}</span>
+          </label>
+          {caution && (
+            <textarea value={f.caution_reason} onChange={(e) => set("caution_reason", e.target.value)} rows={2} placeholder="理由（必須）：例）電話が全くつながらない／単価が毎回合わず稼働化ゼロ／連絡がルーズ 等"
+              style={{ ...inp, marginTop: 8, resize: "vertical", border: `1px solid ${f.caution_reason.trim() ? "var(--color-border-strong)" : "var(--color-danger)"}` }} />
+          )}
+        </div>
+
+        {/* WEB評判のAI要約（社内・参考情報＝要確認）。企業サイト or 口コミ/記事URLを要約して保存・再表示。 */}
+        {data && (
+          <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-brand-700)" }}>travel_explore</span>
+              <span style={{ fontSize: 12.5, fontWeight: 700 }}>WEB評判（AI要約）</span>
+              <span className="muted" style={{ fontSize: 10.5 }}>参考情報・未検証（要確認）。URL未指定なら企業サイトを要約</span>
+              <button type="button" className="btn brand btn-xs" style={{ marginLeft: "auto" }} disabled={repBusy} onClick={runReputation}>{repBusy ? "要約中…" : repView ? "再取得" : "AIで要約"}</button>
+            </div>
+            <input style={{ ...inp, fontSize: 12 }} value={repUrl} onChange={(e) => setRepUrl(e.target.value)} placeholder="口コミ/記事のURL（任意・https://…）。空欄なら企業サイトURLを使用" />
+            {repMsg && <div style={{ fontSize: 11.5, color: "var(--color-danger)" }}>{repMsg}</div>}
+            {repView && (
+              <div style={{ fontSize: 12, background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", borderRadius: 8, padding: "9px 11px", whiteSpace: "pre-wrap", lineHeight: 1.7 }}>
+                {repView.summary}
+                <div className="muted" style={{ fontSize: 10.5, marginTop: 6 }}>
+                  {repView.source && <a href={repView.source} target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-brand-700)" }}>情報源</a>}
+                  {repView.at && <span style={{ marginLeft: 8 }}>取得 {dateLabel(repView.at)}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {msg && <div style={{ color: "var(--color-danger)", fontSize: 12.5 }}>{msg}</div>}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
