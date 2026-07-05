@@ -271,3 +271,46 @@ export function helpFor(pathname: string): HelpDoc {
     .sort((a, b) => b.match.length - a.match.length)[0];
   return found?.doc ?? DEFAULT_HELP;
 }
+
+// ユーザー企業(client)向けマニュアル（ENGER business）。ポータルの各機能を1か所にまとめる。
+export const CLIENT_HELP: HelpDoc = {
+  title: "ENGER business の使い方",
+  intro: "貴社の採用を、案件掲載からご提案・選考までひとつの画面で。自社情報と自社案件が充実するほど、AIマッチングの精度とご提案数が上がります。",
+  sections: [
+    { h: "はじめに（担当との面談）", body: [
+      "自社案件・自社情報の登録は先にご利用いただけます。",
+      "おすすめ人材の詳細閲覧・選考管理など、人材情報を含む機能は、担当エージェントとの面談後に解放されます。",
+    ]},
+    { h: "自社情報を充実させる（マッチング精度アップ）", body: [
+      "「自社情報」で Mission・カルチャー・求める人物像・自社の魅力・サイトURLを登録します。",
+      "ダッシュボードの充実度メーターが100%に近づくほど、貴社に合う人材を優先的にご提案します。",
+    ]},
+    { h: "自社案件を掲載する", body: [
+      "「自社案件」から募集要項（職種・スキル・単価・リモート可否など）を登録します。",
+      "掲載は運営の審査後に公開され、人材へのマッチング対象になります。",
+    ]},
+    { h: "おすすめ人材（匿名表示の理由）", body: [
+      "ご提案する人材は、氏名・連絡先を伏せた匿名（イニシャル＋スキル＋単価）で表示します。個人情報保護と、担当が責任を持って仲介するためです。",
+      "各人材にはマッチ度と一致スキルの根拠が付きます。",
+    ]},
+    { h: "評価で精度を上げる・面談へ", body: [
+      "気になる人材に「会いたい／検討中／ミスマッチ」で評価すると、提案精度が上がり、担当が面談調整に動きます。",
+      "「会いたい」はスカウト依頼として担当が仲介します（企業から人材への直接連絡は行いません）。",
+    ]},
+    { h: "選考管理・チャット", body: [
+      "「選考管理」で応募者・ご提案人材の選考ステージ（匿名）を確認できます。",
+      "ご不明点は「チャット」から担当にご連絡ください。",
+    ]},
+  ],
+};
+
+/** /manual ページ用：閲覧者ロールに応じたマニュアル一式（見出し＋HelpDoc配列）を返す。
+ *  社内(admin/agent)は全画面マニュアル、企業(client)/パートナー/副業は各専用マニュアル。 */
+export function manualDocsFor(role: string | null | undefined): { title: string; intro: string; docs: HelpDoc[] } {
+  if (role === "client") return { title: "ENGER business マニュアル", intro: "貴社の採用ポータルの使い方をまとめています。", docs: [CLIENT_HELP] };
+  if (role === "partner") return { title: "パートナー企業 マニュアル", intro: "自社登録・共有・匿名表示の考え方をまとめています。", docs: [PARTNER_HELP] };
+  if (role === "freelance") return { title: "副業エージェント マニュアル", intro: "人材・案件の登録と報酬の考え方をまとめています。", docs: [FREELANCE_HELP] };
+  if (role === "candidate") return { title: "ENGER マニュアル", intro: "ご利用の流れをまとめています。", docs: [DEFAULT_HELP] };
+  // admin / agent（社内）：全体像＋各画面マニュアルを目次から辿れる形で全て収録。
+  return { title: "ENGER DX 社内マニュアル", intro: "各画面の使い方を1か所にまとめています。目次から探すか、各画面右上の「ヘルプ」でその場の使い方も確認できます。", docs: [DEFAULT_HELP, ...HELP_DOCS.map((h) => h.doc)] };
+}
