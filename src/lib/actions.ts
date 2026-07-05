@@ -15,6 +15,9 @@ import {
   bustCounts, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
   listApproverNames, initialsOf, normKey,
 } from "./actions/_shared";
+import { callLLM, parseJsonLoose } from "./llm";
+import { logUsage } from "./ai-usage";
+import { LOST_REASONS, LOST_PHASES } from "./proposal-constants";
 
 export type CandidateInput = {
   code?: string | null;
@@ -1671,6 +1674,10 @@ export type CompanyInput = {
   name: string; industry?: string; tier?: string; status?: string;
   owner_staff?: string; contact_name?: string; contact_email?: string;
   phone?: string; website?: string; address?: string; note?: string;
+  // 対応特性タグ（属人知の資産化）
+  contact_pref?: string; response_speed?: string; decision_speed?: string;
+  // 取引注意（既存の caution 列を企業モーダルから編集可能に。true のときは理由必須）
+  caution?: boolean; caution_reason?: string;
 };
 
 /** 企業を新規登録/更新 (name で upsert)。 */
@@ -1680,14 +1687,172 @@ export async function saveCompany(input: CompanyInput) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const row: Record<string, any> = { name };
-  for (const k of ["industry", "tier", "status", "owner_staff", "contact_name", "contact_email", "phone", "website", "address", "note"] as const) {
+  for (const k of ["industry", "tier", "status", "owner_staff", "contact_name", "contact_email", "phone", "website", "address", "note", "contact_pref", "response_speed", "decision_speed"] as const) {
     const v = (input as any)[k];
     if (v !== undefined) row[k] = typeof v === "string" ? (v.trim() || null) : v;
   }
-  const { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  // 取引注意：ON にするなら理由必須（属人的な「合わない/電話つながらない」を根拠つきで全員に共有する）。
+  if (typeof input.caution === "boolean") {
+    row.caution = input.caution;
+    if (input.caution) {
+      const reason = (input.caution_reason ?? "").trim();
+      if (!reason) return { ok: false, error: "取引注意にする場合は理由を入力してください（例：電話がつながらない／条件が合わない 等）" };
+      const access = await currentAccess();
+      row.caution_reason = reason;
+      row.caution_at = new Date().toISOString();
+      row.caution_by = access?.name ?? access?.email ?? null;
+    }
+  }
+  const dropKeys = (src: Record<string, any>, keys: string[]) => { const o = { ...src }; for (const k of keys) delete o[k]; return o; };
+  let { error } = await admin.from("companies").upsert(row, { onConflict: "name" });
+  // 未整備の列を段階的に外して再試行（fail-soft）。まず新規の対応特性タグだけ外し、
+  //   既存の取引注意(caution)列はできる限り残す（caution は close-reason-caution.sql で既出＝本番に存在するため、
+  //   タグ列が無いだけで caution フラグの保存が落ちないようにする）。
+  if (error && /contact_pref|response_speed|decision_speed|caution|column/i.test(error.message)) {
+    let attempt = dropKeys(row, ["contact_pref", "response_speed", "decision_speed"]);
+    ({ error } = await admin.from("companies").upsert(attempt, { onConflict: "name" }));
+    // それでも caution 列が無い（ごく古い環境）なら caution 系も外して基本列のみで保存。
+    if (error && /caution|column/i.test(error.message)) {
+      attempt = dropKeys(attempt, ["caution", "caution_reason", "caution_at", "caution_by"]);
+      ({ error } = await admin.from("companies").upsert(attempt, { onConflict: "name" }));
+    }
+    if (!error) { revalidatePath("/companies"); return { ok: true, warn: "一部の追加列が未整備のため、可能な範囲で保存しました（supabase/companies-crm-loop.sql を実行してください）" }; }
+  }
   if (error) return { ok: false, error: error.message };
   revalidatePath("/companies");
   return { ok: true };
+}
+
+/** 見送り（失注）理由をAIが下書き推定する。提案IDから メモ・元メール・面談メモ を server 側で集め、
+ *  LOST_REASONS/LOST_PHASES の中から最も妥当なコードと理由メモ案を返す（担当が確認・修正して確定）。
+ *  ※ 保存はしない（フォーム前入力のみ）。入力の手間を下げて「E3:その他＋一行」への逃げを減らすのが目的。 */
+export async function suggestLostReason(proposalId: string): Promise<{ ok: boolean; error?: string; reason?: string; phase?: string; note?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません" };
+  const id = (proposalId ?? "").trim();
+  if (!id) return { ok: false, error: "提案IDがありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  // 提案本体・メモ・元メール本文を収集（クライアントを信頼せず server 側で再取得）。
+  let ctx = "";
+  try {
+    const pr: any = await admin.from("proposals")
+      .select("job_title, company, c_init, stage, meeting_status, caller_status, job_id, candidate_id")
+      .eq("id", id).maybeSingle();
+    const p = pr.data ?? {};
+    const memoRes: any = await admin.from("proposal_memos")
+      .select("category, body, created_at").eq("proposal_id", id)
+      .order("created_at", { ascending: false }).limit(60);
+    const memos = (memoRes.data ?? []) as { category: string; body: string; created_at: string }[];
+    let jobDetail: string | null = null, candDetail: string | null = null;
+    if (p.job_id) { const jr: any = await admin.from("jobs").select("detail").eq("id", p.job_id).maybeSingle(); jobDetail = jr.data?.detail ?? null; }
+    if (p.candidate_id) { const cr: any = await admin.from("candidates").select("note, exp").eq("id", p.candidate_id).maybeSingle(); candDetail = cr.data?.note ?? cr.data?.exp ?? null; }
+    const memoText = memos.map((m) => `・[${m.category}] ${String(m.body ?? "").replace(/\s+/g, " ").slice(0, 400)}`).join("\n");
+    ctx = [
+      `案件: ${p.job_title ?? "—"} / 会社: ${p.company ?? "—"} / 人材: ${p.c_init ?? "—"}`,
+      `現ステージ: ${p.stage ?? "—"} / 面談状況: ${p.meeting_status ?? "—"} / 架電状況: ${p.caller_status ?? "—"}`,
+      memoText ? `やり取り記録（新しい順）:\n${memoText}` : "",
+      jobDetail ? `案件メール抜粋: ${String(jobDetail).replace(/\s+/g, " ").slice(0, 800)}` : "",
+      candDetail ? `人材メール抜粋: ${String(candDetail).replace(/\s+/g, " ").slice(0, 800)}` : "",
+    ].filter(Boolean).join("\n").slice(0, 6000);
+  } catch (e) {
+    return { ok: false, error: "提案情報の取得に失敗しました" };
+  }
+  if (ctx.replace(/\s/g, "").length < 40) return { ok: false, error: "推定に使える記録が不足しています（メモや元メールが必要です）。手動で入力してください。" };
+
+  const system = [
+    "あなたはSES/人材紹介の営業マネージャーです。提案が見送り（失注）になった原因を、記録から最も妥当に推定します。",
+    "必ず次のJSONだけを出力：{\"reason\":\"<失注理由コード>\",\"phase\":\"<失注フェーズ>\",\"note\":\"<40〜120字の理由メモ>\"}",
+    `reason は次のいずれかの文字列を丸ごと選ぶ（接頭コード込みで一致させる）：\n${LOST_REASONS.map((r) => `- ${r}`).join("\n")}`,
+    `phase は次のいずれか：${LOST_PHASES.join(" / ")}`,
+    "note は事実ベースで具体的に（担当者名・社名などの固有名詞は避け、単価/タイミング/競合/連絡状況などの要因を書く）。記録から読み取れない憶測は書かない。根拠が薄いときは reason を 'E3: その他' にする。",
+  ].join("\n");
+  const res = await callLLM({ system, prompt: `【失注の記録】\n${ctx}`, maxTokens: 400, temperature: 0.2 });
+  if (!res.ok) return { ok: false, error: res.error || "AI推定に失敗しました" };
+  await logUsage("lost-reason", res.model, res.usage, access.email ?? null);
+  const out = parseJsonLoose<{ reason?: string; phase?: string; note?: string }>(res.text);
+  if (!out) return { ok: false, error: "AIの応答を解析できませんでした。もう一度お試しください。" };
+  // ホワイトリスト検証：完全一致 → 接頭コード一致 → 既定。
+  const pickReason = (v?: string): string => {
+    const s = (v ?? "").trim();
+    if (LOST_REASONS.includes(s)) return s;
+    const code = s.split(/[:：]/)[0].trim().toUpperCase();
+    const byCode = LOST_REASONS.find((r) => r.toUpperCase().startsWith(code + ":") || r.toUpperCase().startsWith(code + "："));
+    return byCode ?? "E3: その他";
+  };
+  const pickPhase = (v?: string): string => {
+    const s = (v ?? "").trim();
+    if (!s) return ""; // 空は許容（クライアントは r.phase が空なら無視）
+    if (LOST_PHASES.includes(s)) return s;
+    // 先頭の 1〜4 の番号で対応づけ（"3" / "3. 提案後失注" 等）。
+    const num = s.match(/[1-4]/)?.[0];
+    if (num) { const byNum = LOST_PHASES.find((p) => p.startsWith(num + ".")); if (byNum) return byNum; }
+    // 番号が無ければラベル文言の部分一致（空文字の全一致バグを避けるため s は非空を保証済み）。
+    return LOST_PHASES.find((p) => p.includes(s) || s.includes(p.replace(/^\d+\.\s*/, ""))) ?? "";
+  };
+  return { ok: true, reason: pickReason(out.reason), phase: pickPhase(out.phase), note: (out.note ?? "").trim().slice(0, 200) || undefined };
+}
+
+/** 企業のWEB評判をAIで要約する（社内・admin/agent のみ）。runtime に検索APIは無いため、
+ *  指定URL（未指定なら企業サイト website）を fetch → AIが読み取れる範囲で要約し、必ず「要確認」を明示。
+ *  口コミページや記事のURLを渡すと評判の材料が増える。結果は companies に保存して再表示する。 */
+export async function summarizeCompanyReputation(name: string, url?: string): Promise<{ ok: boolean; error?: string; summary?: string; source?: string; at?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const nm = (name ?? "").trim();
+  if (!nm) return { ok: false, error: "企業名がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  // 参照URLの決定：明示指定 > 企業マスタの website。
+  let target = (url ?? "").trim();
+  if (!target) {
+    try { const wr: any = await admin.from("companies").select("website").eq("name", nm).maybeSingle(); target = (wr.data?.website ?? "").trim(); } catch { /* noop */ }
+  }
+  if (!/^https?:\/\/.+/i.test(target)) return { ok: false, error: "参照URLがありません。企業サイトURLを登録するか、口コミ/記事のURLを指定してください（https://…）。" };
+
+  let text = "";
+  try {
+    const res = await fetch(target, { headers: { "User-Agent": "ENGER-bot/1.0" }, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return { ok: false, error: `参照ページの取得に失敗しました (HTTP ${res.status})` };
+    const html = await res.text();
+    text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().slice(0, 7000);
+  } catch {
+    return { ok: false, error: "参照ページの取得に失敗しました。URLをご確認ください。" };
+  }
+  if (text.length < 80) return { ok: false, error: "本文を十分に取得できませんでした。別のURL（口コミ/記事）をお試しください。" };
+
+  const system = [
+    "あなたは企業与信の調査補助です。与えられたWEB本文だけから、取引判断の参考になる情報を日本語で簡潔に要約します。",
+    "誇張・創作は禁止。本文から読み取れない内容は書かない。ネガティブ材料（未払い/訴訟/炎上/離職/評判悪化 等）が本文にあれば negative_signals に列挙、無ければ空配列。",
+    "必ず次のJSONだけを出力：{\"summary\":\"事業・評判の要約(3-5文)\",\"negative_signals\":[\"…\"],\"needs_verification\":true}",
+  ].join("\n");
+  const res = await callLLM({ system, prompt: `参照URL：${target}\n本文：\n${text}`, maxTokens: 700, temperature: 0.3 });
+  if (!res.ok) return { ok: false, error: res.error || "AI要約に失敗しました" };
+  await logUsage("reputation", res.model, res.usage, access.email ?? null);
+  const out = parseJsonLoose<{ summary?: string; negative_signals?: string[]; needs_verification?: boolean }>(res.text);
+  if (!out || !out.summary) return { ok: false, error: "AIの応答を解析できませんでした。もう一度お試しください。" };
+  const neg = Array.isArray(out.negative_signals) ? out.negative_signals.filter(Boolean) : [];
+  const summary = [
+    "⚠ 参考情報（AI要約・未検証＝要確認）",
+    out.summary.trim(),
+    neg.length ? `\n【ネガティブ材料の可能性】\n${neg.map((s) => `・${s}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+  const at = new Date().toISOString();
+
+  let { error } = await admin.from("companies").upsert(
+    { name: nm, web_reputation: summary, web_reputation_source: target, web_reputation_at: at, web_reputation_by: access.name ?? access.email ?? null },
+    { onConflict: "name" },
+  );
+  if (error && /web_reputation|column/i.test(error.message)) {
+    return { ok: false, error: "評判要約の保存列が未整備です（supabase/companies-crm-loop.sql を実行してください）" };
+  }
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/companies");
+  return { ok: true, summary, source: target, at };
 }
 
 /** 打合せ記録の保存に連動して企業マスタへ反映する。
