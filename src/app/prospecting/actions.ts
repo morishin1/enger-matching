@@ -132,7 +132,9 @@ export async function promoteProspectToCompany(formData: FormData): Promise<Resu
   const company = {
     name: prospect.company_name,
     industry: prospect.industry,
-    status: "active",
+    // 企業マスタのステータスは「主要 / 拡大中 / 新規 / 休眠」。エンド開拓からの昇格は新規取引先。
+    //   （"active" は企業一覧の色分け・フィルタに一致せず未分類バッジになるため使わない）
+    status: "新規",
     owner_staff: prospect.owner_staff,
     contact_name: prospect.contact_name,
     phone: prospect.phone,
