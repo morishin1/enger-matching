@@ -9,7 +9,8 @@ import {
   passwordStrengthError, isCommonPassword, sanitizeName, coerceSelfSignupRole,
 } from "@/lib/signup-security";
 
-export type SignupState = { error?: string; ok?: boolean } | null;
+export type SignupState = { error?: string; ok?: boolean; email?: string } | null;
+export type VerifyState = { error?: string; verified?: boolean } | null;
 
 // クライアントIP取得（Vercel/プロキシ越し対応）。x-forwarded-for の先頭を採用、フォールバック多段。
 async function getClientIp(): Promise<string> {
@@ -109,5 +110,26 @@ export async function signUp(_prev: SignupState, formData: FormData): Promise<Si
   // 7) 承認前はログインさせない
   try { await supabase.auth.signOut(); } catch { /* noop */ }
 
-  return { ok: true };
+  // #309①：確認コード入力画面のため、対象メールを返す（コード検証 verifySignupCode に使う）。
+  return { ok: true, email: rawEmail };
+}
+
+/** #309①：新規登録後、メールに届く確認コード（数字）を入力して検証する。
+ *  ・Supabase の Email テンプレートが URL ではなくコード（{{ .Token }}）を送る設定でも、
+ *    このフォームからメール認証を完了できるようにする（入力画面のない「送信完了」の袋小路を解消）。
+ *  ・検証成功後もセッションは破棄（承認前はログインさせない＝管理者承認まで待つ運用は維持）。 */
+export async function verifySignupCode(_prev: VerifyState, formData: FormData): Promise<VerifyState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const code = String(formData.get("code") ?? "").replace(/\D/g, "");
+  if (!isValidEmail(email)) return { error: "メールアドレスが不正です。登録画面からやり直してください。" };
+  if (code.length < 6) return { error: "メールに届いた確認コード（数字）を入力してください。" };
+
+  const supabase = await authServerClient();
+  const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "signup" });
+  if (error) {
+    return { error: "確認コードが正しくないか、期限が切れています。メールをご確認のうえ、もう一度お試しください。" };
+  }
+  // メール認証は完了。承認前はログインさせないためセッションは破棄する（scope:"local" で確実に Cookie 削除）。
+  try { await supabase.auth.signOut({ scope: "local" }); } catch { /* noop */ }
+  return { verified: true };
 }

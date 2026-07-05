@@ -1,10 +1,12 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { signUp, type SignupState } from "./actions";
+import { signUp, verifySignupCode, type SignupState, type VerifyState } from "./actions";
 
 export default function SignupPage() {
   const [state, action, pending] = useActionState<SignupState, FormData>(signUp, null);
+  // #309①：確認コード入力（メールに届く数字）。登録成功(state.ok)後に表示する。
+  const [vState, vAction, vPending] = useActionState<VerifyState, FormData>(verifySignupCode, null);
   const [role, setRole] = useState<"client" | "candidate" | "freelance">("client");
   const [agHost, setAgHost] = useState(false);
   useEffect(() => {
@@ -37,26 +39,41 @@ export default function SignupPage() {
             <span style={{ fontFamily: "var(--font-display, sans-serif)", fontWeight: 800, fontSize: 20, letterSpacing: ".04em", color: "#38BDF8" }}>DX</span>
           </div>
 
-          {state?.ok ? (
+          {state?.ok && vState?.verified ? (
+            /* #309①：コード検証まで完了 → 承認待ちの最終画面 */
+            <div style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
+                <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>メールアドレスの確認が完了しました</h2>
+                <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}>あとは<b>管理者の承認</b>を待つだけです。承認されるとログインできるようになります（メールでご案内します）。</p>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <a href="/login" style={{ display: "inline-block", marginTop: 18, color: "#0095D9", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>ログイン画面へ戻る →</a>
+              </div>
+            </div>
+          ) : state?.ok ? (
+            /* #309①：登録直後 → メールに届く確認コード（数字）を入力する画面（袋小路の解消）。
+               コードではなくメール内のリンクを開いても確認できるよう、両方の導線を示す。 */
             <div style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 40, marginBottom: 8 }}>📨</div>
-                <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>ご登録ありがとうございます</h2>
-                <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}>ログインするには、次の<b>2つの認証</b>が必要です。完了までは<b>まだログインできません</b>。</p>
+                <h2 style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 800, color: "#0F2440" }}>確認コードを入力してください</h2>
+                <p style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.8 }}><b>{state.email}</b> 宛に確認コード（数字）を送信しました。メールに記載のコードを入力してください。</p>
               </div>
-              {/* 新規登録者に「認証（メール確認＋管理者承認）が必要」であることを明示（LP側の要望対応）。 */}
-              <ol style={{ margin: "14px 0 0", padding: "0 0 0 4px", listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
-                <li style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  <span style={{ flex: "0 0 22px", height: 22, borderRadius: 99, background: "#0095D9", color: "#fff", fontSize: 12, fontWeight: 800, display: "grid", placeItems: "center" }}>1</span>
-                  <span style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.7 }}><b>メールアドレスの確認</b><br />ご登録のメールに届く「メールアドレスを登録する」リンクを開いてください。</span>
-                </li>
-                <li style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  <span style={{ flex: "0 0 22px", height: 22, borderRadius: 99, background: "#0095D9", color: "#fff", fontSize: 12, fontWeight: 800, display: "grid", placeItems: "center" }}>2</span>
-                  <span style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.7 }}><b>管理者の承認</b><br />確認完了後、運営（管理者）が内容を確認して承認します。承認されるとログインできるようになります。</span>
-                </li>
-              </ol>
+              <form action={vAction} style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+                <input type="hidden" name="email" value={state.email ?? ""} />
+                <input name="code" inputMode="numeric" autoComplete="one-time-code" required maxLength={12}
+                  placeholder="例：12345678"
+                  style={{ ...input, textAlign: "center", letterSpacing: "0.3em", fontSize: 20, fontWeight: 700 }} />
+                {vState?.error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{vState.error}</div>}
+                <button type="submit" disabled={vPending} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: "pointer", opacity: vPending ? 0.6 : 1 }}>{vPending ? "確認中…" : "コードを確認する"}</button>
+              </form>
+              <div style={{ marginTop: 14, fontSize: 11.5, color: "#6b7280", lineHeight: 1.8, background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 10, padding: "9px 11px" }}>
+                ※ メールに<b>「メールアドレスを登録する」リンク</b>が記載されている場合は、そちらを開いても確認できます。<br />
+                確認後、<b>管理者の承認</b>をもってログインできるようになります。
+              </div>
               <div style={{ textAlign: "center" }}>
-                <a href="/login" style={{ display: "inline-block", marginTop: 18, color: "#0095D9", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>ログイン画面へ戻る →</a>
+                <a href="/login" style={{ display: "inline-block", marginTop: 14, color: "#0095D9", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>ログイン画面へ戻る →</a>
               </div>
             </div>
           ) : (

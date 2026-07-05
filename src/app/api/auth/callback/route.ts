@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { authServerClient, publicOrigin } from "@/lib/supabase-auth";
-import { resolveAccess } from "@/lib/accounts";
+import { resolveAccess, createPendingAccount } from "@/lib/accounts";
 import { isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
-import { hasFreelanceProfile } from "@/lib/auth-apps";
+import { hasFreelanceProfile, markBusinessAuthApp } from "@/lib/auth-apps";
+import { isDisposableEmail } from "@/lib/signup-security";
 
 export const dynamic = "force-dynamic";
 
@@ -35,14 +36,28 @@ export async function GET(req: Request) {
   const email = data?.user?.email ?? "";
   const access = await resolveAccess(email);
   if (!access) {
-    // ENGER business に未登録のアカウント（Google 等の OAuth 初回や、app_users に無いメール）は入室不可。
-    //   ③の方針：Google 認証は「登録済み＆承認済み」のみ通す。新規はメール＋パスワードで登録してもらう
-    //   （登録後は管理者の承認でログイン可能）。自動でアカウントを作らない＝なりすまし/誤分類を防ぐ。
-    //   原因がわかるようメッセージを出し分け：フリーランス（profiles）として登録済みのメールなら明示する。
+    // ENGER business に未登録のアカウント（Google/GitHub の OAuth 初回や、app_users に無いメール）。
+    //   フリーランス（profiles）として登録済みのメールは、ビジネスへ取り込まず明示して案内する
+    //   （同一メールをフリーランス⇄ビジネスで取り違えないため）。
     if (await hasFreelanceProfile(email)) {
-      return await deny("このメールアドレスは ENGERフリーランス（個人）として登録されています。フリーランスの方は enger.jp からログインしてください。ビジネス（企業・社内）として利用する場合は、新規登録から申請してください（管理者の承認後にログインできます）。");
+      return await deny("このメールアドレスは ENGERフリーランス（個人）として登録されています。フリーランスの方は enger.jp からログインしてください。ビジネス（企業・社内）として利用する場合は、別のメールアドレスで新規登録してください（管理者の承認後にログインできます）。");
     }
-    return await deny("このアカウントは ENGER business に登録されていません。メールアドレスとパスワードで新規登録してください（登録後、管理者の承認でログインできます）。");
+    // 使い捨てメールは登録不可（メール+パスワード登録と同じ扱い。承認待ちアカウントの乱造を防ぐ）。
+    if (isDisposableEmail(email)) {
+      return await deny("このメールアドレスでは ENGER business に登録できません。会社のメールアドレスでご登録ください。");
+    }
+    // #309②：Google/GitHub 認証での新規は、メール＋パスワード登録と同じく
+    //   「ENGER business の承認待ちアカウント」を作成する（メール認証は OAuth 完了で済んでいる）。
+    //   ・自動ログインはさせない：作成後もセッションは破棄し、承認待ちメッセージを出す（deny）。
+    //   ・app_metadata.apps に "business" を付与し、LP(enger.jp)側の以後のルーティングが
+    //     フリーランスではなくビジネスへ向くようにする（②の「フリーランス画面に飛ぶ」対策）。
+    const meta = (data?.user?.user_metadata ?? {}) as Record<string, any>;
+    const name = String(meta.full_name || meta.name || "").trim() || null;
+    try {
+      await createPendingAccount({ email, name, role: "client", companyName: null });
+      await markBusinessAuthApp(email);
+    } catch { /* 作成失敗でも下の承認案内は出す */ }
+    return await deny("ENGER business への登録を受け付けました（メール認証は完了）。会社名など詳細を管理者が確認し、承認後にログインできるようになります。次回は Google／GitHub でそのままログインできます。");
   }
   // フリーランス（人材）は法人ログイン不可。Google 認証に成功してもここで締め出す。
   if (isDxBlockedRole(access.role)) return await deny(DX_BLOCKED_MESSAGE);
