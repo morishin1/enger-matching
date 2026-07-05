@@ -48,7 +48,7 @@ export function ReferralPortalSection({ company }: { company: string }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--color-brand-700)" }}>handshake</span>
         <span style={{ fontSize: 12.5, fontWeight: 700 }}>紹介元ポータル</span>
-        <span className="muted" style={{ fontSize: 11 }}>会員登録なしの簡易ログインで、紹介人材×マッチ案件だけを見せる（/ref）</span>
+        <span className="muted" style={{ fontSize: 11 }}>会員登録なしの簡易ログインで「紹介人材×案件」「紹介案件×人材(匿名)」を見せ、👍判定は提案管理へ自動投入（/ref）</span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
           {info?.exists && info.active && (
             <button type="button" className="btn ghost btn-xs" onClick={revoke} disabled={busy}>停止</button>

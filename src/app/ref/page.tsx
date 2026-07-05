@@ -1,6 +1,27 @@
 import type { Metadata } from "next";
-import { getRefSession, bumpRefView, loadReferralPortal, REF_MAX_FAILED_ATTEMPTS } from "@/lib/referral";
-import { refPortalLogin, refPortalLogout, requestReferralProposal } from "@/lib/referral-actions";
+import { getRefSession, bumpRefView, loadReferralPortal, REF_MAX_FAILED_ATTEMPTS, type RefVerdict } from "@/lib/referral";
+import { refPortalLogin, refPortalLogout, reactReferralMatch } from "@/lib/referral-actions";
+
+/** 良い/わるい判定ボタン（または判定済み表示）。両方向のマッチ行で共通利用。 */
+function VerdictButtons({ kind, candidateNo, jobNo, verdict }: { kind: "cand_job" | "job_cand"; candidateNo: number; jobNo: number; verdict: RefVerdict }) {
+  const btn = (v: "want" | "pass", label: string, active: boolean) => (
+    <form action={reactReferralMatch} style={{ display: "inline" }}>
+      <input type="hidden" name="kind" value={kind} />
+      <input type="hidden" name="candidate_no" value={candidateNo} />
+      <input type="hidden" name="job_no" value={jobNo} />
+      <input type="hidden" name="verdict" value={v} />
+      <button type="submit" style={{ fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 13px", borderRadius: 9, cursor: "pointer", whiteSpace: "nowrap",
+        border: v === "want" ? 0 : "1px solid #d0d5dd",
+        background: v === "want" ? (active ? "#065f46" : "#047857") : (active ? "#475467" : "#fff"),
+        color: v === "want" ? "#fff" : (active ? "#fff" : "#475467"), opacity: active ? 1 : undefined }}>
+        {label}
+      </button>
+    </form>
+  );
+  if (verdict === "want") return <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 12, fontWeight: 800, color: "#047857" }}>✓ 進めたい（受付済み）</span>{btn("pass", "取り消して見送る", false)}</span>;
+  if (verdict === "pass") return <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 12, fontWeight: 700, color: "#98a2b3" }}>見送り済み</span>{btn("want", "やはり進めたい", false)}</span>;
+  return <span style={{ display: "inline-flex", gap: 8 }}>{btn("want", "👍 進めたい", false)}{btn("pass", "👎 見送り", false)}</span>;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -65,32 +86,38 @@ export default async function RefPortalPage({ searchParams }: { searchParams: Pr
 
   // ---- ログイン済み：紹介した人材 × マッチする案件 ----
   await bumpRefView(partner);
-  const cards = await loadReferralPortal(partner);
+  const { cands: cards, jobs: jobCards } = await loadReferralPortal(partner);
 
   return (
     <Shell wide>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ color: "#fff" }}>
           <div style={{ fontSize: 17, fontWeight: 800 }}>{partner.company_name} 様</div>
-          <div style={{ fontSize: 12, opacity: .8, marginTop: 2 }}>ご紹介いただいた人材と、マッチする案件の一覧です。</div>
+          <div style={{ fontSize: 12, opacity: .8, marginTop: 2 }}>ご紹介いただいた人材・案件と、マッチするお相手の一覧です。「👍 進めたい」を押すと担当が動きます。</div>
         </div>
         <form action={refPortalLogout}>
           <button type="submit" style={{ fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 9, border: "1px solid rgba(255,255,255,.35)", background: "rgba(255,255,255,.1)", color: "#fff", cursor: "pointer" }}>ログアウト</button>
         </form>
       </div>
 
-      {sp.req === "ok" && (
+      {(sp.req === "ok" || sp.req === "want") && (
         <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#047857", borderRadius: 12, padding: "11px 14px", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
-          ご依頼を受け付けました。ENGER担当よりご連絡いたします。
+          「進めたい」を受け付けました。ENGERの進行管理に登録し、担当よりご連絡いたします。
+        </div>
+      )}
+      {sp.req === "pass" && (
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", color: "#475467", borderRadius: 12, padding: "11px 14px", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+          「見送り」を記録しました。ご判断はマッチング精度の向上に活用されます。
         </div>
       )}
 
-      {cards.length === 0 ? (
+      {cards.length === 0 && jobCards.length === 0 ? (
         <div style={{ ...card, padding: 26, fontSize: 13.5, color: "#475467", lineHeight: 1.8 }}>
-          ご紹介いただいた人材はまだ登録されていません。人材のご紹介は ENGER 担当までご連絡ください。登録が完了するとこちらに表示されます。
+          ご紹介いただいた人材・案件はまだ登録されていません。スキルの分かる情報や募集要項を ENGER 担当までお送りください。登録が完了するとこちらに表示されます。
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {cards.length > 0 && <div style={{ color: "#fff", fontSize: 13, fontWeight: 800, marginBottom: -6 }}>ご紹介いただいた人材 × マッチする案件</div>}
           {cards.map((c) => (
             <div key={c.candidate_no} style={{ ...card, padding: 22 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
@@ -124,15 +151,51 @@ export default async function RefPortalPage({ searchParams }: { searchParams: Pr
                         )}
                       </div>
                       <span title="マッチ度" style={{ fontSize: 12, fontWeight: 800, padding: "4px 10px", borderRadius: 99, background: j.score >= 75 ? "#ecfdf5" : "#f8fafc", color: j.score >= 75 ? "#047857" : "#475467", border: "1px solid #eaecf0" }}>{j.score}点</span>
-                      {j.requested ? (
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#047857" }}>✓ 依頼済み</span>
-                      ) : (
-                        <form action={requestReferralProposal}>
-                          <input type="hidden" name="candidate_no" value={c.candidate_no} />
-                          <input type="hidden" name="job_no" value={j.job_no} />
-                          <button type="submit" style={{ fontFamily: "inherit", fontSize: 12, fontWeight: 700, padding: "7px 13px", borderRadius: 9, border: 0, cursor: "pointer", background: "#047857", color: "#fff", whiteSpace: "nowrap" }}>この案件で進めてほしい</button>
-                        </form>
-                      )}
+                      <VerdictButtons kind="cand_job" candidateNo={c.candidate_no} jobNo={j.job_no} verdict={j.verdict} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* 逆方向：ご紹介いただいた案件 × マッチする人材（匿名）。
+              人材は氏名・連絡先を出さない（イニシャル＋スキル＋単価。担当が仲介）。 */}
+          {jobCards.length > 0 && <div style={{ color: "#fff", fontSize: 13, fontWeight: 800, margin: "6px 0 -6px" }}>ご紹介いただいた案件 × マッチする人材</div>}
+          {jobCards.map((j) => (
+            <div key={j.job_no} style={{ ...card, padding: 22 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 16, fontWeight: 800 }}>{j.title}</span>
+                {j.role_label && <span style={{ fontSize: 12.5, color: "#475467" }}>{j.role_label}</span>}
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#047857" }}>{j.salary}</span>
+                {j.remote && <span style={{ fontSize: 11.5, color: "#667085" }}>{j.remote}</span>}
+                <span style={{ marginLeft: "auto", fontSize: 10.5, color: "#98a2b3" }}>No.{String(j.job_no).padStart(5, "0")}</span>
+              </div>
+              {j.skills.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                  {j.skills.map((s) => <span key={s} style={{ fontSize: 11, fontWeight: 600, padding: "2px 9px", borderRadius: 99, background: "#f2f4f7", color: "#344054" }}>{s}</span>)}
+                </div>
+              )}
+
+              <div style={{ marginTop: 14, fontSize: 11.5, fontWeight: 700, letterSpacing: ".04em", color: "#047857" }}>マッチする人材（{j.candidates.length}名・匿名）</div>
+              {j.candidates.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: "#667085", marginTop: 6 }}>現在マッチする人材はいません。新しい人材が登録され次第こちらに表示されます。</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                  {j.candidates.map((c) => (
+                    <div key={c.candidate_no} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", border: "1px solid #eaecf0", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 700 }}>{c.initials}{c.title ? <span style={{ fontWeight: 500, color: "#475467" }}>（{c.title}）</span> : null}</div>
+                        <div style={{ fontSize: 11.5, color: "#667085", marginTop: 2 }}>
+                          {[c.rate, c.avail ? `稼働 ${c.avail}` : null].filter(Boolean).join(" · ")}
+                          <span style={{ marginLeft: 8, color: "#98a2b3" }}>P-{String(c.candidate_no).padStart(5, "0")}</span>
+                        </div>
+                        {c.matchedSkills.length > 0 && (
+                          <div style={{ fontSize: 10.5, color: "#047857", marginTop: 3 }}>一致スキル：{c.matchedSkills.join(" / ")}</div>
+                        )}
+                      </div>
+                      <span title="マッチ度" style={{ fontSize: 12, fontWeight: 800, padding: "4px 10px", borderRadius: 99, background: c.score >= 75 ? "#ecfdf5" : "#f8fafc", color: c.score >= 75 ? "#047857" : "#475467", border: "1px solid #eaecf0" }}>{c.score}点</span>
+                      <VerdictButtons kind="job_cand" candidateNo={c.candidate_no} jobNo={j.job_no} verdict={c.verdict} />
                     </div>
                   ))}
                 </div>
@@ -143,7 +206,7 @@ export default async function RefPortalPage({ searchParams }: { searchParams: Pr
       )}
 
       <p style={{ margin: "18px 4px 0", fontSize: 11, color: "rgba(255,255,255,.55)", lineHeight: 1.8 }}>
-        ※ 案件の企業名・詳細条件は ENGER 担当が仲介のうえご案内します。「この案件で進めてほしい」を押すと担当に通知され、折り返しご連絡いたします。
+        ※ 相手方の企業名・人材の氏名/連絡先は ENGER 担当が仲介のうえご案内します。「👍 進めたい」を押すと担当に通知され、ENGERの進行管理に登録されます。「👎 見送り」のご判断もマッチング精度の向上に使われます。
       </p>
     </Shell>
   );
