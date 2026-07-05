@@ -90,6 +90,44 @@ export async function saveKgiWeekOverrides(input: { month: string; overrides: Kg
   return { ok: true };
 }
 
+/** #308：週次カレンダーの「実績」手動補正（KPIキー→週配列）を保存。null/空で「自動集計に戻す」。
+ *  既定は提案管理(proposals)・打ち合わせ(meetings)からの自動集計。ここに保存があれば、
+ *  その週×KPIの実績を上書きして表示・達成率に使う（未保存の週は自動集計にフォールバック）。
+ *  各セルは 0〜9999 の整数、または null。 */
+export async function saveKgiWeekActualOverrides(input: { month: string; overrides: KgiWeekOverrides | null }): Promise<{ ok: boolean; error?: string }> {
+  const g = await requireManager();
+  if (!g.ok) return g;
+  if (!MONTH_RE.test(input.month)) return { ok: false, error: "月の指定が不正です" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+  // 入力を正規化：許可KPIのみ・各値は整数(0-9999) or null。空配列/全nullは省いて、全て空なら null にする。
+  let clean: KgiWeekOverrides | null = null;
+  if (input.overrides) {
+    const out: KgiWeekOverrides = {};
+    for (const key of ["proposal", "meeting", "placement", "appointment"] as (keyof KgiWeekOverrides)[]) {
+      const arr = input.overrides[key];
+      if (!Array.isArray(arr)) continue;
+      const norm = arr.map((v) => (v == null || !Number.isFinite(Number(v)) ? null : Math.max(0, Math.min(9999, Math.floor(Number(v))))));
+      if (norm.some((v) => v != null)) out[key] = norm;
+    }
+    if (Object.keys(out).length > 0) clean = out;
+  }
+
+  const row: Record<string, unknown> = {
+    month: input.month, week_actual_overrides: clean,
+    updated_by_email: g.access.email, updated_by_name: g.access.name ?? null, updated_at: new Date().toISOString(),
+  };
+  const r: any = await admin.from("kgi_sales_plan").upsert(row, { onConflict: "month" });
+  if (r.error) {
+    if (/week_actual_overrides|column/i.test(r.error.message ?? "")) return { ok: false, error: "週次実績の上書き列が未作成です（supabase/kgi-week-actual-overrides.sql を実行してください）" };
+    if (/relation|kgi_sales_plan|does not exist/i.test(r.error.message ?? "")) return { ok: false, error: "テーブル未作成です（supabase/kgi-sales-plan.sql を実行してください）" };
+    return { ok: false, error: r.error.message };
+  }
+  revalidatePath("/kgi");
+  return { ok: true };
+}
+
 // engagements の平均月額（万円）を概算（AIの前提の初期値）。取れなければ既定。
 async function avgDealFromData(admin: ReturnType<typeof engerAdmin>): Promise<number> {
   try {

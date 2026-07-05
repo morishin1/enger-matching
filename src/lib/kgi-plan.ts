@@ -37,6 +37,7 @@ export type KgiSalesPlanRow = {
   headcount: KgiHeadcount;
   plan: KgiPlan | null;
   weekOverrides: KgiWeekOverrides | null;
+  weekActualOverrides: KgiWeekOverrides | null; // #308：週次カレンダーの「実績」手動補正（shapeは目標上書きと同じ）
   updatedByName: string | null;
   updatedAt: string | null;
 };
@@ -99,8 +100,12 @@ export async function getKgiSalesPlan(month: string): Promise<KgiSalesPlanRow | 
     let sb: ReturnType<typeof engerClient>;
     try { sb = engerAdmin(); } catch { sb = engerClient(); }
     // headcount / avg_deal_man 列は後追いマイグレーション。無い環境でも動くようフォールバック。
-    const cols = "month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, week_overrides, updated_by_name, updated_at";
+    const cols = "month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, week_overrides, week_actual_overrides, updated_by_name, updated_at";
     let r: any = await sb.from("kgi_sales_plan").select(cols).eq("month", month).maybeSingle();
+    // #308：week_actual_overrides 列が未整備の環境では、その列だけ外して再試行。
+    if (r.error && /week_actual_overrides|column/i.test(r.error.message ?? "")) {
+      r = await sb.from("kgi_sales_plan").select("month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, week_overrides, updated_by_name, updated_at").eq("month", month).maybeSingle();
+    }
     if (r.error && /week_overrides|column/i.test(r.error.message ?? "")) {
       r = await sb.from("kgi_sales_plan").select("month, sales_target_man, avg_deal_man, inside_count, outside_count, plan, updated_by_name, updated_at").eq("month", month).maybeSingle();
     }
@@ -121,6 +126,7 @@ export async function getKgiSalesPlan(month: string): Promise<KgiSalesPlanRow | 
       },
       plan: (r.data.plan ?? null) as KgiPlan | null,
       weekOverrides: (r.data.week_overrides ?? null) as KgiWeekOverrides | null,
+      weekActualOverrides: (r.data.week_actual_overrides ?? null) as KgiWeekOverrides | null,
       updatedByName: r.data.updated_by_name ?? null,
       updatedAt: r.data.updated_at ?? null,
     };
