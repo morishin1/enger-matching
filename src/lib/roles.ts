@@ -69,10 +69,15 @@ export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people
 /** マネージャー/リーダーにも開放する settings 配下の例外ルート。 */
 const MANAGER_SETTINGS_ALLOWED = ["/settings/team-kgi", "/settings/person-kgi"];
 
+/** ログイン必須だが全ロールに開放するルート（マニュアル）。ヘッダーのマニュアルアイコンから開く。 */
+const HELP_ALLOWED = ["/manual"];
+
 /** 指定ロール（＋職能・チーム役職）が pathname にアクセスできるか。 */
 export function canAccess(role: Role, pathname: string, functions?: string[] | null, teamRole?: string | null): boolean {
   if (role === "admin") return true;
   const hit = (list: string[]) => list.some((p) => (p === "/" ? pathname === "/" : (pathname === p || pathname.startsWith(p + "/"))));
+  // マニュアルはログイン必須だが、全ロール（社内・企業・パートナー・副業・人材）に開放する。
+  if (hit(HELP_ALLOWED)) return true;
   if (role === "agent") {
     if (hit(ADMIN_PREFIXES)) {
       // settings 配下でも manager/leader は KGI 設定だけ許可

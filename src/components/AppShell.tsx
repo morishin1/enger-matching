@@ -139,6 +139,13 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
             <kbd>⌘K</kbd>
           </form>
           <HelpButton />
+          {/* マニュアル（全体）：ヘルプ（その画面の使い方）とは別に、全体マニュアルを別ページで開く。
+              ログイン必須（proxy でゲート）。ロールに応じた内容を表示する。 */}
+          <Link href="/manual" className="icon-btn" title="マニュアル（全体）" aria-label="マニュアル"
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, width: "auto", padding: "0 10px", whiteSpace: "nowrap" }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>menu_book</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>マニュアル</span>
+          </Link>
           {/* お知らせベル（#235②）：提案の承認待ち・差戻しがあるとき赤バッジ＋件数を表示し、
               クリックで提案管理（承認タブが自動で開く）へ。無いときは通常のお知らせへ。 */}
           {(() => {
