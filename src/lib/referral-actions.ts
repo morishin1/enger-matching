@@ -2,7 +2,7 @@
 
 // 紹介元ポータル（/ref）のサーバアクション。
 //   refPortalLogin / refPortalLogout … 公開ページの簡易ログイン（ID＋パスコード → Cookie）
-//   requestReferralProposal          … 「この案件で進めてほしい」依頼（担当へ通知）
+//   reactReferralMatch               … 良い/わるい判定（良い＝担当へ通知＋提案管理へ自動投入）
 //   issueReferralPortal ほか         … 担当（admin/agent）による発行・パスコード再発行・停止
 import { randomInt } from "crypto";
 import { cookies } from "next/headers";
@@ -56,27 +56,78 @@ export async function refPortalLogout(): Promise<void> {
   redirect("/ref");
 }
 
-/** 「この案件で進めてほしい」依頼。記録して担当のお知らせ（ベル）へ通知する。 */
-export async function requestReferralProposal(formData: FormData): Promise<void> {
+/** 良い/わるい判定（お試し企業向け）。judgement を記録し、
+ *  「良い（want）」なら担当へ通知＋提案管理へ自動投入する（LP応募→提案と同じ方式）。
+ *  ・kind: cand_job=紹介人材×案件 / job_cand=紹介案件×人材（どちらもペアは candidate_no × job_no）。
+ *  ・再判定は上書き（見送り→やはり進めたい 等）。 */
+export async function reactReferralMatch(formData: FormData): Promise<void> {
   const partner = await getRefSession();
   if (!partner) redirect("/ref?err=session");
   const candidateNo = Number(formData.get("candidate_no"));
   const jobNo = Number(formData.get("job_no"));
+  const kind = String(formData.get("kind")) === "job_cand" ? "job_cand" : "cand_job";
+  const verdict = String(formData.get("verdict")) === "pass" ? "pass" : "want";
   if (!Number.isFinite(candidateNo) || !Number.isFinite(jobNo)) redirect("/ref");
 
+  let created = false;
   try {
     const admin = engerAdmin();
-    // 重複依頼は unique 制約で弾く（エラーは握って「依頼済み」表示に任せる）。
-    const ins = await admin.from("referral_requests").insert({ partner_id: partner.id, candidate_no: candidateNo, job_no: jobNo });
-    if (!ins.error) {
-      const title = "紹介元から提案依頼が届きました";
-      const body = `${partner.company_name} が 人材 P-${String(candidateNo).padStart(5, "0")} を案件 No.${String(jobNo).padStart(5, "0")} で進めてほしいと依頼しました（紹介元ポータル）。`;
+    // 判定を upsert（再判定で上書き）。verdict/kind 列未整備（referral-portal-v2.sql 未実行）の環境では
+    //   従来どおりの insert（＝want 相当の記録）にフォールバックする。
+    let up = await admin.from("referral_requests").upsert(
+      { partner_id: partner.id, candidate_no: candidateNo, job_no: jobNo, kind, verdict, updated_at: new Date().toISOString() },
+      { onConflict: "partner_id,candidate_no,job_no" },
+    );
+    if (up.error && /kind|verdict|updated_at|column/i.test(up.error.message ?? "")) {
+      up = await admin.from("referral_requests").insert({ partner_id: partner.id, candidate_no: candidateNo, job_no: jobNo });
+    }
+
+    if (verdict === "want") {
+      // 担当へ通知（ベル）。
+      const pairLabel = `人材 P-${String(candidateNo).padStart(5, "0")} × 案件 No.${String(jobNo).padStart(5, "0")}`;
+      const title = "紹介元ポータル：進めたい判定が届きました";
+      const body = `${partner.company_name} が ${pairLabel} を「進めたい」と判定しました。提案管理（所属確認）に自動作成済みです。`;
       const rows: any[] = [{ recipient: "all", title, body, kind: "info" }];
       if (partner.created_by) rows.unshift({ recipient: partner.created_by, title, body, kind: "info" });
       try { await admin.from("notifications").insert(rows); } catch { /* 通知失敗は無視 */ }
+
+      // 提案管理へ自動投入（DXの進捗管理に乗せる）。LP応募→提案（engineers/actions）と同じ軽量方式：
+      //   ・candidate_no / job_no から実体を解決し、既存の提案があれば再作成しない（重複防止）。
+      //   ・stage="所属確認"（ボード先頭）・proposer=null（KPIに紛れ込ませない）・next_action に出所を明記。
+      try {
+        const [cr, jr]: any[] = await Promise.all([
+          admin.from("candidates").select("id, name, initials, rate").eq("candidate_no", candidateNo).maybeSingle(),
+          admin.from("jobs").select("id, title, client_name").eq("job_no", jobNo).maybeSingle(),
+        ]);
+        const cand = cr?.data, job = jr?.data;
+        if (cand?.id && job?.id) {
+          const dup: any = await admin.from("proposals").select("id").eq("candidate_id", cand.id).eq("job_id", job.id).limit(1).maybeSingle();
+          if (!dup?.data?.id) {
+            const ins: any = await admin.from("proposals").insert({
+              job_id: job.id, candidate_id: cand.id, stage: "所属確認",
+              job_title: job.title ?? "（案件）", company: job.client_name ?? null,
+              candidate_name: cand.name ?? null, c_init: cand.initials ?? null, rate: cand.rate ?? null,
+              proposer: null, ai: false,
+              next_action: `紹介元ポータル「進めたい」（${partner.company_name}）`,
+            }).select("id").maybeSingle();
+            const pid = ins?.data?.id ?? null;
+            created = !!pid;
+            if (pid) {
+              try {
+                await admin.from("proposal_memos").insert({
+                  proposal_id: pid,
+                  category: kind === "job_cand" ? "案件側→当社" : "人材側→当社",
+                  body: `【自動記録】紹介元ポータル（${partner.company_name}）が「進めたい」と判定したため作成。担当が所属確認から進めてください。`,
+                  created_by_email: null, created_by_name: "自動記録（紹介元ポータル）",
+                });
+              } catch { /* メモ失敗は提案作成を止めない */ }
+            }
+          }
+        }
+      } catch { /* proposals 未整備でも判定記録は成立させる */ }
     }
   } catch { /* noop */ }
-  redirect("/ref?req=ok");
+  redirect(verdict === "want" ? (created ? "/ref?req=ok" : "/ref?req=want") : "/ref?req=pass");
 }
 
 // ---- 担当（admin/agent）向け：発行・再発行・停止 ------------------------------
