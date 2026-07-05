@@ -47,7 +47,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       const sb = engerClient();
       // 拡張カラムが無い環境でも落ちないようフォールバック
       const cols = "id, job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
-      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
+      // #310：nationality_requirement（国籍制限）も取得。未整備環境では下段フォールバックで外れる。
+      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement`).eq("job_no", no).maybeSingle();
+      if (r.error) r = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
       j = r.data;

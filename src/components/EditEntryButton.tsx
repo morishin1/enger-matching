@@ -327,6 +327,7 @@ export function EditJobButton({ job }: { job: any }) {
     status: j.status ?? "",
     contact_name: j.contact_name ?? "",
     contact_email: j.contact_email ?? "",
+    nationality_requirement: j.nationality_requirement ?? "", // #310：国籍制限（日本国籍のみ/国籍不問/不明）
     source_mail_url: j.source_mail_url ?? "",
     is_line: j.signup_source === "line" ? "1" : "",
   };
@@ -356,6 +357,7 @@ export function EditJobButton({ job }: { job: any }) {
         status: f.status,
         contact_name: f.contact_name,
         contact_email: f.contact_email,
+        nationality_requirement: f.nationality_requirement,
         source_mail_url: f.source_mail_url,
       } as any);
       if (res.ok) { setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
@@ -396,6 +398,13 @@ export function EditJobButton({ job }: { job: any }) {
               <Field label="ステータス" value={f.status} onChange={set("status")} />
               <Field label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} />
               <Field label="窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
+              {/* #310：国籍制限（窓口メールの隣）。日本国籍のみ / 国籍不問 / 不明 の3択。 */}
+              <Select label="国籍制限" value={f.nationality_requirement} onChange={set("nationality_requirement")} options={[
+                { value: "", label: "未選択" },
+                { value: "日本国籍のみ", label: "日本国籍のみ" },
+                { value: "国籍不問", label: "国籍不問" },
+                { value: "不明", label: "不明" },
+              ]} />
               <Field label="元メールURL／Gmail メッセージ ID" value={f.source_mail_url} onChange={set("source_mail_url")} full />
               <Textarea label="案件詳細" value={f.detail} onChange={set("detail")} />
             </div>

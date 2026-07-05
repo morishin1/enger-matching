@@ -80,6 +80,33 @@ const pay = (e: Engineer) => {
 };
 const skillNames = (e: Engineer) => (e.skills ?? []).map((s) => s.name).filter(Boolean);
 
+// #306④：タグ群を最大2段（約2行）まで表示し、あふれる場合は「＋全て見る」で全表示にする。
+//   折りたたみ時の高さ(COLLAPSED_H)を超えるときだけトグルを出す（scrollHeight で判定）。
+const TAGCLOUD_COLLAPSED_H = 54; // .tag ≈ 23px × 2段 ＋ 行間
+function TagCloud({ items, tagClass = "tag", emptyText = "—" }: { items: string[]; tagClass?: string; emptyText?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflow, setOverflow] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setOverflow(el.scrollHeight > TAGCLOUD_COLLAPSED_H + 2);
+  }, [items]);
+  if (!items || items.length === 0) return <span className="muted" style={{ fontSize: 12 }}>{emptyText}</span>;
+  return (
+    <div>
+      <div ref={ref} style={{ display: "flex", gap: 5, flexWrap: "wrap", maxHeight: expanded ? undefined : TAGCLOUD_COLLAPSED_H, overflow: "hidden" }}>
+        {items.map((s, i) => <span key={i} className={tagClass} style={{ fontSize: 11 }}>{s}</span>)}
+      </div>
+      {overflow && (
+        <button type="button" onClick={() => setExpanded((v) => !v)}
+          style={{ marginTop: 5, fontSize: 11, fontWeight: 700, color: "var(--color-brand-700)", background: "transparent", border: 0, padding: 0, cursor: "pointer" }}>
+          {expanded ? "閉じる" : `＋全て見る（${items.length}）`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // タップ選択中心の対応種別（営業の入力を最小化）
 // ※「面談設定」「見送り」「保留」は選択肢から除外（過去データの表示は ACTION_COLOR/ICON で維持）。
 const ACTION_TYPES = ["スカウト送信", "メール送信", "返信あり", "面談実施", "メモ"];
@@ -213,7 +240,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       if (needle) {
         const prof = profileNames[e.id];
         // 漢字氏名・フリガナ・イニシャル・人材ID(E-XXXXX) でも検索できるようにする。
-        const hay = [e.display_name, e.github_login, e.name, prof?.kanji, prof?.kana, prof?.initials, shortId(e.id), e.primary_language, e.email, e.phone, e.contact_line, ...skillNames(e)].filter(Boolean).join(" ").toLowerCase();
+        const hay = [e.display_name, e.github_login, e.name, prof?.kanji, prof?.kana, prof?.initials, shortId(e.id), e.primary_language, e.email, e.phone, e.contact_line, ...skillNames(e), ...(e.tools ?? [])].filter(Boolean).join(" ").toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       if (filters.status && freshnessLabel(e.created_at) !== filters.status) return false;
@@ -446,12 +473,21 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                       </div>
                     </td>
                     <td>
-                      {skillNames(e).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                          {skillNames(e).slice(0, 3).map((s) => <span key={s} className="tag brand">{s}</span>)}
-                          {skillNames(e).length > 3 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{skillNames(e).length - 3}</span>}
-                        </div>
-                      )}
+                      {/* #306⑤：スキル（brand）＋ツール・開発環境（accent）を同じ「スキル」列にタグ表示。
+                          一覧は名前のみ（経験年数・工程は付けない＝#300の方針を維持）。先頭3件＋残数。 */}
+                      {(() => {
+                        const tags = [
+                          ...skillNames(e).map((t) => ({ t, cls: "tag brand" })),
+                          ...(e.tools ?? []).map((t) => ({ t, cls: "tag accent" })),
+                        ];
+                        if (tags.length === 0) return <span className="muted" style={{ fontSize: 12 }}>—</span>;
+                        return (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                            {tags.slice(0, 3).map((x, i) => <span key={i} className={x.cls}>{x.t}</span>)}
+                            {tags.length > 3 && <span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>+{tags.length - 3}</span>}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td><span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{e.primary_language ?? "—"}</span></td>
                     <td className="num"><span style={{ fontWeight: 600 }}>{pay(e)}</span></td>
@@ -856,13 +892,17 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
           ))}
         </div>
         <div>
-          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル</div>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {/* #300②：フリーランスがスキルカードに経験年数・担当工程を登録していれば
-                「VB.NET（経験3〜5年、要件定義、運用・保守）」の形で付記する（詳細のスキル欄のみ）。 */}
-            {skillNames(detail).length === 0 ? <span className="muted" style={{ fontSize: 12 }}>—</span> : (detail.skills ?? []).slice(0, 20).map((s) => (
-              <span key={s.name} className="tag" style={{ fontSize: 11 }}>{skillTagLabel(s)}</span>
-            ))}
+          {/* #306②③④：スキルの隣に「ツール・開発環境」を並べ、どちらも最大2段＋「＋全て見る」。
+              スキルは #300 のとおり経験年数・担当工程を付記（GitHubの熟練度 intermediate 等は非表示）。 */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル</div>
+              <TagCloud items={(detail.skills ?? []).map(skillTagLabel).filter(Boolean)} tagClass="tag" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>ツール・開発環境</div>
+              <TagCloud items={detail.tools ?? []} tagClass="tag accent" emptyText="未登録" />
+            </div>
           </div>
         </div>
         {/* 連絡先（メール・電話）と登録情報。

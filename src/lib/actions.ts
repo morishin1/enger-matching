@@ -2343,6 +2343,7 @@ export type JobInput = {
   status?: string | null;
   contact_name?: string | null;   // 案件窓口の担当者名
   contact_email?: string | null;  // 案件窓口＝元メールの送信元（返信先）
+  nationality_requirement?: string | null; // #310：国籍制限（日本国籍のみ/国籍不問/不明）
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
   source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
   operator?: string | null;        // 登録担当（KPI集計用）
@@ -3010,6 +3011,7 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
   if (fields.status !== undefined) row.status = trim(fields.status);
   if ((fields as any).contact_name !== undefined) row.contact_name = trim((fields as any).contact_name);
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
+  if ((fields as any).nationality_requirement !== undefined) row.nationality_requirement = trim((fields as any).nationality_requirement);
   if ((fields as any).source_mail_url !== undefined) row.source_mail_url = trim((fields as any).source_mail_url);
   if ((fields as any).is_published !== undefined) row.is_published = (fields as any).is_published;
   if ((fields as any).accept_flow_depth !== undefined) {
@@ -3017,14 +3019,15 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
     row.accept_flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
   }
   if (fields.signup_source !== undefined) row.signup_source = trim(fields.signup_source);
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.accept_flow_depth; delete c.signup_source; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.nationality_requirement; delete c.source_mail_url; delete c.accept_flow_depth; delete c.signup_source; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がない旧スキーマ → タイムスタンプは省いて再試行
     r = await admin.from("jobs").update(withoutUpdatedAt(row)).eq("job_no", jobNo);
   }
-  if (r.error && /contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|column/i.test(r.error.message)) {
+  // #310：nationality_requirement 列が未整備の環境でも保存が通るよう、任意列を外して再試行（fail-soft）。
+  if (r.error && /nationality_requirement|contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|column/i.test(r.error.message)) {
     r = await admin.from("jobs").update(stripped(withoutUpdatedAt(row))).eq("job_no", jobNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
