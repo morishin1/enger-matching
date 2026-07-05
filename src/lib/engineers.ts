@@ -24,7 +24,8 @@ function skillProcesses(s: any): string[] {
 }
 
 /** スキルタグの表示ラベル。フリーランスがスキルカードに経験年数/担当工程を登録していれば
- *  「VB.NET（経験3〜5年、要件定義、運用・保守）」の形で付記する。未登録なら従来どおり名前（＋GitHub level）。
+ *  「VB.NET（経験3〜5年、要件定義、運用・保守）」の形で付記する。
+ *  ※ #306①：GitHub解析の熟練度（intermediate 等の英語）は表示しない。スキル名＋経験年数＋工程のみ。
  *  ※ プロフィール詳細のスキル欄専用。登録者一覧・主要言語・人材マスタ取込では使わない（名前のみ）。 */
 export function skillTagLabel(s: EngineerSkill): string {
   const name = String(s?.name ?? "").trim();
@@ -32,8 +33,19 @@ export function skillTagLabel(s: EngineerSkill): string {
   const exp = skillExperienceLabel(s);
   if (exp) parts.push(`経験${exp}`);
   for (const p of skillProcesses(s)) parts.push(p);
-  if (parts.length > 0) return `${name}（${parts.join("、")}）`;
-  return `${name}${s?.level ? ` (${s.level})` : ""}`; // 付加情報なし＝従来表示（後方互換）
+  return parts.length > 0 ? `${name}（${parts.join("、")}）` : name; // level（intermediate等）は出さない
+}
+
+/** ツール・開発環境（LP プロフィールで選択）の値を配列/オブジェクト/カンマ文字列から名前配列へ正規化。 */
+export function normalizeTools(v: any): string[] {
+  const arr = Array.isArray(v) ? v : (typeof v === "string" ? v.split(/[、,／/]+/) : []);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of arr) {
+    const name = String((x && typeof x === "object" ? (x.name ?? x.label ?? x.value) : x) ?? "").trim();
+    if (name && !seen.has(name)) { seen.add(name); out.push(name); }
+  }
+  return out;
 }
 
 /** ENGERフリーランス登録者の「人材ID」（DX 登録者一覧 左端のID。例: E-C94D4）。
@@ -130,6 +142,7 @@ export type Engineer = {
   skill_sheet_url: string | null;        // 旧・単一カラム（後方互換。skill_sheets の先頭1件と同期）
   skill_sheet_name: string | null;       // 旧・単一カラム（後方互換）
   skill_sheets: SkillSheet[];            // 新・複数スキルシート（最大3件）。未提出は []
+  tools: string[];                       // #306：ツール・開発環境（LP プロフィールで選択）。未選択は []
 
   headline: string | null;
   bio: string | null;
@@ -221,6 +234,20 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       if (!r.error) { data = r.data ?? []; break; }
     }
     if (data == null) return { rows: [], available: false };
+
+    // #306：ツール・開発環境（LP プロフィールの別カラム）。列名が環境で異なりうるため候補を順に試す。
+    //   別クエリで id→tools を作り後段でマージ（未整備でも一覧は壊れない fail-soft）。
+    const toolsById = new Map<string, string[]>();
+    for (const col of ["tools", "dev_env", "development_environment", "dev_tools", "tools_env"]) {
+      try {
+        const tr: any = await sb.from("profiles").select(`id, ${col}`).or(orFilter).limit(500);
+        if (!tr.error) {
+          for (const row of (tr.data ?? [])) { const v = normalizeTools((row as any)[col]); if (v.length) toolsById.set(String(row.id), v); }
+          break; // 成功した列名を採用（存在しない列名はエラーになり次の候補へ）
+        }
+      } catch { /* 次の候補へ */ }
+    }
+
     // LP登録一覧は ENGERフリーランス（enger.jp 登録）のみを表示する（要望）。
     //   ・無限道場（role=student / signup_source=dojo 等）と外部システム由来（LMS）は取り込まない。
     //   ・許可リスト方式：classifySource が "enger" と判定した行だけを残す（dojo・その他は除外）。
@@ -247,6 +274,7 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       ...r,
       skills: Array.isArray(r.skills) ? r.skills : [],
       skill_sheets: sheetsOf(r),
+      tools: toolsById.get(String(r.id)) ?? [],
       total_stars: r.total_stars ?? 0,
       total_repos: r.total_repos ?? 0,
       phone: phoneOf(r),
