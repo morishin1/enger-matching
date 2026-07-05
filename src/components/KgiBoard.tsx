@@ -12,6 +12,7 @@ import { businessDaysInMonth } from "@/lib/person-kgi";
 import { getKgiSalesPlan, meetingCapacityMonth, recoveryPace, DEFAULT_MTG_PER_PERSON_DAY, type KgiMonthly } from "@/lib/kgi-plan";
 import { weeksOfMonth, distributeMonthlyToWeeks, SEASON_PROFILES, SEASON_NOTES } from "@/lib/kgi-week";
 import { KgiWeekTargetEditor } from "@/components/KgiWeekTargetEditor";
+import { KgiWeekActualEditor } from "@/components/KgiWeekActualEditor";
 import { getKpiSnapshot, getWeeklyKgiActuals, getMeetingKgi, businessDaysInRange, jstStartOfDay, addDays, type Metric, type MeetingAgg } from "@/lib/kpi";
 
 export type KgiSection = "summary" | "season" | "monthly" | "recovery" | "weekly" | "procurement";
@@ -106,6 +107,25 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
     try { meetingKgi = await getMeetingKgi({ ownerName: null, monthFromISO: mk, monthToISO, weeks: weeks.map((w) => ({ fromISO: w.fromISO, toISO: w.toISO })) }); }
     catch { /* 続行 */ }
   }
+
+  // #308：週次実績の手動補正（week_actual_overrides）。既定は提案管理/打ち合わせの自動集計。
+  //   上書きがあればその週×KPIを優先（未入力の週は自動集計にフォールバック）。
+  const actOv = planRow?.weekActualOverrides ?? null;
+  const hasActualOverrides = !!actOv && Object.values(actOv).some((a) => Array.isArray(a) && a.some((v) => v != null));
+  const hasActualOverrideFor = (key: keyof KgiMonthly): boolean => { const list = actOv?.[key]; return Array.isArray(list) && list.some((v) => v != null); };
+  const withActualOverride = (auto: number, key: keyof KgiMonthly, wi: number): number => {
+    const list = actOv?.[key];
+    if (!Array.isArray(list)) return auto;
+    const o = list[wi];
+    return (o == null || !Number.isFinite(Number(o))) ? auto : Number(o);
+  };
+  // 各週の「実効実績」（上書き優先）。実績手動補正エディタの初期表示値にも使う。
+  const weekActualsEff = {
+    proposal: weeks.map((_, wi) => withActualOverride(weekActuals[wi]?.proposal ?? 0, "proposal", wi)),
+    meeting: weeks.map((_, wi) => withActualOverride(weekActuals[wi]?.schedule ?? 0, "meeting", wi)),
+    placement: weeks.map((_, wi) => withActualOverride(weekActuals[wi]?.deal ?? 0, "placement", wi)),
+    appointment: weeks.map((_, wi) => withActualOverride(meetingKgi.weeks[wi]?.meetings ?? 0, "appointment", wi)),
+  };
   const apptActual = meetingKgi.month.meetings;
   const rateOf = (num: number, den: number): number | null => (den > 0 ? Math.round((num / den) * 100) : null);
   const actualOf = (key: keyof KgiMonthly, metric: Metric | null): number | null =>
@@ -316,16 +336,25 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>calendar_month</span>
             <b style={{ fontSize: 13.5 }}>週次カレンダー（{weeks.length}週）— 実績は提案管理と連動</b>
-            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>各週＝営業日数×旬ウェイトで配分／ セル：<b>実績/目標</b>（実績クリックで根拠）。目標は手動調整可</span>
+            <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>各週＝営業日数×旬ウェイトで配分／ セル：<b>実績/目標</b>（実績クリックで根拠）。目標・実績とも手動調整可</span>
           </div>
-          {/* 週次目標の手動調整（管理者/マネージャーのみ）。保存すると下のカレンダー目標に反映。 */}
+          {/* 週次目標・実績の手動調整（管理者/マネージャーのみ）。保存すると下のカレンダーに反映。 */}
           {canEdit && (
-            <KgiWeekTargetEditor
-              month={mk}
-              weeks={weeks.map((w) => ({ index: w.index, label: w.label }))}
-              effective={{ proposal: weekTargets.proposal, meeting: weekTargets.meeting, placement: weekTargets.placement, appointment: weekTargets.appointment }}
-              hasOverrides={hasWeekOverrides}
-            />
+            <>
+              <KgiWeekTargetEditor
+                month={mk}
+                weeks={weeks.map((w) => ({ index: w.index, label: w.label }))}
+                effective={{ proposal: weekTargets.proposal, meeting: weekTargets.meeting, placement: weekTargets.placement, appointment: weekTargets.appointment }}
+                hasOverrides={hasWeekOverrides}
+              />
+              {/* #308：週次カレンダーの数値入力メニュー。w1〜w5の実績を手動補正できる。 */}
+              <KgiWeekActualEditor
+                month={mk}
+                weeks={weeks.map((w) => ({ index: w.index, label: w.label }))}
+                effective={weekActualsEff}
+                hasOverrides={hasActualOverrides}
+              />
+            </>
           )}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
@@ -348,7 +377,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                       <td style={tdR} className="mono">{w.bizDays}日</td>
                       {WEEK_KPIS.map((k) => {
                         const tgt = weekTargets[k.key][wi] ?? 0;
-                        const act = weekActuals[wi]?.[k.act] ?? 0;
+                        const act = withActualOverride(weekActuals[wi]?.[k.act] ?? 0, k.key, wi);
                         const p = pctOf(act, tgt);
                         const dly = w.bizDays > 0 ? tgt / w.bizDays : 0;
                         return (
@@ -360,7 +389,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                       })}
                       {(() => {
                         const tgt = weekTargets.appointment[wi] ?? 0;
-                        const act = meetingKgi.weeks[wi]?.meetings ?? 0;
+                        const act = withActualOverride(meetingKgi.weeks[wi]?.meetings ?? 0, "appointment", wi);
                         const p = pctOf(act, tgt);
                         const dly = w.bizDays > 0 ? tgt / w.bizDays : 0;
                         return (
@@ -379,7 +408,10 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                   {WEEK_KPIS.map((k) => {
                     // 月合計の目標は「表示中の週次目標の合計」＝手動調整があればそれを反映（自動配分時は月次目標に一致）。
                     const tgt = weekTargets[k.key].reduce((s, n) => s + n, 0);
-                    const act = actualByMetric[k.act as Metric] ?? weekActuals.reduce((s, x) => s + x[k.act], 0);
+                    // #308：実績を手動補正した週があるKPIは、月合計も「補正後の週次合計」に揃える（未補正なら従来どおり）。
+                    const act = hasActualOverrideFor(k.key)
+                      ? weekActualsEff[k.key].reduce((s, n) => s + n, 0)
+                      : (actualByMetric[k.act as Metric] ?? weekActuals.reduce((s, x) => s + x[k.act], 0));
                     const p = pctOf(act, tgt);
                     return (
                       <td key={k.key} style={tdR}>
@@ -389,7 +421,9 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
                     );
                   })}
                   {(() => {
-                    const tgt = weekTargets.appointment.reduce((s, n) => s + n, 0); const act = apptActual; const p = pctOf(act, tgt);
+                    const tgt = weekTargets.appointment.reduce((s, n) => s + n, 0);
+                    const act = hasActualOverrideFor("appointment") ? weekActualsEff.appointment.reduce((s, n) => s + n, 0) : apptActual;
+                    const p = pctOf(act, tgt);
                     return (
                       <td style={tdR}>
                         <div className="mono" style={{ fontWeight: 800 }}><b style={{ color: toneOf(p) }}>{actCell("meeting", act, mk, monthToISO, monthCtx, true)}</b> / {tgt}</div>
@@ -403,6 +437,7 @@ export async function KgiBoard({ month, sections = ALL_SECTIONS, showPlanHint = 
           </div>
           <div className="muted" style={{ fontSize: 11, padding: "10px 16px", lineHeight: 1.7 }}>
             ※ 週の合計は月次目標に一致（<b>全週達成で月間目標に到達</b>）。実績は proposals（提案管理）・打ち合わせは meetings と連動。実績数値クリックで根拠データを表示。
+            手動補正した週は自動集計を上書きして表示します（未入力の週は自動集計のまま）。
           </div>
         </div>
       )}
