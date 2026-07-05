@@ -64,7 +64,7 @@ const TENANT_ALLOWED = ["/", "/jobs", "/people", "/matching"];
  * 営業系の職能を持つ人だけがアクセスできる業務ルート。
  * バックオフィス専任（営業系職能なし）には案件・人材・打合せ記録・パイプライン等を非表示にする。
  */
-export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/companies", "/meetings", "/pipeline"];
+export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/prospecting", "/companies", "/meetings", "/pipeline"];
 
 /** マネージャー/リーダーにも開放する settings 配下の例外ルート。 */
 const MANAGER_SETTINGS_ALLOWED = ["/settings/team-kgi", "/settings/person-kgi"];
