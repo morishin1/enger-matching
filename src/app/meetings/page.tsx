@@ -1,4 +1,6 @@
+import Link from "@/components/AppLink";
 import { MeetingsClient } from "@/components/MeetingsClient";
+import { ProspectingPanel } from "@/components/ProspectingPanel";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getCompanyOverview } from "@/lib/companies";
 import { loadKpiMembers } from "@/lib/kpi-members";
@@ -7,7 +9,9 @@ import { getStaff } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
-export default async function MeetingsPage() {
+export default async function MeetingsPage({ searchParams }: { searchParams: Promise<{ section?: string; prospectingTab?: string; owner?: string; source?: string; status?: string }> }) {
+  const sp = await searchParams;
+  const section = sp.section === "prospecting" ? "prospecting" : "meetings";
   let meetings: any[] = [];
   let dbError: string | null = null;
   let needSetup = false;
@@ -83,7 +87,16 @@ export default async function MeetingsPage() {
         </div>
       )}
 
-      {!needSetup && <MeetingsClient meetings={meetings} companies={companies} companyDir={companyDir} interviews={interviews} owners={owners} />}
+      <div className="card" style={{ padding: 6, display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+        <Link href="/meetings" className={`btn ${section === "meetings" ? "brand" : "ghost"}`} style={{ textDecoration: "none" }}>打ち合わせ記録</Link>
+        <Link href="/meetings?section=prospecting" className={`btn ${section === "prospecting" ? "brand" : "ghost"}`} style={{ textDecoration: "none" }}>エンド開拓</Link>
+      </div>
+
+      {section === "prospecting" ? (
+        <ProspectingPanel searchParams={sp} />
+      ) : (
+        !needSetup && <MeetingsClient meetings={meetings} companies={companies} companyDir={companyDir} interviews={interviews} owners={owners} />
+      )}
     </div>
   );
 }
