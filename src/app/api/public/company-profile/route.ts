@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   const cors = bizCorsHeaders(req.headers.get("origin"), METHODS);
   const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: cors });
   if (!dbConfigured) return json({ ok: false, error: "DB未設定" }, 503);
-  const viewer = await resolveBusinessViewer(req);
+  const viewer = await resolveBusinessViewer(req, { allowPending: true }); // 承認前でも利用可（会社情報の充実・案件の掲載申請は審査フローに乗るため）
   if (!viewer.ok) return json({ ok: false, error: viewer.error }, viewer.status);
 
   const sb = engerAdmin();
@@ -65,7 +65,7 @@ export async function PUT(req: NextRequest) {
   const cors = bizCorsHeaders(req.headers.get("origin"), METHODS);
   const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: cors });
   if (!dbConfigured) return json({ ok: false, error: "DB未設定" }, 503);
-  const viewer = await resolveBusinessViewer(req);
+  const viewer = await resolveBusinessViewer(req, { allowPending: true }); // 承認前でも利用可（会社情報の充実・案件の掲載申請は審査フローに乗るため）
   if (!viewer.ok) return json({ ok: false, error: viewer.error }, viewer.status);
 
   let body: any = null;
