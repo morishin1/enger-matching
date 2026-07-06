@@ -458,11 +458,16 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
         const JOB_F = JOB_BASE; // status, created_at は JOB_BASE に含む
         const CAND_F = `${CAND_BASE}, created_at`;
+        // 注力(♥)一覧には「注力登録日」(focused_at)を表示する（#316③）。列未整備環境では
+        //   primary が落ちるため、focused_at 抜きの BASE へフォールバックする（safe の fb）。
+        //   自動おすすめ(recJobs/ppCands/recCands)は fb が空配列なので focused_at を足さない。
+        const JOB_FF = `${JOB_BASE}, focused_at`;
+        const CAND_FF = `${CAND_BASE}, created_at, focused_at`;
         const safe = async (q: any, fb: any) => { const r = await q; return r.error ? ((await fb)?.data ?? []) : (r.data ?? []); };
         const [hjJobs, recJobs, hfCands, ppCands, recCands] = await Promise.all([
-          safe(sb.from("jobs").select(JOB_F).eq("is_published", true).eq("is_focus", true).limit(200), sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).limit(200)),
+          safe(sb.from("jobs").select(JOB_FF).eq("is_published", true).eq("is_focus", true).limit(200), sb.from("jobs").select(JOB_BASE).eq("is_published", true).eq("is_focus", true).limit(200)),
           safe(sb.from("jobs").select(JOB_F).eq("is_published", true).gte("created_at", since30).limit(300), Promise.resolve({ data: [] })),
-          safe(sb.from("candidates").select(CAND_F).eq("is_focus", true).limit(200), sb.from("candidates").select(CAND_BASE).eq("is_focus", true).limit(200)),
+          safe(sb.from("candidates").select(CAND_FF).eq("is_focus", true).limit(200), sb.from("candidates").select(CAND_BASE).eq("is_focus", true).limit(200)),
           safe(sb.from("candidates").select(CAND_F).or("affiliation.eq.PP,affiliation.ilike.%プロパー%").limit(300), Promise.resolve({ data: [] })),
           safe(sb.from("candidates").select(CAND_F).gte("created_at", since30).limit(400), Promise.resolve({ data: [] })),
         ]);
@@ -615,14 +620,22 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   //   後付けしてしまうと、「LINEで繋がっていない企業/Gメールの一覧に飛ぶ」事故になる。
   //   そこで表示直前に、対象行の 所属企業／窓口メール／元メールリンクをこの画面上でだけ伏せる。
   //   （DBは変更しない。判定は名前横のLINEアイコンと同じ lineCandIds/lineJobIds を使う。）
+  //   合わせて _isLine フラグを全行に付与する（#316②：注力ボード一覧のLINEバッジ表示用。
+  //   FocusList はクライアント側なので Set を渡せず、行に真偽値を載せて判定する）。
   const scrubLineCand = (c: any) => {
-    if (!c || !lineCandIds.has(c.id)) return;
+    if (!c) return;
+    const isLine = lineCandIds.has(c.id);
+    c._isLine = isLine;
+    if (!isLine) return;
     c.source_company = null; c.company = null;
     c.contact_email = null; c.company_contact_email = null;
     c.source_mail_url = null; c.source_mail_at = null; c.source_mail_subject = null;
   };
   const scrubLineJob = (j: any) => {
-    if (!j || !lineJobIds.has(j.id)) return;
+    if (!j) return;
+    const isLine = lineJobIds.has(j.id);
+    j._isLine = isLine;
+    if (!isLine) return;
     j.client_name = null;
     j.contact_email = null; j.company_contact_email = null;
     j.source_mail_url = null; j.source_mail_at = null; j.source_mail_subject = null;

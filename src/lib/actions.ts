@@ -248,7 +248,14 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
 export async function toggleFocus(table: "jobs" | "candidates", idField: string, idValue: number, value: boolean, revalidate?: string) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const { error } = await admin.from(table).update({ is_focus: value }).eq(idField, idValue);
+  // 注力ONにする時は登録日時(focused_at)を now() で更新する（#316③：一覧に注力登録日を表示。
+  //   一度外して再度ONにした時は最新日で上書き）。focused_at 列が未整備な環境では fail-soft でフラグのみ更新。
+  const patch: Record<string, unknown> = { is_focus: value };
+  if (value) patch.focused_at = new Date().toISOString();
+  let { error } = await admin.from(table).update(patch).eq(idField, idValue);
+  if (error && /focused_at/.test(error.message)) {
+    ({ error } = await admin.from(table).update({ is_focus: value }).eq(idField, idValue));
+  }
   if (error) return { ok: false, error: error.message };
   if (revalidate) revalidatePath(revalidate);
   bustCounts();
@@ -282,7 +289,13 @@ export async function bulkSetFocus(
   if (!idValues || idValues.length === 0) return { ok: true, updated: 0 };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const { error } = await admin.from(table).update({ is_focus: value }).in(idField, idValues);
+  // 注力ONの一括操作でも登録日時を now() で更新（#316③）。列未整備時は fail-soft でフラグのみ。
+  const patch: Record<string, unknown> = { is_focus: value };
+  if (value) patch.focused_at = new Date().toISOString();
+  let { error } = await admin.from(table).update(patch).in(idField, idValues);
+  if (error && /focused_at/.test(error.message)) {
+    ({ error } = await admin.from(table).update({ is_focus: value }).in(idField, idValues));
+  }
   if (error) return { ok: false, updated: 0, error: error.message };
   if (revalidate) revalidatePath(revalidate);
   bustCounts();
