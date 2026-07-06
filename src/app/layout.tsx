@@ -4,7 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { getSidebarCounts, type SidebarCounts } from "@/lib/counts";
 import { agentUnreadCountCached } from "@/lib/chat";
 import { getStaff } from "@/lib/staff";
-import { getSessionEmail, resolveAccess, type Role } from "@/lib/accounts";
+import { getSessionEmail, resolveAccess, type Role, type AccountStatus } from "@/lib/accounts";
 import { canManageDept, isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
 import { redirect } from "next/navigation";
 import { loadMenuPermissions } from "@/lib/menu-permissions";
@@ -92,10 +92,12 @@ export default async function RootLayout({
   let functions: string[] = [];
   let teamRole: string | null = null;
   let isTimecardUser = false;
+  // 企業(client)ダッシュボードの承認ゲート表示用（active=フル／pending等=一部ロック）。
+  let clientStatus: AccountStatus | null = null;
   if (auth.email) {
     userEmail = auth.email;
     defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === auth.email)?.name ?? "";
-    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; isTimecardUser = auth.access.isTimecardUser ?? false; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
+    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; isTimecardUser = auth.access.isTimecardUser ?? false; clientStatus = auth.access.status; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
   }
   // タイムカードのメニューは、本人入力対象 or 承認者（マネージャー/リーダー/admin）のみ表示。
   const showTimecard = isTimecardUser || role === "admin" || canManageDept(teamRole);
@@ -122,7 +124,7 @@ export default async function RootLayout({
         />
       </head>
       <body suppressHydrationWarning>
-        <AppShell counts={countsWithChat} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard}>{children}</AppShell>
+        <AppShell counts={countsWithChat} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard} clientStatus={clientStatus}>{children}</AppShell>
       </body>
     </html>
   );
