@@ -2,18 +2,29 @@ import { redirect } from "next/navigation";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { MeetingGateBanner } from "@/components/MeetingGateBanner";
+import { PortalSelectionView, type SelectionItem } from "@/components/PortalSelectionView";
+import { getFeedbackMap } from "@/lib/client-feedback";
 
 export const dynamic = "force-dynamic";
 
-const STAGE: Record<string, { c: string }> = {
-  "応募": { c: "#64748b" }, "書類選考": { c: "#64748b" }, "面談": { c: "#0b5cab" },
-  "面談合格": { c: "#0b5cab" }, "稼働": { c: "#067647" }, "見送り": { c: "#b42318" },
-};
-// 企業側は仲介前のため実名を出さない。先頭1文字のイニシャルのみ表示（実名確認は担当が仲介）。
-const initialsOf = (name: string | null) => (name ? name.slice(0, 1) : "—");
-const fmt = (s: string) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
+// docs/business-dashboard-v2-仕様.md §3「候補者・応募者（全媒体一括管理）」。
+//   経路（エージェント提案／LINE／直接応募 等）を問わず、自社案件に来た人材を1画面に集約する。
+//   データ源は proposals（LP応募も DBトリガ applications-to-proposals.sql で proposals にミラーされる）。
+//   企業に見せる人材情報は常に匿名（イニシャル＋スキル＋単価。氏名/連絡先は担当が仲介）。
 
-/** ユーザー企業(client)向け：自社案件への応募者と選考ステージ（匿名）。 */
+// proposals の各行から企業向けの「経路（source）」キーを導出する。
+//   媒体（Indeed/エン転職 等）は §7 Phase2 で source が付与され次第、そのまま分類される。
+function deriveRouteKey(p: any): string {
+  const src = String(p.source ?? "").toLowerCase();
+  if (src === "indeed") return "indeed";
+  if (src === "en" || src === "en_tenshoku" || src.includes("tenshoku")) return "en";
+  if (src === "line" || src === "line_works") return "line";
+  // LP（enger.jp）からの直接応募は lp_direct / next_action で判定（エージェント提案と区別）。
+  if (p.lp_direct === true || String(p.next_action ?? "").includes("直接応募")) return "direct";
+  return "agent"; // 既定＝エージェント提案
+}
+
+/** ユーザー企業(client)向け：自社案件に来た候補者・応募者を全媒体一括で表示（匿名・ドロワー詳細）。 */
 export default async function PortalSelectionPage() {
   const access = await currentAccess();
   if (access && access.role !== "client") redirect("/");
@@ -21,14 +32,15 @@ export default async function PortalSelectionPage() {
   if (access && !access.meetingDone) {
     return (
       <div className="page">
-        <div className="page-head"><div><div className="meta">選考管理</div><h1>選考管理</h1></div></div>
-        <MeetingGateBanner title="選考管理の閲覧は担当との面談後に解放されます" description="応募者・選考ステージは、面談で利用方針を確認した後にご覧いただけます。" />
+        <div className="page-head"><div><div className="meta">候補者・応募者</div><h1>候補者・応募者</h1></div></div>
+        <MeetingGateBanner title="候補者・応募者の閲覧は担当との面談後に解放されます" description="応募者・選考ステージは、面談で利用方針を確認した後にご覧いただけます。" />
       </div>
     );
   }
 
   const companyName = access?.companyName ?? null;
-  let rows: any[] = [];
+  let items: SelectionItem[] = [];
+  let jobOptions: { id: string; title: string }[] = [];
   let note: string | null = null;
 
   if (!companyName) {
@@ -37,61 +49,71 @@ export default async function PortalSelectionPage() {
     try {
       const sb = engerClient();
       const like = `%${companyName}%`;
-      const { data: jobs } = await sb.from("jobs").select("id, title").ilike("client_name", like).limit(500);
-      const jobIds = (jobs ?? []).map((j: any) => j.id);
-      const jobTitle = new Map((jobs ?? []).map((j: any) => [j.id, j.title]));
-      if (jobIds.length) {
-        const { data: apps } = await sb.from("applications")
-          .select("id, engineer_name, job_id, job_title, stage, created_at")
-          .in("job_id", jobIds).order("created_at", { ascending: false }).limit(300);
-        rows = (apps ?? []).map((a: any) => ({ ...a, title: a.job_title || jobTitle.get(a.job_id) || "案件" }));
+      // 匿名ホワイトリスト：氏名(candidate_name)・連絡先は取得しない（公開API /api/public/proposals と同方針）。
+      const base = "id, job_id, candidate_id, job_title, c_init, rate, score, stage, source, lp_direct, next_action, created_at, stage_updated_at";
+      let r: any = await sb.from("proposals").select(base).ilike("company", like).order("created_at", { ascending: false }).limit(300);
+      if (r.error) r = await sb.from("proposals").select("id, job_id, candidate_id, job_title, c_init, rate, stage, source, created_at").ilike("company", like).order("created_at", { ascending: false }).limit(300);
+      const rows = (r.error ? [] : (r.data ?? [])) as any[];
+
+      // ドロワー用の匿名プロフィール（スキル・職種・経験・リモート・稼働・年代・国籍）。
+      const candIds = Array.from(new Set(rows.map((p) => p.candidate_id).filter(Boolean)));
+      const candById = new Map<string, any>();
+      if (candIds.length) {
+        let cr: any = await sb.from("candidates").select("id, initials, title, skills, exp, remote_pref, avail, age_band, nationality").in("id", candIds).limit(1000);
+        if (cr.error) cr = await sb.from("candidates").select("id, initials, title, skills").in("id", candIds).limit(1000);
+        for (const c of (cr?.data ?? []) as any[]) candById.set(c.id, c);
       }
+
+      // 企業フィードバック（会いたい/検討中/ミスマッチ）を併読（一覧バッジ＋ドロワーの既回答）。
+      //   candidates ページと同じく getFeedbackMap（admin 経由）で取得し RLS 差異の影響を避ける。
+      const fbMap = await getFeedbackMap(rows.map((p) => p.id));
+
+      const jobTitleById = new Map<string, string>();
+      items = rows.map((p) => {
+        const c = p.candidate_id ? candById.get(p.candidate_id) : null;
+        const fb = fbMap[p.id] ?? null;
+        const jobTitle = p.job_title ?? null;
+        if (p.job_id && jobTitle) jobTitleById.set(String(p.job_id), jobTitle);
+        return {
+          id: p.id,
+          jobId: p.job_id ? String(p.job_id) : null,
+          jobTitle,
+          stage: p.stage ?? null,
+          routeKey: deriveRouteKey(p),
+          createdAt: p.created_at ?? null,
+          stageUpdatedAt: p.stage_updated_at ?? null,
+          initials: c?.initials ?? p.c_init ?? null,
+          title: c?.title ?? null,
+          skills: Array.isArray(c?.skills) ? c.skills : [],
+          rate: p.rate ?? null,
+          exp: c?.exp ?? null,
+          remotePref: c?.remote_pref ?? null,
+          avail: c?.avail ?? null,
+          ageBand: c?.age_band ?? null,
+          nationality: c?.nationality ?? null,
+          score: p.score ?? null,
+          verdict: fb?.verdict ?? null,
+          reason: fb?.reason ?? null,
+        } as SelectionItem;
+      });
+      jobOptions = Array.from(jobTitleById.entries()).map(([id, title]) => ({ id, title }));
     } catch { note = "データの取得に失敗しました。"; }
   }
-
-  const counts = rows.reduce((m: Record<string, number>, r) => { m[r.stage || "応募"] = (m[r.stage || "応募"] ?? 0) + 1; return m; }, {});
-  const order = ["応募", "書類選考", "面談", "面談合格", "稼働", "見送り"];
 
   return (
     <div className="page">
       <div className="page-head">
         <div style={{ maxWidth: 760 }}>
-          <div className="meta">選考管理 · {companyName ?? "—"}</div>
-          <h1>選考管理（応募者）</h1>
-          <div className="sub">貴社案件への応募者と選考ステージです。氏名はイニシャル表示です。面談調整・実名確認は担当エージェントが仲介します。</div>
+          <div className="meta">候補者・応募者 · {companyName ?? "—"}</div>
+          <h1>候補者・応募者</h1>
+          <div className="sub">エージェント提案・応募・LINE など、経路を問わず自社案件に来た人材を一括表示します。氏名はイニシャル表示です。面談調整・実名確認は担当エージェントが仲介します。</div>
         </div>
       </div>
 
-      {note && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginBottom: 14 }}>{note}</div>}
-
-      {!note && (
-        <>
-          <div className="kpi-grid" style={{ marginBottom: 16 }}>
-            {order.filter((s) => s !== "見送り").map((s) => (
-              <div key={s} className="kpi"><div><div className="val tnum">{counts[s] ?? 0}</div><div className="label">{s}</div></div></div>
-            ))}
-          </div>
-
-          {rows.length === 0 ? (
-            <div className="card" style={{ fontSize: 13, color: "var(--color-ink-3)" }}>まだ応募者はいません。<a href="/portal/jobs" style={{ color: "var(--color-brand-700)", fontWeight: 700 }}>案件を掲載</a>すると、人材からの応募がここに表示されます。</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {rows.map((r) => {
-                const st = STAGE[r.stage] ?? STAGE["応募"];
-                return (
-                  <div key={r.id} className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 14px" }}>
-                    <div className="ava" style={{ width: 38, height: 38, flex: "0 0 38px" }}>{initialsOf(r.engineer_name)}</div>
-                    <div style={{ minWidth: 0, flex: "1 1 240px" }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</div>
-                      <div className="muted" style={{ fontSize: 11 }}>応募 {fmt(r.created_at)}</div>
-                    </div>
-                    <span style={{ flex: "0 0 auto", fontSize: 11.5, fontWeight: 700, padding: "4px 11px", borderRadius: 999, color: "#fff", background: st.c }}>{r.stage || "応募"}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
+      {note ? (
+        <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>{note}</div>
+      ) : (
+        <PortalSelectionView items={items} companyName={companyName} jobOptions={jobOptions} />
       )}
     </div>
   );
