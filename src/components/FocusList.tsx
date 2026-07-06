@@ -45,9 +45,15 @@ export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnU
           <FocusHeart table={isJob ? "jobs" : "candidates"} idField={idField as "job_no" | "candidate_no"} idValue={r[idField]} initial={!!r.is_focus} revalidate="/matching" row={r}
             onToggle={removeOnUnheart ? (on) => { if (!on) setList((p) => p.filter((x) => x[idField] !== r[idField])); } : undefined} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title(r)}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+              {/* #316②：LINEから登録した案件/人材にはLINEバッジを付ける（サーバ側で _isLine を付与）。 */}
+              {r._isLine && <span title="LINEから登録" style={{ lineHeight: 0, flexShrink: 0, display: "inline-flex" }}><Icons.line size={13} /></span>}
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title(r)}</span>
+            </div>
             <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub(r)}</div>
             <div className="muted" style={{ fontSize: 10, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+              {/* #316③：注力に登録した日（focused_at）。再注力すると最新日で上書きされる。 */}
+              {r.focused_at && <span title="注力に登録した日"><span style={{ color: "#e0567f" }}>♥</span> 注力 {dt(r.focused_at)}</span>}
               <span>🕒 登録 {dt(r.created_at)}</span>
               {(r._focusWhy ?? []).map((w: string) => <span key={w} className="tag" style={{ fontSize: 9, padding: "0 5px" }}>{w}</span>)}
             </div>
@@ -62,7 +68,10 @@ export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnU
     <div onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "grid", placeItems: "center", zIndex: 300, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "88vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title(detail)}</h3>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+            {detail._isLine && <span title="LINEから登録" style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={16} /></span>}
+            {title(detail)}
+          </h3>
           <button className="btn ghost btn-xs" onClick={() => setDetail(null)}>閉じる</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>

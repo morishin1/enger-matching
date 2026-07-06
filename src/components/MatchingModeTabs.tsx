@@ -56,16 +56,19 @@ export function MatchingModeTabs() {
         {TABS.map((t) => {
           const on = mode === t.key;
           const content = (
+            // #316①：選択中のタブは背景色（ブランド色）を付けて区別しやすくする。
+            //   文字も少し大きめ（14px）にする。未選択は従来どおり控えめに。
             <span style={{
               display: "inline-flex", flexDirection: "column", alignItems: "flex-start",
-              padding: "6px 16px", borderRadius: 99, lineHeight: 1.3,
-              background: on ? "var(--color-surface)" : "transparent",
-              color: on ? "var(--color-ink)" : "var(--color-ink-3)",
-              fontSize: 13, fontWeight: 600,
-              boxShadow: on ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
+              padding: "7px 18px", borderRadius: 99, lineHeight: 1.3,
+              background: on ? "var(--color-brand-600)" : "transparent",
+              color: on ? "#fff" : "var(--color-ink-3)",
+              fontSize: 14, fontWeight: on ? 700 : 600,
+              boxShadow: on ? "0 1px 3px rgba(15,23,42,0.18)" : "none",
+              transition: "background .12s ease, color .12s ease",
             }}>
               <span>{t.label}</span>
-              <span style={{ fontSize: 10, fontWeight: 500, color: "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: on ? "rgba(255,255,255,0.82)" : "var(--color-ink-4)", fontFamily: "var(--font-mono)" }}>{t.note}</span>
             </span>
           );
           // 自動/注力タブはURL遷移、番号タブはステート切替のみ（入力欄を出すため）
