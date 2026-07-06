@@ -225,3 +225,50 @@ export async function submitCandidateReferral(input: {
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
+
+/** 企業が候補者に「AI面接を依頼」（§5 Phase A）。本人(client)・AI面接契約企業・自社提案のみ。
+ *  依頼を ai_interviews に status='requested' で記録し、営業へ Slack 通知（営業が面接URLを手動発行）。 */
+export async function requestAiInterview(proposalId: string): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  if (!access.aiInterview) return { ok: false, error: "AI面接はオプション契約が必要です。担当エージェントにご相談ください。" };
+  if (!proposalId) return { ok: false, error: "対象が不正です" };
+
+  try {
+    const sb = engerAdmin();
+    // 自社の提案であることを確認（company 名寄せ。submitClientFeedback と同じ方針）。
+    const { data: prop } = await sb.from("proposals").select("id, company, job_title, c_init").eq("id", proposalId).maybeSingle();
+    if (!prop) return { ok: false, error: "提案が見つかりません" };
+    const company = access.companyName ?? "";
+    if (company && prop.company && !String(prop.company).includes(company) && !company.includes(String(prop.company))) {
+      return { ok: false, error: "自社の提案ではありません" };
+    }
+
+    // 1提案1面接（ai_interviews_proposal_uidx）。二重依頼は upsert で弾く。
+    const up: any = await sb.from("ai_interviews").upsert({
+      proposal_id: proposalId,
+      status: "requested",
+      requested_by: access.email ?? null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "proposal_id" }).select("id").maybeSingle();
+    if (up.error) {
+      if (/ai_interviews|relation|schema cache/i.test(up.error.message ?? "")) {
+        return { ok: false, error: "AI面接テーブルが未整備です（supabase/ai-interviews.sql を実行してください）" };
+      }
+      return { ok: false, error: up.error.message };
+    }
+
+    try {
+      await notifySlack({
+        text: `🤖 AI面接の依頼：${company} / ${prop.c_init ?? "候補者"}（${prop.job_title ?? "案件"}）`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*🤖 AI面接の依頼が届きました*\n• 企業: *${company}*（${access.email}）\n• 候補者: *${prop.c_init ?? "—"}* / ${prop.job_title ?? "案件未記入"}` } },
+          { type: "context", elements: [{ type: "mrkdwn", text: `面接URLを発行して候補者へ送付してください。結果は <${appUrl("/proposals")}|提案管理> 側で ai_interviews に登録すると企業ドロワーに表示されます。` }] },
+        ],
+      });
+    } catch { /* Slack 失敗は無視 */ }
+
+    revalidatePath("/portal/selection");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}

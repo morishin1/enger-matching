@@ -54,6 +54,16 @@ export async function GET(req: NextRequest) {
       }
     } catch { /* client_feedback 未整備でも続行 */ }
 
+    // AI面接の依頼・結果（§5 Phase B）を併読。テーブル未整備でも無視して続行。
+    const aiByProposal = new Map<string, { status: string | null; score: number | null; report_url: string | null; video_url: string | null; summary: string | null }>();
+    try {
+      const ids = rows.map((p) => p.id);
+      if (ids.length) {
+        const ar: any = await sb.from("ai_interviews").select("proposal_id, status, score, report_url, video_url, summary").in("proposal_id", ids).limit(1000);
+        for (const a of (ar?.data ?? []) as any[]) aiByProposal.set(a.proposal_id, { status: a.status ?? null, score: a.score ?? null, report_url: a.report_url ?? null, video_url: a.video_url ?? null, summary: a.summary ?? null });
+      }
+    } catch { /* ai_interviews 未整備でも続行 */ }
+
     const items = rows.map((p) => {
       const c = p.candidate_id ? candById.get(p.candidate_id) : null;
       const fb = fbByProposal.get(p.id) ?? null;
@@ -77,6 +87,7 @@ export async function GET(req: NextRequest) {
         },
         score: p.score ?? null,
         feedback: fb,                         // { verdict: want|maybe|mismatch, reason } | null
+        ai_interview: aiByProposal.get(p.id) ?? null, // { status, score, report_url, video_url, summary } | null（§5）
       };
     });
     return json({ ok: true, proposals: items });

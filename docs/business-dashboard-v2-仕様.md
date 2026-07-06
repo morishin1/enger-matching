@@ -115,7 +115,8 @@
 | `GET /api/public/job-detail` | （フリーランス向け）案件詳細＋面談済ゲート | — |
 
 マイグレーション（SQL Editor・冪等）：`supabase/business-portal-api.sql`（corporate_no）、
-`supabase/client-referrals.sql`（紹介テーブル）。AI下書きの法人番号対応は env `GBIZINFO_TOKEN`。
+`supabase/client-referrals.sql`（紹介テーブル）、`supabase/ai-interviews.sql`（AI面接テーブル＋契約フラグ
+`app_users.ai_interview`）。AI下書きの法人番号対応は env `GBIZINFO_TOKEN`。
 
 ## 7. 媒体一括管理のロードマップ
 
@@ -149,7 +150,8 @@
 
 ## 10. 未確定・要確認
 
-- [ ] AI面接ツールの連携仕様（§5 のヒアリング3点）
-- [ ] AI面接オプションの契約フラグの持ち方（`companies` 列 or `app_settings`）
+- [ ] AI面接ツールの連携仕様（§5 のヒアリング3点）※Phase C（API直結）の着手条件
+- [x] AI面接オプションの契約フラグの持ち方 → **アカウント単位 `app_users.ai_interview`（boolean）で実装**
+      （client は会社と1:1のため当面はこれで足りる。企業単位に寄せる場合は companies へ移設）
 - [ ] チャットの実URL（`NEXT_PUBLIC_LP_CHAT_URL`。v1 からの持ち越し）
 - [ ] 取り込む媒体の優先順位（Indeed / エン転職 / リクナビNEXT / その他）

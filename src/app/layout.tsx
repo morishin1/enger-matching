@@ -94,10 +94,12 @@ export default async function RootLayout({
   let isTimecardUser = false;
   // 企業(client)ダッシュボードの承認ゲート表示用（active=フル／pending等=一部ロック）。
   let clientStatus: AccountStatus | null = null;
+  // AI面接（§5）の契約フラグ。true の企業だけメニュー「AI面接」＋ドロワーの依頼ボタンを表示。
+  let aiInterviewEnabled = false;
   if (auth.email) {
     userEmail = auth.email;
     defaultOperator = staff.rows.find((r) => (r.email ?? "").toLowerCase() === auth.email)?.name ?? "";
-    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; isTimecardUser = auth.access.isTimecardUser ?? false; clientStatus = auth.access.status; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
+    if (auth.access) { role = auth.access.role; position = auth.access.position; functions = auth.access.functions ?? []; teamRole = auth.access.teamRole ?? null; isTimecardUser = auth.access.isTimecardUser ?? false; clientStatus = auth.access.status; aiInterviewEnabled = auth.access.aiInterview; if (!defaultOperator && auth.access.name) defaultOperator = auth.access.name; }
   }
   // タイムカードのメニューは、本人入力対象 or 承認者（マネージャー/リーダー/admin）のみ表示。
   const showTimecard = isTimecardUser || role === "admin" || canManageDept(teamRole);
@@ -124,7 +126,7 @@ export default async function RootLayout({
         />
       </head>
       <body suppressHydrationWarning>
-        <AppShell counts={countsWithChat} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard} clientStatus={clientStatus}>{children}</AppShell>
+        <AppShell counts={countsWithChat} operators={operators} defaultOperator={defaultOperator} role={role} position={position} userEmail={userEmail} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard} clientStatus={clientStatus} aiInterviewEnabled={aiInterviewEnabled}>{children}</AppShell>
       </body>
     </html>
   );

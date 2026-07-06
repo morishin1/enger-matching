@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { engerClient, dbConfigured } from "@/lib/supabase";
+import { engerClient, engerAdmin, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { MeetingGateBanner } from "@/components/MeetingGateBanner";
-import { PortalSelectionView, type SelectionItem } from "@/components/PortalSelectionView";
+import { PortalSelectionView, type SelectionItem, type AiInterview } from "@/components/PortalSelectionView";
 import { getFeedbackMap } from "@/lib/client-feedback";
 import { AgentReferralButton } from "@/components/AgentReferralButton";
 
@@ -69,6 +69,18 @@ export default async function PortalSelectionPage() {
       //   candidates ページと同じく getFeedbackMap（admin 経由）で取得し RLS 差異の影響を避ける。
       const fbMap = await getFeedbackMap(rows.map((p) => p.id));
 
+      // AI面接の依頼・結果（§5 Phase B）。admin 経由で proposal_id ごとに併読。テーブル未整備なら無視。
+      const aiByProposal = new Map<string, AiInterview>();
+      try {
+        const ids = rows.map((p) => p.id);
+        if (ids.length) {
+          const ar: any = await engerAdmin().from("ai_interviews").select("proposal_id, status, score, report_url, video_url, summary").in("proposal_id", ids).limit(1000);
+          for (const a of (ar?.data ?? []) as any[]) {
+            aiByProposal.set(a.proposal_id, { status: a.status ?? null, score: a.score ?? null, reportUrl: a.report_url ?? null, videoUrl: a.video_url ?? null, summary: a.summary ?? null });
+          }
+        }
+      } catch { /* ai_interviews 未整備でも続行 */ }
+
       const jobTitleById = new Map<string, string>();
       items = rows.map((p) => {
         const c = p.candidate_id ? candById.get(p.candidate_id) : null;
@@ -95,6 +107,7 @@ export default async function PortalSelectionPage() {
           score: p.score ?? null,
           verdict: fb?.verdict ?? null,
           reason: fb?.reason ?? null,
+          aiInterview: aiByProposal.get(p.id) ?? null,
         } as SelectionItem;
       });
       jobOptions = Array.from(jobTitleById.entries()).map(([id, title]) => ({ id, title }));
@@ -115,7 +128,7 @@ export default async function PortalSelectionPage() {
       {note ? (
         <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13 }}>{note}</div>
       ) : (
-        <PortalSelectionView items={items} companyName={companyName} jobOptions={jobOptions} />
+        <PortalSelectionView items={items} companyName={companyName} jobOptions={jobOptions} aiInterviewEnabled={access?.aiInterview ?? false} />
       )}
     </div>
   );

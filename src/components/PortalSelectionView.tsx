@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { submitClientFeedback } from "@/app/portal/actions";
+import { submitClientFeedback, requestAiInterview } from "@/app/portal/actions";
 import type { Verdict } from "@/lib/client-feedback";
+
+// AI面接の依頼・結果（§5 Phase A→B）。結果が入ればドロワーに表示、無ければ依頼ボタンを出す。
+export type AiInterview = { status: string | null; score: number | null; reportUrl: string | null; videoUrl: string | null; summary: string | null };
 
 // docs/business-dashboard-v2-仕様.md §3「候補者・応募者（全媒体一括管理）」の一括ビュー＋ドロワー。
 //   経路（エージェント提案／LINE／直接応募 等）を問わず、自社案件に来た人材を1画面に集約する。
@@ -29,6 +32,7 @@ export type SelectionItem = {
   score: number | null;       // マッチ度
   verdict: Verdict | null;
   reason: string | null;
+  aiInterview: AiInterview | null; // AI面接の依頼/結果（§5）
 };
 
 // 経路（source）バッジ。ステージが進んでも色は変えない（一目で流入経路が分かるように）。
@@ -71,7 +75,7 @@ const fmtDate = (s: string | null) => {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-export function PortalSelectionView({ items: initial, companyName, jobOptions }: { items: SelectionItem[]; companyName: string | null; jobOptions: { id: string; title: string }[] }) {
+export function PortalSelectionView({ items: initial, companyName, jobOptions, aiInterviewEnabled = false }: { items: SelectionItem[]; companyName: string | null; jobOptions: { id: string; title: string }[]; aiInterviewEnabled?: boolean }) {
   // フィードバックの結果を一覧バッジへ即時反映するため items をローカル状態で保持。
   const [items, setItems] = useState<SelectionItem[]>(initial);
   const [route, setRoute] = useState<string>("all");
@@ -154,7 +158,7 @@ export function PortalSelectionView({ items: initial, companyName, jobOptions }:
       )}
 
       {openItem && (
-        <Drawer item={openItem} companyName={companyName} onClose={() => setOpenId(null)} onSaved={onFeedbackSaved} />
+        <Drawer item={openItem} companyName={companyName} aiInterviewEnabled={aiInterviewEnabled} onClose={() => setOpenId(null)} onSaved={onFeedbackSaved} />
       )}
     </>
   );
@@ -210,7 +214,7 @@ function Row({ r, onOpen }: { r: SelectionItem; onOpen: () => void }) {
   );
 }
 
-function Drawer({ item, companyName, onClose, onSaved }: { item: SelectionItem; companyName: string | null; onClose: () => void; onSaved: (id: string, v: Verdict, r: string) => void }) {
+function Drawer({ item, companyName, aiInterviewEnabled, onClose, onSaved }: { item: SelectionItem; companyName: string | null; aiInterviewEnabled: boolean; onClose: () => void; onSaved: (id: string, v: Verdict, r: string) => void }) {
   // ドロワー表示中は背景スクロールを固定し、Esc で閉じる。
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -303,6 +307,14 @@ function Drawer({ item, companyName, onClose, onSaved }: { item: SelectionItem; 
               </div>
             ))}
           </div>
+
+          {/* AI面接（オプション契約企業のみ）。結果があれば表示、無ければ依頼ボタン（§5 Phase A→B）。 */}
+          {(aiInterviewEnabled || item.aiInterview) && (
+            <>
+              <SectionTitle>AI面接 <span style={{ fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, background: "var(--color-brand-50)", color: "var(--color-brand-700)", marginLeft: 4 }}>オプション</span></SectionTitle>
+              <AiInterviewPanel item={item} />
+            </>
+          )}
         </div>
 
         {/* アクション：会いたい / 検討中 / ミスマッチ（§3） */}
@@ -313,7 +325,56 @@ function Drawer({ item, companyName, onClose, onSaved }: { item: SelectionItem; 
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11.5, fontWeight: 800, color: "var(--color-ink-3)", letterSpacing: ".02em", margin: "16px 0 7px" }}>{children}</div>;
+  return <div style={{ fontSize: 11.5, fontWeight: 800, color: "var(--color-ink-3)", letterSpacing: ".02em", margin: "16px 0 7px", display: "flex", alignItems: "center" }}>{children}</div>;
+}
+
+const AI_STATUS_LABEL: Record<string, string> = { requested: "依頼済み（面接URL発行待ち）", scheduled: "面接調整中", done: "完了", canceled: "取消" };
+
+function AiInterviewPanel({ item }: { item: SelectionItem }) {
+  const ai = item.aiInterview;
+  const [requested, setRequested] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  // 結果あり（完了）：スコア・要約・レポート／録画リンクを表示。
+  if (ai && (ai.score != null || ai.summary || ai.reportUrl || ai.videoUrl)) {
+    return (
+      <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        {ai.score != null && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 22, fontWeight: 800, color: "#0b5cab" }}>{ai.score}</span>
+            <span className="muted" style={{ fontSize: 11 }}>AI面接スコア</span>
+          </div>
+        )}
+        {ai.summary && <div style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--color-ink-2)" }}>{ai.summary}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {ai.reportUrl && <a href={ai.reportUrl} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs">評価レポート</a>}
+          {ai.videoUrl && <a href={ai.videoUrl} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs">録画を見る</a>}
+        </div>
+      </div>
+    );
+  }
+
+  // 依頼済みだが結果待ち。
+  if ((ai && ai.status && ai.status !== "canceled") || requested) {
+    return <div className="muted" style={{ fontSize: 12 }}>✓ {AI_STATUS_LABEL[ai?.status ?? "requested"] ?? "依頼済み"}。結果が届くとここに表示されます。</div>;
+  }
+
+  // 未依頼：Phase A の「AI面接を依頼」ボタン。
+  const req = () => start(async () => {
+    setErr(null);
+    const res = await requestAiInterview(item.id);
+    if (res.ok) setRequested(true); else setErr(res.error ?? "依頼に失敗しました");
+  });
+  return (
+    <div>
+      <div className="muted" style={{ fontSize: 11.5, marginBottom: 8 }}>一次面接をAIで自動化できます。依頼すると担当が面接URLを発行し、候補者へ送付します。</div>
+      <button onClick={req} disabled={pending} className="btn brand" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>smart_toy</span>{pending ? "依頼中…" : "AI面接を依頼"}
+      </button>
+      {err && <div style={{ fontSize: 11.5, color: "#b42318", marginTop: 6 }}>{err}</div>}
+    </div>
+  );
 }
 
 function FeedbackBar({ item, onSaved }: { item: SelectionItem; onSaved: (id: string, v: Verdict, r: string) => void }) {

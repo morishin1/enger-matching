@@ -93,7 +93,7 @@ export async function getAccountByEmail(email: string): Promise<Account | null> 
  *  2) 無い場合は staff の email 許可リストにあれば admin 扱い（移行期の締め出し防止）
  *  3) どちらも無ければ null（未許可）
  */
-export const resolveAccess = cache(async (email: string): Promise<{ role: Role; rawRole: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean } | null> => {
+export const resolveAccess = cache(async (email: string): Promise<{ role: Role; rawRole: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean; aiInterview: boolean } | null> => {
   const acc = await getAccountByEmail(email);
   if (acc) {
     const department = (acc as any).department ?? null;
@@ -110,6 +110,7 @@ export const resolveAccess = cache(async (email: string): Promise<{ role: Role; 
       meetingDone: !!(acc as any).meeting_done,
       department, teamRole: (acc as any).team_role ?? null,
       isTimecardUser: !!(acc as any).is_timecard_user,
+      aiInterview: !!(acc as any).ai_interview, // AI面接オプションの契約フラグ（§5）
     };
   }
 
@@ -125,7 +126,7 @@ export const resolveAccess = cache(async (email: string): Promise<{ role: Role; 
     const rows = (data ?? []) as { name: string; email: string | null; position?: string | null }[];
     if (rows.length === 0) return null;
     const me = rows.find((r) => String(r.email || "").toLowerCase() === e);
-    if (me) return { role: "admin", rawRole: "admin", status: "active", companyName: null, name: me.name ?? null, position: (me.position ?? null) as SalesPosition, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: false };
+    if (me) return { role: "admin", rawRole: "admin", status: "active", companyName: null, name: me.name ?? null, position: (me.position ?? null) as SalesPosition, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: false, aiInterview: false };
     return null;
   } catch { return null; }
 });
@@ -162,8 +163,8 @@ export async function createPendingAccount(opts: { email: string; name?: string 
 }
 
 /** ログイン中ユーザーのアクセス情報（role/status/会社名/名前）。未ログインや未設定は null。 */
-export async function currentAccess(): Promise<{ role: Role; rawRole: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean; email: string } | null> {
-  if (!authConfigured) return { role: "admin", rawRole: "admin", status: "active", companyName: null, name: null, position: null, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: true, email: "" };
+export async function currentAccess(): Promise<{ role: Role; rawRole: Role; status: AccountStatus; companyName: string | null; name: string | null; position: SalesPosition; functions: string[]; meetingDone: boolean; department: string | null; teamRole: string | null; isTimecardUser: boolean; aiInterview: boolean; email: string } | null> {
+  if (!authConfigured) return { role: "admin", rawRole: "admin", status: "active", companyName: null, name: null, position: null, functions: [], meetingDone: true, department: null, teamRole: null, isTimecardUser: true, aiInterview: true, email: "" };
   try {
     const email = await getSessionEmail(); // cache() でリクエスト内1回に集約
     if (!email) return null;
