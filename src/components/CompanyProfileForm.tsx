@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { saveCompanyProfile, draftCompanyProfileFromUrl } from "@/app/portal/actions";
+import { saveCompanyProfile, draftCompanyProfileSmart } from "@/app/portal/actions";
 
 export type CompanyProfile = {
   mission: string; culture: string; ideal_persona: string; appeal: string; website: string;
@@ -12,16 +12,17 @@ export function CompanyProfileForm({ initial }: { initial: CompanyProfile }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [f, setF] = useState(initial);
+  const [corpNo, setCorpNo] = useState(""); // 法人番号（13桁）。HPが無い企業向けのAI下書きソース
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [aiPending, startAi] = useTransition();
   const [aiMsg, setAiMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (k: keyof CompanyProfile, v: string) => setF((p) => ({ ...p, [k]: v }));
 
   const autoFill = () => {
-    if (!f.website.trim()) { setAiMsg({ ok: false, text: "会社サイトURLを入力してください" }); return; }
+    if (!f.website.trim() && !corpNo.trim()) { setAiMsg({ ok: false, text: "会社サイトURLか法人番号を入力してください" }); return; }
     setAiMsg(null);
     startAi(async () => {
-      const res = await draftCompanyProfileFromUrl(f.website);
+      const res = await draftCompanyProfileSmart({ website: f.website.trim() || undefined, corporateNo: corpNo.trim() || undefined });
       if (!res.ok || !res.draft) { setAiMsg({ ok: false, text: res.error || "生成に失敗しました" }); return; }
       const d = res.draft;
       setF((p) => ({
@@ -30,6 +31,7 @@ export function CompanyProfileForm({ initial }: { initial: CompanyProfile }) {
         culture: d.culture || p.culture,
         ideal_persona: d.ideal_persona || p.ideal_persona,
         appeal: d.appeal || p.appeal,
+        website: p.website || d.website || "",
       }));
       setAiMsg({ ok: true, text: "AIが下書きを入力しました。内容を確認・修正して保存してください。" });
     });
@@ -54,11 +56,12 @@ export function CompanyProfileForm({ initial }: { initial: CompanyProfile }) {
       {/* URL → AI 自動入力 */}
       <div style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", borderRadius: 12, padding: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 800, color: "var(--color-brand-800)", display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>auto_awesome</span>会社サイトURLから自動入力
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>auto_awesome</span>会社サイトURL・法人番号から自動入力
         </div>
-        <div style={{ fontSize: 11.5, color: "var(--color-ink-3)", marginBottom: 8 }}>会社のホームページURLを貼って「AIで下書き」を押すと、下の項目をAIが自動で埋めます（内容は確認・修正できます）。</div>
+        <div style={{ fontSize: 11.5, color: "var(--color-ink-3)", marginBottom: 8 }}>会社のホームページURL（または法人番号13桁）を入れて「AIで下書き」を押すと、下の項目をAIが自動で埋めます（内容は確認・修正できます）。</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input style={{ ...inp, flex: "1 1 260px" }} type="url" value={f.website} onChange={(e) => set("website", e.target.value)} placeholder="https://your-company.co.jp" />
+          <input style={{ ...inp, flex: "1 1 240px" }} type="url" value={f.website} onChange={(e) => set("website", e.target.value)} placeholder="https://your-company.co.jp" />
+          <input style={{ ...inp, flex: "0 1 170px" }} type="text" inputMode="numeric" maxLength={13} value={corpNo} onChange={(e) => setCorpNo(e.target.value.replace(/\D/g, ""))} placeholder="法人番号（13桁）" />
           <button className="btn brand" disabled={aiPending} onClick={autoFill} style={{ whiteSpace: "nowrap" }}>{aiPending ? "生成中…" : "AIで下書き"}</button>
         </div>
         {aiMsg && <div style={{ fontSize: 12, marginTop: 8, color: aiMsg.ok ? "var(--color-brand-700)" : "#b42318" }}>{aiMsg.text}</div>}
