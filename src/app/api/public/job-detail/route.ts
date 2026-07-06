@@ -12,7 +12,7 @@
 //     もしくは GET ...?job_no=123&viewer=<メール>           （検証用フォールバック）
 // ============================================================
 import { NextRequest, NextResponse } from "next/server";
-import { engerAdmin, authAdmin, dbConfigured } from "@/lib/supabase";
+import { engerAdmin, authAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 import { classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 
 export const runtime = "nodejs";
@@ -33,20 +33,49 @@ function corsHeaders(origin: string | null): Record<string, string> {
 const remoteLabel = (r: string | null | undefined) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 
-/** 閲覧者の面談済フラグを解決。Bearer トークン（推奨）→ viewer メール（検証用）の順。 */
+/** 閲覧者の面談済フラグを解決。Bearer トークン（推奨）→ viewer メール（検証用）の順。
+ *  #318：判定ソースを2系統の OR にする。
+ *    ① public.profiles.agent_meeting_done_at …… LP登録者の正準フラグ。
+ *       DX「フリーランス登録者一覧」の面談済チェック（setEngineerMeetingDone）が書く列で、
+ *       LP登録者は enger.app_users に行が無いため、従来の②だけでは常に false になり
+ *       「チェックしたのに案件詳細が見えない・応募できない」事故になっていた。
+ *       profiles.id ＝ auth.users.id（LP登録は auth の uid を profiles PK に使う想定）を第一に、
+ *       旧データ向けに email でもフォールバック照合する。
+ *    ② enger.app_users.meeting_done …… 社内/ビジネス系アカウント向け（従来どおり維持）。
+ *  いずれも列・テーブル未整備の環境では fail-soft（false 側に倒す）。 */
 async function resolveViewerGate(req: NextRequest): Promise<{ email: string; meetingDone: boolean }> {
   let email = "";
+  let uid = "";
   const auth = req.headers.get("authorization");
   const token = auth && auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
   if (token) {
-    try { const r: any = await authAdmin().auth.getUser(token); email = (r?.data?.user?.email ?? "").trim(); } catch { /* 無効トークンは未認証扱い */ }
+    try {
+      const r: any = await authAdmin().auth.getUser(token);
+      email = (r?.data?.user?.email ?? "").trim();
+      uid = (r?.data?.user?.id ?? "").trim();
+    } catch { /* 無効トークンは未認証扱い */ }
   }
   if (!email) email = (req.nextUrl.searchParams.get("viewer") ?? "").trim();
-  if (!email) return { email: "", meetingDone: false };
+  if (!email && !uid) return { email: "", meetingDone: false };
+
+  // ① LP正準：public.profiles.agent_meeting_done_at（uid → email の順で照合）
+  let meetingDone = false;
   try {
-    const r: any = await engerAdmin().from("app_users").select("meeting_done").ilike("email", email).maybeSingle();
-    return { email, meetingDone: !!r?.data?.meeting_done };
-  } catch { return { email, meetingDone: false }; }
+    const pub = publicAdmin();
+    let pr: any = null;
+    if (uid) pr = await pub.from("profiles").select("agent_meeting_done_at").eq("id", uid).maybeSingle();
+    if ((!pr || pr.error || !pr.data) && email) pr = await pub.from("profiles").select("agent_meeting_done_at").ilike("email", email).limit(1).maybeSingle();
+    if (pr && !pr.error && pr.data?.agent_meeting_done_at) meetingDone = true;
+  } catch { /* profiles / 列未整備は無視して②へ */ }
+
+  // ② 社内/ビジネス：enger.app_users.meeting_done（従来ロジック）
+  if (!meetingDone && email) {
+    try {
+      const r: any = await engerAdmin().from("app_users").select("meeting_done").ilike("email", email).maybeSingle();
+      meetingDone = !!r?.data?.meeting_done;
+    } catch { /* app_users 未整備は無視 */ }
+  }
+  return { email, meetingDone };
 }
 
 export function OPTIONS(req: NextRequest) {
