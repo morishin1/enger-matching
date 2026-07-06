@@ -609,6 +609,35 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     }
   } else dbError = "Supabase の環境変数が未設定です";
 
+  // #315：LINE登録の人材／案件には、企業名やGメールを「勝手に」紐づけない。
+  //   LINE経由（signup_source='line' 等＝lineCandIds/lineJobIds）で登録された行に、
+  //   企業マスタ由来の窓口メール（contact_email）や受信箱の元メール（source_mail_url）を
+  //   後付けしてしまうと、「LINEで繋がっていない企業/Gメールの一覧に飛ぶ」事故になる。
+  //   そこで表示直前に、対象行の 所属企業／窓口メール／元メールリンクをこの画面上でだけ伏せる。
+  //   （DBは変更しない。判定は名前横のLINEアイコンと同じ lineCandIds/lineJobIds を使う。）
+  const scrubLineCand = (c: any) => {
+    if (!c || !lineCandIds.has(c.id)) return;
+    c.source_company = null; c.company = null;
+    c.contact_email = null; c.company_contact_email = null;
+    c.source_mail_url = null; c.source_mail_at = null; c.source_mail_subject = null;
+  };
+  const scrubLineJob = (j: any) => {
+    if (!j || !lineJobIds.has(j.id)) return;
+    j.client_name = null;
+    j.contact_email = null; j.company_contact_email = null;
+    j.source_mail_url = null; j.source_mail_at = null; j.source_mail_subject = null;
+  };
+  scrubLineCand(person);
+  scrubLineJob(job);
+  for (const r of rankedJobs) scrubLineJob(r?.job);
+  for (const r of ranked) scrubLineCand(r?.candidate);
+  for (const j of jobList) scrubLineJob(j);
+  for (const j of focusJobs) scrubLineJob(j);
+  for (const j of recoJobs) scrubLineJob(j);
+  for (const c of focusCands) scrubLineCand(c);
+  for (const c of recoCands) scrubLineCand(c);
+  for (const row of autoTop.rows) { scrubLineJob(row?.job); scrubLineCand(row?.cand); }
+
   // 期間セレクタ（統一デザイン）で、登録日(created_at)によりマッチング対象を絞り込む。
   //   既定 all は no-op。選択中の案件/人材は誤って消えないよう常に残す（carve-out）。
   if (periodActive) {
