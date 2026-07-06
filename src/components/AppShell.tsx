@@ -40,8 +40,8 @@ const CRUMBS: Record<string, string[]> = {
   "/search": ["ENGER", "検索"],
   "/portal": ["ENGER", "ポータル"],
   "/portal/jobs": ["ENGER", "自社案件"],
-  "/portal/candidates": ["ENGER", "おすすめ人材"],
-  "/portal/selection": ["ENGER", "選考管理"],
+  "/portal/candidates": ["ENGER", "人材をさがす"],
+  "/portal/selection": ["ENGER", "候補者・応募者"],
   "/portal/company": ["ENGER", "自社情報"],
 };
 
@@ -77,7 +77,7 @@ const ROLE_BADGE: Record<Role, { label: string; bg: string; fg: string }> = {
 
 const POSITION_LABEL: Record<string, string> = { inside: "インサイドセールス", outside: "アウトサイドセールス" };
 
-export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [], teamRole = null, menuPerms, showTimecard = false }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean }) {
+export function AppShell({ children, counts, operators, defaultOperator, role = "admin", position = null, userEmail = "", functions = [], teamRole = null, menuPerms, showTimecard = false, clientStatus = null, aiInterviewEnabled = false }: { children: React.ReactNode; counts?: SidebarCounts; operators?: string[]; defaultOperator?: string; role?: Role; position?: "inside" | "outside" | null; userEmail?: string; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean; clientStatus?: import("@/lib/roles").AccountStatus | null; aiInterviewEnabled?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -111,7 +111,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
 
   return (
     <div className={"app" + (role === "client" ? " theme-client" : "")}>
-      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard} />
+      <Sidebar counts={counts} role={role} open={navOpen} functions={functions} teamRole={teamRole} menuPerms={menuPerms} showTimecard={showTimecard} clientStatus={clientStatus} aiInterviewEnabled={aiInterviewEnabled} />
       <div className={"nav-overlay" + (navOpen ? " show" : "")} onClick={() => setNavOpen(false)} aria-hidden />
       <main className={"main" + (head ? " has-tb-head" : "")}>
         <div className="topbar">

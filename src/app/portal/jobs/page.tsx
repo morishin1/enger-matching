@@ -3,6 +3,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { PortalJobsList, type PortalJob } from "@/components/PortalJobsList";
 import { ClientJobForm } from "@/components/ClientJobForm";
+import { AgentReferralButton } from "@/components/AgentReferralButton";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,10 @@ export default async function PortalJobsPage() {
 
       {note && <div className="card" style={{ background: "var(--color-brand-25)", border: "1px solid var(--color-brand-100)", fontSize: 13, marginBottom: 14 }}>{note}</div>}
 
-      <div style={{ marginBottom: 16 }}><ClientJobForm /></div>
+      <div style={{ marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <ClientJobForm />
+        {!note && <AgentReferralButton />}
+      </div>
 
       <PortalJobsList jobs={jobs} />
     </div>

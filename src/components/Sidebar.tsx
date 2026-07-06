@@ -9,9 +9,13 @@ import type { SidebarCounts } from "@/lib/counts";
 import { type Role, hasSalesFunction } from "@/lib/roles";
 import { isMenuAllowed } from "@/lib/menu-permissions";
 import { ThemeToggle } from "./ThemeToggle";
+import { toast } from "./toast";
+import type { AccountStatus } from "@/lib/roles";
 
 type NavChild = { href: string; id: string; label: string; desc?: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
-type NavItem = { href: string; id: string; label: string; desc?: string; icon: keyof typeof Icons; count?: keyof SidebarCounts; dot?: keyof SidebarCounts; hot?: boolean; external?: boolean; children?: NavChild[] };
+// lock … 企業(client)メニューの承認ゲート（"full"=承認前は不可でロック表示／"partial"=承認前は一部のみ）。
+// option … 契約企業のみ表示するオプション機能（例: AI面接）。divider … 区切り線（見出し・遷移なし）。
+type NavItem = { href: string; id: string; label: string; desc?: string; icon?: keyof typeof Icons; count?: keyof SidebarCounts; dot?: keyof SidebarCounts; hot?: boolean; external?: boolean; children?: NavChild[]; lock?: "full" | "partial"; option?: boolean; divider?: boolean };
 
 // 営業フローに沿った並び（ダッシュボード→取込→マスタ→マッチング→提案→稼働の順）。
 // ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
@@ -75,17 +79,29 @@ const TENANT_NAV: NavItem[] = [
 //   ※ 実URLは環境変数 NEXT_PUBLIC_LP_CHAT_URL で上書き可（未設定時は下記の既定。要確認）。
 const LP_CHAT_URL = process.env.NEXT_PUBLIC_LP_CHAT_URL || "https://enger.jp/business/chat";
 
-// ユーザー企業(client)向けの専用メニュー。
-//   構成：ダッシュボード → 自社案件 → おすすめ人材 → 選考管理 → チャット(enger-lp外部) → 自社情報。
-//   「自社案件・自社情報が充実するほどマッチング率が上がる」導線を軸に、DXのマッチング機能と一致させる。
+// ユーザー企業(client)向けの専用メニュー v2（docs/business-dashboard-v2-仕様.md §2）。
+//   企業の目的（人材がほしい／案件がほしい）から逆算し、「成果が出る場所」を上に、設定系を下に置く。
+//   構成：ダッシュボード → 人材をさがす → 候補者・応募者 → 自社案件 → AI面接(オプション)
+//         ─ 区切り ─ チャット(enger-lp外部) → 自社情報。
+//   承認ゲート（§2「承認ゲートの実装」）：
+//     lock:"full"    … 承認前(pending)は利用不可。非表示にせずロック表示し、クリックで
+//                       「担当エージェントの承認後に利用できます」を案内（候補者・応募者／AI面接）。
+//     lock:"partial" … 承認前でも匿名ランキング等は見られるが、フル機能は承認後（人材をさがす）。
+//   AI面接（§5）は契約企業のみ表示（未契約には出さない＝aiInterviewEnabled）。契約フラグの
+//     持ち方は §10 で未確定のため、当面は既定 false（誰にも出さない）で構造だけ用意する。
 const CLIENT_NAV: NavItem[] = [
   { href: "/", id: "home", label: "ダッシュボード", icon: "dashboard" },
+  { href: "/portal/candidates", id: "portal-candidates", label: "人材をさがす", icon: "people", lock: "partial" },
+  { href: "/portal/selection", id: "portal-selection", label: "候補者・応募者", icon: "proposals", lock: "full" },
   { href: "/portal/jobs", id: "portal-jobs", label: "自社案件", icon: "jobs" },
-  { href: "/portal/candidates", id: "portal-candidates", label: "おすすめ人材", icon: "people" },
-  { href: "/portal/selection", id: "portal-selection", label: "選考管理", icon: "proposals" },
+  { href: "/portal/ai-interview", id: "portal-ai-interview", label: "AI面接", icon: "ai", lock: "full", option: true },
+  { href: "", id: "portal-divider", label: "", divider: true },
   { href: LP_CHAT_URL, id: "portal-chat", label: "チャット", icon: "msg", external: true },
   { href: "/portal/company", id: "portal-company", label: "自社情報", icon: "company" },
 ];
+
+// ロック項目クリック時の案内文（§2：承認後に解放＝承認を待つ動機になる）。
+const CLIENT_LOCK_MSG = "この機能は担当エージェントの承認後に利用できます。お急ぎの場合はチャットからご相談ください。";
 
 const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
@@ -98,7 +114,7 @@ function NavPending() {
   return <span className="spinner" aria-label="読み込み中" style={{ width: 13, height: 13, borderWidth: 2, flex: "0 0 auto", marginLeft: 4 }} />;
 }
 
-export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms, showTimecard = false }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean }) {
+export function Sidebar({ counts, role = "admin", open = false, functions = [], teamRole = null, menuPerms, showTimecard = false, clientStatus = null, aiInterviewEnabled = false }: { counts?: SidebarCounts; role?: Role; open?: boolean; functions?: string[]; teamRole?: string | null; menuPerms?: import("@/lib/menu-permissions").MenuPermissions; showTimecard?: boolean; clientStatus?: AccountStatus | null; aiInterviewEnabled?: boolean }) {
   const pathname = usePathname();
   // パス「セグメント境界」で判定する。単純な startsWith だと href が別メニューの
   // 接頭辞になっているとき誤点灯する（例: /proposals や /progress が /pr＝PR・X集客に前方一致）。
@@ -109,6 +125,10 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   const toggle = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
   const isClient = role === "client";
   const isTenant = role === "partner" || role === "freelance";
+  // 企業(client)の承認ゲート：active はフル機能、それ以外(pending/disabled/未設定)はロック対象。
+  const clientApproved = clientStatus === "active";
+  // AI面接（契約オプション）は未契約企業には出さない（§5）。区切り線などその他は維持。
+  const clientNav = CLIENT_NAV.filter((n) => !(n.option && !aiInterviewEnabled));
 
   // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
   const SALES_HREFS = ["/kgi", "/prospecting", "/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/chat", "/line", "/progress", "/companies", "/meetings", "/pr", "/analytics", "/pipeline", "/kpi", "/funnel"];
@@ -129,7 +149,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   };
 
   // admin は要望の並び（NAV そのまま）。メール取り込みは「設定」配下に移動済み。
-  const nav0 = isClient ? CLIENT_NAV
+  const nav0 = isClient ? clientNav
     : isTenant ? TENANT_NAV
     : role === "agent" ? filterForAgent(NAV)
     : NAV; // admin は全部
@@ -212,7 +232,32 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
         <div className="nav-group-label">{label}</div>
         <div className="nav">
           {items.map((n) => {
-            const Ico = Icons[n.icon];
+            // 企業メニューの区切り線（成果メニュー↑ / 相談・設定系↓）。遷移もアイコンも無い。
+            if (n.divider) {
+              return <div key={n.id} className="nav-divider" aria-hidden style={{ height: 1, background: "var(--color-border)", margin: "8px 12px" }} />;
+            }
+            const Ico = n.icon ? Icons[n.icon] : undefined;
+            // 企業(client)の承認ゲート。lock:"full" は承認前は開けずロック表示＋クリックで案内、
+            //   lock:"partial" は遷移は可だが「承認前は一部のみ」を控えめに示す（§2）。
+            const fullyLocked = isClient && !clientApproved && n.lock === "full";
+            const partialLocked = isClient && !clientApproved && n.lock === "partial";
+            if (fullyLocked) {
+              return (
+                <Fragment key={n.id}>
+                  <button type="button" onClick={() => toast(CLIENT_LOCK_MSG, "info")} className="nav-item"
+                    aria-disabled title="承認後に利用できます"
+                    style={{ display: "flex", alignItems: "center", width: "100%", textAlign: "left", background: "transparent", border: 0, cursor: "pointer", opacity: 0.6 }}>
+                    <span className="ico">{Ico && <Ico />}</span>
+                    <span className="nav-text">
+                      <span className="nav-label">{n.label}</span>
+                      {n.desc && <span className="nav-desc">{n.desc}</span>}
+                    </span>
+                    <span className="material-symbols-outlined" aria-label="承認後に解放" title="承認後に利用できます"
+                      style={{ fontSize: 15, marginLeft: "auto", color: "var(--color-ink-4)" }}>lock</span>
+                  </button>
+                </Fragment>
+              );
+            }
             // hot バッジ（未読チャット等）は 0 のとき非表示。通常バッジは従来どおり総数を表示。
             const rawCount = n.count ? (counts?.[n.count] ?? 0) : null;
             const badge = rawCount == null ? null : (n.hot && rawCount === 0 ? null : fmt(rawCount));
@@ -263,6 +308,11 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                         style={{ width: 9, height: 9, borderRadius: 99, background: "var(--color-danger,#dc2626)", flexShrink: 0, marginLeft: badge != null ? 6 : "auto", boxShadow: "0 0 0 2px var(--color-surface)" }} />
                     )}
                     {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                    {partialLocked && (
+                      <span className="material-symbols-outlined" aria-label="承認前は一部のみ"
+                        title="承認前は匿名情報のみ。承認後にフル機能が使えます。"
+                        style={{ fontSize: 14, marginLeft: "auto", color: "var(--color-ink-4)" }}>lock_open</span>
+                    )}
                   </Link>
                   {hasChildren && (
                     <button type="button" onClick={() => toggle(n.id)}
