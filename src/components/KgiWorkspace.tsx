@@ -13,6 +13,8 @@ import { savePersonKgi, savePersonKgiBulk } from "@/lib/person-kgi-actions";
 import { planFromTarget } from "@/lib/person-kgi";
 import { KPI_CATALOG, PLACEMENT_KEY, resolveMetric, makeCustomKey, cadence, type KpiMetric } from "@/lib/kpi-metrics";
 import type { TeamGoal } from "@/lib/team-kgi-goals";
+import { PersonKgiMembersEditor } from "./PersonKgiMembersEditor";
+import type { PersonKgiMember } from "@/lib/person-kgi-members";
 
 const fmtDateTime = (s?: string | null) => {
   if (!s) return null;
@@ -26,7 +28,7 @@ const numOrNull = (s: string): number | null => (s.trim() === "" ? null : Number
 type MemberInfo = { email: string; name: string; teamRole: string | null };
 type PersonInit = { targets: Record<string, number>; note: string | null; updated_at: string | null; updated_by_name: string | null };
 
-export function KgiWorkspace({ department, month, members, conv, bizDays, initialTeamGoal, initialPersons }: {
+export function KgiWorkspace({ department, month, members, conv, bizDays, initialTeamGoal, initialPersons, memberRoster, memberSuggestions, usingAutoMembers }: {
   department: string;
   month: string;
   members: MemberInfo[];
@@ -34,6 +36,9 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
   bizDays: number;
   initialTeamGoal: TeamGoal | null;
   initialPersons: Record<string, PersonInit>;
+  memberRoster: PersonKgiMember[];        // #313：メンバー名簿（編集対象）
+  memberSuggestions: PersonKgiMember[];    // 追加候補（既存アカウント）
+  usingAutoMembers: boolean;               // true=名簿未設定でアカウントから自動表示中
 }) {
   const router = useRouter();
 
@@ -175,6 +180,9 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>🎯 チーム目標（{department}・部署全体）</h3>
           {teamMsg && <span style={{ fontSize: 12, color: teamMsg.ok ? "#067647" : "var(--color-danger)" }}>{teamMsg.ok ? "✓ " : "⚠ "}{teamMsg.text}</span>}
         </div>
+
+        {/* #313：メンバー追加・削除・編集メニュー。ここで管理した名簿が下の「メンバー別KPI」に反映される。 */}
+        <PersonKgiMembersEditor department={department} initial={memberRoster} suggestions={memberSuggestions} usingAuto={usingAutoMembers} />
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {items.map((it) => {
