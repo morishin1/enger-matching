@@ -84,6 +84,9 @@ const LP_ORIGIN: Record<string, { label: string; color: string }> = {
 };
 function lpOriginLabel(a: Account): { label: string; color: string } | null {
   if (!isLpVirtual(a.id)) return null;
+  // business フラグで「企業(法人)」と判定された仮想行は LP登録ではないので、
+  //   ビジネス登録（app_users 未作成）である旨を出す（「LP登録」は誤解を招くため出さない）。
+  if (a.role === "client" || a.role === "partner") return { label: "ビジネス登録（未承認）", color: "#0b5cab" };
   const ss = (a as any).signup_source as string | null | undefined;
   return ss && LP_ORIGIN[ss] ? LP_ORIGIN[ss] : { label: "LP登録（不明）", color: "#94a3b8" };
 }

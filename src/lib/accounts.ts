@@ -245,6 +245,35 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
         if (!ex2.error) existingEmails = new Set<string>((ex2.data ?? []).map((r: any) => String(r.email ?? "").toLowerCase().trim()).filter(Boolean));
       }
     }
+    // auth.users を一度だけ列挙して以下を作る（後段のフォールバックでも再利用し、二重列挙を避ける）:
+    //   ・businessEmails … app_metadata.apps に "business" を含む＝法人/ビジネス側ユーザー。
+    //       これらは（enger.app_users 未作成でも）「LP人材(個人)」ではなく「企業(法人)」として
+    //       承認待ちに出す。ENGER BUSINESS フロントで登録され app_users 行が無いアカウントが
+    //       DX 管理画面で誤って「個人・エンジニア(LP人材)」に振り分けられていた不具合の修正。
+    //   ・companyByEmail … user_metadata.company（あれば会社名として表示）。
+    //   ・authUsersCache … profiles にも app_users にも居ない auth ユーザーの拾い上げに再利用。
+    const businessEmails = new Set<string>();
+    const companyByEmail = new Map<string, string>();
+    const authUsersCache: any[] = [];
+    try {
+      const aa = authAdmin();
+      for (let page = 1; page <= 5; page++) {
+        const { data, error } = await aa.auth.admin.listUsers({ page, perPage: 1000 });
+        if (error || !data) break;
+        for (const u of data.users) {
+          authUsersCache.push(u);
+          const em = String(u.email ?? "").toLowerCase();
+          if (!em) continue;
+          const appMeta: any = u.app_metadata ?? {};
+          const apps: string[] = Array.isArray(appMeta.apps) ? appMeta.apps.map(String) : [];
+          if (apps.includes("business")) businessEmails.add(em);
+          const co = String((u.user_metadata as any)?.company ?? "").trim();
+          if (co && !companyByEmail.has(em)) companyByEmail.set(em, co);
+        }
+        if (data.users.length < 1000) break;
+      }
+    } catch { /* authAdmin 未設定環境ではビジネス判定なし（従来どおり全て candidate 扱い） */ }
+
     const accounts: Account[] = [];
     const profileEmails = new Set<string>();
     for (const p of r.data as any[]) {
@@ -255,13 +284,15 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
       // signup_source の解決：保存値 → メールドメイン推定 → role/ヒューリスティック
       const ss = resolveSignupSource(p?.signup_source, em, { role: p?.role });
       const sm = normalizeSignupMethod(p?.signup_method);
+      // business フラグ持ちは「企業(法人)」として分類（誤区分の修正）。
+      const isBiz = businessEmails.has(em);
       accounts.push({
         id: `profile:${p.id}`,
         email: em,
         name: p.display_name ?? p.name ?? null,
-        role: "candidate" as Role,
+        role: (isBiz ? "client" : "candidate") as Role,
         status: "pending" as AccountStatus,
-        company_name: null,
+        company_name: isBiz ? (companyByEmail.get(em) ?? null) : null,
         position: null,
         functions: null,
         note: [p.phone ? `📞 ${p.phone}` : "", p.contact_line ? `💬 ${p.contact_line}` : ""].filter(Boolean).join(" / ") || null,
@@ -286,42 +317,36 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
         }
       }
     } catch { /* app_users 全取得失敗時は profiles 由来のみで判定（最悪でも従来通り） */ }
-    try {
-      const aa = authAdmin();
-      for (let page = 1; page <= 5; page++) {
-        const { data, error } = await aa.auth.admin.listUsers({ page, perPage: 1000 });
-        if (error || !data) break;
-        for (const u of data.users) {
-          const em = String(u.email ?? "").toLowerCase();
-          if (!em || existingEmails.has(em) || profileEmails.has(em)) continue;
-          const prov = (u.app_metadata as any)?.provider ?? "email";
-          const meta: any = u.user_metadata ?? {};
-          const appMeta: any = u.app_metadata ?? {};
-          // 外部システム由来（LMS 等）は承認待ちから除外。auth metadata の app/signup_source/source を見る。
-          if (isExcludedProfile({ signup_source: meta.signup_source, source: meta.source, app: meta.app ?? appMeta.app })) continue;
-          const name = (meta.full_name as string) || (meta.name as string) || null;
-          // signup_source は user_metadata に保存されていれば最優先、無ければメールドメインで推定
-          const metaSource = (meta.signup_source as string) || null;
-          const ss = resolveSignupSource(metaSource, em, {});
-          accounts.push({
-            id: `auth:${u.id}`,
-            email: em,
-            name,
-            role: "candidate" as Role,
-            status: "pending" as AccountStatus,
-            company_name: null,
-            position: null,
-            functions: null,
-            note: "profiles未作成（auth.users のみ）",
-            signup_source: ss,
-            signup_method: normalizeSignupMethod(prov),
-            created_at: u.created_at ?? new Date().toISOString(),
-            approved_at: null,
-          } as Account);
-        }
-        if (data.users.length < 1000) break;
-      }
-    } catch { /* authAdmin 未設定環境はスキップ */ }
+    for (const u of authUsersCache) {
+      const em = String(u.email ?? "").toLowerCase();
+      if (!em || existingEmails.has(em) || profileEmails.has(em)) continue;
+      const prov = (u.app_metadata as any)?.provider ?? "email";
+      const meta: any = u.user_metadata ?? {};
+      const appMeta: any = u.app_metadata ?? {};
+      // 外部システム由来（LMS 等）は承認待ちから除外。auth metadata の app/signup_source/source を見る。
+      if (isExcludedProfile({ signup_source: meta.signup_source, source: meta.source, app: meta.app ?? appMeta.app })) continue;
+      const name = (meta.full_name as string) || (meta.name as string) || null;
+      // signup_source は user_metadata に保存されていれば最優先、無ければメールドメインで推定
+      const metaSource = (meta.signup_source as string) || null;
+      const ss = resolveSignupSource(metaSource, em, {});
+      // business フラグ持ちは「企業(法人)」として分類（誤区分の修正）。
+      const isBiz = businessEmails.has(em);
+      accounts.push({
+        id: `auth:${u.id}`,
+        email: em,
+        name: isBiz ? (name || companyByEmail.get(em) || null) : name,
+        role: (isBiz ? "client" : "candidate") as Role,
+        status: "pending" as AccountStatus,
+        company_name: isBiz ? (companyByEmail.get(em) ?? null) : null,
+        position: null,
+        functions: null,
+        note: isBiz ? "app_users未作成（ビジネス認証のみ）" : "profiles未作成（auth.users のみ）",
+        signup_source: ss,
+        signup_method: normalizeSignupMethod(prov),
+        created_at: u.created_at ?? new Date().toISOString(),
+        approved_at: null,
+      } as Account);
+    }
     return accounts;
   } catch { return []; }
 }
