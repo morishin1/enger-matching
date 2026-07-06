@@ -4,6 +4,7 @@ import { currentAccess } from "@/lib/accounts";
 import { MeetingGateBanner } from "@/components/MeetingGateBanner";
 import { PortalSelectionView, type SelectionItem } from "@/components/PortalSelectionView";
 import { getFeedbackMap } from "@/lib/client-feedback";
+import { AgentReferralButton } from "@/components/AgentReferralButton";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +109,7 @@ export default async function PortalSelectionPage() {
           <h1>候補者・応募者</h1>
           <div className="sub">エージェント提案・応募・LINE など、経路を問わず自社案件に来た人材を一括表示します。氏名はイニシャル表示です。面談調整・実名確認は担当エージェントが仲介します。</div>
         </div>
+        {!note && <AgentReferralButton />}
       </div>
 
       {note ? (

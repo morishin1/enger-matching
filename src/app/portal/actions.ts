@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { draftCompanyFromSource, type CompanyDraft } from "@/lib/business-ai";
+import { draftCompanyFromSource, draftCandidateFromText, sanitizeCandidateDraft, type CompanyDraft, type CandidateDraft } from "@/lib/business-ai";
 import { insertClientJob } from "@/lib/client-jobs";
 import type { Verdict } from "@/lib/client-feedback";
+import { listReferralsByCompany, type ClientReferral } from "@/lib/client-referrals";
+import { notifySlack, appUrl } from "@/lib/slack";
 
 type Result = { ok: boolean; error?: string };
 
@@ -142,6 +144,84 @@ export async function submitClientFeedback(proposalId: string, verdict: Verdict,
 
     revalidatePath("/portal/candidates");
     revalidatePath("/");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+// ============================================================
+// 「エージェントに紹介」モーダル（docs/business-dashboard-v2-仕様.md §4）。
+//   人材マスタへの直接登録ではなく、まず紹介（enger.client_referrals）として受け取り、
+//   エージェントが内容確認のうえ人材登録する。ロジックは公開API
+//   （POST /api/public/candidate-referrals）と同じ sanitizeCandidateDraft を使い、
+//   dx（社内認証セッション）経由でも同一の項目・保存先に統一する。
+// ============================================================
+
+/** 経歴テキストの貼り付け → AI下書き（イニシャル・職種・スキル等）。client のみ。 */
+export async function draftCandidateReferralSmart(text: string): Promise<{ ok: boolean; error?: string; draft?: CandidateDraft }> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  const r = await draftCandidateFromText(text, "biz_cand_referral_dx", access.email ?? null);
+  if (!r.ok) return { ok: false, error: r.error };
+  return { ok: true, draft: r.draft };
+}
+
+/** 自社の紹介履歴＋対応状況（モーダル下部表示用）。client のみ。 */
+export async function listMyCandidateReferrals(): Promise<ClientReferral[]> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client" || !access.companyName) return [];
+  return listReferralsByCompany(access.companyName);
+}
+
+/** エージェントに人材を紹介（送信）。client のみ。Slackで社内へ即時通知。 */
+export async function submitCandidateReferral(input: {
+  name?: string; initials?: string; title?: string; skills?: string[]; rate?: string;
+  exp?: string; avail?: string; location?: string; note?: string;
+}): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
+  if (!access.companyName) return { ok: false, error: "会社名が未設定です。管理者にご連絡ください。" };
+
+  const d = sanitizeCandidateDraft(input ?? {});
+  const name = String(input?.name ?? "").trim().slice(0, 60) || null;
+  const initials = d.initials?.trim() || (name ? `${name[0]}.` : "");
+  if (!initials) return { ok: false, error: "イニシャル（または氏名）を入力してください" };
+  if (!d.skills || d.skills.length === 0) return { ok: false, error: "スキルを1つ以上入力してください" };
+
+  try {
+    const sb = engerAdmin();
+    const ins: any = await sb.from("client_referrals").insert({
+      company: access.companyName,
+      referred_by: access.email ?? null,
+      name,
+      initials,
+      title: d.title ?? null,
+      skills: d.skills,
+      rate: d.rate ?? null,
+      exp: d.exp ?? null,
+      avail: d.avail ?? null,
+      location: d.location ?? null,
+      note: d.note ?? null,
+      status: "new",
+    }).select("id").maybeSingle();
+    if (ins.error) {
+      if (/client_referrals|relation|schema cache/i.test(ins.error.message ?? "")) {
+        return { ok: false, error: "紹介テーブルが未整備です（supabase/client-referrals.sql を実行してください）" };
+      }
+      return { ok: false, error: ins.error.message };
+    }
+
+    try {
+      await notifySlack({
+        text: `🤝 企業からの人材紹介：${access.companyName} / ${initials}（${d.title ?? "職種未記入"}）`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*🤝 企業からの人材紹介が届きました*\n• 紹介元: *${access.companyName}*（${access.email}）\n• 人材: *${initials}*${d.title ? ` / ${d.title}` : ""}${d.rate ? ` / ${d.rate}` : ""}\n• スキル: ${d.skills.slice(0, 8).join(", ")}${d.note ? `\n• 補足: ${d.note.slice(0, 200)}` : ""}` } },
+          { type: "context", elements: [{ type: "mrkdwn", text: `内容を確認して <${appUrl("/people")}|人材管理> へ登録してください（登録後は client_referrals.status を registered に更新）` }] },
+        ],
+      });
+    } catch { /* Slack 失敗は無視 */ }
+
+    revalidatePath("/portal/selection");
+    revalidatePath("/portal/jobs");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
