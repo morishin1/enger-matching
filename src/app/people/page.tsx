@@ -236,7 +236,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           // ID 検索：「45」「P-45」「P-00045」「#45」のいずれでも candidate_no で一致させる。
           const idm = needle.match(/^(?:p[-\s]*|#)?(\d+)$/i);
           const numOr = idm ? `,candidate_no.eq.${parseInt(idm[1], 10)}` : "";
-          qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${numOr}`);
+          // #314：スキル（skills は text[]）でも検索できるように ::text キャストしてILIKE。
+          //   グローバル検索(/search)の candidates 検索で既に使っている実績のあるパターン。
+          qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like},skills::text.ilike.${like}${numOr}`);
         }
         if (fTitle) qb = qb.eq("title", fTitle);
         // 登録元（LINE登録 / ENGERフリーランス / 通常）。
