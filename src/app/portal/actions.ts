@@ -3,53 +3,29 @@
 import { revalidatePath } from "next/cache";
 import { engerAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
-import { callLLM, parseJsonLoose } from "@/lib/llm";
-import { logUsage } from "@/lib/ai-usage";
-import { notifySlack, appUrl } from "@/lib/slack";
+import { draftCompanyFromSource, type CompanyDraft } from "@/lib/business-ai";
+import { insertClientJob } from "@/lib/client-jobs";
 import type { Verdict } from "@/lib/client-feedback";
 
 type Result = { ok: boolean; error?: string };
 
-type CompanyDraft = { mission?: string; culture?: string; ideal_persona?: string; appeal?: string };
-
-/** 会社サイトURLから AI で企業プロフィール（Mission等）を下書き生成。client のみ。 */
-export async function draftCompanyProfileFromUrl(url: string): Promise<{ ok: boolean; error?: string; draft?: CompanyDraft }> {
+/** 会社サイトURL または 法人番号 から AI で企業プロフィール（Mission等）を下書き生成。client のみ。
+ *  生成ロジックは enger-lp 向け公開API（/api/public/ai-draft）と共通（business-ai.ts）。 */
+export async function draftCompanyProfileSmart(input: { website?: string; corporateNo?: string }): Promise<{ ok: boolean; error?: string; draft?: CompanyDraft }> {
   const access = await currentAccess();
   if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
-  const u = (url || "").trim();
-  if (!/^https?:\/\/.+/i.test(u)) return { ok: false, error: "URL の形式が正しくありません（https://… で入力）" };
-
-  // サイト本文を取得（サーバー側）。HTMLをざっくりテキスト化して上限まで。
-  let text = "";
-  try {
-    const res = await fetch(u, { headers: { "User-Agent": "ENGER-bot/1.0" }, signal: AbortSignal.timeout(12000) });
-    if (!res.ok) return { ok: false, error: `サイト取得に失敗しました (HTTP ${res.status})` };
-    const html = await res.text();
-    text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/g, " ").replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 6000);
-  } catch (e: any) {
-    return { ok: false, error: "サイトの取得に失敗しました。URL をご確認ください。" };
-  }
-  if (text.length < 80) return { ok: false, error: "サイト本文を十分に取得できませんでした。別ページのURLをお試しください。" };
-
-  const system = "あなたは採用広報の編集者です。企業サイトの本文から、エンジニア採用向けに以下を日本語で簡潔に抽出・要約します。誇張や創作はせず、本文から読み取れる範囲で。JSONのみ出力：{\"mission\":\"事業の目的・ミッション(2-3文)\",\"culture\":\"カルチャー・働き方・価値観(2-3文)\",\"ideal_persona\":\"求める人物像(2-3文)\",\"appeal\":\"自社の魅力・強み(1-2文)\"}。読み取れない項目は空文字。";
-  const res = await callLLM({ system, prompt: `企業サイト本文：\n${text}`, maxTokens: 700, temperature: 0.4 });
-  if (!res.ok) return { ok: false, error: res.error || "AI生成に失敗しました" };
-  await logUsage("company", res.model, res.usage);
-  const draft = parseJsonLoose<CompanyDraft>(res.text);
-  if (!draft) return { ok: false, error: "AIの応答を解析できませんでした。再度お試しください。" };
-  return { ok: true, draft: { mission: draft.mission ?? "", culture: draft.culture ?? "", ideal_persona: draft.ideal_persona ?? "", appeal: draft.appeal ?? "" } };
+  const r = await draftCompanyFromSource({ website: input.website, corporateNo: input.corporateNo }, "company", access.email ?? null);
+  if (!r.ok) return { ok: false, error: r.error };
+  return { ok: true, draft: r.draft };
 }
 
-// 注意: "use server" ファイルは async 関数のみ export 可。定数は内部に留める（クライアントは独自定義を使用）。
-const CONTRACT_TYPES = ["SES", "紹介", "派遣"] as const;
+/** 旧シグネチャ互換（URLのみ）。draftCompanyProfileSmart へ委譲。 */
+export async function draftCompanyProfileFromUrl(url: string): Promise<{ ok: boolean; error?: string; draft?: CompanyDraft }> {
+  return draftCompanyProfileSmart({ website: url });
+}
 
-/** 企業が自社案件を掲載（下書き→審査中）。client のみ。承認後に公開される。 */
+/** 企業が自社案件を掲載（下書き→審査中）。client のみ。承認後に公開される。
+ *  登録コアは enger-lp 向け公開API（POST /api/public/jobs）と共通（client-jobs.ts）。 */
 export async function createClientJob(input: {
   title: string; role_label?: string; skills?: string[]; salary_min?: number | null; salary_max?: number | null;
   remote_type?: string; contract_types?: string[]; description?: string;
@@ -57,53 +33,10 @@ export async function createClientJob(input: {
   const access = await currentAccess();
   if (!access || access.role !== "client") return { ok: false, error: "権限がありません" };
   if (!access.companyName) return { ok: false, error: "会社名が未設定です。管理者にご連絡ください。" };
-  if (!input.title?.trim()) return { ok: false, error: "案件名を入力してください" };
-
-  try {
-    const sb = engerAdmin();
-    // job_no は連番。最大値+1。
-    const { data: maxRow } = await sb.from("jobs").select("job_no").order("job_no", { ascending: false }).limit(1).maybeSingle();
-    const nextNo = (Number((maxRow as any)?.job_no) || 0) + 1;
-    const cts = (input.contract_types ?? []).filter((c) => (CONTRACT_TYPES as readonly string[]).includes(c));
-
-    const { error } = await sb.from("jobs").insert({
-      job_no: nextNo,
-      title: input.title.trim(),
-      client_name: access.companyName,
-      role_label: input.role_label?.trim() || null,
-      skills: input.skills ?? [],
-      salary_min: input.salary_min ?? null,
-      salary_max: input.salary_max ?? null,
-      remote_type: input.remote_type || null,
-      contract_types: cts,
-      description: input.description?.trim() || null,
-      posted_by_client: true,
-      posted_by_email: access.email || null,
-      review_status: "pending",
-      status: "審査中",
-      is_published: false,
-    });
-    if (error) return { ok: false, error: error.message };
-    // Slack 通知：承認待ちが入ったことを社内に知らせる。/jobs の「企業掲載の承認待ち」へ直リンク。
-    try {
-      const company = access.companyName ?? "—";
-      const title = input.title.trim();
-      const role = input.role_label?.trim();
-      const budget = (input.salary_min || input.salary_max)
-        ? `${input.salary_min ?? ""}〜${input.salary_max ?? ""}万円` : "—";
-      const approveUrl = appUrl("/jobs");
-      const portalUrl = appUrl("/portal/jobs");
-      await notifySlack({
-        text: `📝 案件掲載の申請：${company} / ${title}（No.${nextNo}）`,
-        blocks: [
-          { type: "section", text: { type: "mrkdwn", text: `*📝 案件掲載の申請がありました*\n• 申請企業: *${company}*\n• 案件: *${title}* (No.${nextNo})${role ? `\n• 職種: ${role}` : ""}\n• 予算: ${budget}` } },
-          { type: "context", elements: [{ type: "mrkdwn", text: `<${approveUrl}|承認 (/jobs 企業掲載の承認待ち)> ／ <${portalUrl}|企業ポータル>` }] },
-        ],
-      });
-    } catch { /* Slack 失敗は無視 */ }
-    revalidatePath("/portal/jobs");
-    return { ok: true };
-  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+  const r = await insertClientJob(access.companyName, access.email || null, input);
+  if (!r.ok) return { ok: false, error: r.error };
+  revalidatePath("/portal/jobs");
+  return { ok: true };
 }
 
 /** 管理者/営業が企業掲載案件を承認（公開）または却下。 */
