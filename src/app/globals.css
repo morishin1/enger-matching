@@ -336,6 +336,19 @@ button { font-family: inherit; }
 /* 濃色バー上のゴーストボタンが黒文字で見えない問題を解消（白文字＋半透明枠） */
 .bulk-bar .btn.ghost { color: #fff; border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.10); }
 .bulk-bar .btn.ghost:hover { background: rgba(255,255,255,.22); }
+
+/* ── Ranking100View：比較ドロワーの提案アクション（下部固定フッター）。
+   PCは横並び・モバイルは縦積み全幅にしてタップ領域を確保する。 */
+.r100-drawer-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.r100-drawer-actions .btn { flex: 1 1 220px; justify-content: center; }
+@media (max-width: 640px) {
+  /* 選択バーが画面幅で崩れないよう折り返し・中央寄せに（要望：モバイル対応） */
+  .bulk-bar { flex-wrap: wrap; justify-content: center; border-radius: 20px; row-gap: 8px; }
+  .bulk-bar > div { margin-left: 0 !important; width: 100%; justify-content: center; }
+  .r100-drawer-actions { flex-direction: column; align-items: stretch; }
+  /* flex-basis:220px は column では min-height 化してしまうため、縦積み時は明示的にリセットする */
+  .r100-drawer-actions .btn { flex: 0 0 auto; width: 100%; }
+}
 /* 一覧テーブルを縦に詰めて多く表示 */
 .tbl-compact thead th { padding: 8px 14px; }
 .tbl-compact tbody td { padding: 7px 14px; }

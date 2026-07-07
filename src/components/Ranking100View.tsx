@@ -233,11 +233,13 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 400, display: "flex", justifyContent: "flex-end" }}>
       <div onClick={(e) => e.stopPropagation()} className="card"
         style={{
-          width: "min(1080px, 96vw)", height: "100vh", maxHeight: "100vh", overflowY: "auto",
-          borderRadius: 0, padding: 18, display: "flex", flexDirection: "column", gap: 14,
+          width: "min(1080px, 96vw)", height: "100vh", maxHeight: "100vh",
+          borderRadius: 0, padding: 0, display: "flex", flexDirection: "column",
           transform: drawerIn ? "translateX(0)" : "translateX(100%)",
           transition: "transform .26s cubic-bezier(.22,.61,.36,1)",
         }}>
+        {/* スクロール領域：ヘッダ〜案件/人材詳細。下部の提案アクションは常に見えるよう固定フッターに分離。 */}
+        <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
         {/* ヘッダ */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
@@ -253,22 +255,6 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
           <button className="btn ghost btn-xs" onClick={onClose} disabled={navigating}>閉じる</button>
         </div>
 
-        {/* 提案アクション：大きな「提案画面へ」ボタン＋送信文プレビュー（要望対応）。 */}
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button type="button" className="btn brand" onClick={goPropose} disabled={navigating}
-            style={{ fontSize: 15, fontWeight: 800, padding: "12px 26px", borderRadius: 12, display: "inline-flex", alignItems: "center", gap: 8, boxShadow: "0 4px 14px rgba(0,149,217,.28)" }}
-            title="このペアの提案画面を開いて提案します">
-            {navigating
-              ? <><Spinner size={20} color="#fff" /> 提案画面を開いています…</>
-              : <><span className="material-symbols-outlined" style={{ fontSize: 20, verticalAlign: "-4px" }}>send</span> この人材を提案する（提案画面へ）</>}
-          </button>
-          <button type="button" className="btn ghost" onClick={() => setShowPreview((v) => !v)} disabled={navigating}
-            style={{ fontWeight: 700 }}
-            title="実際に送信する提案メールの文面（案件側・人材側）をプレビューします">
-            <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-4px" }}>{showPreview ? "visibility_off" : "visibility"}</span> {showPreview ? "プレビューを閉じる" : "送信文プレビュー"}
-          </button>
-        </div>
-
         {/* 送信文プレビュー：一括提案・個別提案いずれも、実際に送るのはこの定型文面。 */}
         {showPreview && <SendTextPreview p={p} />}
 
@@ -280,8 +266,8 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
           {p.candExtraSkills.length > 0 && <SkillRow label="➕ 人材の追加スキル" tone="gray" items={p.candExtraSkills.slice(0, 30)} more={Math.max(0, p.candExtraSkills.length - 30)} />}
         </div>
 
-        {/* 案件・人材 横並び */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        {/* 案件・人材 横並び（880px以下は duo-grid で縦積みに切替＝レスポンシブ対応） */}
+        <div className="duo-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           {/* 案件 */}
           <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
@@ -348,6 +334,24 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
               <div style={{ marginTop: 6, fontSize: 12, color: "var(--color-ink-2)", whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: 10, borderRadius: 8 }}>{p.cand.note}</div>
             </details>}
           </div>
+        </div>
+        </div>
+
+        {/* 提案アクション：下部固定フッター（要望対応：ボタンは下・常時見える位置に）。
+            大きな「提案画面へ」ボタン＋送信文プレビュー。モバイルは縦積み・全幅（r100-drawer-actions）。 */}
+        <div className="r100-drawer-actions" style={{ borderTop: "1px solid var(--color-border)", padding: 14, flex: "0 0 auto", background: "var(--color-surface)" }}>
+          <button type="button" className="btn brand" onClick={goPropose} disabled={navigating}
+            style={{ fontSize: 15, fontWeight: 800, padding: "12px 26px", borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 14px rgba(0,149,217,.28)" }}
+            title="このペアの提案画面を開いて提案します">
+            {navigating
+              ? <><Spinner size={20} color="#fff" /> 提案画面を開いています…</>
+              : <><span className="material-symbols-outlined" style={{ fontSize: 20, verticalAlign: "-4px" }}>send</span> この人材を提案する（提案画面へ）</>}
+          </button>
+          <button type="button" className="btn ghost" onClick={() => setShowPreview((v) => !v)} disabled={navigating}
+            style={{ fontWeight: 700 }}
+            title="実際に送信する提案メールの文面（案件側・人材側）をプレビューします">
+            <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-4px" }}>{showPreview ? "visibility_off" : "visibility"}</span> {showPreview ? "プレビューを閉じる" : "送信文プレビュー"}
+          </button>
         </div>
       </div>
     </div>
