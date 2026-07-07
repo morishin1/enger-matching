@@ -26,8 +26,9 @@ import { KpiMembersEditor } from "./KpiMembersEditor";
 import type { KpiMember } from "@/lib/kpi-members";
 import { MyDailyScorecard } from "./MyDailyScorecard";
 import { ReportsClient } from "./ReportsClient";
-import { PeriodChips } from "./PeriodChips";
-import { CLIENT_PERIOD_LABEL, CLIENT_PERIOD_KEYS, inClientPeriod, inCustomRange, hasCustomRange, type ClientPeriod } from "@/lib/period";
+import { PillTabs, type PillTabItem } from "./PillTabs";
+import { YearMonthPeriodBar } from "./YearMonthPeriodBar";
+import { CLIENT_PERIOD_LABEL, inClientPeriod, inCustomRange, hasCustomRange, monthToRange, resolveMonthBarDisplay, type ClientPeriod } from "@/lib/period";
 import { ownerMatches } from "@/lib/owner-match";
 import { normalizeStage } from "@/lib/proposal-constants";
 
@@ -340,16 +341,15 @@ export function ProposalsWorkspace({
     { key: "report",  label: "日報",       icon: "edit_note",   show: true, title: "KPI/失注を踏まえた気づき・改善策を日報に記録します。" },
   ];
 
-  // 期間チップに出す件数（ボード進行中 + 取得済みの失注/稼働）。承認タブのときは承認待ち件数。
-  const periodOptions = useMemo(() => {
-    const countFor = (p: Period) => {
-      if (tab === "approval") return approvalRows.filter((r) => inRangeMs(new Date(r?.created_at ?? 0).getTime(), p)).length;
-      if (p === "all") return proposals.length + analyticsClient.length;
-      const f = (arr: any[]) => arr.filter((r) => inRangeMs(new Date(r?.created_at ?? 0).getTime(), p)).length;
-      return f(proposals) + f(analyticsClient);
-    };
-    return CLIENT_PERIOD_KEYS.map((k) => ({ key: k, label: PERIOD_LABEL[k], count: countFor(k) }));
-  }, [tab, proposals, analyticsClient, approvalRows, period, customFrom, customTo]);
+  // 年+月バーの表示状態（アクティブ月／カスタム範囲）。period==="all" のときのみ customFrom/To を参照する
+  //   既存フィルタ（下のinPeriod）と同じ前提のため、月ピル/カレンダーの選択は必ず period="all" とセットで行う。
+  const now = new Date();
+  const monthDisp = resolveMonthBarDisplay(customFrom, customTo, now.getFullYear());
+  const selectMonth = (y: number, m: number) => { const r = monthToRange(y, m); setPeriod("all"); setCustomFrom(r.from); setCustomTo(r.to); };
+  const selectRange = (f: string, t: string) => { setPeriod("all"); setCustomFrom(f); setCustomTo(t); };
+  const clearRange = () => { setPeriod("all"); setCustomFrom(""); setCustomTo(""); };
+  const setPreset = (key: Period) => { setPeriod(key); setCustomFrom(""); setCustomTo(""); };
+  const isAllShown = period === "all" && !hasCustomRange(customFrom, customTo);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -367,45 +367,42 @@ export function ProposalsWorkspace({
         </button>
       )}
 
-      {/* タブ＋期間フィルターを1段に揃える（タブを左、期間チップを右）。
-          期間フィルターは 提案ボード・失注分析・承認 に作用（統一デザイン）。KPI推移は専用バー、日報は対象外。 */}
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, borderBottom: "1px solid var(--color-border)", flexWrap: "wrap" }}>
-        <div role="tablist" style={{ display: "flex", gap: 2 }}>
-          {tabsDef.filter((t) => t.show).map((t) => {
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key} type="button" role="tab" aria-selected={active}
-                title={t.title} onClick={() => setTab(t.key)}
-                style={{
-                  padding: "10px 18px", background: "transparent", border: 0,
-                  borderBottom: active ? "2px solid var(--color-brand-600)" : "2px solid transparent",
-                  color: active ? "var(--color-brand-700)" : "var(--color-ink-3)",
-                  fontWeight: active ? 700 : 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit",
-                  display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
-                }}>
-                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
-                <span>{t.label}</span>
-                {counts[t.key] > 0 && <span className="badge" style={{ fontSize: 10, padding: "1px 7px" }}>{counts[t.key]}</span>}
-              </button>
-            );
-          })}
-        </div>
-        {/* 失注分析は専用の集計期間フィルタを持つため、上部の期間チップ対象から除外（二重絞り防止）。 */}
-        {(tab === "board" || tab === "approval" || tab === "report") && (
-          <div style={{ paddingBottom: 6 }}>
-            <PeriodChips value={period} onChange={setPeriod} options={periodOptions}
-              calendar={{ calendarKey: "all", from: customFrom, to: customTo,
-                onRange: (f, t) => { setPeriod("all"); setCustomFrom(f); setCustomTo(t); } }} />
-          </div>
-        )}
-        {/* KPI推移も他タブと同じ位置（タブ右）に期間を置く（2段にせず1段に揃える）。 */}
-        {tab === "kpi" && (
-          <div style={{ paddingBottom: 6 }}>
+      {/* タブ（統一デザイン：角丸ピル）。期間フィルターは 提案ボード・失注分析・承認 に作用
+          （統一デザイン：年+月ピル＋カレンダー範囲）。KPI推移は専用バー、日報は対象外。 */}
+      <PillTabs
+        active={tab}
+        onSelect={(k) => setTab(k as TabKey)}
+        tabs={tabsDef.filter((t) => t.show).map((t): PillTabItem => ({
+          key: t.key, label: t.label, icon: t.icon,
+          badge: counts[t.key] > 0 ? <span style={{
+            fontSize: 10.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.5,
+            background: tab === t.key ? "rgba(255,255,255,.25)" : "var(--color-brand-50)",
+            color: tab === t.key ? "#fff" : "var(--color-brand-700)",
+          }}>{counts[t.key]}</span> : undefined,
+        }))}
+        rightSlot={
+          // 失注分析は専用の集計期間フィルタを持つため、上部の期間バー対象から除外（二重絞り防止）。
+          (tab === "board" || tab === "approval" || tab === "report") ? (
+            <YearMonthPeriodBar
+              year={monthDisp.year}
+              activeMonth={monthDisp.activeMonth}
+              onSelectMonth={selectMonth}
+              onShiftYear={(delta) => selectMonth(monthDisp.year + delta, monthDisp.activeMonth ?? now.getMonth() + 1)}
+              calendarMode="range"
+              range={monthDisp.range}
+              onSelectRange={selectRange}
+              onClearRange={clearRange}
+              shortcuts={[
+                { key: "today", label: "今日", active: period === "today", onClick: () => setPreset("today") },
+                { key: "week", label: "今週", active: period === "week", onClick: () => setPreset("week") },
+                { key: "all", label: "全期間", active: isAllShown, onClick: clearRange },
+              ]}
+            />
+          ) : tab === "kpi" ? (
             <KpiPeriodBar current={kpiProps?.period} card={false} note="" />
-          </div>
-        )}
-      </div>
+          ) : undefined
+        }
+      />
 
       {/* 子コンポーネントは「開いているタブだけ」描画する（条件付きレンダリング）。
           以前は全タブを display:none で隠しつつ全部レンダリングしていたため、初回に

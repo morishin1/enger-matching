@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
-import Link from "@/components/AppLink";
 import { addProspect, importProspectsCsv, recordProspectActivity, promoteProspectToCompany, updateProspectStatus } from "./actions";
 import { loadProspectingData, prospectingMetrics, todayAttackProspects, PROSPECT_STATUSES, type Prospect } from "@/lib/prospecting";
+import { PillTabs } from "@/components/PillTabs";
+import { SimpleRangeYearMonthBar } from "@/components/SimpleRangeYearMonthBar";
+import { hasCustomRange, inCustomRange } from "@/lib/period";
 
 export const dynamic = "force-dynamic";
 
@@ -21,13 +23,17 @@ const recordProspectActivityFormAction = recordProspectActivity as unknown as Fo
 const promoteProspectToCompanyFormAction = promoteProspectToCompany as unknown as FormAction;
 const updateProspectStatusFormAction = updateProspectStatus as unknown as FormAction;
 
-export default async function ProspectingPage({ searchParams }: { searchParams: Promise<{ tab?: string; owner?: string; source?: string; status?: string }> }) {
+export default async function ProspectingPage({ searchParams }: { searchParams: Promise<{ tab?: string; owner?: string; source?: string; status?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
   const tab = sp.tab === "list" || sp.tab === "results" ? sp.tab : "today";
   const data = await loadProspectingData();
-  const prospects = data.prospects.filter((p) => (!sp.owner || p.owner_staff === sp.owner) && (!sp.source || p.source_list === sp.source) && (!sp.status || p.status === sp.status));
-  const today = todayAttackProspects(prospects);
+  // リスト管理／成果は「リスト投入日（created_at）」で期間絞り込み（統一デザインの年+月バー）。
+  //   今日のアタックは常に「今日」対象のため期間バーの対象外（既存どおり）。
+  const periodFiltered = hasCustomRange(sp.from, sp.to) ? data.prospects.filter((p) => inCustomRange(p.created_at, sp.from, sp.to)) : data.prospects;
+  const prospects = periodFiltered.filter((p) => (!sp.owner || p.owner_staff === sp.owner) && (!sp.source || p.source_list === sp.source) && (!sp.status || p.status === sp.status));
+  const today = todayAttackProspects(data.prospects.filter((p) => (!sp.owner || p.owner_staff === sp.owner) && (!sp.source || p.source_list === sp.source) && (!sp.status || p.status === sp.status)));
   const metrics = prospectingMetrics(data.prospects);
+  const periodMetrics = prospectingMetrics(periodFiltered);
   const duplicateNames = new Set(data.companies.map((c) => c.name.trim()).filter(Boolean));
 
   return (
@@ -53,13 +59,19 @@ export default async function ProspectingPage({ searchParams }: { searchParams: 
         {!data.configured && <SetupCard text="Supabase 環境変数が未設定です。画面確認はできますが、保存はできません。" />}
         {data.setupMissing && <SetupCard text="prospects テーブルが未作成です。Supabase SQL Editor で supabase/prospecting.sql を実行してください。" />}
 
-        <nav style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          <Tab href="/prospecting" active={tab === "today"}>今日のアタック</Tab>
-          <Tab href="/prospecting?tab=list" active={tab === "list"}>リスト管理</Tab>
-          <Tab href="/prospecting?tab=results" active={tab === "results"}>成果</Tab>
-        </nav>
+        <div style={{ marginBottom: 16 }}>
+          <PillTabs
+            active={tab}
+            tabs={[
+              { key: "today", label: "今日のアタック", icon: "bolt", href: "/prospecting" },
+              { key: "list", label: "リスト管理", icon: "list_alt", href: "/prospecting?tab=list" },
+              { key: "results", label: "成果", icon: "insights", href: "/prospecting?tab=results" },
+            ]}
+            rightSlot={tab === "list" || tab === "results" ? <SimpleRangeYearMonthBar basePath="/prospecting" /> : undefined}
+          />
+        </div>
 
-        {tab === "today" ? <TodayTab prospects={today} duplicateNames={duplicateNames} /> : tab === "list" ? <ListTab prospects={prospects} /> : <ResultsTab metrics={metrics} />}
+        {tab === "today" ? <TodayTab prospects={today} duplicateNames={duplicateNames} /> : tab === "list" ? <ListTab prospects={prospects} /> : <ResultsTab metrics={periodMetrics} />}
       </div>
     </div>
   );
@@ -69,7 +81,6 @@ function Kpi({ label, value }: { label: string; value: number }) {
   return <div style={{ flex: 1, padding: "8px 10px", borderRadius: 12, background: "#f8fafc", border: "1px solid #eaecf0" }}><div style={{ fontSize: 10, color: "#667085", fontWeight: 800 }}>{label}</div><div style={{ fontSize: 18, fontWeight: 900 }}>{value.toLocaleString("ja-JP")}</div></div>;
 }
 function SetupCard({ text }: { text: string }) { return <div style={{ ...card, padding: 14, marginBottom: 14, color: "#b42318", background: "#fff7ed", borderColor: "#fed7aa", fontWeight: 700 }}>{text}</div>; }
-function Tab({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) { return <Link href={href} style={{ padding: "10px 15px", borderRadius: 999, textDecoration: "none", fontSize: 13, fontWeight: 900, color: active ? "#0F2440" : "#fff", background: active ? "#facc15" : "rgba(255,255,255,.12)", border: "1px solid rgba(255,255,255,.22)" }}>{children}</Link>; }
 
 function TodayTab({ prospects, duplicateNames }: { prospects: Prospect[]; duplicateNames: Set<string> }) {
   return <div style={{ display: "grid", gap: 12 }}>{prospects.length === 0 ? <div style={{ ...card, padding: 26 }}>今日アタック対象の企業はありません。リスト管理から企業を追加してください。</div> : prospects.map((p) => <ProspectCard key={p.id} p={p} duplicate={duplicateNames.has(p.company_name)} />)}</div>;

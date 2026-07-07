@@ -59,3 +59,35 @@ export function inCustomRange(createdAt: string | number | null | undefined, fro
   const t = typeof createdAt === "number" ? createdAt : new Date(createdAt ?? 0).getTime();
   return !!t && t >= customStartMs(from) && t < customEndMs(to);
 }
+
+// ===== 年+月ピッカー（統一デザイン）用ヘルパー =====
+//   年月ピル選択を "YYYY-MM-DD" の from/to（両端含む・月初〜月末）へ変換する。
+//   カレンダー範囲選択と同じ from/to クエリ語彙に揃えることで、月ピルとカレンダーの
+//   どちらで絞り込んでも下流のフィルタ（inCustomRange 等）をそのまま使い回せる。
+const two = (n: number) => String(n).padStart(2, "0");
+export function monthToRange(year: number, month: number): { from: string; to: string } {
+  const from = `${year}-${two(month)}-01`;
+  const lastDay = new Date(year, month, 0).getDate(); // month は1始まりなので day=0 で前月末日=当月末日
+  const to = `${year}-${two(month)}-${two(lastDay)}`;
+  return { from, to };
+}
+/** from/to が、ある年月の月初〜月末に一致するか（月ピルの「選択中」判定に使用）。 */
+export function rangeIsWholeMonth(from: string, to: string, year: number, month: number): boolean {
+  const r = monthToRange(year, month);
+  return from === r.from && to === r.to;
+}
+
+export type MonthBarDisplay = { year: number; activeMonth: number | null; range: { from: string; to: string } | null };
+/** カスタム範囲(from/to)から、年+月ピルバーの表示状態を解決する（マッチング/提案管理で共通）。
+ *  ・範囲がちょうど1つの月の月初〜月末に一致 → その月をアクティブ表示。
+ *  ・一致しない任意範囲 → 月ピルは非アクティブにし、カレンダーアイコン側に範囲を表示。
+ *  ・範囲指定なし → fallbackYear の行を表示（月は非アクティブ＝プリセット/全期間の状態）。 */
+export function resolveMonthBarDisplay(from: string, to: string, fallbackYear: number): MonthBarDisplay {
+  if (!hasCustomRange(from, to)) return { year: fallbackYear, activeMonth: null, range: null };
+  const fy = Number(from.slice(0, 4));
+  const fm = Number(from.slice(5, 7));
+  if (Number.isFinite(fy) && Number.isFinite(fm) && rangeIsWholeMonth(from, to, fy, fm)) {
+    return { year: fy, activeMonth: fm, range: null };
+  }
+  return { year: Number.isFinite(fy) ? fy : fallbackYear, activeMonth: null, range: { from, to } };
+}
