@@ -344,6 +344,16 @@ export function JobsTable({
           );
         })}
         <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 12 }}>
+          {/* #327：クローズ表示の切替（公開中のみ／クローズ済のみ／すべて）。クローズ済を一覧に出して
+              「クローズ解除」で復帰できるようにする。既定は公開中のみ。 */}
+          <label className="tbl-filter" title="クローズ済の案件を一覧に表示する（解除すると復帰します）">
+            <span>クローズ</span>
+            <select value={filters.closed ?? ""} onChange={(e) => pushParams({ f_closed: e.target.value || null, page: null })}>
+              <option value="">公開中のみ</option>
+              <option value="closed">クローズ済のみ</option>
+              <option value="all">すべて表示</option>
+            </select>
+          </label>
           {/* 「提案あり」除外（提案実績のある案件を一覧から外す）。 */}
           <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-2)", cursor: "pointer", whiteSpace: "nowrap" }} title="「提案あり」の案件を一覧から除外する">
             <input type="checkbox" checked={(filters.no_proposal ?? "") === "1"} onChange={(e) => pushParams({ f_no_proposal: e.target.checked ? "1" : null, page: null })} style={{ accentColor: "#067647" }} />

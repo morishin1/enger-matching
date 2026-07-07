@@ -117,7 +117,7 @@ const rankOr = (band: string): string | null => {
   }
 };
 
-export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; focus?: string; period?: string; from?: string; to?: string }> }) {
+export default async function JobsPage({ searchParams }: { searchParams: Promise<{ client?: string; show?: string; q?: string; page?: string; f_status?: string; f_role?: string; f_remote?: string; f_flow?: string; f_flow_limit?: string; f_rank?: string; f_outside_owner?: string; f_nationality?: string; f_approved?: string; f_signup_source?: string; f_no_proposal?: string; f_closed?: string; focus?: string; period?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
   const { client, show, q } = sp;
   const showAll = show === "all"; // 非公開（過去インポートで隠れている案件）も表示
@@ -138,6 +138,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const fSignupSource = sp.f_signup_source ?? "";
   // 「提案あり」除外フィルタ：提案実績のある案件（has_proposal）を一覧から除外する。
   const fNoProposal = sp.f_no_proposal === "1";
+  // #327：クローズ表示の切替。既定(open)は公開中のみ／closed=クローズ済のみ／all=両方。
+  //   クローズ済を一覧に出せるようにし、そこから「クローズ解除」して復帰させられるようにする。
+  const fClosed = sp.f_closed === "closed" || sp.f_closed === "all" ? sp.f_closed : "";
   // 期間セレクタ（統一デザイン）。登録日(created_at)で一覧を絞り込む。既定=全期間。
   //   全期間チップのカレンダー（from/to）指定があれば、その任意期間で絞り込む。
   const mPeriod = asClientPeriod(sp.period, "all");
@@ -238,15 +241,17 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       const applyNoProposal = (qb: any) => (fNoProposal && proposedJobIds.length) ? qb.not("id", "in", `(${proposedJobIds.join(",")})`) : qb;
 
       // 検索＋フィルタを 1 本のクエリに集約（outside_owner フィルタだけは列の有無に依存するため別関数）
-      const buildBase = (selectCols: string, hideClosed = false) => {
+      //   closedMode: "open"=公開中のみ(is_closed=false) / "closed"=クローズ済のみ / "all"=両方。
+      const buildBase = (selectCols: string, closedMode: "open" | "closed" | "all" = "open") => {
         let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
         // ゴミ箱（deleted_at not null）は一覧に出さない。列が無い旧環境ではフォールバックで is() を外す。
         qb = qb.is("deleted_at", null);
-        // クローズ済は一覧の初期表示から外す（検索時のみ表示）。
-        if (hideClosed) qb = qb.eq("is_closed", false);
+        // クローズ表示の切替（#327）。既定はクローズ済を隠す。
+        if (closedMode === "open") qb = qb.eq("is_closed", false);
+        else if (closedMode === "closed") qb = qb.eq("is_closed", true);
         if (!showAll) qb = qb.eq("is_published", true);
         if (needle) {
-          const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+          const like = `%${needle.replace(/[%_,.()]/g, (m) => (m === "%" || m === "_" ? "\\" + m : " ")).trim()}%`; // #329: or構文を壊す , . ( ) は除去
           // ID 検索：「123」「No.123」「No.00123」「#123」のいずれでも job_no で一致させる。
           const idm = needle.match(/^(?:no\.?\s*|#)?(\d+)$/i);
           const numOr = idm ? `,job_no.eq.${parseInt(idm[1], 10)}` : "";
@@ -289,11 +294,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
 
       // deleted_at 列が未マイグレ環境では .is("deleted_at", null) がエラーになるので、
       // フォールバックで buildBase 内のフィルタを取り除いた版を作る。
-      const buildBaseNoTrash = (selectCols: string) => {
+      const buildBaseNoTrash = (selectCols: string, closedMode: "open" | "closed" | "all" = "open") => {
         let qb: any = sb.from("jobs").select(selectCols, { count: "exact" });
+        if (closedMode === "open") qb = qb.eq("is_closed", false);
+        else if (closedMode === "closed") qb = qb.eq("is_closed", true);
         if (!showAll) qb = qb.eq("is_published", true);
         if (needle) {
-          const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+          const like = `%${needle.replace(/[%_,.()]/g, (m) => (m === "%" || m === "_" ? "\\" + m : " ")).trim()}%`; // #329: or構文を壊す , . ( ) は除去
           // ID 検索：「123」「No.123」「No.00123」「#123」のいずれでも job_no で一致させる。
           const idm = needle.match(/^(?:no\.?\s*|#)?(\d+)$/i);
           const numOr = idm ? `,job_no.eq.${parseInt(idm[1], 10)}` : "";
@@ -323,13 +330,15 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         qb = applyNoProposal(qb);
         return qb;
       };
-      const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
-      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url, signup_source`, hideClosed)));
+      // #327：クローズ表示モード。closed=クローズ済のみ／all=両方／既定=公開中のみ。
+      //   検索時は従来どおりクローズ済も含める（"all"）。f_closed が明示されていればそれを優先。
+      const closedMode: "open" | "closed" | "all" = fClosed === "closed" ? "closed" : (fClosed === "all" || needle) ? "all" : "open";
+      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url, signup_source`, closedMode)));
       if (listRes.error && /deleted_at|is_closed|column/i.test(listRes.error.message)) {
-        listRes = await order(withOwner(buildBaseNoTrash(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`)));
+        listRes = await order(withOwner(buildBaseNoTrash(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, closedMode)));
       }
-      if (listRes.error) listRes = await order(withOwner(buildBase(`${baseCols}, outside_owner`)));
-      if (listRes.error) listRes = await order(buildBase(baseCols)); // outside_owner 列が無い環境では担当フィルタは無効
+      if (listRes.error) listRes = await order(withOwner(buildBase(`${baseCols}, outside_owner`, closedMode)));
+      if (listRes.error) listRes = await order(buildBase(baseCols, closedMode)); // outside_owner 列が無い環境では担当フィルタは無効
       jobs = listRes.data ?? [];
       total = listRes.count ?? jobs.length;
       pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -416,7 +425,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const ownerOptions = outsideNames.length ? outsideNames : staff.rows.map((s: any) => s.name);
 
   // JobsTable（社内・サーバ駆動）に渡すフィルタの現在値と選択肢
-  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved, signup_source: fSignupSource, no_proposal: fNoProposal ? "1" : "" };
+  const jobFilters = { status: fStatus, role: fRole, remote: fRemote, flow: fFlow, flow_limit: fFlowLimit, rank: fRank, outside_owner: fOwner, nationality: fNat, approved: fApproved, signup_source: fSignupSource, no_proposal: fNoProposal ? "1" : "", closed: fClosed };
   const jobFilterOptions = {
     status: FRESH_OPTIONS,
     role: roleOptionVals.map((v) => ({ value: v, label: v })),
@@ -434,7 +443,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。
           絞り込み中はアクティブタブの件数を絞り込み結果(total)と連動させる。 */}
       {!scope.isTenant && (() => {
-        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || showAll || periodFiltering);
+        const filtered = !!(needle || fStatus || fRole || fRemote || fFlow || fFlowLimit || fRank || fOwner || fNat || fApproved || fSignupSource || fNoProposal || fClosed || showAll || periodFiltering);
         return <MatchingPeerTabsServer activeCount={filtered ? total : undefined} rightSlot={<UrlPeriodChips basePath="/jobs" counts={periodCounts} />} />;
       })()}
 
