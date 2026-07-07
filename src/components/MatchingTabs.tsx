@@ -6,15 +6,17 @@
 //   - /matching ではヘッダー側を非表示にし、ページ本体内（フローバー直下）に
 //     MatchingPeerTabs として配置する（トップバーのスリム化）。
 import Link from "@/components/AppLink";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";
 
-// タブ順は「マッチング → 案件 → 人材 → フリーランス → LINE」。アイコンは Material Symbols Outlined。
+// タブ順は「マッチング → 注力 → 案件 → 人材 → フリーランス → LINE」。アイコンは Material Symbols Outlined。
+//   ・注力＝旧・独立した「自動/注力」切り替えボタンを廃止し、通常タブへ統合（/matching?tab=focus）。
 //   ・フリーランス＝ENGERフリーランス（LP登録/engineers）の登録者一覧。
 //   ・LINE＝LINE経由の人材・案件＋LINE WORKSのやりとり（/line）。
 const TABS = [
   { key: "matching", href: "/matching", label: "マッチング", icon: "compare_arrows" },
+  { key: "focus", href: "/matching?tab=focus", label: "注力", icon: "favorite" },
   { key: "jobs", href: "/jobs", label: "案件", icon: "work" },
   { key: "people", href: "/people", label: "人材", icon: "groups" },
   { key: "engineers", href: "/engineers", label: "フリーランス", icon: "badge" },
@@ -23,8 +25,9 @@ const TABS = [
 
 type TabKey = typeof TABS[number]["key"];
 
-function activeFromPath(path: string): TabKey | null {
-  if (path.startsWith("/matching")) return "matching";
+// /matching は tab=focus のときだけ「注力」をアクティブにする（既定は「マッチング」＝自動）。
+function resolveActiveTab(path: string, tabParam?: string | null): TabKey | null {
+  if (path.startsWith("/matching")) return tabParam === "focus" ? "focus" : "matching";
   if (path.startsWith("/jobs")) return "jobs";
   if (path.startsWith("/people")) return "people";
   if (path.startsWith("/engineers")) return "engineers";
@@ -36,9 +39,10 @@ function activeFromPath(path: string): TabKey | null {
  *  compact=true でトップバーに収まるコンパクト表示にする。 */
 export function MatchingTabs({ counts, hideOnMatching = false, compact = true }: { counts?: SidebarCounts; hideOnMatching?: boolean; compact?: boolean }) {
   const path = usePathname() ?? "";
-  const active = activeFromPath(path);
+  const sp = useSearchParams();
+  const active = resolveActiveTab(path, sp?.get("tab"));
   if (!active) return null;
-  if (hideOnMatching && active === "matching") return null;
+  if (hideOnMatching && (active === "matching" || active === "focus")) return null;
   return <PeerTabsInternal counts={counts} active={active} compact={compact} />;
 }
 
@@ -46,7 +50,8 @@ export function MatchingTabs({ counts, hideOnMatching = false, compact = true }:
  *  rightSlot を渡すと、タブ行の右側に並べて表示する（例：期間セレクタを全タブ共通の位置に置く）。 */
 export function MatchingPeerTabs({ counts, activeCount, rightSlot }: { counts?: SidebarCounts; activeCount?: number; rightSlot?: React.ReactNode }) {
   const path = usePathname() ?? "";
-  const active = activeFromPath(path) ?? "matching";
+  const sp = useSearchParams();
+  const active = resolveActiveTab(path, sp?.get("tab")) ?? "matching";
   const sectionLabel = TABS.find((t) => t.key === active)?.label ?? "";
   // パンくず：ENGER / マッチング（/ セクション）。最後の項目を太字。
   const crumbs = active === "matching" ? ["ENGER", "マッチング"] : ["ENGER", "マッチング", sectionLabel];
@@ -72,6 +77,7 @@ export function MatchingPeerTabs({ counts, activeCount, rightSlot }: { counts?: 
 function PeerTabsInternal({ counts, active, activeCount, compact = false }: { counts?: SidebarCounts; active: TabKey; activeCount?: number; compact?: boolean }) {
   const totalOf: Record<TabKey, number | undefined> = {
     matching: undefined,
+    focus: undefined,
     jobs: counts?.jobs,
     people: counts?.people,
     engineers: counts?.engineers,
@@ -79,6 +85,7 @@ function PeerTabsInternal({ counts, active, activeCount, compact = false }: { co
   };
   const newOf: Record<TabKey, number | undefined> = {
     matching: undefined,
+    focus: undefined,
     jobs: counts?.newJobs,
     people: counts?.newPeople,
     engineers: counts?.newEngineers,
