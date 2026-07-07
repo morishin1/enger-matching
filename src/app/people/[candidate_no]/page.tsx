@@ -7,6 +7,7 @@ import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { CandidateNoteEditor } from "@/components/CandidateNoteEditor";
+import { CandidateSkillsToolsEditor } from "@/components/CandidateSkillsToolsEditor";
 import { IntroLinkButton } from "@/components/IntroLinkButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
@@ -52,7 +53,9 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
     try {
       const sb = engerClient();
       const base = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
-      let r: any = await sb.from("candidates").select(`${base}, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      // #325：tools は最初の取得だけに含める。未整備環境ではカラムエラーで tools 無しの版に落ちる。
+      let r: any = await sb.from("candidates").select(`${base}, tools, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      if (r.error) r = await sb.from("candidates").select(`${base}, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
@@ -121,14 +124,12 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
 
       <FlowSteps current="data" sub="人材詳細（スキルシート）" />
 
-      {c.skills?.length > 0 && (
-        <div className="card">
-          <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル</div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(c.skills ?? []).map((s: string) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
-          </div>
-        </div>
-      )}
+      {/* #325①：スキル・使用経験のあるツール・開発環境を手入力で編集・保存できるフォーム（備考の上）。
+          取り込み時に入った初期値が表示され、追記・修正できる。 */}
+      <div className="card">
+        <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル・ツール</div>
+        <CandidateSkillsToolsEditor candidateNo={c.candidate_no} initialSkills={Array.isArray(c.skills) ? c.skills : []} initialTools={Array.isArray(c.tools) ? c.tools : []} />
+      </div>
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 6 }}>プロフィール</div>
