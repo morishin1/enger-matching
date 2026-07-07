@@ -72,9 +72,38 @@ const AUTO_POOL = 200;        // おすすめ：期間フィルタ後に上位50
 const RATE_MARGIN_MIN = 7;    // 定義書#7：案件単価上限 − 人材希望単価下限 ≧ 7万円
 const SKILL_FLOOR = 1 / 3;    // スキル一致率の下限（これ未満は低ランクでも出さない＝ノイズ抑制）
 const JOB_FETCH_LIMIT = 500;
-const CAND_FETCH_LIMIT = 3000;
+const CAND_FETCH_LIMIT = 5000;
 // scoreMatch（重い精査）に掛けるペア数の上限。軽量キー（一致率）で並べてから先頭だけ精査する。
 const SCORE_POOL = 3500;
+
+// ── 担当者（登録担当 operator）フィルタ ─────────────────────────────────
+//   マッチングの負荷軽減のため、選択した担当者の人材だけを対象に計算する（要望）。
+//   ・all=true … 担当者で絞らず全人材（従来挙動）。「全員」選択時。
+//   ・operators … candidates.operator が一致する人材だけ（インデックス使用で軽量）。
+//   ・includeUnassigned … operator 未設定（過去取込データ等）の人材も含める。
+export type AssigneeFilter = { all: boolean; operators: string[]; includeUnassigned: boolean };
+
+const ALL_TOKEN = "__all__";
+const UNASSIGNED_TOKEN = "__unassigned__";
+
+/** URL の ?assignee= を AssigneeFilter に解釈。未選択（空）は null（＝計算しない＝遅延ロード）。 */
+export function parseAssigneeParam(param?: string | null): AssigneeFilter | null {
+  const raw = (param ?? "").trim();
+  if (!raw) return null;
+  const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parts.includes(ALL_TOKEN)) return { all: true, operators: [], includeUnassigned: false };
+  const includeUnassigned = parts.includes(UNASSIGNED_TOKEN);
+  const operators = Array.from(new Set(parts.filter((p) => p !== UNASSIGNED_TOKEN))).sort();
+  if (operators.length === 0 && !includeUnassigned) return null;
+  return { all: false, operators, includeUnassigned };
+}
+
+/** キャッシュキーを安定させるため正規化（operators はソート済み）。 */
+function normalizeAssignee(f: AssigneeFilter): AssigneeFilter {
+  return f.all
+    ? { all: true, operators: [], includeUnassigned: false }
+    : { all: false, operators: [...f.operators].sort(), includeUnassigned: f.includeUnassigned };
+}
 
 // ── 取得（列フォールバック付き） ─────────────────────────────────────────
 //   accept_flow_depth / flow_depth / skill_sheet_url は各マイグレーション適用後のみ存在。
@@ -95,15 +124,73 @@ async function fetchJobsForRanking(sb: ReturnType<typeof engerClient>): Promise<
   return [];
 }
 
-async function fetchCandsForRanking(sb: ReturnType<typeof engerClient>): Promise<any[]> {
+// 人材取得の operator 絞り込みモード。in=指定担当 / null=未割当 / all=絞らず全件。
+type CandOpMode = { kind: "all" } | { kind: "in"; ops: string[] } | { kind: "null" };
+const applyOpMode = (q: any, mode: CandOpMode) =>
+  mode.kind === "in" ? q.in("operator", mode.ops) : mode.kind === "null" ? q.is("operator", null) : q;
+
+/** 1モードぶんの人材を取得（列フォールバック＋deleted/closed フォールバック付き）。 */
+async function loadCandsByMode(sb: ReturnType<typeof engerClient>, mode: CandOpMode): Promise<{ data: any[]; opColMissing: boolean }> {
   for (const cols of [CAND_COLS_RICH, CAND_COLS_BASE]) {
-    let r: any = await sb.from("candidates").select(cols).is("deleted_at", null).eq("is_closed", false).order("candidate_no", { ascending: false }).limit(CAND_FETCH_LIMIT);
-    if (r.error) r = await sb.from("candidates").select(cols).is("deleted_at", null).order("candidate_no", { ascending: false }).limit(CAND_FETCH_LIMIT);
-    if (r.error) r = await sb.from("candidates").select(cols).order("candidate_no", { ascending: false }).limit(CAND_FETCH_LIMIT);
-    if (!r.error) return r.data ?? [];
+    let r: any = await applyOpMode(sb.from("candidates").select(cols).is("deleted_at", null).eq("is_closed", false), mode).order("candidate_no", { ascending: false }).limit(CAND_FETCH_LIMIT);
+    if (r.error) r = await applyOpMode(sb.from("candidates").select(cols).is("deleted_at", null), mode).order("candidate_no", { ascending: false }).limit(CAND_FETCH_LIMIT);
+    if (r.error) r = await applyOpMode(sb.from("candidates").select(cols), mode).order("candidate_no", { ascending: false }).limit(CAND_FETCH_LIMIT);
+    if (!r.error) return { data: r.data ?? [], opColMissing: false };
+    // operator 列自体が無い環境（未マイグレ）は担当フィルタ不可 → 呼び出し側で全件にフォールバック
+    if (mode.kind !== "all" && /operator|column/i.test(r.error.message ?? "")) return { data: [], opColMissing: true };
   }
-  return [];
+  return { data: [], opColMissing: false };
 }
+
+/** 担当者フィルタに応じて人材を取得（operator でDB段階から絞り、計算量を軽減）。 */
+async function fetchCandsForRanking(sb: ReturnType<typeof engerClient>, filter: AssigneeFilter): Promise<any[]> {
+  const modes: CandOpMode[] = filter.all
+    ? [{ kind: "all" }]
+    : [
+        ...(filter.operators.length ? [{ kind: "in", ops: filter.operators } as CandOpMode] : []),
+        ...(filter.includeUnassigned ? [{ kind: "null" } as CandOpMode] : []),
+      ];
+  const out = new Map<string, any>();
+  let opColMissing = false;
+  for (const mode of modes) {
+    const r = await loadCandsByMode(sb, mode);
+    if (r.opColMissing) { opColMissing = true; continue; }
+    for (const row of r.data) out.set(String(row.id ?? `x${out.size}`), row);
+  }
+  // operator 列が無い環境では担当で絞れないため、安全側で全件にフォールバック（フィルタ無効）。
+  if (opColMissing && out.size === 0) {
+    const r = await loadCandsByMode(sb, { kind: "all" });
+    for (const row of r.data) out.set(String(row.id ?? `x${out.size}`), row);
+  }
+  return [...out.values()];
+}
+
+// ── 担当者（operator）別の人材件数。セレクタの表示・「全員/未割当」件数に使う（軽量：operator列のみ）。
+export type OperatorCounts = { agents: { name: string; count: number }[]; unassigned: number; total: number };
+
+async function fetchOperatorCounts(): Promise<OperatorCounts> {
+  if (!dbConfigured) return { agents: [], unassigned: 0, total: 0 };
+  const sb = engerClient();
+  let r: any = await sb.from("candidates").select("operator").is("deleted_at", null).eq("is_closed", false).limit(20000);
+  if (r.error) r = await sb.from("candidates").select("operator").is("deleted_at", null).limit(20000);
+  if (r.error) r = await sb.from("candidates").select("operator").limit(20000);
+  if (r.error) return { agents: [], unassigned: 0, total: 0 }; // operator 列なし等 → 空（UI側は「全員」のみ）
+  const map = new Map<string, number>();
+  let unassigned = 0; let total = 0;
+  for (const row of (r.data ?? []) as any[]) {
+    total++;
+    const op = String(row.operator ?? "").trim();
+    if (!op) { unassigned++; continue; }
+    map.set(op, (map.get(op) ?? 0) + 1);
+  }
+  const agents = [...map.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name, "ja"));
+  return { agents, unassigned, total };
+}
+
+// 5分キャッシュ。担当者セレクタ用の軽量集計（operator 列のみスキャン）。
+export const getOperatorCounts = unstable_cache(fetchOperatorCounts, ["operator-counts"], { revalidate: 300, tags: ["operator-counts"] });
 
 // ── カテゴリ解決 ─────────────────────────────────────────────────────────
 
@@ -248,12 +335,13 @@ async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<S
   return proposedPairs;
 }
 
-/** 致命的NGを除外し、要確認事項でランク付けして「ランク→点数順」に並べて返す。 */
-async function buildRankedHits(): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
+/** 致命的NGを除外し、要確認事項でランク付けして「ランク→点数順」に並べて返す。
+ *   filter で人材を担当者（operator）で絞ることで計算量を軽減する。 */
+async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   const sb = engerClient();
   const [jobsAll, candsAll, lineIds, flIds, proposedPairs] = await Promise.all([
     fetchJobsForRanking(sb),
-    fetchCandsForRanking(sb),
+    fetchCandsForRanking(sb, filter),
     getLineOriginIds(),          // LINE由来の案件/人材（fail-soft：取れなければ空）
     getFreelanceCandidateIds(),  // ENGERフリーランス由来の人材（fail-soft）
     fetchProposedPairs(sb),      // 提案済みペア
@@ -372,7 +460,8 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
 
 async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   if (!dbConfigured) return { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
-  const { hits, jobsScanned, candsScanned, pairsHit } = await buildRankedHits();
+  // ランキング100は全人材対象（担当者フィルタなし）。
+  const { hits, jobsScanned, candsScanned, pairsHit } = await buildRankedHits({ all: true, operators: [], includeUnassigned: false });
   const rows = hits.slice(0, TOP_N).map((h, i) => toRankedPair(h, i));
   return { rows, jobsScanned, candsScanned, pairsHit };
 }
@@ -386,9 +475,9 @@ export const getRanking100 = unstable_cache(fetchRanking100, ["ranking-100"], { 
 //   ・同じ案件も1回だけ（多様な組み合わせを出す）
 //   で上位を返す。期間フィルタ後に上位50を切り出せるよう、多め（AUTO_POOL）に返す。
 
-async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
+async function fetchAutoMatchTop(filter: AssigneeFilter): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   if (!dbConfigured) return { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
-  const { hits, jobsScanned, candsScanned, pairsHit } = await buildRankedHits();
+  const { hits, jobsScanned, candsScanned, pairsHit } = await buildRankedHits(filter);
 
   // 重複排除：同じ人材・同じ案件は最良の1組だけ採用（ランク→点数順なので先勝ち＝最良）。
   const usedPerson = new Set<string>();
@@ -408,4 +497,15 @@ async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: n
   return { rows, jobsScanned, candsScanned, pairsHit };
 }
 
-export const getAutoMatchTop = unstable_cache(fetchAutoMatchTop, ["auto-match-top"], { revalidate: 300, tags: ["auto-match-top"] });
+// 5分キャッシュ＋タグ。担当者フィルタ（正規化済み）ごとにキャッシュされる。
+//   提案の記録（recordProposal 等）が revalidateTag("auto-match-top") で全variantを即時無効化する。
+const _cachedAutoMatchTopFor = unstable_cache(
+  (filter: AssigneeFilter) => fetchAutoMatchTop(filter),
+  ["auto-match-top-for"],
+  { revalidate: 300, tags: ["auto-match-top"] },
+);
+
+/** 担当者フィルタ指定でおすすめTOP候補を取得。未選択（計算しない）はページ側でガードする。 */
+export function getAutoMatchTopFor(filter: AssigneeFilter) {
+  return _cachedAutoMatchTopFor(normalizeAssignee(filter));
+}
