@@ -4,10 +4,16 @@
 //   行クリックで「案件×人材を横並びで比較」できるドロワーを開く。
 //   ・左：案件詳細／右：人材詳細／上部：一致スキル・案件のみ・人材のみのスキル比較。
 //   ・ドロワーから「→ 提案画面」「案件ページへ」「人材ページへ」も開ける。
+//   ・行のチェックボックスでペアを選択すると、下部フローティングバー（件数＋提案する/AI/コピーする）
+//     から一括操作できる（おすすめTOP50・ランキング100 共通）。
 
 import Link from "@/components/AppLink";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { RankedPair } from "@/lib/ranking100";
+import { recordProposal } from "@/lib/actions";
+import { buildProposalPrompt } from "@/lib/gmail";
+import { toast } from "@/components/toast";
 
 const salaryLabel = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -22,9 +28,45 @@ function RankBadge({ n }: { n: number }) {
   );
 }
 
+const pairKey = (r: RankedPair) => `${r.job.job_no}-${r.cand.candidate_no}`;
+
+// 選択ペアの共有用テキスト（「コピーする」・AIモーダルの見出しで使用）。
+function pairSummaryText(list: RankedPair[]): string {
+  const lines: string[] = [`【提案候補 ${list.length}件】マッチングおすすめ組み合わせ`];
+  list.forEach((r, i) => {
+    lines.push(
+      `${i + 1}. 案件 No.${String(r.job.job_no).padStart(5, "0")}「${r.job.title}」${[r.job.client_name, salaryLabel(r.job.salary_min, r.job.salary_max)].filter(Boolean).join(" / ")}`,
+      `   人材 P-${String(r.cand.candidate_no).padStart(5, "0")} ${r.cand.name}${[r.cand.title, r.cand.rate].filter(Boolean).map((s) => ` / ${s}`).join("")}`,
+      `   マッチ度 ${r.score}%・一致スキル: ${r.matchedSkills.join(", ") || "—"}`,
+    );
+  });
+  return lines.join("\n");
+}
+
+// クリップボードコピー（clipboard API → execCommand フォールバック。CopyButton と同方式）。
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else if (typeof document !== "undefined") {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta);
+    } else return false;
+    return true;
+  } catch { return false; }
+}
+
 export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPair[]; meta: { jobsScanned: number; candsScanned: number; pairsHit: number }; title?: string; subtitle?: React.ReactNode }) {
+  const router = useRouter();
   const [active, setActive] = useState<RankedPair | null>(null);
   const [drawerIn, setDrawerIn] = useState(false);
+  // チェック選択 → 一括操作（提案する / AI / コピーする）。
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<null | { kind: "propose" | "ai"; done: number; total: number }>(null);
+  const cancelRef = useRef(false);
+  const [aiResults, setAiResults] = useState<null | { heading: string; text: string }[]>(null);
   useEffect(() => {
     if (!active) { setDrawerIn(false); return; }
     const id = requestAnimationFrame(() => setDrawerIn(true));
@@ -38,6 +80,70 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
     const prev = document.body.style.overflow; document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [active]);
+
+  const selectedRows = rows.filter((r) => selected.has(pairKey(r)));
+  const allChecked = rows.length > 0 && selectedRows.length === rows.length;
+  const toggleOne = (r: RankedPair) => setSelected((prev) => {
+    const next = new Set(prev); const k = pairKey(r);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next;
+  });
+  const toggleAll = () => setSelected(allChecked ? new Set() : new Set(rows.map(pairKey)));
+
+  // 一括「提案する」：recordProposal（冪等・メールなし・ボードに記録）を選択ペアへ順次実行。
+  const doProposeAll = async () => {
+    if (selectedRows.length === 0 || busy) return;
+    cancelRef.current = false;
+    setBusy({ kind: "propose", done: 0, total: selectedRows.length });
+    let created = 0, existed = 0, failed = 0; let firstError: string | null = null;
+    for (let i = 0; i < selectedRows.length; i++) {
+      if (cancelRef.current) break;
+      const r = selectedRows[i];
+      try {
+        const res: any = await recordProposal(r.job.job_no, r.cand.candidate_no, r.score);
+        if (res?.ok) { res.existed ? existed++ : created++; }
+        else { failed++; if (!firstError) firstError = res?.error ?? null; }
+      } catch (e) { failed++; if (!firstError) firstError = e instanceof Error ? e.message : String(e); }
+      setBusy({ kind: "propose", done: i + 1, total: selectedRows.length });
+    }
+    setBusy(null);
+    const parts = [`提案を記録：新規 ${created}件`];
+    if (existed) parts.push(`既存 ${existed}件`);
+    if (failed) parts.push(`失敗 ${failed}件`);
+    toast(parts.join(" / ") + (firstError ? `（${firstError}）` : ""), failed ? "error" : "success");
+    if (created > 0) { setSelected(new Set()); router.refresh(); }
+  };
+
+  // 一括「AI」：選択ペアぶんの提案文（クライアント向け）を /api/proposal で順次生成し、モーダルに表示。
+  const doAiAll = async () => {
+    if (selectedRows.length === 0 || busy) return;
+    cancelRef.current = false;
+    setBusy({ kind: "ai", done: 0, total: selectedRows.length });
+    const out: { heading: string; text: string }[] = [];
+    for (let i = 0; i < selectedRows.length; i++) {
+      if (cancelRef.current) break;
+      const r = selectedRows[i];
+      const heading = `No.${String(r.job.job_no).padStart(5, "0")}「${r.job.title}」 × P-${String(r.cand.candidate_no).padStart(5, "0")} ${r.cand.name}（マッチ度 ${r.score}%）`;
+      try {
+        const prompt = buildProposalPrompt({ target: "client", job: r.job, cand: r.cand, matchedSkills: r.matchedSkills, missingSkills: r.missingSkills, score: r.score });
+        const res = await fetch("/api/proposal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+        const data = await res.json();
+        out.push({ heading, text: data?.ok ? String(data.text ?? "") : `（生成に失敗：${data?.error ?? "不明なエラー"}）` });
+      } catch (e) {
+        out.push({ heading, text: `（生成に失敗：${e instanceof Error ? e.message : String(e)}）` });
+      }
+      setBusy({ kind: "ai", done: i + 1, total: selectedRows.length });
+    }
+    setBusy(null);
+    if (out.length > 0) setAiResults(out);
+  };
+
+  // 一括「コピーする」：選択ペアの一覧テキストをクリップボードへ。
+  const doCopyAll = async () => {
+    if (selectedRows.length === 0) return;
+    const ok = await copyText(pairSummaryText(selectedRows));
+    toast(ok ? `選択中の ${selectedRows.length} 件をコピーしました` : "コピーに失敗しました", ok ? "success" : "error");
+  };
 
   return (
     <div className="card flush">
@@ -65,6 +171,10 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5, minWidth: 980 }}>
             <thead>
               <tr style={{ color: "var(--color-ink-4)", fontSize: 11, background: "var(--color-surface-soft)" }}>
+                <th style={{ padding: "8px 10px", width: 36 }}>
+                  <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="すべて選択"
+                    style={{ accentColor: "var(--color-brand-600)", cursor: "pointer" }} />
+                </th>
                 <th style={{ padding: "8px 10px", width: 48 }}>順位</th>
                 <th style={{ padding: "8px 10px", textAlign: "right", width: 84 }}>総合</th>
                 <th style={{ padding: "8px 10px", textAlign: "left", width: 110 }}>必須スキル</th>
@@ -79,7 +189,11 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                 <tr key={`${r.job.job_no}-${r.cand.candidate_no}`}
                   onClick={(e) => { if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return; setActive(r); }}
                   title="クリックで案件×人材の詳細を比較"
-                  style={{ cursor: "pointer", opacity: r.proposed ? 0.62 : 1, background: r.proposed ? "var(--color-surface-inset)" : undefined }}>
+                  style={{ cursor: "pointer", opacity: r.proposed ? 0.62 : 1, background: selected.has(pairKey(r)) ? "var(--color-brand-25)" : r.proposed ? "var(--color-surface-inset)" : undefined }}>
+                  <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "center" }}>
+                    <input type="checkbox" checked={selected.has(pairKey(r))} onChange={() => toggleOne(r)}
+                      aria-label="このペアを選択" style={{ accentColor: "var(--color-brand-600)", cursor: "pointer" }} />
+                  </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "center" }}><RankBadge n={r.rank} /></td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right" }}>
                     {/* 内訳（5次元ミニバー＋ボーナス）は撤去し、総合スコアのみのシンプル表示（要望対応）。 */}
@@ -122,6 +236,74 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
       )}
 
       {active && <ComparisonDrawer p={active} drawerIn={drawerIn} onClose={closeDrawer} />}
+
+      {/* 選択中の一括操作バー（画面下部フローティング固定）：件数＋提案する / AI / コピーする。 */}
+      {selected.size > 0 && (
+        <div className="bulk-bar">
+          <span style={{ whiteSpace: "nowrap" }}><b>{selected.size}</b> 件選択中</span>
+          {busy && (
+            <span style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+              {busy.kind === "propose" ? "提案を記録中" : "AIで文面を生成中"}… {busy.done}/{busy.total}
+            </span>
+          )}
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            {busy ? (
+              <button type="button" className="btn ghost" onClick={() => { cancelRef.current = true; }}>中止</button>
+            ) : (
+              <>
+                <button type="button" className="btn brand" onClick={doProposeAll}
+                  title="選択したペアを提案ボードに一括記録します（メールは送りません。提案済みのペアはスキップ扱い）">
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>send</span> 提案する
+                </button>
+                <button type="button" className="btn" onClick={doAiAll}
+                  style={{ background: "#7c5cff", borderColor: "#7c5cff", color: "#fff" }}
+                  title="選択したペアぶんの提案文（クライアント向け）をAIで生成してまとめて表示します">
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>auto_awesome</span> AI
+                </button>
+                <button type="button" className="btn ghost" onClick={doCopyAll}
+                  title="選択したペアの一覧（案件×人材・マッチ度・一致スキル）をコピーします">
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>content_copy</span> コピーする
+                </button>
+                <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* AI生成結果モーダル：ペアごとの提案文＋全文コピー。 */}
+      {aiResults && (
+        <div onClick={() => setAiResults(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 420, display: "grid", placeItems: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 760, maxHeight: "86vh", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 19, color: "#7c5cff" }}>auto_awesome</span>
+                AI提案文（{aiResults.length}件）
+              </h3>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="btn brand btn-xs"
+                  onClick={async () => {
+                    const ok = await copyText(aiResults.map((a) => `■ ${a.heading}\n${a.text}`).join("\n\n----------------\n\n"));
+                    toast(ok ? "全文をコピーしました" : "コピーに失敗しました", ok ? "success" : "error");
+                  }}>全文コピー</button>
+                <button type="button" className="btn ghost btn-xs" onClick={() => setAiResults(null)}>閉じる</button>
+              </div>
+            </div>
+            <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+              {aiResults.map((a, i) => (
+                <div key={i} style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, flex: 1, minWidth: 0 }}>{a.heading}</div>
+                    <button type="button" className="btn ghost btn-xs"
+                      onClick={async () => { const ok = await copyText(a.text); toast(ok ? "コピーしました" : "コピーに失敗しました", ok ? "success" : "error"); }}>コピー</button>
+                  </div>
+                  <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", lineHeight: 1.7, color: "var(--color-ink-2)" }}>{a.text}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -154,14 +154,15 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
 // 5分キャッシュ。重い総当たり計算をリクエスト毎に繰り返さない。
 export const getRanking100 = unstable_cache(fetchRanking100, ["ranking-100"], { revalidate: 300 });
 
-// ── 自動マッチング上位10（おすすめの組み合わせ）────────────────────────────
+// ── 自動マッチング上位50（おすすめの組み合わせ）────────────────────────────
 //   案件×人材の全組み合わせから「高マッチ率 × 新しい案件 × 新しい人材」を重み付けし、
 //   ・同じ人材は1回だけ（重複排除）
 //   ・同じ案件も1回だけ（多様な組み合わせを出す）
-//   で上位10件を返す。案件側から1案件だけを探す従来の自動マッチングを、
+//   で上位50件を返す。案件側から1案件だけを探す従来の自動マッチングを、
 //   全体最適の「組み合わせランキング」に置き換えるための関数。
-const AUTO_MIN_PCT = 0.6;   // 高マッチ率の下限（ランキング100の75%より少し緩めて10件を埋める）
-const AUTO_TOP_N = 10;
+//   ※ 件数は TOP50（チェック選択→一括提案の母集団。以前は TOP10）。
+const AUTO_MIN_PCT = 0.6;   // 高マッチ率の下限（ランキング100の75%より少し緩めて件数を埋める）
+const AUTO_TOP_N = 50;
 
 const normPersonName = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　.．・,，]/g, "");
 
