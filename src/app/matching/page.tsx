@@ -227,7 +227,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     mCustom ? inCustomRange(createdAt, sp.from, sp.to) : inClientPeriod(createdAt, mPeriod);
   // 特定の人材/案件を明示選択したドリルダウン（一覧の「マッチング」ボタンからの遷移）。
   //   この場合は相手側を鮮度ウィンドウ・注力フラグで絞らず、全件から上位をランキング表示する。
-  //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP10・注力ボード・一覧に限定する。
+  //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP50・注力ボード・一覧に限定する。
   //    明示的に1件を選んだのに相手が0件、という事故を防ぐ。）
   const drillDown = !!sp.person || !!sp.job;
   // マッチング対象期間（鮮度ウィンドウ）。取込日が直近 days 日以内のみ対象。showStale=1 で期間外も表示。
@@ -302,7 +302,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let jobList: any[] = [];
   let job: any = null;
   let ranked: any[] = [];
-  // 自動マッチング上位（おすすめの組み合わせ TOP10）。tab=auto かつ案件未指定で表示。
+  // 自動マッチング上位（おすすめの組み合わせ TOP50）。tab=auto かつ案件未指定で表示。
   let autoTop: { rows: any[]; jobsScanned: number; candsScanned: number; pairsHit: number } = { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
   // 注力(ウォッチリスト)モード用
   let focusJobs: any[] = [];   // ♥お気に入り（手動・is_focus）
@@ -479,14 +479,14 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
-        // 上部に「おすすめの組み合わせ TOP10」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
+        // 上部に「おすすめの組み合わせ TOP50」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
         //   ただし個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）は
         //   絞り込み結果に集中させるため非表示にする（要望対応）。その場合は取得自体スキップ。
         if (!sp.job && !sp.person) {
           try {
             const { getAutoMatchTop } = await import("@/lib/ranking100");
             autoTop = await getAutoMatchTop();
-          } catch { /* TOP10 取得失敗時はセクション非表示で続行 */ }
+          } catch { /* TOP50 取得失敗時はセクション非表示で続行 */ }
         }
         // 削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合させる）。
         const buildList = (cols: string, safe = true) => {
@@ -666,7 +666,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     recoJobs = recoJobs.filter(keepJob);
     focusCands = focusCands.filter(keepCand);
     recoCands = recoCands.filter(keepCand);
-    // おすすめ TOP10：案件 or 人材が期間内のペアを残す
+    // おすすめ TOP50：案件 or 人材が期間内のペアを残す
     autoTop = { ...autoTop, rows: autoTop.rows.filter((r: any) => inMPeriod(r?.job?.created_at) || inMPeriod(r?.cand?.created_at)) };
   }
 
@@ -990,10 +990,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {opennessBanner}
 
       {/* 以下は案件を1件選んで候補を見る従来ツール（ドリルダウン用）。
-          上部の「おすすめの組み合わせ TOP10」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
+          上部の「おすすめの組み合わせ TOP50」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
           その下に、案件を1件選んで候補人材を絞り込む従来ビュー（左：ランキング／右：詳細）を表示する。 */}
 
-      {/* 🔥 自動マッチング全体最適 TOP10。
+      {/* 🔥 自動マッチング全体最適 TOP50（チェック選択→一括提案・AI文面・コピーに対応）。
           メニューの「マッチング」を直接押した時（案件/人材を指定していない＝tab=autoの初期状態）のみ
           上部に表示する。個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）
           は、絞り込み結果に集中できるよう非表示にする（要望対応）。 */}
@@ -1001,12 +1001,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         <Ranking100View
           rows={autoTop.rows}
           meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
-          title="🔥 おすすめの組み合わせ TOP10"
-          subtitle={<>高マッチ率 × 新しい案件 × 新しい人材を重み付けした<b>案件×人材の組み合わせ</b>を自動表示（同じ人材・同じ案件は重複しません）。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+          title="🔥 おすすめの組み合わせ TOP50"
+          subtitle={<>高マッチ率 × 新しい案件 × 新しい人材を重み付けした<b>案件×人材の組み合わせ</b>を自動表示（同じ人材・同じ案件は重複しません）。チェックで選択すると下部のバーから<b>一括提案・AI文面・コピー</b>ができます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
         />
       )}
 
-      {/* 案件を指定せず TOP10 を見ているときは、下の「マッチング対象 案件」「人材ランキング」は表示しない。
+      {/* 案件を指定せず TOP50 を見ているときは、下の「マッチング対象 案件」「人材ランキング」は表示しない。
           関係のない案件（先頭のjobList[0]）が出てしまう混乱を避けるための要望対応。 */}
       {(() => {
         const showAutoTop = tab === "auto" && !sp.job && !sp.person && autoTop.rows.length > 0;
