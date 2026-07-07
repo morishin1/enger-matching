@@ -12,6 +12,7 @@ import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { CloseToggleButton } from "./CloseToggleButton";
 import { CandidateNoteEditor } from "./CandidateNoteEditor";
+import { CandidateSkillsToolsEditor } from "./CandidateSkillsToolsEditor";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
@@ -569,15 +570,6 @@ export function PeopleTable({
               <DeleteEntityButton kind="candidates" idValue={detail.candidate_no} label={titleOf(detail)} />
             </div>
 
-            {Array.isArray(detail.skills) && detail.skills.length > 0 && (
-              <div className="card" style={{ padding: 12 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {(detail.skills as string[]).map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
-                </div>
-              </div>
-            )}
-
             <div className="card" style={{ padding: 12 }}>
               <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>プロフィール</div>
               {/* 全項目を常に表示。データが無い項目は空欄、「不明」と記録のあるものは不明で表示。
@@ -613,6 +605,13 @@ export function PeopleTable({
                 </div>
               </div>
             )}
+
+            {/* #325①：スキル・ツール/開発環境を手入力で編集・保存できるフォーム（備考の上）。
+                取り込み時に入った初期値が表示され、追記・修正できる。 */}
+            <div className="card" style={{ padding: 12 }}>
+              <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル・ツール</div>
+              <CandidateSkillsToolsEditor candidateNo={detail.candidate_no} initialSkills={Array.isArray(detail.skills) ? detail.skills : []} initialTools={Array.isArray((detail as any).tools) ? (detail as any).tools : []} />
+            </div>
 
             {/* #325②：備考はドロワー内でもインライン編集・保存できるようにする（フリーランス経由で
                 登録され note が空の人材にもメモを書けるよう、常設の編集欄にする）。 */}

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { engerAdmin, publicAdmin, authAdmin } from "@/lib/supabase";
 import { currentAccess } from "@/lib/accounts";
 import { normalizeSkills } from "@/lib/skills";
-import { classifySource, listEngineers, freelanceShortId, type SkillSheet } from "@/lib/engineers";
+import { classifySource, listEngineers, freelanceShortId, normalizeTools, type SkillSheet } from "@/lib/engineers";
 import { ageToBand, formatRateRange, normalizeRemote, normalizeNationality, extractFreelanceFields, extractSkillCard } from "@/lib/freelance-to-candidate";
 import { notifySlack, appUrl } from "@/lib/slack";
 
@@ -750,6 +750,7 @@ export type FreelancePrefill = {
   title: string;                   // 職種（希望職種）
   affiliation: string;             // 所属区分＝既定「弊社所属フリーランス」（#262・編集可）
   skills: string[];                // スキルカードの技術スタック
+  tools: string[];                 // 使用経験のあるツール・開発環境（#325）
   rate: string;                    // 希望単価（"50万〜" / "50万〜60万"）
   rate_num: number | null;
   location: string;                // 最寄駅
@@ -791,6 +792,8 @@ export async function prepareCandidateFromFreelancer(engineerId: string): Promis
   const initials = String(p?.initial_display ?? p?.initial_auto ?? p?.initials ?? p?.initial ?? "").trim();
   const f = extractFreelanceFields(p);
   const skills = extractSkillCard(p);
+  // #325：使用経験のあるツール・開発環境（LP の列名差異を吸収して名前配列へ）。
+  const tools = normalizeTools(p?.tools ?? p?.dev_env ?? p?.development_environment ?? p?.dev_tools ?? p?.tools_env ?? []);
 
   // スキルシート：skill_sheets(jsonb) 優先、無ければ旧 skill_sheet_url を1件として扱う。
   //   ※ 永続保存する側は「path＋公開URL（skillsheets バケットは公開＝ログイン不要・期限なし）」をそのまま持たせる。
@@ -817,6 +820,7 @@ export async function prepareCandidateFromFreelancer(engineerId: string): Promis
       title: f.desiredJob,
       affiliation: "弊社所属フリーランス",              // 既定（#262・フォームで編集可）
       skills,
+      tools,
       rate: formatRateRange(f.rateMin, f.rateMax),
       rate_num: f.rateMin ?? f.rateMax ?? null,
       location: f.nearestStation,
@@ -843,6 +847,7 @@ export async function registerCandidateFromFreelancer(input: {
   source_company?: string | null;  // #262 所属会社（既定「ENGERフリーランス」）→ 人材一覧の所属会社欄に反映
   avail?: string | null;           // #262 稼働開始（例「2026年8月1日〜」）→ 人材一覧の稼働開始欄に反映
   skills?: string[];
+  tools?: string[];                // #325 使用経験のあるツール・開発環境
   rate?: string | null;
   rate_num?: number | null;
   location?: string | null;
@@ -882,6 +887,7 @@ export async function registerCandidateFromFreelancer(input: {
     // #262 稼働開始：カレンダー選択値（表示用テキスト）。人材一覧の「稼働開始」欄に反映。
     avail: input.avail?.trim() || null,
     skills: normalizeSkills(input.skills ?? []),
+    tools: Array.from(new Set((input.tools ?? []).map((s) => String(s).trim()).filter(Boolean))), // #325
     rate: input.rate?.trim() || null,
     rate_num: input.rate_num ?? null,
     location: input.location?.trim() || null,

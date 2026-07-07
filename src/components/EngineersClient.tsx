@@ -1157,7 +1157,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
   // 編集可能なフォーム値（流し込み後に管理者が確認・修正できる）。
   //   #262：所属区分の既定＝「弊社所属フリーランス」、所属会社の既定＝「ENGERフリーランス」、稼働開始（カレンダー選択）を追加。
   const [f, setF] = useState({
-    name: "", title: "", affiliation: "弊社所属フリーランス", source_company: "ENGERフリーランス", avail_date: "", skills: "", rate: "",
+    name: "", title: "", affiliation: "弊社所属フリーランス", source_company: "ENGERフリーランス", avail_date: "", skills: "", tools: "", rate: "",
     location: "", remote_pref: "", age_band: "", nationality: "", email: "",
   });
 
@@ -1172,7 +1172,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
       setF((s) => ({
         ...s,
         name: d.name, title: d.title, affiliation: d.affiliation || "弊社所属フリーランス",
-        skills: (d.skills ?? []).join(", "), rate: d.rate, location: d.location,
+        skills: (d.skills ?? []).join(", "), tools: (d.tools ?? []).join(", "), rate: d.rate, location: d.location,
         remote_pref: d.remote_pref, age_band: d.age_band, nationality: d.nationality, email: d.email,
       }));
     }).catch((e) => { if (!cancelled) { setLoading(false); setErr(e instanceof Error ? e.message : "取得に失敗しました"); } });
@@ -1197,6 +1197,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
         source_company: f.source_company || "ENGERフリーランス",
         avail: availText,
         skills: f.skills ? f.skills.split(/[,、\/／]+/).map((s) => s.trim()).filter(Boolean) : [],
+        tools: f.tools ? f.tools.split(/[,、\/／\n]+/).map((s) => s.trim()).filter(Boolean) : [],
         rate: f.rate || null, rate_num: pre?.rate_num ?? null,
         location: f.location || null, remote_pref: f.remote_pref || null,
         age_band: f.age_band || null, nationality: f.nationality || null, email: f.email || null,
@@ -1261,6 +1262,8 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
               <RegField label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} />
               <RegField label="連絡先（メール）" value={f.email} onChange={set("email")} full />
               <RegField label="スキルタグ（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
+              {/* #325：使用経験のあるツール・開発環境（取込時に candidates.tools へ保存）。 */}
+              <RegField label="ツール・開発環境（カンマ区切り）" value={f.tools} onChange={set("tools")} full />
             </div>
 
             {/* スキルシート（署名URL・ログイン不要で閲覧/DL可）。引き継ぎ対象を表示。 */}

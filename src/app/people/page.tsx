@@ -311,7 +311,9 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       const hideClosed = !needle; // 検索時はクローズ済も表示し、未検索の一覧では隠す。
       // #257-1：signup_source はフォールバック変種にも含める（欠けると「ENGERフリーランス」バッジが
       //   一覧から消えるデグレになるため）。source_csv も登録元判定の補助に取得する。
-      let res: any = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, true, hideClosed));
+      // #325：tools（使用経験のあるツール・開発環境）は最初の取得だけに含める。未整備環境では
+      //   カラムエラーで下のフォールバック（tools を含まない列）に落ちるため一覧は壊れない。
+      let res: any = await order(buildBase(`${baseCols}, tools, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, true, hideClosed));
       if (res.error && /deleted_at|is_closed|column/i.test(res.error.message)) {
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, false));
       }

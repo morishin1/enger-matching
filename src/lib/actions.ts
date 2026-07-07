@@ -26,6 +26,7 @@ export type CandidateInput = {
   company?: string | null;
   affiliation?: string | null;
   skills?: string[];
+  tools?: string[];                // 使用経験のあるツール・開発環境（#325）
   rate?: string | null;
   rate_num?: number | null;
   avail?: string | null;
@@ -2971,6 +2972,8 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.company !== undefined) row.company = trim(fields.company);
   if (fields.affiliation !== undefined) row.affiliation = trim(fields.affiliation);
   if (fields.skills !== undefined) row.skills = normalizeSkills(fields.skills ?? []);
+  // #325：使用経験のあるツール・開発環境（text[]）。前後空白除去＋空要素・重複を除去。
+  if (fields.tools !== undefined) row.tools = Array.from(new Set((fields.tools ?? []).map((s) => String(s).trim()).filter(Boolean)));
   if (fields.rate !== undefined) { const r = trim(fields.rate); row.rate = r; if (r) { const n = Number((r.match(/\d+/g) ?? []).map(Number).filter((x) => x > 0)[0]); if (Number.isFinite(n)) row.rate_num = n; } }
   if (fields.avail !== undefined) row.avail = trim(fields.avail);
   if (fields.location !== undefined) row.location = trim(fields.location);
@@ -2993,14 +2996,14 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
   // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がないテーブル定義 → タイムスタンプは省いて再試行
     r = await admin.from("candidates").update(withoutUpdatedAt(row)).eq("candidate_no", candidateNo);
   }
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|signup_source|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|signup_source|tools|column/i.test(r.error.message)) {
     r = await admin.from("candidates").update(stripped(withoutUpdatedAt(row))).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
