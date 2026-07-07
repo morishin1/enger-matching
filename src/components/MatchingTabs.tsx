@@ -5,10 +5,10 @@
 //   - 通常はヘッダー(topbar)内に並べる（MatchingTabs）。
 //   - /matching ではヘッダー側を非表示にし、ページ本体内（フローバー直下）に
 //     MatchingPeerTabs として配置する（トップバーのスリム化）。
-import Link from "@/components/AppLink";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { SidebarCounts } from "@/lib/counts";
 import { Icons } from "@/components/icons";
+import { PillTabs, type PillTabItem } from "@/components/PillTabs";
 
 // タブ順は「マッチング → 注力 → 案件 → 人材 → フリーランス → LINE」。アイコンは Material Symbols Outlined。
 //   ・注力＝旧・独立した「自動/注力」切り替えボタンを廃止し、通常タブへ統合（/matching?tab=focus）。
@@ -74,6 +74,9 @@ export function MatchingPeerTabs({ counts, activeCount, rightSlot }: { counts?: 
   );
 }
 
+// 統一デザイン（PillTabs）に、マッチング固有の絞り込み件数バッジ・NEWマーク・LINEブランドロゴを
+//   badge/iconNode として持たせて描画する。見た目（角丸ピル・アクティブ＝ブランド色塗り）は
+//   PillTabs 側の1箇所に集約し、他画面（KGI等）と完全に同じスタイルになる。
 function PeerTabsInternal({ counts, active, activeCount, compact = false }: { counts?: SidebarCounts; active: TabKey; activeCount?: number; compact?: boolean }) {
   const totalOf: Record<TabKey, number | undefined> = {
     matching: undefined,
@@ -93,60 +96,42 @@ function PeerTabsInternal({ counts, active, activeCount, compact = false }: { co
   };
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));
 
-  return (
-    <div role="tablist" style={{ display: "flex", gap: 2, alignItems: "stretch", overflowX: "auto", minWidth: 0, ...(compact ? {} : { borderBottom: "1px solid var(--color-border)", marginBottom: 14 }) }}>
-      {TABS.map((t) => {
-        const isActive = t.key === active;
-        const globalTotal = totalOf[t.key];
-        // アクティブタブで絞り込み件数（activeCount）が渡され、総数と異なる場合は
-        // 「絞り込み件数 / 総数」で連動表示。それ以外は従来どおり総数のみ。
-        const isFiltered = isActive && activeCount != null && globalTotal != null && activeCount !== globalTotal;
-        const total = fmt(isActive && activeCount != null ? activeCount : globalTotal);
-        const n = newOf[t.key];
-        return (
-          <Link
-            key={t.key}
-            href={t.href}
-            role="tab"
-            aria-selected={isActive}
-            style={{
-              padding: compact ? "8px 12px" : "10px 18px",
-              borderBottom: `${compact ? 2 : 3}px solid ${isActive ? "var(--color-brand-600)" : "transparent"}`,
-              color: isActive ? "var(--color-brand-700)" : "var(--color-ink-2)",
-              fontWeight: isActive ? 800 : 600,
-              fontSize: compact ? 13.5 : 17,
-              textDecoration: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 7,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              {/* LINE はブランドロゴ（Icons.line）、他は Material Symbols Outlined。 */}
-              {t.key === "line"
-                ? <span style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={compact ? 17 : 20} /></span>
-                : <span className="material-symbols-outlined" aria-hidden style={{ fontSize: compact ? 18 : 20, lineHeight: 1 }}>{t.icon}</span>}
-              {t.label}
+  const items: PillTabItem[] = TABS.map((t) => {
+    const isActive = t.key === active;
+    const globalTotal = totalOf[t.key];
+    // アクティブタブで絞り込み件数（activeCount）が渡され、総数と異なる場合は
+    // 「絞り込み件数 / 総数」で連動表示。それ以外は従来どおり総数のみ。
+    const isFiltered = isActive && activeCount != null && globalTotal != null && activeCount !== globalTotal;
+    const total = fmt(isActive && activeCount != null ? activeCount : globalTotal);
+    const n = newOf[t.key];
+    return {
+      key: t.key,
+      label: t.label,
+      href: t.href,
+      icon: t.key === "line" ? undefined : t.icon,
+      // LINE はブランドロゴ（Icons.line）、他は Material Symbols Outlined（PillTabs側で描画）。
+      iconNode: t.key === "line" ? <span style={{ lineHeight: 0, display: "inline-flex" }}><Icons.line size={compact ? 15 : 17} /></span> : undefined,
+      badge: (
+        <>
+          {total != null && (
+            <span style={{
+              fontSize: 10.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.5,
+              background: isActive ? "rgba(255,255,255,.25)" : "var(--color-brand-50)",
+              color: isActive ? "#fff" : "var(--color-brand-700)",
+            }} title={isFiltered ? `絞り込み ${total} 件 / 全 ${fmt(globalTotal)} 件` : undefined}>
+              {total}{isFiltered && <span style={{ opacity: 0.85 }}> / {fmt(globalTotal)}</span>}
             </span>
-            {total != null && (
-              <span className="badge" style={{ fontSize: 11, padding: "1px 7px", background: isFiltered ? "var(--color-brand-600)" : undefined, color: isFiltered ? "#fff" : undefined }}
-                title={isFiltered ? `絞り込み ${total} 件 / 全 ${fmt(globalTotal)} 件` : undefined}>
-                {total}{isFiltered && <span style={{ opacity: 0.8, fontWeight: 500 }}> / {fmt(globalTotal)}</span>}
-              </span>
-            )}
-            {n != null && n > 0 && (
-              <span
-                title={`24時間以内の新着 ${n} 件`}
-                aria-label={`新着 ${n} 件`}
-                style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em", fontWeight: 800, borderRadius: 99, background: "var(--color-danger, #dc2626)", color: "#fff", lineHeight: 1.4 }}
-              >
-                NEW
-              </span>
-            )}
-          </Link>
-        );
-      })}
-    </div>
-  );
+          )}
+          {n != null && n > 0 && (
+            <span title={`24時間以内の新着 ${n} 件`} aria-label={`新着 ${n} 件`}
+              style={{ fontSize: 9, padding: "1px 6px", letterSpacing: ".04em", fontWeight: 800, borderRadius: 99, background: "var(--color-danger, #dc2626)", color: "#fff", lineHeight: 1.4 }}>
+              NEW
+            </span>
+          )}
+        </>
+      ),
+    };
+  });
+
+  return <PillTabs tabs={items} active={active} size={compact ? "sm" : "md"} />;
 }

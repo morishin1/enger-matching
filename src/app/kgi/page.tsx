@@ -3,18 +3,18 @@
 //   稼働人数/面談/提案/打ち合わせ の月次KPIに割り振り、営業日数で週次・日次に按分して
 //   「チームで達成する」目標として表示する。打ち合わせは人員容量（1人1日3件）で実現性を判定。
 //   実績（提案/面談/稼働）は proposals 由来（getKpiSnapshot）で達成率＋リカバリー必要ペースを併記。
-import Link from "@/components/AppLink";
 import { currentAccess } from "@/lib/accounts";
 import { canManageDept } from "@/lib/roles";
 import { businessDaysInMonth } from "@/lib/person-kgi";
 import { getKgiSalesPlan, meetingCapacityMonth, DEFAULT_MTG_PER_PERSON_DAY } from "@/lib/kgi-plan";
 import { KgiPlanControls } from "@/components/KgiPlanControls";
 import { KgiBoard } from "@/components/KgiBoard";
+import { PillTabs } from "@/components/PillTabs";
+import { KgiYearMonthBar } from "@/components/KgiYearMonthBar";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const two = (n: number) => String(n).padStart(2, "0");
 
 export default async function KgiDashboardPage({ searchParams }: { searchParams: Promise<{ y?: string; m?: string }> }) {
@@ -58,35 +58,17 @@ export default async function KgiDashboardPage({ searchParams }: { searchParams:
 
       {/* タブ：ダッシュボード（現在地）／メンバーKPI・KGI設定／チーム目標。
           メンバーの設定はタブから遷移して行う（要望対応）。設定ページは既存の /settings 配下を使う。 */}
-      <nav aria-label="KGIタブ" style={{ display: "inline-flex", gap: 4, padding: 4, background: "var(--color-surface-inset)", borderRadius: 12, alignSelf: "flex-start", flexWrap: "wrap" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, background: "var(--color-surface)", color: "var(--color-brand-700)", boxShadow: "0 1px 3px rgba(15,23,42,0.10)", fontSize: 13.5, fontWeight: 800 }}>
-          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18 }}>insights</span>ダッシュボード
-        </span>
-        <Link href="/settings/person-kgi" prefetch={false} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, textDecoration: "none", color: "var(--color-ink-3)", fontSize: 13.5, fontWeight: 600 }}>
-          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18 }}>group</span>メンバーKPI・KGI設定
-        </Link>
-        <Link href="/settings/team-kgi" prefetch={false} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 9, textDecoration: "none", color: "var(--color-ink-3)", fontSize: 13.5, fontWeight: 600 }}>
-          <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18 }}>flag</span>チーム目標
-        </Link>
-      </nav>
+      <PillTabs
+        active="dashboard"
+        tabs={[
+          { key: "dashboard", label: "ダッシュボード", icon: "insights", href: "/kgi" },
+          { key: "person", label: "メンバーKPI・KGI設定", icon: "group", href: "/settings/person-kgi" },
+          { key: "team", label: "チーム目標", icon: "flag", href: "/settings/team-kgi" },
+        ]}
+      />
 
-      {/* 年／月セレクタ */}
-      <div className="card" style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 800, fontSize: 14, marginRight: 6 }}>{y}年</span>
-        {MONTHS.map((mm) => {
-          const on = mm === m;
-          return (
-            <Link key={mm} href={`/kgi?y=${y}&m=${mm}`} prefetch={false} style={{
-              padding: "6px 12px", borderRadius: 8, textDecoration: "none", fontSize: 13, fontWeight: on ? 800 : 600,
-              background: on ? "var(--color-brand-600)" : "transparent", color: on ? "#fff" : "var(--color-ink-2)",
-            }}>{mm}月</Link>
-          );
-        })}
-        <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <Link href={`/kgi?y=${m === 1 ? y - 1 : y}&m=${m === 1 ? 12 : m - 1}`} prefetch={false} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>← 前月</Link>
-          <Link href={`/kgi?y=${m === 12 ? y + 1 : y}&m=${m === 12 ? 1 : m + 1}`} prefetch={false} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>翌月 →</Link>
-        </span>
-      </div>
+      {/* 年／月セレクタ（統一デザイン）。カレンダーアイコンは1日クリックでその月へジャンプ。 */}
+      <KgiYearMonthBar year={y} month={m} />
 
       {/* 売上目標・人員配分（手動）＋ AI計算 */}
       <KgiPlanControls month={mk} initialTarget={salesTarget} initialAvgDeal={avgDeal} initialInside={headcount.inside} initialOutside={headcount.outside} hasPlan={!!plan} canEdit={canEdit} />
