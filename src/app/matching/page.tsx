@@ -1012,7 +1012,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           rows={autoTop.rows}
           meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
           title="🔥 おすすめの組み合わせ TOP50"
-          subtitle={<>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有。LINE/フリーランス由来と<b>提案済みペアは表示しません</b>）を満たす<b>案件×人材の組み合わせ</b>を<b>総合点数の高い順（1〜50位）</b>で自動表示（同じ人材・同じ案件は重複しません）。チェックで選択して<b>「提案する」</b>で一括記録できます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+          subtitle={<>組み合わせを<b>高・中・低</b>の3ランクで表示。<b>高</b>＝定義書の絶対条件を確定データで全て満たす／<b>中</b>＝1〜2点の要確認あり／<b>低</b>＝要確認3点以上（要確認事項は各行を開くと確認できます）。致命的NG（提案不可・二社下以降・55歳以上・国籍NG・LINE/フリーランス由来・<b>提案済み</b>）は全ランクで除外。各ランク内は総合点数順・同じ人材/案件は重複しません。チェックで選択して<b>「提案する」</b>で一括記録できます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
         />
       )}
 
