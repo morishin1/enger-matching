@@ -10,6 +10,11 @@ import { engerAdmin } from "../supabase";
 /** サイドバーのカウントキャッシュを即時更新する。(Next16: 第2引数 cacheLife が必須) */
 export const bustCounts = () => revalidateTag("sidebar-counts", "max");
 
+/** 自動マッチングランキング（ランキング100／おすすめTOP50）のキャッシュを即時更新する。
+ *   提案済みペアはランキングから除外する仕様のため、提案を記録した直後に呼んで
+ *   「提案したのに5分間リストに残り続ける」を防ぐ。 */
+export const bustRankingCaches = () => { revalidateTag("ranking-100", "max"); revalidateTag("auto-match-top", "max"); };
+
 /** お知らせ(notifications)を1件登録（fail-soft）。recipient は氏名。失敗しても本処理は止めない。 */
 export async function notify(recipient: string | null | undefined, title: string, body: string, kind = "info") {
   const r = (recipient ?? "").trim();

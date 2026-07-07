@@ -1012,7 +1012,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           rows={autoTop.rows}
           meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
           title="🔥 おすすめの組み合わせ TOP50"
-          subtitle={<>定義書の除外条件（所属/商流・年齢・単価差7万円以上・国籍/リモートの確定NG）を満たす<b>案件×人材の組み合わせ</b>を<b>総合点数の高い順（1〜50位）</b>で自動表示（同じ人材・同じ案件は重複しません）。チェックで選択して<b>「提案する」</b>で一括記録できます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+          subtitle={<>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有。LINE/フリーランス由来と<b>提案済みペアは表示しません</b>）を満たす<b>案件×人材の組み合わせ</b>を<b>総合点数の高い順（1〜50位）</b>で自動表示（同じ人材・同じ案件は重複しません）。チェックで選択して<b>「提案する」</b>で一括記録できます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
         />
       )}
 

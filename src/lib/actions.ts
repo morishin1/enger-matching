@@ -12,7 +12,7 @@ import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
 import { gmailMessageUrl } from "./gmail";
 import { logActivity, logProposalActivity } from "./activity-logs";
 import {
-  bustCounts, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
+  bustCounts, bustRankingCaches, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
   listApproverNames, initialsOf, normKey,
 } from "./actions/_shared";
 import { callLLM, parseJsonLoose } from "./llm";
@@ -747,6 +747,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
 
     revalidatePath("/proposals");
     revalidatePath("/matching");
+    bustRankingCaches(); // 提案済みペアをおすすめ/ランキングから即時に外す
     bustCounts();
     return { ok: true, id: dupId, existed: true };
   }
@@ -836,6 +837,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
   revalidatePath("/proposals");
   revalidatePath("/matching");
+  bustRankingCaches(); // 提案済みペアをおすすめ/ランキングから即時に外す
   bustCounts();
   return { ok: true, id: data.id, existed: false, job_action_token, cand_action_token };
 }
@@ -868,7 +870,7 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
       if (!candTok) { candTok = randomBytes(24).toString("hex"); upd.cand_action_token = candTok; upd.cand_action_type = "未回答"; }
       try { await admin.from("proposals").update(upd).eq("id", dups[0].id); } catch { /* 列未整備でも fail-soft */ }
     }
-    revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
+    revalidatePath("/proposals"); revalidatePath("/matching"); bustRankingCaches(); bustCounts();
     return { ok: true, id: dups[0].id, existed: true, job_action_token: jobTok, cand_action_token: candTok };
   }
 
@@ -917,7 +919,7 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
     ins = await admin.from("proposals").insert(insertBase).select("id").single();
   }
   if (ins.error) return { ok: false, error: ins.error.message };
-  revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
+  revalidatePath("/proposals"); revalidatePath("/matching"); bustRankingCaches(); bustCounts();
   // メール送信モーダルで再利用するため、生成したトークンを呼び出し側へ返す。
   // 返さないと、後段のメールに焼き込むトークンが DB と一致せず「リンク切れ」になる。
   return { ok: true, id: ins.data?.id ?? null, existed: false, job_action_token, cand_action_token };

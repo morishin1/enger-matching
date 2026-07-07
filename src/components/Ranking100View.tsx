@@ -91,7 +91,7 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
         <div>
           <div style={{ fontSize: 14, fontWeight: 800 }}>{title ?? "🏆 ランキング100"} <span className="tag brand">{rows.length}件</span></div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-            {subtitle ?? <>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有）を満たすペアを、<b>一致スキル数の多い順</b>で表示（同数は単価差 → 注力案件 → 総合スコア）。
+            {subtitle ?? <>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有。LINE/フリーランス由来と提案済みペアは表示しません）を満たすペアを、<b>総合点数の高い順</b>で表示（同点は一致スキル数 → 単価差 → 注力案件）。
             対象：案件 {meta.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {meta.candsScanned.toLocaleString("ja-JP")} 名（適合 {meta.pairsHit.toLocaleString("ja-JP")} ペア）・5分毎に更新。</>}
           </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -104,7 +104,7 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
 
       {rows.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)", fontSize: 13 }}>
-          抽出条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有・スキル一致）を満たすペアが見つかりませんでした。
+          抽出条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有・スキル一致。提案済みペアは対象外）を満たすペアが見つかりませんでした。
           案件・人材のスキル/所属/単価/スキルシートの登録を充実させると候補が増えます。
         </div>
       ) : (
