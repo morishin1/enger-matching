@@ -1,11 +1,13 @@
 "use client";
 
-// ランキング100：必須スキル一致率75%以上の案件×人材ペアを上位100件表示。
+// ランキング100／おすすめTOP50：定義書の除外条件を満たす案件×人材ペアを一致スキル数順に表示。
 //   行クリックで「案件×人材を横並びで比較」できるドロワーを開く。
 //   ・左：案件詳細／右：人材詳細／上部：一致スキル・案件のみ・人材のみのスキル比較。
 //   ・ドロワーから「→ 提案画面」「案件ページへ」「人材ページへ」も開ける。
-//   ・行のチェックボックスでペアを選択すると、下部フローティングバー（件数＋提案する/AI/コピーする）
+//   ・行のチェックボックスでペアを選択すると、下部フローティングバー（件数＋提案する/AI/コピーする/予約配信）
 //     から一括操作できる（おすすめTOP50・ランキング100 共通）。
+//   ・予約配信：カレンダーで日時を指定すると、その時刻に選択ペアを自動で提案登録＋メール配信する
+//     （実行は /api/cron/proposal-schedules・15分間隔バッチ）。
 
 import Link from "@/components/AppLink";
 import { useEffect, useRef, useState } from "react";
@@ -14,6 +16,7 @@ import type { RankedPair } from "@/lib/ranking100";
 import { recordProposal } from "@/lib/actions";
 import { buildProposalPrompt } from "@/lib/gmail";
 import { toast } from "@/components/toast";
+import { scheduleProposalDelivery, listProposalSchedules, cancelProposalSchedule, type ScheduleRow } from "@/lib/proposal-schedule";
 
 const salaryLabel = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -58,6 +61,16 @@ async function copyText(text: string): Promise<boolean> {
   } catch { return false; }
 }
 
+// datetime-local 入力用のローカル時刻文字列（YYYY-MM-DDTHH:mm）。
+const toLocalInputValue = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const SCHEDULE_STATUS_LABEL: Record<string, string> = {
+  pending: "予約中", processing: "配信中", done: "配信済み", canceled: "キャンセル", error: "エラー",
+};
+
 export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPair[]; meta: { jobsScanned: number; candsScanned: number; pairsHit: number }; title?: string; subtitle?: React.ReactNode }) {
   const router = useRouter();
   const [active, setActive] = useState<RankedPair | null>(null);
@@ -67,6 +80,11 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
   const [busy, setBusy] = useState<null | { kind: "propose" | "ai"; done: number; total: number }>(null);
   const cancelRef = useRef(false);
   const [aiResults, setAiResults] = useState<null | { heading: string; text: string }[]>(null);
+  // 予約配信モーダル：日時（datetime-local）＋既存予約の一覧。
+  const [schedOpen, setSchedOpen] = useState(false);
+  const [schedAt, setSchedAt] = useState("");
+  const [schedBusy, setSchedBusy] = useState(false);
+  const [schedList, setSchedList] = useState<ScheduleRow[] | null>(null);
   useEffect(() => {
     if (!active) { setDrawerIn(false); return; }
     const id = requestAnimationFrame(() => setDrawerIn(true));
@@ -145,13 +163,60 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
     toast(ok ? `選択中の ${selectedRows.length} 件をコピーしました` : "コピーに失敗しました", ok ? "success" : "error");
   };
 
+  // 「予約配信」モーダルを開く（既定日時＝1時間後を10分単位に切り上げ）。
+  const refreshSchedules = async () => {
+    try { const r = await listProposalSchedules(); setSchedList(r.rows ?? []); }
+    catch { setSchedList([]); /* 一覧失敗でも予約自体は可能 */ }
+  };
+  const openSchedule = () => {
+    if (selectedRows.length === 0) return;
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 10) * 10, 0, 0);
+    setSchedAt(toLocalInputValue(d));
+    setSchedOpen(true);
+    setSchedList(null);
+    void refreshSchedules();
+  };
+
+  // 予約を確定：選択ペア＋日時をサーバに保存（配信は cron が実行）。
+  const doSchedule = async () => {
+    if (selectedRows.length === 0 || schedBusy) return;
+    const at = new Date(schedAt);
+    if (!schedAt || isNaN(at.getTime())) { toast("配信日時を選択してください", "error"); return; }
+    if (at.getTime() < Date.now()) { toast("過去の日時は指定できません", "error"); return; }
+    setSchedBusy(true);
+    try {
+      const res = await scheduleProposalDelivery({
+        pairs: selectedRows.map((r) => ({ job_no: r.job.job_no, candidate_no: r.cand.candidate_no, score: r.score })),
+        scheduledAt: at.toISOString(),
+      });
+      if (res.ok) {
+        toast(`${selectedRows.length} 件を ${at.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に配信予約しました`, "success");
+        setSelected(new Set());
+        setSchedOpen(false);
+      } else {
+        toast(res.error ?? "予約に失敗しました", "error");
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    } finally { setSchedBusy(false); }
+  };
+
+  const doCancelSchedule = async (id: string) => {
+    try {
+      const res = await cancelProposalSchedule(id);
+      toast(res.ok ? "予約をキャンセルしました" : (res.error ?? "キャンセルに失敗しました"), res.ok ? "success" : "error");
+      if (res.ok) void refreshSchedules();
+    } catch (e) { toast(e instanceof Error ? e.message : String(e), "error"); }
+  };
+
   return (
     <div className="card flush">
       <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 800 }}>{title ?? "🏆 ランキング100"} <span className="tag brand">{rows.length}件</span></div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-            {subtitle ?? <>必須スキル一致率 <b>75%以上</b> を満たすペアを、<b>自動マッチングの総合スコア順</b>で表示（同点は一致スキル数の多い順）。
+            {subtitle ?? <>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有）を満たすペアを、<b>一致スキル数の多い順</b>で表示（同数は単価差 → 注力案件 → 総合スコア）。
             対象：案件 {meta.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {meta.candsScanned.toLocaleString("ja-JP")} 名（適合 {meta.pairsHit.toLocaleString("ja-JP")} ペア）・5分毎に更新。</>}
           </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -164,7 +229,8 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
 
       {rows.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)", fontSize: 13 }}>
-          必須スキルが75%以上一致するペアが見つかりませんでした。案件・人材のスキル登録を充実させると候補が増えます。
+          抽出条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有・スキル一致）を満たすペアが見つかりませんでした。
+          案件・人材のスキル/所属/単価/スキルシートの登録を充実させると候補が増えます。
         </div>
       ) : (
         <div style={{ overflowX: "auto" }}>
@@ -264,9 +330,80 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                   title="選択したペアの一覧（案件×人材・マッチ度・一致スキル）をコピーします">
                   <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>content_copy</span> コピーする
                 </button>
+                <button type="button" className="btn" onClick={openSchedule}
+                  style={{ background: "#0d9488", borderColor: "#0d9488", color: "#fff" }}
+                  title="カレンダーで日時を指定すると、その時刻に選択ペアを自動で提案登録＋メール配信します">
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>schedule_send</span> 予約配信
+                </button>
                 <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 予約配信モーダル：カレンダー（日付＋時刻）で配信日時を指定 → cron が自動配信。 */}
+      {schedOpen && (
+        <div onClick={() => !schedBusy && setSchedOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", zIndex: 420, display: "grid", placeItems: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 520, maxHeight: "86vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 19, color: "#0d9488" }}>schedule_send</span>
+                予約配信（{selectedRows.length}件）
+              </h3>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setSchedOpen(false)} disabled={schedBusy}>閉じる</button>
+            </div>
+
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, fontWeight: 700 }}>
+              配信日時（カレンダーから日付と時刻を選択）
+              <input type="datetime-local" value={schedAt} min={toLocalInputValue(new Date())}
+                onChange={(e) => setSchedAt(e.target.value)}
+                style={{ fontFamily: "inherit", fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+            </label>
+
+            <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.8, background: "var(--color-surface-inset)", borderRadius: 10, padding: "10px 12px" }}>
+              指定日時になると、チェックした組み合わせを自動で<b>提案ボードに記録</b>し、
+              <b>案件側・人材側へ提案メール</b>（「話を進める／見送り」ボタン付き）を配信します。
+              <br />・配信は15分間隔のバッチ処理のため、指定時刻から<b>最大15分ほど</b>遅れることがあります。
+              <br />・すでに提案済みのペアは記録のみで、メールの二重送信はしません。
+              <br />・配信前であれば下の一覧からキャンセルできます。
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={() => setSchedOpen(false)} disabled={schedBusy}>閉じる</button>
+              <button type="button" className="btn" onClick={doSchedule} disabled={schedBusy}
+                style={{ background: "#0d9488", borderColor: "#0d9488", color: "#fff" }}>
+                {schedBusy ? "予約中…" : `この日時で予約する`}
+              </button>
+            </div>
+
+            {/* 既存の予約一覧（キャンセル可） */}
+            <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>配信予約の一覧</div>
+              {schedList === null ? (
+                <div className="muted" style={{ fontSize: 11.5 }}>読み込み中…</div>
+              ) : schedList.length === 0 ? (
+                <div className="muted" style={{ fontSize: 11.5 }}>予約はありません。</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {schedList.map((s) => (
+                    <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, border: "1px solid var(--color-border)", borderRadius: 8, padding: "6px 10px" }}>
+                      <span className="tnum" style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                        {new Date(s.scheduled_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className="muted" style={{ whiteSpace: "nowrap" }}>{s.pair_count}件</span>
+                      <span className="tag" style={{ fontSize: 10, background: s.status === "done" ? "#e7f7ee" : s.status === "error" ? "#fdecef" : "var(--color-surface-inset)", color: s.status === "done" ? "#067647" : s.status === "error" ? "#b42318" : "var(--color-ink-3)", borderColor: "transparent" }}>
+                        {SCHEDULE_STATUS_LABEL[s.status] ?? s.status}
+                      </span>
+                      {s.created_by && <span className="muted" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.created_by}</span>}
+                      {s.status === "pending" && (
+                        <button type="button" className="btn ghost btn-xs" style={{ marginLeft: "auto" }} onClick={() => doCancelSchedule(s.id)}>キャンセル</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

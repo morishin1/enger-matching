@@ -993,7 +993,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           上部の「おすすめの組み合わせ TOP50」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
           その下に、案件を1件選んで候補人材を絞り込む従来ビュー（左：ランキング／右：詳細）を表示する。 */}
 
-      {/* 🔥 自動マッチング全体最適 TOP50（チェック選択→一括提案・AI文面・コピーに対応）。
+      {/* 🔥 自動マッチング全体最適 TOP50（チェック選択→一括提案・AI文面・コピー・予約配信に対応）。
+          抽出条件は「マッチング自動ランキング条件定義書」準拠（src/lib/ranking100.ts）。
           メニューの「マッチング」を直接押した時（案件/人材を指定していない＝tab=autoの初期状態）のみ
           上部に表示する。個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）
           は、絞り込み結果に集中できるよう非表示にする（要望対応）。 */}
@@ -1002,7 +1003,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           rows={autoTop.rows}
           meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
           title="🔥 おすすめの組み合わせ TOP50"
-          subtitle={<>高マッチ率 × 新しい案件 × 新しい人材を重み付けした<b>案件×人材の組み合わせ</b>を自動表示（同じ人材・同じ案件は重複しません）。チェックで選択すると下部のバーから<b>一括提案・AI文面・コピー</b>ができます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+          subtitle={<>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有）を満たす<b>案件×人材の組み合わせ</b>を一致スキル数順に自動表示（同じ人材・同じ案件は重複しません）。チェックで選択すると下部のバーから<b>一括提案・AI文面・コピー・予約配信（日時指定でメール自動配信）</b>ができます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
         />
       )}
 
