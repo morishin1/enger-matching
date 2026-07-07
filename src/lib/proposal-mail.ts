@@ -1,8 +1,8 @@
 // 提案メール（案件側・人材側）の組み立てを一元化する純粋モジュール。
-//   クライアント（メール送信画面 MailComposeWizard / JobMailBodyCard / CandMailBodyCard /
-//   SendBothMailsButton）とサーバ（予約配信 cron: proposal-schedule-run.ts）の両方から使う。
-//   ※ 以前は各クライアントコンポーネント内に定義されていたが、"use client" モジュールは
-//     Route Handler から関数 import できないため、ここへ移設して単一ソース化した。
+//   メール送信画面（MailComposeWizard / JobMailBodyCard / CandMailBodyCard / SendBothMailsButton）と、
+//   マッチングの送信文プレビュー（Ranking100View）から共通で使う。
+//   ※ 以前は各クライアントコンポーネント内に定義されていたが、"use client" 間の相互 import を
+//     避けるためここへ移設して単一ソース化した（本文テンプレの二重管理を防ぐ）。
 
 import { reSubject } from "./gmail";
 
@@ -175,57 +175,6 @@ ${jobSummary}
 ${BUTTON_PLACEHOLDER}
 ${SIGNATURE}`;
 }
-
-/** 人材所属（SES窓口）宛て：予約配信（自動送信）用の本文。
- *   定義書「人材側へ送るメール」準拠。手動送信用の buildCandMailContent と違い、
- *   案件の取込元本文（クライアント提示単価が載っている）は貼らず、
- *   {表示単価}＝案件単価 − 7万円 のレンジで表示する（マージン非開示ルール）。
- *   無人送信のため、人が編集して調整する前提の手動テンプレは使えない。 */
-export function buildCandDeliveryMailContent(job: any, cand: any, jobMeta?: { ageLabel?: string | null; natLabel?: string | null }): string {
-  const candidateCompany = cand.source_company || cand.company || null;
-  const greeting = cand.contact_name
-    ? `${cand.contact_name} 様`
-    : (candidateCompany ? "ご担当者 様" : `${cand.name ?? ""} 様`);
-
-  // {表示単価}：値 − 7万円。レンジは「(下限−7)〜(上限−7)」。どちらか片方なら片側のみ。
-  const adj = (n?: number | null) => (n != null && n > 7 ? n - 7 : null);
-  const lo = adj(job.salary_min), hi = adj(job.salary_max);
-  const rateLabel = lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "詳細確認中";
-
-  const remoteLabel = job.remote_type === "full_remote" ? "フルリモート"
-    : job.remote_type === "partial_remote" ? "一部リモート"
-    : job.remote_type === "onsite" ? "出社" : "詳細確認中";
-
-  return `${candidateCompany ?? "〇〇"}
-${greeting}
-
-いつも大変お世話になっております。
-株式会社エイトの営業担当でございます。
-この度は要員様をご紹介いただき、誠にありがとうございます。
-下記の案件をぜひご紹介させていただきたくご連絡いたしました。
-────────────────────────────────────
-◆ご紹介していただいた要員
-${cand.name ?? ""}
-${cand.age_band ? cand.age_band : ""}
-${cand.location ? `【最寄駅】${cand.location}` : ""}
-────────────────────────────────────
-案件名：${job.title ?? ""}
-募集職種：${(job.role_label ?? "").toString().trim() || "詳細確認中"}
-単価：${rateLabel}
-勤務形態：${remoteLabel}
-商流制限：${(job.flow_note ?? "").toString().trim() || "詳細確認中"}
-年齢（年代）制限：${(jobMeta?.ageLabel ?? "").toString().trim() || "制限なし"}
-国籍制限：${(jobMeta?.natLabel ?? "").toString().trim() || "不問"}
-稼働開始希望日：${(job.start_date ?? "").toString().trim() || "詳細未定"}
-必要スキル：${Array.isArray(job.skills) && job.skills.length ? job.skills.join("、") : "詳細確認中"}
-
-下記の「話を進める」ボタンからご回答いただきましたら、担当者よりさらに詳しい詳細をお送りさせていただきます。
-何卒ご確認の程よろしくお願いいたします。
-────────────────────────────────────
-${BUTTON_PLACEHOLDER}
-${SIGNATURE}`;
-}
-
 // ── HTML（応答ボタン・本文） ────────────────────────────────────────────
 
 // 「話を進める／見送り」ボタンのHTML（メール埋め込み用）。
@@ -278,12 +227,4 @@ export function buildHtmlBody(text: string, buttonHtml: string): string {
     const div = `<div style="${wrapStyle}">${escape(part)}</div>`;
     return i < parts.length - 1 ? `${div}\n${buttonHtml}` : div;
   }).join("\n");
-}
-
-/** 応答リンクの base URL（サーバ用）。
- *   NEXT_PUBLIC_SITE_URL を最優先し、未設定なら本番ドメイン dx.enger.jp。
- *   （Preview の *.vercel.app URL は再デプロイで消えてリンク切れになるため使わない。） */
-export function resolveSiteUrl(): string {
-  const env = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
-  return env || "https://dx.enger.jp";
 }

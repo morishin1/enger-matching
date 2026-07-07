@@ -25,7 +25,7 @@ import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
-import { asClientPeriod, inClientPeriod, inCustomRange, hasCustomRange } from "@/lib/period";
+import { asClientPeriod, inClientPeriod, inCustomRange, hasCustomRange, monthToRange } from "@/lib/period";
 import { MatchingPeriodChips } from "@/components/MatchingPeriodChips";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
@@ -218,13 +218,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   // 古い案件（配信から JOB_STALE_DAYS 超）/ 期間外を含めて表示するか。既定は false（隠す）。
   const showStale = sp.stale === "1";
-  // 期間セレクタ（統一デザイン）。登録日(created_at)でマッチング対象を絞り込む。既定は全期間（no-op）。
-  //   全期間チップのカレンダー（from/to）が指定されていれば、その任意期間で絞り込む。
+  // 期間セレクタ（統一デザイン）。登録日(created_at)でマッチング対象を絞り込む。
+  //   既定は「当月」（要望：全期間ではなく、今が7月なら7月をデフォルト表示）。
+  //   URLに period も from/to も無い初回アクセス時だけ当月レンジを既定として適用する。
+  //   「全期間」を明示選択（?period=all）した場合は従来どおり全期間（no-op）にする。
+  const nowD = new Date();
+  const bareVisit = !sp.period && !hasCustomRange(sp.from, sp.to);
+  const defMonth = monthToRange(nowD.getFullYear(), nowD.getMonth() + 1);
+  const effFrom = bareVisit ? defMonth.from : sp.from;
+  const effTo = bareVisit ? defMonth.to : sp.to;
   const mPeriod = asClientPeriod(sp.period, "all");
-  const mCustom = hasCustomRange(sp.from, sp.to);
+  const mCustom = hasCustomRange(effFrom, effTo);
   const periodActive = mCustom || mPeriod !== "all";
   const inMPeriod = (createdAt: string | null | undefined) =>
-    mCustom ? inCustomRange(createdAt, sp.from, sp.to) : inClientPeriod(createdAt, mPeriod);
+    mCustom ? inCustomRange(createdAt, effFrom, effTo) : inClientPeriod(createdAt, mPeriod);
   // 特定の人材/案件を明示選択したドリルダウン（一覧の「マッチング」ボタンからの遷移）。
   //   この場合は相手側を鮮度ウィンドウ・注力フラグで絞らず、全件から上位をランキング表示する。
   //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP50・注力ボード・一覧に限定する。
@@ -669,6 +676,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     // おすすめ TOP50：案件 or 人材が期間内のペアを残す
     autoTop = { ...autoTop, rows: autoTop.rows.filter((r: any) => inMPeriod(r?.job?.created_at) || inMPeriod(r?.cand?.created_at)) };
   }
+  // おすすめは点数順で上位50件に確定し、順位を振り直す（期間フィルタ後でも1〜50位が連番になる）。
+  autoTop = { ...autoTop, rows: autoTop.rows.slice(0, 50).map((r: any, i: number) => ({ ...r, rank: i + 1 })) };
 
   // 送達不能アドレスの照会（バナー表示用）。is_undeliverable は既に各 job に付与済み（applyOpenness内）。
   const bouncedSet: Map<string, BounceRecord> = await getBouncedSet([
@@ -993,7 +1002,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           上部の「おすすめの組み合わせ TOP50」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
           その下に、案件を1件選んで候補人材を絞り込む従来ビュー（左：ランキング／右：詳細）を表示する。 */}
 
-      {/* 🔥 自動マッチング全体最適 TOP50（チェック選択→一括提案・AI文面・コピー・予約配信に対応）。
+      {/* 🔥 自動マッチング全体最適 TOP50（総合点数順・チェック選択→「提案する」で一括記録）。
           抽出条件は「マッチング自動ランキング条件定義書」準拠（src/lib/ranking100.ts）。
           メニューの「マッチング」を直接押した時（案件/人材を指定していない＝tab=autoの初期状態）のみ
           上部に表示する。個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）
@@ -1003,7 +1012,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
           rows={autoTop.rows}
           meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
           title="🔥 おすすめの組み合わせ TOP50"
-          subtitle={<>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有）を満たす<b>案件×人材の組み合わせ</b>を一致スキル数順に自動表示（同じ人材・同じ案件は重複しません）。チェックで選択すると下部のバーから<b>一括提案・AI文面・コピー・予約配信（日時指定でメール自動配信）</b>ができます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+          subtitle={<>定義書の除外条件（所属/商流・年齢・単価差7万円以上・国籍/リモートの確定NG）を満たす<b>案件×人材の組み合わせ</b>を<b>総合点数の高い順（1〜50位）</b>で自動表示（同じ人材・同じ案件は重複しません）。チェックで選択して<b>「提案する」</b>で一括記録できます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
         />
       )}
 
