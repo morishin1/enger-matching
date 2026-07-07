@@ -28,6 +28,25 @@ function RankBadge({ n }: { n: number }) {
   );
 }
 
+// 組み合わせランク（高/中/低）の表示メタ。高=確実 / 中=数点要確認 / 低=要確認多い。
+const TIER_META: Record<import("@/lib/ranking100").MatchTier, { label: string; bg: string; fg: string; bd: string }> = {
+  high: { label: "高", bg: "#e7f7ee", fg: "#067647", bd: "#bfe3cc" },
+  mid:  { label: "中", bg: "#fff4e5", fg: "#9a5b1a", bd: "#f5d9b0" },
+  low:  { label: "低", bg: "#eef0f3", fg: "#5b6675", bd: "#dfe3e8" },
+};
+function TierBadge({ tier, size = "sm" }: { tier: import("@/lib/ranking100").MatchTier; size?: "sm" | "lg" }) {
+  const m = TIER_META[tier];
+  const big = size === "lg";
+  return (
+    <span title={`組み合わせランク：${m.label}`} style={{
+      display: "inline-grid", placeItems: "center",
+      width: big ? 30 : 24, height: big ? 30 : 24, borderRadius: 8,
+      background: m.bg, color: m.fg, border: `1px solid ${m.bd}`,
+      fontSize: big ? 15 : 12, fontWeight: 800, fontFamily: "var(--font-display)", lineHeight: 1,
+    }}>{m.label}</span>
+  );
+}
+
 const pairKey = (r: RankedPair) => `${r.job.job_no}-${r.cand.candidate_no}`;
 
 export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPair[]; meta: { jobsScanned: number; candsScanned: number; pairsHit: number }; title?: string; subtitle?: React.ReactNode }) {
@@ -61,6 +80,10 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
   });
   const toggleAll = () => setSelected(allChecked ? new Set() : new Set(rows.map(pairKey)));
 
+  // ランク別の件数（高/中/低）。ヘッダの内訳表示に使う。
+  const tierCounts = { high: 0, mid: 0, low: 0 } as Record<import("@/lib/ranking100").MatchTier, number>;
+  for (const r of rows) tierCounts[r.tier]++;
+
   // 一括「提案する」：recordProposal（冪等・メールなし・ボードに記録）を選択ペアへ順次実行。
   const doProposeAll = async () => {
     if (selectedRows.length === 0 || busy) return;
@@ -89,9 +112,18 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
     <div className="card flush">
       <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>{title ?? "🏆 ランキング100"} <span className="tag brand">{rows.length}件</span></div>
+          <div style={{ fontSize: 14, fontWeight: 800, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {title ?? "🏆 ランキング100"} <span className="tag brand">{rows.length}件</span>
+            {rows.length > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><TierBadge tier="high" /> {tierCounts.high}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><TierBadge tier="mid" /> {tierCounts.mid}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><TierBadge tier="low" /> {tierCounts.low}</span>
+              </span>
+            )}
+          </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-            {subtitle ?? <>定義書の除外条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有。LINE/フリーランス由来と提案済みペアは表示しません）を満たすペアを、<b>総合点数の高い順</b>で表示（同点は一致スキル数 → 単価差 → 注力案件）。
+            {subtitle ?? <><b>高</b>＝定義書の絶対条件を確定データで全て満たす／<b>中</b>＝1〜2点の要確認あり／<b>低</b>＝要確認3点以上。致命的NG（提案不可・二社下以降・55歳以上・国籍NG・LINE/フリーランス由来・提案済み）は全ランクで除外。各ランク内は<b>総合点数の高い順</b>。
             対象：案件 {meta.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {meta.candsScanned.toLocaleString("ja-JP")} 名（適合 {meta.pairsHit.toLocaleString("ja-JP")} ペア）・5分毎に更新。</>}
           </div>
           <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -104,12 +136,12 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
 
       {rows.length === 0 ? (
         <div style={{ padding: 40, textAlign: "center", color: "var(--color-ink-4)", fontSize: 13 }}>
-          抽出条件（フルリモート案件・所属/商流・日本国籍・年齢・単価差7万円以上・スキルシート有・スキル一致。提案済みペアは対象外）を満たすペアが見つかりませんでした。
-          案件・人材のスキル/所属/単価/スキルシートの登録を充実させると候補が増えます。
+          高・中・低いずれのランクでも、致命的NG（提案不可・二社下以降・55歳以上・国籍NG案件×外国籍・LINE/フリーランス由来・提案済み）を除いた有効な組み合わせが見つかりませんでした。
+          案件・人材のスキル/単価の登録を充実させると候補が増えます。
         </div>
       ) : (
         <div style={{ overflowX: "auto" }}>
-          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5, minWidth: 980 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5, minWidth: 1030 }}>
             <thead>
               <tr style={{ color: "var(--color-ink-4)", fontSize: 11, background: "var(--color-surface-soft)" }}>
                 <th style={{ padding: "8px 10px", width: 36 }}>
@@ -117,6 +149,7 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                     style={{ accentColor: "var(--color-brand-600)", cursor: "pointer" }} />
                 </th>
                 <th style={{ padding: "8px 10px", width: 48 }}>順位</th>
+                <th style={{ padding: "8px 10px", width: 44 }}>ランク</th>
                 <th style={{ padding: "8px 10px", textAlign: "right", width: 84 }}>総合</th>
                 <th style={{ padding: "8px 10px", textAlign: "left", width: 110 }}>必須スキル</th>
                 <th style={{ padding: "8px 10px", textAlign: "left" }}>案件</th>
@@ -136,6 +169,7 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                       aria-label="このペアを選択" style={{ accentColor: "var(--color-brand-600)", cursor: "pointer" }} />
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "center" }}><RankBadge n={r.rank} /></td>
+                  <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "center" }}><TierBadge tier={r.tier} /></td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right" }}>
                     {/* 内訳（5次元ミニバー＋ボーナス）は撤去し、総合スコアのみのシンプル表示（要望対応）。 */}
                     <span className="display tnum" style={{ fontSize: 17, fontWeight: 800, color: r.score >= 80 ? "#067647" : r.score >= 60 ? "#0b5cab" : "#9a5b1a" }}>{r.score}</span><span className="muted" style={{ fontSize: 10 }}>%</span>
@@ -244,6 +278,7 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
             <RankBadge n={p.rank} />
+            <TierBadge tier={p.tier} size="lg" />
             <div>
               <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600 }}>比較ビュー · 案件 × 人材</div>
               <h3 style={{ margin: "2px 0 0", fontSize: 17, fontWeight: 800 }}>
@@ -254,6 +289,18 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
           </div>
           <button className="btn ghost btn-xs" onClick={onClose} disabled={navigating}>閉じる</button>
         </div>
+
+        {/* 要確認事項（中・低ランクの根拠）。高ランクは表示しない。 */}
+        {p.concerns.length > 0 && (
+          <div className="card" style={{ padding: 12, background: p.tier === "low" ? "#f7f8fa" : "#fff9f0", borderColor: p.tier === "low" ? undefined : "#f5d9b0" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-3)", marginBottom: 6, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <TierBadge tier={p.tier} /> 提案前に確認したい点（{p.concerns.length}件）
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+              {p.concerns.map((c, i) => <li key={i}>{c}</li>)}
+            </ul>
+          </div>
+        )}
 
         {/* 送信文プレビュー：一括提案・個別提案いずれも、実際に送るのはこの定型文面。 */}
         {showPreview && <SendTextPreview p={p} />}
