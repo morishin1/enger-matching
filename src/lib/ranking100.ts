@@ -1,19 +1,20 @@
 // マッチング自動ランキング（ランキング100 ／ おすすめの組み合わせ TOP50）。
 //
-//   抽出条件は「マッチング自動ランキング条件定義書（2026-07-07）」に準拠する：
-//     Step1: 全案件 × 全人材の組み合わせを生成（同一ペアの重複なし）
-//     Step2: 下記の除外フィルタ（絶対条件）を全て満たすペアだけ残す
-//       #1 人材の所属     … 不明・未設定・二社下以降は除外
-//       #2 案件のスキルタグ … 2つ未満（0/1個）の案件は除外
-//       #3 リモート区分   … 案件はフルリモートのみ／人材はフルリモ・一部リモ希望のみ（空欄不明は除外）
-//       #4 人材の国籍     … 「日本国籍」以外（空欄・不明含む）は除外
-//       #5 人材の年齢     … 55歳以上は除外（「50代」等の年代のみ表記で55歳以上を含み得る場合も安全側で除外）
-//       #6 案件の年齢制限 … 上限（歳/年代）超過は除外・下限（〜以上）割れも除外（人材年齢不明はスキップ）
-//       #7 単価           … 案件単価上限 − 人材希望単価下限 ≧ 7万円（どちらか不明は安全側で除外）
-//       #8 商流           … 「〜社員まで」の案件・商流不明の案件は除外。互換マトリクスで OK のみ
-//       ＋ スキルシート    … 人材側にスキルシートのリンクが無い人材は除外
-//     Step3: スキルタグの一致数が多い順にランキング（マッチ度スコアの点数化は既存 scoreMatch）
-//       同数タイブレーク（定義書 8-1）：単価差（案件上限−人材下限）大 → 注力案件 → 総合スコア
+//   ランキングは「総合マッチスコア（scoreMatch）が高い順」（＝点数順・1位〜）。
+//   同点は 一致スキル数 → 単価差（案件上限−人材下限）→ 新しさ → 案件番号 で割る。
+//
+//   除外は「定義書（マッチング自動ランキング条件定義書）」の絶対条件のうち、
+//   データが確定しているものだけをハード除外する（＝不明・空欄は残す）。
+//   これは、実データでは所属/国籍/リモート/スキルシートが未入力の人材が多く、
+//   『不明も除外』にすると母数が極端に減って TOP50 が埋まらないため（運用要望）。
+//     #1 所属     … 確定「二社下以降」のみ除外（不明は残す）
+//     #2 スキルタグ … 案件のスキルタグが2つ未満（0/1）の案件は除外
+//     #5 年齢     … 人材の年代の上端が55歳以上なら除外（「50代」等も安全側で除外）
+//     #6 年齢制限 … 案件の年齢上限/下限を人材年代が外れるペアを除外（人材年齢不明はスキップ）
+//     #7 単価     … 案件単価上限 − 人材希望単価下限 ≧ 7万円（両方判明時のみ判定）
+//     #8 商流     … 「〜社員まで」の案件は除外／互換マトリクスで確定NGのペアを除外（不明は残す）
+//   加えて scoreMatch のハード除外（充足/終了・国籍NG・出社必須NG）も従来どおり効かせる。
+//   ＝ #3 リモート・#4 国籍は「確定NGのみ除外」に委ね、不明は減点（スコア）で扱う。
 //
 //   計算量対策：案件は新しい順500件・人材は新しい順3000件に限定し、軽量な Set 照合＋
 //   フィールド判定を通過したペアのみ scoreMatch で精査。5分キャッシュ（unstable_cache）。
@@ -22,21 +23,19 @@ import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "./supabase";
 import { scoreMatch, canon, candRange, parseJobAgeLimit, candAgeRange, type Job, type Candidate } from "./match";
 import { expandSkillSet } from "./skills";
-import { classifyCandNationality } from "./nationality";
 import {
   classifyJobFlow, classifyCandFlow, inferJobMaxDepth, inferCandDepth, toFlowDepth,
   flowMatrixCompat, type JobFlowCategory, type CandFlowCategory,
 } from "./flow";
-import { resolveSkillSheetUrl } from "./proposal-mail";
 
 export type DimStatus = { pct: number; known: boolean };
 
 export type RankedPair = {
   rank: number;
   skillPct: number;           // 0-100（必須スキル一致率）
-  matchedCount: number;       // 一致した必須スキル数（Step3 の主キー）
+  matchedCount: number;       // 一致した必須スキル数
   jobSkillCount: number;      // 案件の必須スキル数（分母）
-  score: number;              // 総合マッチスコア 0-100（自動マッチングと同じ scoreMatch）
+  score: number;              // 総合マッチスコア 0-100（ランキングの主キー）
   baseScore: number;          // ボーナス除外の基礎スコア（5次元のみ）
   bonus: number;              // 別枠ボーナス（マージン/PP/業界/尚可/経験カテゴリ）
   dims: { skill: DimStatus; salary: DimStatus; remote: DimStatus; timing: DimStatus; age: DimStatus };
@@ -61,23 +60,23 @@ export type RankedPair = {
 };
 
 const TOP_N = 100;            // ランキング100
-const AUTO_TOP_N = 50;        // おすすめの組み合わせ（チェック選択→一括提案・予約配信の母集団）
+const AUTO_POOL = 200;        // おすすめ：期間フィルタ後に上位50を切り出せるよう多めに返す
+const RANKING100_MIN_PCT = 0.6;  // ランキング100のスキル一致率の下限
+const AUTO_MIN_PCT = 0.5;        // おすすめの下限（点数順・母数確保のため少し緩め）
 const RATE_MARGIN_MIN = 7;    // 定義書#7：案件単価上限 − 人材希望単価下限 ≧ 7万円
 const JOB_FETCH_LIMIT = 500;
 const CAND_FETCH_LIMIT = 3000;
-// scoreMatch（重い精査）に掛けるペア数の上限。軽量キー（一致数→単価差）で
-// 並べてから先頭だけ精査する。最終ソートの主キーが同じなので取りこぼしは実質無い。
-const SCORE_POOL = 2500;
+// scoreMatch（重い精査）に掛けるペア数の上限。軽量キー（一致率）で並べてから先頭だけ精査する。
+const SCORE_POOL = 3000;
 
 // ── 取得（列フォールバック付き） ─────────────────────────────────────────
-//   accept_flow_depth / flow_depth / skill_sheet_url は supabase/flow-depth.sql・
-//   candidates-skillsheet.sql 適用後のみ存在。未マイグレ環境でも全体が落ちないよう、
-//   拡張SELECT → 失敗時は基本SELECT の順で試す（既存パターン踏襲）。
+//   accept_flow_depth / flow_depth は supabase/flow-depth.sql 適用後のみ存在。
+//   未マイグレ環境でも全体が落ちないよう、拡張SELECT → 失敗時は基本SELECT の順で試す。
 
 const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, is_focus, detail, flow_note, role_label, work_location, start_date, created_at";
 const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
-const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url`;
+const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth`;
 
 async function fetchJobsForRanking(sb: ReturnType<typeof engerClient>): Promise<any[]> {
   for (const cols of [JOB_COLS_RICH, JOB_COLS_BASE]) {
@@ -99,7 +98,7 @@ async function fetchCandsForRanking(sb: ReturnType<typeof engerClient>): Promise
   return [];
 }
 
-// ── 定義書フィルタ（案件側・人材側・ペア） ───────────────────────────────
+// ── 定義書フィルタ（案件側・人材側・ペア）── 確定違反のみ除外・不明は残す ────
 
 /** 案件の受入商流カテゴリ（手動深さ → flow_note 正規化 → 本文推定 の順で解決）。 */
 function jobFlowCategory(j: any): JobFlowCategory {
@@ -124,8 +123,7 @@ function candFlowCategory(c: any): CandFlowCategory {
 // 「〜社員まで」系の案件は雇用形態の厳密判定ができないため一律除外（定義書#8・5章）。
 const SEISHAIN_JOB_CATS: ReadonlySet<JobFlowCategory> = new Set(["jp_to_self_seishain", "jp_to_1_seishain", "jp_to_2_seishain"]);
 
-/** 定義書#6 の下限（"30代以上" / "35歳以上" 等）。上限は match.ts の parseJobAgeLimit（#328準拠）。
- *   安全側（除外側）：人材の年代の下端が下限に届かないペアを除外する。 */
+/** 定義書#6 の下限（"30代以上" / "35歳以上" 等）。上限は match.ts の parseJobAgeLimit（#328準拠）。 */
 function parseJobAgeFloor(j: any): { ageFloor: number | null; decadeFloor: number | null } {
   const text = [j.title, j.role_label, j.flow_note, j.detail].filter(Boolean).join(" ");
   let ageFloor: number | null = null;
@@ -137,53 +135,47 @@ function parseJobAgeFloor(j: any): { ageFloor: number | null; decadeFloor: numbe
   return { ageFloor, decadeFloor };
 }
 
-type JobGate = { cat: JobFlowCategory; jMax: number; ageCap: number | null; decadeCap: number | null; ageFloor: number | null; decadeFloor: number | null };
-/** 案件側の絶対条件（#2 スキルタグ数 / #3 フルリモート / #8 商流 / #7 単価上限の存在）。 */
+type JobGate = { cat: JobFlowCategory; jMax: number | null; ageCap: number | null; decadeCap: number | null; ageFloor: number | null; decadeFloor: number | null };
+/** 案件側の絶対条件（#2 スキルタグ数 / #8 「〜社員まで」除外）。単価/年齢はペア判定へ。 */
 function jobGate(j: any): JobGate | null {
-  if (!Array.isArray(j.skills) || j.skills.length < 2) return null;          // #2
-  if (j.remote_type !== "full_remote") return null;                          // #3（案件側）
+  if (!Array.isArray(j.skills) || j.skills.length < 2) return null;  // #2
   const cat = jobFlowCategory(j);
-  if (cat === "unknown") return null;                                        // #8 不明 → 除外（安全側）
-  if (SEISHAIN_JOB_CATS.has(cat)) return null;                               // #8 「〜社員まで」 → 除外
-  const jMax = (j.salary_max ?? j.salary_min) ?? null;                       // #7 の基準（上限優先）
-  if (jMax == null) return null;                                             // 単価不明 → 安全側で除外
+  if (SEISHAIN_JOB_CATS.has(cat)) return null;                       // #8 「〜社員まで」→ 除外
+  const jMax = (j.salary_max ?? j.salary_min) ?? null;              // #7 の基準（不明なら判定スキップ）
   const { ageCap, decadeCap } = parseJobAgeLimit(j as Job);
   const { ageFloor, decadeFloor } = parseJobAgeFloor(j);
   return { cat, jMax, ageCap, decadeCap, ageFloor, decadeFloor };
 }
 
-type CandGate = { cat: CandFlowCategory; cMin: number; ageRange: { decade: number; hi: number } | null };
-/** 人材側の絶対条件（#1 所属 / #3 リモート希望 / #4 国籍 / #5 55歳 / スキルシートリンク / 単価下限の存在）。 */
+type CandGate = { cat: CandFlowCategory; cMin: number | null; ageRange: { decade: number; hi: number } | null };
+/** 人材側の絶対条件（#1 確定「二社下以降」除外 / #5 55歳以上除外）。不明は残す。 */
 function candGate(c: any): CandGate | null {
   const cat = candFlowCategory(c);
-  if (cat === "unknown" || cat === "vendor2plus") return null;               // #1
-  const cp = String(c.remote_pref ?? "").trim();
-  const wantsRemote = cp === "full_remote" || cp === "partial_remote" || /リモート|在宅/.test(cp);
-  if (!wantsRemote) return null;                                             // #3（人材側・空欄不明も除外）
-  if (classifyCandNationality(c.nationality) !== "japan") return null;       // #4（空欄・不明も除外）
-  const ageRange = candAgeRange(c as Candidate);                             // #5：年代の上端が55歳以上なら除外
-  if (ageRange && ageRange.hi >= 55) return null;                            //   （「50代」のみ等は安全側で除外）
-  if (!resolveSkillSheetUrl(c)) return null;                                 // スキルシートリンク必須
-  const cMin = candRange(c as Candidate).min;
-  if (cMin == null) return null;                                             // #7 の基準（下限）不明 → 安全側で除外
+  if (cat === "vendor2plus") return null;                            // #1（確定のみ・不明は残す）
+  const ageRange = candAgeRange(c as Candidate);                     // #5：年代上端が55歳以上なら除外
+  if (ageRange && ageRange.hi >= 55) return null;
+  const cMin = candRange(c as Candidate).min;                        // #7 の基準（不明なら判定スキップ）
   return { cat, cMin, ageRange };
 }
 
-/** ペアの絶対条件（#6 年齢制限突合 / #7 単価7万 / #8 商流互換）。 */
+/** ペアの絶対条件（#7 単価7万 / #8 商流確定NG / #6 年齢制限突合）。 */
 function pairGate(jg: JobGate, cg: CandGate): boolean {
-  if (jg.jMax - cg.cMin < RATE_MARGIN_MIN) return false;                     // #7
-  if (flowMatrixCompat(jg.cat, cg.cat) !== "ok") return false;               // #8（貴社まで→自社所属のみ 等）
-  const ar = cg.ageRange;                                                    // #6（人材年齢不明はスキップ）
+  // #7 単価：両方判明時のみ「差 ≧ 7万円」を要求（どちらか不明なら判定しない）
+  if (jg.jMax != null && cg.cMin != null && jg.jMax - cg.cMin < RATE_MARGIN_MIN) return false;
+  // #8 商流：互換マトリクスで確定NGのペアのみ除外（unknown/any は残す）
+  if (flowMatrixCompat(jg.cat, cg.cat) === "ng") return false;
+  // #6 年齢制限（人材年齢不明はスキップ）
+  const ar = cg.ageRange;
   if (ar) {
-    if (jg.ageCap != null && ar.hi > jg.ageCap) return false;                //   上限（歳）：年代上端で安全側
-    if (jg.decadeCap != null && ar.decade > jg.decadeCap) return false;      //   上限（年代）
+    if (jg.ageCap != null && ar.hi > jg.ageCap) return false;                          // 上限（歳）：年代上端で安全側
+    if (jg.decadeCap != null && ar.decade > jg.decadeCap) return false;                // 上限（年代）
     if (jg.ageFloor != null && ar.decade < Math.floor(jg.ageFloor / 10) * 10) return false; // 下限（歳）
-    if (jg.decadeFloor != null && ar.decade < jg.decadeFloor) return false;  //   下限（年代）
+    if (jg.decadeFloor != null && ar.decade < jg.decadeFloor) return false;            // 下限（年代）
   }
   return true;
 }
 
-// ── 共通コア：定義書フィルタ → 一致数ランキング ─────────────────────────
+// ── 共通コア：定義書フィルタ → スコア精査（点数順） ───────────────────────
 
 function freshnessBonus(createdAt?: string | null): number {
   if (!createdAt) return 0;
@@ -198,13 +190,14 @@ function freshnessBonus(createdAt?: string | null): number {
 const normPersonName = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　.．・,，]/g, "");
 
 type ScoredHit = {
-  job: any; cand: any; pct: number; margin: number; focus: number; fresh: number;
+  job: any; cand: any; pct: number; margin: number; fresh: number;
   score: number; baseScore: number; bonus: number; dims: RankedPair["dims"];
   matchedSkills: string[]; missingSkills: string[]; candExtraSkills: string[];
   matchedCount: number; jobSkillCount: number;
 };
 
-async function buildRankedHits(): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
+/** 定義書フィルタを満たすペアを抽出し、scoreMatch で採点して「点数順」に並べて返す。 */
+async function buildRankedHits(minPct: number): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   const sb = engerClient();
   const [jobsAll, candsAll] = await Promise.all([fetchJobsForRanking(sb), fetchCandsForRanking(sb)]);
 
@@ -217,33 +210,35 @@ async function buildRankedHits(): Promise<{ hits: ScoredHit[]; jobsScanned: numb
     .map((c: any) => ({ c, g: candGate(c), set: expandSkillSet(c.skills as string[]) }))
     .filter((x): x is { c: any; g: CandGate; set: Set<string> } => !!x.g);
 
-  // ペア条件 ＋ スキル一致数（1件以上）で候補ペアを抽出
+  // ペア条件 ＋ スキル一致率（minPct 以上）で候補ペアを抽出
   type Hit = { job: any; cand: any; count: number; margin: number; pct: number };
   const raw: Hit[] = [];
   for (const { j, g: jg } of jobs) {
     const jskills: string[] = (j.skills as string[]).map(canon);
+    const need = jskills.length;
     for (const { c, g: cg, set } of cands) {
       if (!pairGate(jg, cg)) continue;
       let m = 0; for (const s of jskills) if (set.has(s)) m++;
-      if (m < 1) continue;  // 一致スキル0のペアは対象外（ランキングの意味を持たないため）
-      raw.push({ job: j, cand: c, count: m, margin: jg.jMax - cg.cMin, pct: m / jskills.length });
+      const pct = m / need;
+      if (pct < minPct) continue;
+      const margin = (jg.jMax != null && cg.cMin != null) ? jg.jMax - cg.cMin : 0;
+      raw.push({ job: j, cand: c, count: m, margin, pct });
     }
   }
   const pairsHit = raw.length;
 
-  // 軽量キー（一致数 → 単価差 → 新しい案件）で並べ、上位だけ scoreMatch で精査
-  raw.sort((a, b) => (b.count - a.count) || (b.margin - a.margin) || (b.job.job_no - a.job.job_no));
+  // 軽量キー（一致率）で並べ、上位だけ scoreMatch で精査（重い計算の件数を抑える）
+  raw.sort((a, b) => (b.pct - a.pct) || (b.count - a.count) || (b.margin - a.margin) || (b.job.job_no - a.job.job_no));
   const pool = raw.slice(0, SCORE_POOL);
 
   const hits: ScoredHit[] = [];
   for (const h of pool) {
     const m = scoreMatch(h.job as Job, h.cand as Candidate);
-    if (m.excluded) continue; // 既存ハード除外（充足/終了・国籍NG等）も維持
+    if (m.excluded) continue; // ハード除外（充足/終了・国籍NG・出社必須NG）
     const jset = new Set<string>((h.job.skills as string[]).map(canon));
     const extras = (h.cand.skills as string[]).filter((s) => !jset.has(canon(s)));
     hits.push({
       job: h.job, cand: h.cand, pct: h.pct, margin: h.margin,
-      focus: h.job.is_focus ? 1 : 0,
       fresh: (freshnessBonus(h.job.created_at) + freshnessBonus(h.cand.created_at)) * 5,
       score: m.score, baseScore: m.baseScore, bonus: m.bonus, dims: m.dims,
       matchedSkills: m.matchedSkills, missingSkills: m.missingSkills, candExtraSkills: extras,
@@ -251,12 +246,12 @@ async function buildRankedHits(): Promise<{ hits: ScoredHit[]; jobsScanned: numb
     });
   }
 
-  // Step3：一致数が多い順。同数は 単価差 → 注力案件 → 総合スコア → 案件番号（定義書 8-1）
+  // 点数順（総合スコア降順）。同点は 一致数 → 単価差 → 新しさ → 案件番号。
   hits.sort((a, b) =>
-    (b.matchedCount - a.matchedCount)
+    (b.score - a.score)
+    || (b.matchedCount - a.matchedCount)
     || (b.margin - a.margin)
-    || (b.focus - a.focus)
-    || (b.score - a.score)
+    || (b.fresh - a.fresh)
     || (b.job.job_no - a.job.job_no),
   );
 
@@ -314,7 +309,7 @@ function toRankedPair(h: ScoredHit, i: number, proposedPairs: Set<string>): Rank
 async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   if (!dbConfigured) return { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
   const [{ hits, jobsScanned, candsScanned, pairsHit }, proposedPairs] = await Promise.all([
-    buildRankedHits(), fetchProposedPairs(),
+    buildRankedHits(RANKING100_MIN_PCT), fetchProposedPairs(),
   ]);
   const rows = hits.slice(0, TOP_N).map((h, i) => toRankedPair(h, i, proposedPairs));
   return { rows, jobsScanned, candsScanned, pairsHit };
@@ -323,34 +318,24 @@ async function fetchRanking100(): Promise<{ rows: RankedPair[]; jobsScanned: num
 // 5分キャッシュ。重い総当たり計算をリクエスト毎に繰り返さない。
 export const getRanking100 = unstable_cache(fetchRanking100, ["ranking-100"], { revalidate: 300 });
 
-// ── 自動マッチング上位50（おすすめの組み合わせ） ─────────────────────────
-//   ランキング100と同じ定義書フィルタ・一致数ランキングを使い、
+// ── 自動マッチング（おすすめの組み合わせ）─────────────────────────────────
+//   ランキング100と同じ定義書フィルタ・点数順を使い、
 //   ・同じ人材は1回だけ（重複排除）
 //   ・同じ案件も1回だけ（多様な組み合わせを出す）
-//   で上位50件を返す。チェック選択→一括提案・予約配信の母集団。
-//   同一一致数・同一単価差の並びでは「新しい案件・新しい人材」を優先する（鮮度ボーナス）。
+//   で上位を返す。期間フィルタ後に上位50を切り出せるよう、多め（AUTO_POOL）に返す。
 
 async function fetchAutoMatchTop(): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   if (!dbConfigured) return { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
   const [{ hits, jobsScanned, candsScanned, pairsHit }, proposedPairs] = await Promise.all([
-    buildRankedHits(), fetchProposedPairs(),
+    buildRankedHits(AUTO_MIN_PCT), fetchProposedPairs(),
   ]);
 
-  // 一致数 → 単価差 → 注力 →（スコア＋鮮度）で並べ替え（おすすめは新しい組合せを優先）
-  const sorted = [...hits].sort((a, b) =>
-    (b.matchedCount - a.matchedCount)
-    || (b.margin - a.margin)
-    || (b.focus - a.focus)
-    || ((b.score + b.fresh) - (a.score + a.fresh))
-    || (b.job.job_no - a.job.job_no),
-  );
-
-  // 重複排除：同じ人材・同じ案件は最良の1組だけ採用（多様な組み合わせにする）。
+  // 重複排除：同じ人材・同じ案件は最良の1組だけ採用（点数順なので先勝ち＝最高スコア）。
   const usedPerson = new Set<string>();
   const usedJob = new Set<number>();
   const picked: ScoredHit[] = [];
-  for (const h of sorted) {
-    if (picked.length >= AUTO_TOP_N) break;
+  for (const h of hits) {
+    if (picked.length >= AUTO_POOL) break;
     const pkey = normPersonName(h.cand.name) + "|" + normPersonName(h.cand.source_company || h.cand.company);
     if (usedPerson.has(pkey)) continue;
     if (h.job.job_no != null && usedJob.has(h.job.job_no)) continue;

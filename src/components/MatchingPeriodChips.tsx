@@ -23,6 +23,11 @@ export function MatchingPeriodChips() {
   let { year, activeMonth } = disp;
   // 旧プリセット「今月」からの遷移互換（新UIはこの値をもう生成しないが古いリンク救済）。
   if (!custom && period === "month") activeMonth = now.getMonth() + 1;
+  // 初回アクセス（period も from/to も無い）は「当月」を既定選択にする（要望：全期間ではなく当月）。
+  //   これに合わせて matching/page.tsx も同条件で当月レンジを既定フィルタにしている。
+  //   「全期間」は明示選択（?period=all）時のみハイライトする。
+  const bareVisit = !period && !custom;
+  if (bareVisit) { year = now.getFullYear(); activeMonth = now.getMonth() + 1; }
 
   const push = (params: URLSearchParams) => router.push(`/matching?${params.toString()}`);
   const withBase = () => new URLSearchParams(sp?.toString() ?? "");
@@ -50,7 +55,8 @@ export function MatchingPeriodChips() {
     push(u);
   };
 
-  const isAll = !custom && (!period || period === "all");
+  // 「全期間」は明示選択（?period=all）のときだけアクティブ。初回（bareVisit）は当月選択なので非アクティブ。
+  const isAll = !custom && period === "all";
   return (
     <YearMonthPeriodBar
       year={year}
@@ -64,7 +70,7 @@ export function MatchingPeriodChips() {
       shortcuts={[
         { key: "today", label: "今日", active: !custom && period === "today", onClick: () => setPreset("today") },
         { key: "week", label: "今週", active: !custom && period === "week", onClick: () => setPreset("week") },
-        { key: "all", label: "全期間", active: isAll && activeMonth == null, onClick: clearRange },
+        { key: "all", label: "全期間", active: isAll, onClick: () => setPreset("all") },
       ]}
     />
   );
