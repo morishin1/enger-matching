@@ -11,6 +11,7 @@ import { IntroLinkButton } from "./IntroLinkButton";
 import { EditCandidateButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { CloseToggleButton } from "./CloseToggleButton";
+import { CandidateNoteEditor } from "./CandidateNoteEditor";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
@@ -613,12 +614,11 @@ export function PeopleTable({
               </div>
             )}
 
-            {detail.note && (
-              <div className="card" style={{ padding: 12 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>備考</div>
-                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)" }}>{detail.note}</div>
-              </div>
-            )}
+            {/* #325②：備考はドロワー内でもインライン編集・保存できるようにする（フリーランス経由で
+                登録され note が空の人材にもメモを書けるよう、常設の編集欄にする）。 */}
+            <div className="card" style={{ padding: 12 }}>
+              <CandidateNoteEditor candidateNo={detail.candidate_no} initial={detail.note ?? ""} />
+            </div>
           </div>
         </div>
       )}

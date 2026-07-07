@@ -7,6 +7,7 @@ import { freelanceShortId, hasJapanese, skillTagLabel, type Engineer, type Engin
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
+import { CopyButton } from "@/components/CopyButton";
 import { Icons } from "./icons";
 
 // ---------- 一覧表示用ヘルパ（人材一覧 EntityTable と同じ rule） ----------
@@ -896,11 +897,19 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
               スキルは #300 のとおり経験年数・担当工程を付記（GitHubの熟練度 intermediate 等は非表示）。 */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
             <div>
-              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>スキル</div>
+              {/* #325③：スキル一覧の隣に「コピー」ボタン。押すと表示中のスキル全部（経験年数・工程つき）をコピー。 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>スキル</div>
+                {(detail.skills ?? []).length > 0 && <CopyButton text={(detail.skills ?? []).map(skillTagLabel).filter(Boolean).join("\n")} />}
+              </div>
               <TagCloud items={(detail.skills ?? []).map(skillTagLabel).filter(Boolean)} tagClass="tag" />
             </div>
             <div>
-              <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 5 }}>ツール・開発環境</div>
+              {/* #325③：ツール・開発環境の隣に「コピー」ボタン。押すと一覧全部をコピー。 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>ツール・開発環境</div>
+                {(detail.tools ?? []).length > 0 && <CopyButton text={(detail.tools ?? []).join("\n")} />}
+              </div>
               <TagCloud items={detail.tools ?? []} tagClass="tag accent" emptyText="未登録" />
             </div>
           </div>

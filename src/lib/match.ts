@@ -614,6 +614,12 @@ function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number 
     const r = text.match(/([1-9][0-9])\s*[〜～~\-－ー]\s*([1-9][0-9])\s*[歳才]/);
     if (r) ageCap = Number(r[2]);
   }
+  // 先頭チルダの上限： "〜49歳" / "～49歳まで"（下限数値なし）。#328：表示バッジ(classifyJobAge)は
+  //   このパターンを拾うのにフィルタ側が拾えず「制限ありなのに除外されない」ズレが起きていた。
+  if (ageCap == null) {
+    const lead = text.match(/(?:〜|～|~)\s*([1-9][0-9])\s*[歳才]/);
+    if (lead) ageCap = Number(lead[1]);
+  }
   // 年代の上限： "40代まで/以下/以内/迄"
   const dUp = text.match(/([1-9]0)\s*代\s*(?:まで|以下|以内|迄)/);
   if (dUp) decadeCap = Number(dUp[1]);
@@ -621,6 +627,11 @@ function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number 
   if (decadeCap == null) {
     const dr = text.match(/([1-9]0)\s*代?\s*[〜～~\-－ー]\s*([1-9]0)\s*代/);
     if (dr) decadeCap = Number(dr[2]);
+  }
+  // 先頭チルダの年代上限： "〜40代"（下限なし）。
+  if (decadeCap == null) {
+    const dLead = text.match(/(?:〜|～|~)\s*([1-9]0)\s*代/);
+    if (dLead) decadeCap = Number(dLead[1]);
   }
   return { ageCap, decadeCap };
 }
@@ -630,10 +641,19 @@ function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number 
 function candAgeRange(c: Candidate): { decade: number; hi: number } | null {
   const b = String(c.age_band ?? "").trim();
   const m = b.match(/([1-9]0)\s*代/);
-  if (!m) return null;
-  const decade = Number(m[1]);
-  const hi = /前半/.test(b) ? decade + 4 : decade + 9;
-  return { decade, hi };
+  if (m) {
+    const decade = Number(m[1]);
+    const hi = /前半/.test(b) ? decade + 4 : decade + 9;
+    return { decade, hi };
+  }
+  // #328：年代バンドでなく生の年齢（"51" / "51歳"）で入っている場合も判定する。
+  //   例：51歳 → decade=50, hi=51。案件上限「〜49歳」なら hi(51) > 49 で除外される。
+  const ageM = b.match(/^\s*([1-9][0-9])\s*歳?\s*$/);
+  if (ageM) {
+    const age = Number(ageM[1]);
+    return { decade: Math.floor(age / 10) * 10, hi: age };
+  }
+  return null;
 }
 
 function passesJobSideFilters(job: Job, c: Candidate): boolean {

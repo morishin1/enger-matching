@@ -225,20 +225,24 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
 
       // 検索＋フィルタを 1 本のクエリに集約。skill_sheet フィルタは skill_sheet_url 列に依存するため別引数で制御。
       //   withSourceCsv：source_csv 列が無い環境のフォールバック時は false（登録元=ENGER の判定条件から外す）。
-      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false, withSourceCsv = true) => {
+      const buildBase = (selectCols: string, withSheetFilter: boolean, includeTrashFilter = true, hideClosed = false, withSourceCsv = true, withSkills = true) => {
         let qb: any = sb.from("candidates").select(selectCols, { count: "exact" });
         // ゴミ箱（deleted_at not null）は一覧に出さない。未マイグレ環境では includeTrashFilter=false で外す。
         if (includeTrashFilter) qb = qb.is("deleted_at", null);
         // クローズ済は一覧の初期表示から外す（検索時のみ表示）。
         if (hideClosed) qb = qb.eq("is_closed", false);
         if (needle) {
-          const like = `%${needle.replace(/[%_]/g, (m) => "\\" + m)}%`;
+          // #329：or 値に , . ( ) が混ざると PostgREST の or 構文を壊すため除去してから %..% 化する。
+          const like = `%${needle.replace(/[%_,.()]/g, (m) => (m === "%" || m === "_" ? "\\" + m : " ")).trim()}%`;
           // ID 検索：「45」「P-45」「P-00045」「#45」のいずれでも candidate_no で一致させる。
           const idm = needle.match(/^(?:p[-\s]*|#)?(\d+)$/i);
           const numOr = idm ? `,candidate_no.eq.${parseInt(idm[1], 10)}` : "";
-          // #314：スキル（skills は text[]）でも検索できるように ::text キャストしてILIKE。
-          //   グローバル検索(/search)の candidates 検索で既に使っている実績のあるパターン。
-          qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like},skills::text.ilike.${like}${numOr}`);
+          // #314：スキル（skills は text[]）でも検索できるよう ::text キャストして ILIKE。
+          //   #329：ただし環境によっては or 内の ::text キャストが拒否され or 全体が失敗し、
+          //   名前・IDを含む全検索が0件になる事故が起きていた。withSkills=false のフォールバック
+          //   （下の実行部）で skills を外して再試行し、名前・ID検索を必ず生かす。
+          const skillsOr = withSkills ? `,skills::text.ilike.${like}` : "";
+          qb = qb.or(`name.ilike.${like},source_company.ilike.${like},company.ilike.${like}${skillsOr}${numOr}`);
         }
         if (fTitle) qb = qb.eq("title", fTitle);
         // 登録元（LINE登録 / ENGERフリーランス / 通常）。
@@ -314,7 +318,15 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       if (res.error && /signup_source|source_csv|column/i.test(res.error.message)) {
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url`, true, false, false, false));
       }
-      if (res.error) res = await order(buildBase(baseCols, false, true, false, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
+      // #329：ここまでで残ったエラーは or 内 skills::text キャスト拒否の可能性が高い。
+      //   skills を外して再試行し、名前・会社・ID による検索を必ず生かす（スキル部分一致だけ諦める）。
+      if (res.error && needle) {
+        res = await order(buildBase(`${baseCols}, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, true, hideClosed, true, false));
+        if (res.error && /deleted_at|is_closed|signup_source|source_csv|column/i.test(res.error.message ?? "")) {
+          res = await order(buildBase(baseCols, false, false, false, false, false));
+        }
+      }
+      if (res.error) res = await order(buildBase(baseCols, false, true, false, false, false)); // skill_sheet_url 列が無い環境では当該フィルタは無効
       people = res.data ?? [];
       total = res.count ?? people.length;
       pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));

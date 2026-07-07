@@ -37,11 +37,14 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       const idPfx = (idm?.[1] ?? "").toUpperCase();
       const idWantCand = asInt != null && (idPfx === "" || idPfx.startsWith("P"));
       const idWantJob = asInt != null && (idPfx === "" || !idPfx.startsWith("P"));
+      // #329：skills は text[] のため ::text キャストして ILIKE するが、環境によっては or 内の
+      //   ::text キャストが拒否され or 全体が失敗（案件も人材も0件）する。skills を含まない基本 or を
+      //   別途用意し、フル(or+skills)がエラーなら基本 or で再試行して名前・案件名・ID検索を必ず生かす。
+      const skillsOr = `,skills::text.ilike.${like}`;
       const orJob = [
         `title.ilike.${like}`,
         `client_name.ilike.${like}`,
         `role_label.ilike.${like}`,
-        `skills::text.ilike.${like}`,
         `flow_note.ilike.${like}`,
         `detail.ilike.${like}`,
       ].join(",");
@@ -52,7 +55,6 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         `source_company.ilike.${like}`,
         `company.ilike.${like}`,
         `affiliation.ilike.${like}`,
-        `skills::text.ilike.${like}`,
         `note.ilike.${like}`,
       ].join(",");
 
@@ -63,10 +65,18 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       let candCols = "candidate_no, name, initials, title, affiliation, source_company, rate, source_mail_url, skill_sheet_url, is_closed";
       const candColsBase = "candidate_no, name, initials, title, affiliation, source_company, rate";
       let [jr, cr, co] = await Promise.all([
-        sb.from("jobs").select(jobCols).or(orJob).order("created_at", { ascending: false }).limit(20),
-        sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20),
+        sb.from("jobs").select(jobCols).or(orJob + skillsOr).order("created_at", { ascending: false }).limit(20),
+        sb.from("candidates").select(candCols).or(orCand + skillsOr).order("created_at", { ascending: false }).limit(20),
         sb.rpc("company_overview"),
       ]);
+      // #329：skills::text キャスト拒否で失敗したら skills を外して再試行（名前・案件名・ID を生かす）。
+      if ((jr as any).error) {
+        jr = await sb.from("jobs").select(jobCols).or(orJob).order("created_at", { ascending: false }).limit(20) as any;
+      }
+      // 人材：まず skills を外して再試行（キャスト拒否対策）、さらにダメなら取得列も基本列へ縮退。
+      if ((cr as any).error) {
+        cr = await sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20) as any;
+      }
       if ((cr as any).error) {
         candCols = candColsBase;
         cr = await sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20) as any;

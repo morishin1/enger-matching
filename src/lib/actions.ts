@@ -315,7 +315,13 @@ export async function bulkSetClosed(
   if (!idValues || idValues.length === 0) return { ok: true, updated: 0 };
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, updated: 0, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
-  const { error } = await admin.from(table).update({ is_closed: value }).in(idField, idValues);
+  // #327：クローズ解除（value=false）のときは、理由付きクローズ(closeProposalEntity)が付けた
+  //   closed_at/closed_reason/closed_by も掃除して整合させる（列未整備の環境では is_closed のみ更新へフォールバック）。
+  const patch: Record<string, unknown> = value ? { is_closed: true } : { is_closed: false, closed_at: null, closed_reason: null, closed_by: null };
+  let { error } = await admin.from(table).update(patch).in(idField, idValues);
+  if (error && /closed_at|closed_reason|closed_by|column/i.test(error.message)) {
+    ({ error } = await admin.from(table).update({ is_closed: value }).in(idField, idValues));
+  }
   if (error) {
     if (/is_closed|column/i.test(error.message)) return { ok: false, updated: 0, error: "クローズ用カラム未整備です。supabase/closed-flag.sql を実行してください。" };
     return { ok: false, updated: 0, error: error.message };
