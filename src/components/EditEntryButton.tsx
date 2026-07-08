@@ -190,6 +190,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     exp: c.exp ?? "",
     avail: c.avail ?? "",
     location: c.location ?? "",
+    residence: c.residence ?? "", // #330④：居住地
     remote_pref: remoteBucket(c.remote_pref),
     nationality: natBucket(c.nationality),
     age_band: c.age_band ?? "",
@@ -228,6 +229,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
         exp: f.exp,
         avail: f.avail,
         location: f.location,
+        residence: f.residence,
         remote_pref: f.remote_pref,
         nationality: f.nationality,
         age_band: f.age_band,
@@ -275,6 +277,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
               </div>
               <DateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
               <Field label="最寄駅" value={f.location} onChange={set("location")} />
+              {/* #330④：居住地（最寄駅とは別）。 */}
+              <Field label="居住地" value={f.residence} onChange={set("residence")} placeholder="例：東京都世田谷区（空欄で未設定）" />
               <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
               {/* #237①：国籍は3択（日本国籍/外国籍/不明）。年代は誤インポート修正用に自由入力。 */}
               <Select label="国籍" value={f.nationality} onChange={set("nationality")} options={CAND_NAT_OPTS} />
@@ -324,6 +328,7 @@ export function EditJobButton({ job }: { job: any }) {
     work_location: j.work_location ?? "",
     start_date: j.start_date ?? "",
     detail: j.detail ?? "",
+    detail_note: j.detail_note ?? "", // #331⑧：手入力の案件詳細（メール原文とは別）
     status: j.status ?? "",
     contact_name: j.contact_name ?? "",
     contact_email: j.contact_email ?? "",
@@ -354,6 +359,7 @@ export function EditJobButton({ job }: { job: any }) {
         work_location: f.work_location,
         start_date: f.start_date,
         detail: f.detail,
+        detail_note: f.detail_note,
         status: f.status,
         contact_name: f.contact_name,
         contact_email: f.contact_email,
@@ -406,7 +412,10 @@ export function EditJobButton({ job }: { job: any }) {
                 { value: "不明", label: "不明" },
               ]} />
               <Field label="元メールURL／Gmail メッセージ ID" value={f.source_mail_url} onChange={set("source_mail_url")} full />
-              <Textarea label="案件詳細" value={f.detail} onChange={set("detail")} />
+              {/* #331⑧：手入力の案件詳細（メール原文とは別）。 */}
+              <Textarea label="案件詳細" value={f.detail_note} onChange={set("detail_note")} />
+              {/* #331⑦：取込メール原文。旧「案件詳細」を「メール原文」に改称。 */}
+              <Textarea label="メール原文" value={f.detail} onChange={set("detail")} />
             </div>
             <LineCheck checked={!!f.is_line} onChange={(v) => set("is_line")(v ? "1" : "")} noun="案件" />
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}

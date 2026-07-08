@@ -16,6 +16,7 @@ import { CandidateSkillsToolsEditor } from "./CandidateSkillsToolsEditor";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
+import { isEngerFreelance } from "@/lib/candidate-source";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
@@ -149,11 +150,8 @@ const PEOPLE_COLS: Col[] = [
     key: "name", label: "氏名", always: true,
     render: (p) => {
       const sub = p.affiliation || "";
-      // #257-1：登録元バッジは常時表示（所属会社の入力と両立・消さない）。signup_source が
-      //   取得できないフォールバック時にも消えないよう、source_csv=freelance／所属会社テキストでも判定。
-      const isEnger = ["enger", "enger_lp", "engerjp"].includes(String(p.signup_source ?? "").toLowerCase())
-        || String(p.source_csv ?? "").toLowerCase() === "freelance"
-        || String(p.source_company ?? p.company ?? "").trim() === "ENGERフリーランス";
+      // #257-1：登録元バッジは常時表示（所属会社の入力と両立・消さない）。
+      const isEnger = isEngerFreelance(p);
       return (
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
@@ -570,6 +568,14 @@ export function PeopleTable({
               <DeleteEntityButton kind="candidates" idValue={detail.candidate_no} label={titleOf(detail)} />
             </div>
 
+            {/* #330③：ENGERフリーランス以外の人材は、スキルを「プロフィール」ブロックの上にタグで表示。
+                （フリーランスは下部の「スキル・ツール」編集ブロックで表示するのでここでは出さない） */}
+            {!isEngerFreelance(detail) && Array.isArray(detail.skills) && detail.skills.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {(detail.skills as string[]).map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
+              </div>
+            )}
+
             <div className="card" style={{ padding: 12 }}>
               <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>プロフィール</div>
               {/* 全項目を常に表示。データが無い項目は空欄、「不明」と記録のあるものは不明で表示。
@@ -588,12 +594,29 @@ export function PeopleTable({
                   : (detail.affiliation ?? "")],
                 ["連絡先", detail.email ?? detail.contact_email ?? ""],
                 ["窓口担当者", (detail as any).contact_name ?? ""],
-              ] as [string, React.ReactNode][]).map(([label, value]) => (
-                <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-                  <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value}</div>
-                </div>
-              ))}
+              ] as [string, React.ReactNode][]).map(([label, value]) => {
+                // #330④：最寄駅の隣（同じ行）に「居住地」を並べて表示する。
+                if (label === "最寄駅") {
+                  const sub = (lbl: string, val: React.ReactNode) => (
+                    <div style={{ display: "grid", gridTemplateColumns: "64px 1fr", gap: 8, minWidth: 0 }}>
+                      <div className="muted" style={{ fontSize: 12 }}>{lbl}</div>
+                      <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap", wordBreak: "break-word", minWidth: 0 }}>{val}</div>
+                    </div>
+                  );
+                  return (
+                    <div key={label} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
+                      {sub("最寄駅", value)}
+                      {sub("居住地", (detail as any).residence ?? "")}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
+                    <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+                    <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value}</div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* 経験・経歴：案件詳細と同様に、長文をドロワー下部の独立ブロックで全文表示する。 */}
@@ -606,12 +629,14 @@ export function PeopleTable({
               </div>
             )}
 
-            {/* #325①：スキル・ツール/開発環境を手入力で編集・保存できるフォーム（備考の上）。
-                取り込み時に入った初期値が表示され、追記・修正できる。 */}
-            <div className="card" style={{ padding: 12 }}>
-              <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル・ツール</div>
-              <CandidateSkillsToolsEditor candidateNo={detail.candidate_no} initialSkills={Array.isArray(detail.skills) ? detail.skills : []} initialTools={Array.isArray((detail as any).tools) ? (detail as any).tools : []} />
-            </div>
+            {/* #325①/#330①：スキル・ツール/開発環境の編集フォームは ENGERフリーランスの人材のみ表示。
+                （それ以外の人材はスキルをプロフィール上部のタグで表示する＝#330③） */}
+            {isEngerFreelance(detail) && (
+              <div className="card" style={{ padding: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル・ツール</div>
+                <CandidateSkillsToolsEditor candidateNo={detail.candidate_no} initialSkills={Array.isArray(detail.skills) ? detail.skills : []} initialTools={Array.isArray((detail as any).tools) ? (detail as any).tools : []} />
+              </div>
+            )}
 
             {/* #325②：備考はドロワー内でもインライン編集・保存できるようにする（フリーランス経由で
                 登録され note が空の人材にもメモを書けるよう、常設の編集欄にする）。 */}

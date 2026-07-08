@@ -119,10 +119,11 @@ export function CandMailBodyCard({
                     .replace(/^.*<<[A-Z_].*$/gm, "")
                     .replace(/^.*[A-Z_]+>>.*$/gm, "")
                     .replace(/\n{3,}/g, "\n\n");
-                  const sig = cleaned.indexOf("∞∞∞");
-                  const restored = sig >= 0
-                    ? cleaned.slice(0, sig) + BUTTON_PLACEHOLDER + "\n" + cleaned.slice(sig)
-                    : cleaned + "\n" + BUTTON_PLACEHOLDER;
+                  // ボタンは本文冒頭（最初の区切り線の直前）に復元する
+                  const div = cleaned.indexOf("─");
+                  const restored = div >= 0
+                    ? cleaned.slice(0, div) + BUTTON_PLACEHOLDER + "\n" + cleaned.slice(div)
+                    : BUTTON_PLACEHOLDER + "\n" + cleaned;
                   onChange("body", restored);
                 }}
                 style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, border: "1px solid #d97706", background: "#fffbeb", color: "#b45309", cursor: "pointer" }}
@@ -184,7 +185,7 @@ export function CandMailBodyCard({
                 ref={ar}
                 value={after.replace(/^\n/, "")}
                 onChange={(e) => { ar(e.currentTarget); onChange("body", before + BUTTON_PLACEHOLDER + "\n" + e.target.value); }}
-                style={{ ...taStyle, fontSize: 12, color: "var(--color-ink-3)" }}
+                style={taStyle}
               />
             </div>
           );

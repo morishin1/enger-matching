@@ -5,6 +5,7 @@
 //   - リスト: KPI＋検索＋テーブル＋詳細モーダル（ProposalListView）
 // 選択は localStorage に永続化。
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ProposalBoard } from "./ProposalBoard";
 import { ProposalListView } from "./ProposalListView";
 import { ProposalCoach } from "./ProposalCoach";
@@ -15,9 +16,12 @@ type View = "kanban" | "list";
 export function ProposalBoardSwitcher({ proposals, members, proposers, closers, periodLabel = "本日" }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[]; periodLabel?: string }) {
   // 既定はリスト表示（一覧性が高く運用に合いやすい）。ユーザーが切替えれば localStorage に保存される。
   const [view, setView] = useState<View>("list");
+  // #333：?open=<id> のディープリンク時は、詳細モーダルを開けるリスト表示を強制する。
+  const hasOpenParam = !!useSearchParams().get("open");
   useEffect(() => {
+    if (hasOpenParam) { setView("list"); return; }
     try { const v = localStorage.getItem("enger.proposal-board.view"); if (v === "kanban" || v === "list") setView(v); } catch { /* noop */ }
-  }, []);
+  }, [hasOpenParam]);
   const pick = (v: View) => { setView(v); try { localStorage.setItem("enger.proposal-board.view", v); } catch { /* noop */ } };
 
   const Btn = ({ v, icon, label }: { v: View; icon: string; label: string }) => {

@@ -14,6 +14,8 @@ import { planFromTarget } from "@/lib/person-kgi";
 import { KPI_CATALOG, PLACEMENT_KEY, resolveMetric, makeCustomKey, cadence, type KpiMetric } from "@/lib/kpi-metrics";
 import type { TeamGoal } from "@/lib/team-kgi-goals";
 import { PersonKgiMembersEditor } from "./PersonKgiMembersEditor";
+import { ProposerMembersEditor } from "./ProposerMembersEditor";
+import { isProposerMemberEmail } from "@/lib/proposal-owners";
 import type { PersonKgiMember } from "@/lib/person-kgi-members";
 
 const fmtDateTime = (s?: string | null) => {
@@ -28,7 +30,7 @@ const numOrNull = (s: string): number | null => (s.trim() === "" ? null : Number
 type MemberInfo = { email: string; name: string; teamRole: string | null };
 type PersonInit = { targets: Record<string, number>; note: string | null; updated_at: string | null; updated_by_name: string | null };
 
-export function KgiWorkspace({ department, month, members, conv, bizDays, initialTeamGoal, initialPersons, memberRoster, memberSuggestions, usingAutoMembers }: {
+export function KgiWorkspace({ department, month, members, conv, bizDays, initialTeamGoal, initialPersons, memberRoster, memberSuggestions, usingAutoMembers, initialOwners, ownerSuggestions }: {
   department: string;
   month: string;
   members: MemberInfo[];
@@ -39,6 +41,8 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
   memberRoster: PersonKgiMember[];        // #313：メンバー名簿（編集対象）
   memberSuggestions: PersonKgiMember[];    // 追加候補（既存アカウント）
   usingAutoMembers: boolean;               // true=名簿未設定でアカウントから自動表示中
+  initialOwners: { proposers: string[]; closers: string[] };  // #338：名前のみメンバー（提案者/クロージング担当）
+  ownerSuggestions: string[];              // #338：追加候補の氏名（既存アカウント名）
 }) {
   const router = useRouter();
 
@@ -139,7 +143,7 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
     setRowMsg((m) => ({ ...m, [mem.email]: undefined as any }));
     start(async () => {
       const res = await savePersonKgi({
-        owner_email: mem.email, owner_name: mem.name, month,
+        owner_email: mem.email, owner_name: mem.name, department, month,
         targets: buildTargets(mem.email),
         note: (memberNotes[mem.email] ?? "").trim() || null,
       });
@@ -152,7 +156,7 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
     setBulkMsg(null);
     start(async () => {
       const res = await savePersonKgiBulk(members.map((mem) => ({
-        owner_email: mem.email, owner_name: mem.name, month,
+        owner_email: mem.email, owner_name: mem.name, department, month,
         targets: buildTargets(mem.email),
         note: (memberNotes[mem.email] ?? "").trim() || null,
       })));
@@ -181,8 +185,19 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
           {teamMsg && <span style={{ fontSize: 12, color: teamMsg.ok ? "#067647" : "var(--color-danger)" }}>{teamMsg.ok ? "✓ " : "⚠ "}{teamMsg.text}</span>}
         </div>
 
-        {/* #313：メンバー追加・削除・編集メニュー。ここで管理した名簿が下の「メンバー別KPI」に反映される。 */}
-        <PersonKgiMembersEditor department={department} initial={memberRoster} suggestions={memberSuggestions} usingAuto={usingAutoMembers} />
+        {/* #338：メール不要で氏名だけ登録できる「メンバー編集」（KPI推移のメンバー編集と同じ proposal_owners）。
+            ここで登録した提案者は下の「メンバー別KPI」にそのまま表示される。 */}
+        <ProposerMembersEditor initial={initialOwners} suggestions={ownerSuggestions} />
+
+        {/* #313：アカウント（メール）で管理する名簿の編集。上級者向けに折りたたみで残す。 */}
+        <details style={{ marginBottom: 12 }}>
+          <summary style={{ cursor: "pointer", fontSize: 11.5, color: "var(--color-ink-4)", listStyle: "none" }}>
+            ▸ アカウント（メール）でメンバー名簿を管理する
+          </summary>
+          <div style={{ marginTop: 8 }}>
+            <PersonKgiMembersEditor department={department} initial={memberRoster} suggestions={memberSuggestions} usingAuto={usingAutoMembers} />
+          </div>
+        </details>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {items.map((it) => {
@@ -262,7 +277,7 @@ export function KgiWorkspace({ department, month, members, conv, bizDays, initia
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 700 }}>{mem.name}</div>
                       <div className="muted" style={{ fontSize: 10.5 }}>
-                        {mem.email}{mem.teamRole === "manager" ? " ・ マネージャー" : mem.teamRole === "leader" ? " ・ リーダー" : ""}
+                        {isProposerMemberEmail(mem.email) ? "提案者（メール未登録）" : mem.email}{mem.teamRole === "manager" ? " ・ マネージャー" : mem.teamRole === "leader" ? " ・ リーダー" : ""}
                       </div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
