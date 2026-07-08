@@ -34,8 +34,20 @@ export const PROPOSERS = ["工藤", "結城", "藤本"];
 export const CLOSERS = ["未割当", "寺本", "野澤", "工藤"];
 export const LOST_PHASES = ["1. 接触前失注", "2. 接触後失注", "3. 提案後失注", "4. 面談後失注"];
 // 連絡手段（コンタクト履歴）。「その他」を選んだ場合は自由入力欄に手段を書く運用。
-export const CONTACT_CHANNELS = ["電話", "メール", "LINE", "対面", "その他"] as const;
+//   #334②：案件側／人材側の別が分かるよう、側つきの手段（電話・メール・LINE）も選べるようにする。
+export const CONTACT_CHANNELS = [
+  "電話", "メール", "LINE",
+  "案件側へ電話", "人材側へ電話",
+  "案件側へメール", "人材側へメール",
+  "案件側へLINE", "人材側へLINE",
+  "対面", "その他",
+] as const;
 export type ContactChannel = typeof CONTACT_CHANNELS[number];
+
+// #334①：マッチングレコードの進捗状況（返事待ちの別・未処理）。日付は保存時に自動記録。
+//   提案ボードに記録した初期値は「未処理」。
+export const PROGRESS_STATUSES = ["未処理", "案件側から返事待ち", "人材側から返事待ち", "両方から返事待ち"] as const;
+export type ProgressStatus = typeof PROGRESS_STATUSES[number];
 export const LOST_REASONS = [
   "A1: スキル不足/アンマッチ", "A2: 単価が高すぎ", "A3: 稼働開始時期が合わない", "A4: 人材側辞退",
   "A5: 経歴/人柄が刺さらず", "A6: ブランク/キャリアアンマッチ", "A7: 人材側 勤務地NG", "A8: 人材側 他社単価が高い",

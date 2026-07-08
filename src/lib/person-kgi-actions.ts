@@ -11,6 +11,7 @@ import { engerAdmin } from "./supabase";
 import { currentAccess, getAccountByEmail } from "./accounts";
 import { canManageDept } from "./roles";
 import { PLACEMENT_KEY } from "./kpi-metrics";
+import { isProposerMemberEmail } from "./proposal-owners";
 import type { PersonKgiInput } from "./person-kgi";
 
 type Result = { ok: boolean; error?: string };
@@ -44,14 +45,29 @@ async function persistKgi(access: Access, input: PersonKgiInput): Promise<Result
     : (input.placement_target != null && !Number.isNaN(Number(input.placement_target)) && Number(input.placement_target) >= 0 ? Number(input.placement_target) : null);
   if (placement != null) targets[PLACEMENT_KEY] = placement;
 
-  // 対象メンバーの部署を取得
-  const target = await getAccountByEmail(targetEmail);
-  if (!target) return { ok: false, error: `${targetEmail} はアカウントマスタに存在しません` };
-
-  const isAdmin = access.role === "admin";
-  const canMgr = canManageDept(access.teamRole) && !!access.department && (target as any).department === access.department;
-  if (!isAdmin && !canMgr) {
-    return { ok: false, error: "権限がありません（管理者または対象メンバーが所属する部署のマネージャー/リーダーのみ編集可）" };
+  // #338：名前のみメンバー（提案者＝合成キー "name:…"）はアカウントマスタ照合をスキップし、
+  //   氏名だけで個人KGIを保存できるようにする（管理者、または対象部署のマネージャー/リーダー）。
+  let targetName: string | null;
+  let targetDept: string | null;
+  if (isProposerMemberEmail(targetEmail)) {
+    const isAdmin = access.role === "admin";
+    const canMgr = canManageDept(access.teamRole) && !!access.department;
+    if (!isAdmin && !canMgr) {
+      return { ok: false, error: "権限がありません（管理者または部署のマネージャー/リーダーのみ編集可）" };
+    }
+    targetName = input.owner_name ?? targetEmail.replace(/^name:/i, "");
+    targetDept = input.department ?? access.department ?? null;
+  } else {
+    // 対象メンバーの部署を取得
+    const target = await getAccountByEmail(targetEmail);
+    if (!target) return { ok: false, error: `${targetEmail} はアカウントマスタに存在しません` };
+    const isAdmin = access.role === "admin";
+    const canMgr = canManageDept(access.teamRole) && !!access.department && (target as any).department === access.department;
+    if (!isAdmin && !canMgr) {
+      return { ok: false, error: "権限がありません（管理者または対象メンバーが所属する部署のマネージャー/リーダーのみ編集可）" };
+    }
+    targetName = target.name ?? input.owner_name ?? null;
+    targetDept = (target as any).department ?? input.department ?? null;
   }
 
   let admin: ReturnType<typeof engerAdmin>;
@@ -59,8 +75,8 @@ async function persistKgi(access: Access, input: PersonKgiInput): Promise<Result
 
   const row = {
     owner_email: targetEmail,
-    owner_name: target.name ?? input.owner_name ?? null,
-    department: (target as any).department ?? input.department ?? null,
+    owner_name: targetName,
+    department: targetDept,
     month: input.month,
     placement_target: placement,
     targets,

@@ -110,13 +110,18 @@ export function buildJobMailContent(job: any, cand: any): string {
     ? `\n━━━━━━━━━━━━━━━━━━━\nスキルシート：\n${sheetUrl}\n`
     : "";
 
+  // 応答ボタン（BUTTON_PLACEHOLDER）は挨拶文の直後＝本文冒頭に配置する。
+  //   以前は署名の直前（本文末尾）にあったが、先方が最初に目にする位置へ移動（#335）。
   return `${job.client_name ?? ""}
 ${job.contact_name ? `${job.contact_name} 様` : "ご担当者 様"}
 
 いつも大変お世話になっております。
 株式会社エイトの営業担当でございます。
-ぜひご紹介したい要員がおりますので、ご提案いたします。
-※要員にエントリー可否並行確認中です。
+ぜひ紹介したい要員がおりますので、ご連絡いたしました。
+つきましては、下記より「話を進める」または「見送り」をご選択のうえ、ご回答いただけますと幸いです。
+※要員にはエントリー可否を並行して確認中でございます。
+
+${BUTTON_PLACEHOLDER}
 ────────────────────────────────────
 ◆ご紹介していただいた案件
 【案件名】：　${job.title ?? ""}
@@ -124,7 +129,6 @@ ${job.contact_name ? `${job.contact_name} 様` : "ご担当者 様"}
 ◆ご紹介する要員
 ${remark}${skillSheet}
 ────────────────────────────────────
-${BUTTON_PLACEHOLDER}
 ${SIGNATURE}`;
 }
 
@@ -153,26 +157,28 @@ export function buildCandMailContent(job: any, cand: any): string {
         job.flow_note ? `【商流】${job.flow_note}` : "",
       ].filter(Boolean).join("\n");
 
+  // 要員の年代・最寄駅は1行にまとめる（例：I.E 様（30代後半、新所沢駅））。
+  const candBandLoc = [cand.age_band, cand.location].filter(Boolean).join("、");
+
+  // 応答ボタン（BUTTON_PLACEHOLDER）は挨拶文の直後＝本文冒頭に配置する（#336）。
   return `${candidateCompany ?? "〇〇"}
 ${greeting}
 
 いつも大変お世話になっております。
 株式会社エイトの営業担当でございます。
 この度は要員様をご紹介いただき、誠にありがとうございます。
+ぜひ、ご紹介したい案件がありましたのでご連絡致しました。
+つきましては、詳細をご確認のうえ、下記の「話を進める」または「見送り」のご回答をお願いいたします。
+※なお、ご案件文に必須スキル、尚可スキルの記載がある場合は、スキル、経験等を○×でご返信いただけますと幸いです。
 
-下記の案件をぜひご紹介させていただきたくご連絡いたしました。
-※ご案内文に必須スキル、尚可スキルの記載がある場合は、スキル、経験等を○×でご返信ください。
-ご確認のほど何卒よろしくお願い申し上げます。
+${BUTTON_PLACEHOLDER}
 ────────────────────────────────────
 ◆ご紹介していただいた要員
-${cand.name ?? ""}
-${cand.age_band ? cand.age_band : ""}
-${cand.location ? `【最寄駅】${cand.location}` : ""}
+【お名前】${cand.name ?? ""} 様${candBandLoc ? `（${candBandLoc}）` : ""}
 ────────────────────────────────────
 ◆ご紹介する案件
 ${jobSummary}
 ────────────────────────────────────
-${BUTTON_PLACEHOLDER}
 ${SIGNATURE}`;
 }
 // ── HTML（応答ボタン・本文） ────────────────────────────────────────────

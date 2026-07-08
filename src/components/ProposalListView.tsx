@@ -6,10 +6,10 @@
 //   - ステージ・担当者での絞り込み
 //   - テーブル（行クリックで詳細モーダル）
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
-import { Fragment, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "@/components/toast";
-import { bulkDeleteProposals } from "@/lib/actions";
+import { bulkDeleteProposals, getProposalForModal } from "@/lib/actions";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 import { NotifyChip } from "./NotifyDot";
 import { ActionChips } from "./ProposalActionChip";
@@ -73,38 +73,8 @@ function hashColor(name?: string | null): string {
   return PALETTE[h % PALETTE.length];
 }
 
-// ネクストアクション判定。ステージ × 通知ステータス × 滞留日数から「今何をすべきか」を返す。
+// 進捗バッジの表示種別（テキスト＋緊急度トーン＋アイコン）。#334① で手動の進捗状況表示に使う。
 type NextAction = { text: string; urgency: "high" | "medium" | "low" | "ok"; icon: string };
-function nextActionFor(p: any): NextAction {
-  const stage = normStage(p.stage);
-  const jobPending = !p.job_notify_status || p.job_notify_status === "pending";
-  const candPending = !p.cand_notify_status || p.cand_notify_status === "pending";
-  const stageDays = daysAgo(p.stage_updated_at || p.updated_at || p.created_at);
-  const caller = p.caller_status || "";
-
-  if (stage === "合格") return { text: "稼働化へ（契約・条件確認）", urgency: "high", icon: "rocket_launch" };
-
-  if (stage === "面談") {
-    if (p.meeting_date && p.meeting_status !== "実施済") return { text: `面談 ${String(p.meeting_date).slice(5)} 当日対応`, urgency: "medium", icon: "event_available" };
-    return { text: "面談日程の確定・実施", urgency: "high", icon: "event" };
-  }
-
-  if (stage === "所属確認") {
-    if (stageDays >= 2) return { text: `在否確認の催促（${stageDays}日滞留）`, urgency: "high", icon: "contact_phone" };
-    return { text: "案件先・人材先に営業可否を確認", urgency: "medium", icon: "contact_phone" };
-  }
-
-  // 提案中（提案を実施し反応待ち）
-  if (caller === "未架電" || !caller) {
-    if (jobPending && candPending) return { text: "案件・人材へ初回コンタクト", urgency: "high", icon: "call" };
-    if (jobPending) return { text: "クライアントへ確認連絡", urgency: "medium", icon: "business" };
-    if (candPending) return { text: "候補者へ意思確認", urgency: "medium", icon: "person" };
-  }
-  if (jobPending) return { text: "クライアントへフォロー", urgency: "medium", icon: "business" };
-  if (candPending) return { text: "候補者へフォロー", urgency: "medium", icon: "person" };
-  if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "priority_high" };
-  return { text: "フォロー検討", urgency: "low", icon: "schedule" };
-}
 
 const URGENCY_TONE: Record<NextAction["urgency"], { fg: string; bg: string; bd: string }> = {
   high:   { fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf" },
@@ -112,6 +82,24 @@ const URGENCY_TONE: Record<NextAction["urgency"], { fg: string; bg: string; bd: 
   low:    { fg: "#0b5cab", bg: "#eaf4fd", bd: "#bfd9f5" },
   ok:     { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc" },
 };
+
+// #334①：進捗状況（マッチングレコード詳細で設定・保存）を一覧の表側に表示する。
+//   「未処理（日付）」「案件側から返事待ち（日付）」等。記録初期は「未処理」。
+//   日付は progress_updated_at（未設定なら記録日 created_at）。手動の進捗が優先。
+function progressDisplayFor(p: any): { text: string; urgency: NextAction["urgency"]; icon: string } {
+  const status = String(p.progress_status || "未処理");
+  const dateSrc = p.progress_updated_at || p.created_at;
+  const d = dateSrc ? String(fmtDate(dateSrc)) : "";
+  const text = d ? `${status}（${d}）` : status;
+  const urgency: NextAction["urgency"] =
+    status === "未処理" ? "high" : status === "両方から返事待ち" ? "medium" : "low";
+  const icon =
+    status === "未処理" ? "hourglass_empty"
+    : status === "案件側から返事待ち" ? "business"
+    : status === "人材側から返事待ち" ? "person"
+    : "schedule";
+  return { text, urgency, icon };
+}
 
 function StageBadge({ stage }: { stage: string }) {
   const tone = STAGE_TONE[stage] ?? "#6b7280";
@@ -135,6 +123,21 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
   // まとめ表示モード：案件(job) / 人材(cand) / まとめない(none)。
   const [groupMode, setGroupMode] = useState<"job" | "cand" | "none">("job");
   const [active, setActive] = useState<any | null>(null);
+  // #333：/proposals?open=<id> で該当マッチングレコードのモーダルを自動で開く。
+  //   ボードに載っている（進行中）レコードはその場のデータで開き、見送り/稼働など
+  //   ボード外のレコードはサーバから単体取得して開く。
+  const searchParams = useSearchParams();
+  const openId = searchParams.get("open");
+  const openedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openId || openedRef.current === openId) return;
+    openedRef.current = openId;
+    const local = proposals.find((p) => String(p.id) === String(openId));
+    if (local) { setActive(local); return; }
+    let cancelled = false;
+    getProposalForModal(openId).then((rec) => { if (!cancelled && rec) setActive(rec); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [openId, proposals]);
   // 行クリックで開くドロワー(ProposalDetailModal)に詳細・編集・削除を集約（人材/案件一覧と同じ操作感）。
   const router = useRouter();
   const [busy, start] = useTransition();
@@ -269,7 +272,8 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
 
   // 1提案の行。member=true は同案件グループの配下（人材を主役に表示）。
   const renderRow = (p: any, member: boolean) => {
-    const na = nextActionFor(p);
+    // #334①：表側は手動の進捗状況（未処理/返事待ち＋日付）を表示する。
+    const na = progressDisplayFor(p);
     const naTone = URGENCY_TONE[na.urgency];
     const sel = selected.has(p.id);
     const isLine = p.source === "line";
@@ -309,7 +313,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
             </>
           )}
           <div style={{ flex: "0 0 auto" }}><StageBadge stage={normStage(p.stage)} /></div>
-          <span title={`緊急度: ${na.urgency}`} style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
+          <span title="進捗状況（マッチングレコード詳細で変更）" style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
             {na.text}
           </span>

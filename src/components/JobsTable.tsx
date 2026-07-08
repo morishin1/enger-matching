@@ -15,6 +15,7 @@ import { bulkSetFocus, bulkDeleteJobs, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
+import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -531,31 +532,45 @@ export function JobsTable({
 
             <div className="card" style={{ padding: 12 }}>
               <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>案件情報</div>
-              {([
-                ["案件名", detail.title],
-                ["クライアント", detail.client_name ? <CompanyLink name={detail.client_name} approved={!!detail.client_approved} badge badgeSize="xs" /> : null],
-                ["募集職種", detail.role_label],
-                ["必要スキル", (detail.skills ?? []).join(" / ") || null],
-                ["単価", salaryLabel(detail.salary_min, detail.salary_max)],
-                ["リモート可否", remoteLabel(detail.remote_type)],
-                ["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />],
-                ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />],
-                ["勤務地", detail.work_location ?? "不明"],
-                ["商流", detail.flow_note],
-                ["開始希望", detail.start_date],
-                ["ステータス", detail.status],
-                ["窓口メール", detail.contact_email],
-              ] as [string, React.ReactNode][]).map(([label, value]) => value ? (
-                <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-                  <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value}</div>
-                </div>
-              ) : null)}
+              {(() => {
+                // 各項目は「ラベル：値」をコンパクトに詰めて表示（#331①：余白を減らし少しだけ左へ）。
+                //   一部の項目は1行に2つ並べる（②単価×リモート／③国籍×年代／④勤務地×商流／⑤開始希望×ステータス／⑥窓口メール×担当者名）。
+                const cell = (label: string, value: React.ReactNode) => (
+                  <div key={label} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 13, minWidth: 0 }}>
+                    <span className="muted" style={{ fontSize: 12, flexShrink: 0, whiteSpace: "nowrap" }}>{label}：</span>
+                    <span style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap", wordBreak: "break-word", minWidth: 0 }}>{value}</span>
+                  </div>
+                );
+                const rows: [string, React.ReactNode][][] = [
+                  [["案件名", detail.title]],
+                  [["クライアント", detail.client_name ? <CompanyLink name={detail.client_name} approved={!!detail.client_approved} badge badgeSize="xs" /> : null]],
+                  [["募集職種", detail.role_label]],
+                  [["必要スキル", (detail.skills ?? []).join(" / ") || null]],
+                  [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
+                  [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />]],
+                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note]],
+                  [["開始希望", detail.start_date], ["ステータス", detail.status]],
+                  [["窓口メール", detail.contact_email], ["担当者名", detail.contact_name]],
+                ];
+                return rows.map((row, i) => {
+                  const cells = row.filter(([, v]) => v != null && v !== "");
+                  if (cells.length === 0) return null;
+                  return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: cells.length === 2 ? "1fr 1fr" : "1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)" }}>
+                      {cells.map(([label, value]) => cell(label, value))}
+                    </div>
+                  );
+                });
+              })()}
             </div>
+
+            {/* #331⑧：窓口メールの下・メール原文の上に「案件詳細」の入力欄。社内向けのみ表示。 */}
+            {!partner && <JobDetailNoteEditor jobNo={detail.job_no} initial={detail.detail_note ?? ""} />}
 
             {detail.detail && (
               <div className="card" style={{ padding: 12 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>案件詳細</div>
+                {/* #331⑦：旧「案件詳細」＝取込メール原文なので「メール原文」に改称。 */}
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>メール原文</div>
                 <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", maxHeight: 240, overflow: "auto" }}>{detail.detail}</div>
               </div>
             )}

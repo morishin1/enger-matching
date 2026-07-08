@@ -20,7 +20,7 @@ import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { companyIdLabel } from "@/lib/companies";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, normalizeMemoCategory, CONTACT_CHANNELS, type ContactChannel } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, normalizeMemoCategory, CONTACT_CHANNELS, PROGRESS_STATUSES, type ContactChannel } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -169,6 +169,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [closer, setCloser] = useState(p.closer ?? p.company_owner ?? "");
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
+  // #334①：進捗状況（返事待ちの別・未処理）。記録初期は「未処理」。日付は保存時に自動更新。
+  const [progress, setProgress] = useState<string>(p.progress_status ?? "未処理");
   const [lostOpen, setLostOpen] = useState(false);
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
@@ -319,7 +321,15 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     toast("担当者（提案者）を選択してください", "error");
     return false;
   };
-  const saveFields = () => { if (!requireProposer()) return; run("save", () => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() })); };
+  // #334①：進捗状況＋その更新日。進捗が変わったときだけ日付を「今日（保存時点）」に更新する。
+  const progressFields = () => {
+    const cur = progress || "未処理";
+    const prev = p.progress_status ?? "未処理";
+    const patch: Record<string, any> = { progress_status: cur };
+    if (cur !== prev) patch.progress_updated_at = new Date().toISOString();
+    return patch;
+  };
+  const saveFields = () => { if (!requireProposer()) return; run("save", () => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...progressFields(), ...contactFields() })); };
   // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
   const pickStage = (stage: string) => {
     setStageMenuOpen(false);
@@ -330,6 +340,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
       stage,
       caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null,
       meeting_date: meetingDate || null, meeting_status: meetingStatus || null,
+      ...progressFields(),
     }));
   };
   const engage = () => run("engage", () => convertToEngagement(p.id));
@@ -712,11 +723,18 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>
             </div>
-            {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。 */}
-            <div className="card" style={{ padding: 16, flex: "1 1 220px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。
+                #334①：クローズ枠を左に狭め、その隣に進捗状況の選択欄を置く。 */}
+            <div className="card" style={{ padding: 16, flex: "0 1 190px", minWidth: 160, display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>クローズ</div>
               <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} />
               <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} />
+            </div>
+            {/* #334①：進捗状況（返事待ちの別・未処理）。「編集を保存」で反映し、保存日を一覧に表示。 */}
+            <div className="card" style={{ padding: 16, flex: "1 1 200px", minWidth: 180, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="muted" style={{ fontSize: 11.5 }}>進捗状況</div>
+              <SelField label="進捗状況" value={progress} options={[...PROGRESS_STATUSES]} onChange={setProgress} />
+              <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>「編集を保存」を押すと反映され、保存日が一覧のカッコ内に表示されます。</div>
             </div>
           </div>
 
@@ -768,7 +786,13 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   会社名・先方担当者は案件情報／人材情報（①）から選んで自動入力でき、手入力もできる。 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>会社名<span style={{ color: "var(--color-danger)" }}> *</span>
-                  <select value="" onChange={(e) => { const v = e.target.value; if (v === "job") setLostCompany(jobCompany); else if (v === "cand") setLostCompany(candCompany); }}
+                  {/* #332：会社名を選ぶと先方担当者も同じ側（案件側／人材側）の担当者名を自動で入れる。
+                      （担当者だけ後から別に変えたい場合は右の「先方担当者」で上書きできる） */}
+                  <select value="" onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "job") { setLostCompany(jobCompany); setLostContactMode("job"); setLostClientContact(jobClientContact); }
+                      else if (v === "cand") { setLostCompany(candCompany); setLostContactMode("cand"); setLostClientContact(candContact); }
+                    }}
                     style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
                     <option value="">案件側／人材側から選択…</option>
                     <option value="job">案件側：{jobCompany || "（空欄）"}</option>

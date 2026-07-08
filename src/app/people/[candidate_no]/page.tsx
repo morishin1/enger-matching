@@ -17,6 +17,9 @@ import { CompanyLink } from "@/components/CompanyLink";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
+import { isEngerFreelance } from "@/lib/candidate-source";
+import { getMatchingRecordsFor } from "@/lib/matching-records";
+import { MatchingRecordsCard } from "@/components/MatchingRecordsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -48,19 +51,23 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
   const no = Number(candidate_no);
   let c: any = null;
   let dbError: string | null = null;
+  let matchingRecords: Awaited<ReturnType<typeof getMatchingRecordsFor>> = [];
 
   if (dbConfigured) {
     try {
       const sb = engerClient();
-      const base = "candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
-      // #325：tools は最初の取得だけに含める。未整備環境ではカラムエラーで tools 無しの版に落ちる。
-      let r: any = await sb.from("candidates").select(`${base}, tools, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      const base = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
+      // #325/#330：tools・residence・登録元(signup_source/source_csv) は最初の取得だけに含める。
+      //   未整備環境ではカラムエラーで下のフォールバック（これらを含まない版）に落ちる。
+      let r: any = await sb.from("candidates").select(`${base}, tools, residence, signup_source, source_csv, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
       c = r.data;
       // 元メールリンクを直近受信メールへ更新（同人材／同送信元の最新メールに飛ぶ）。
       if (c) await attachLatestSourceMail(sb, "candidate", [c]);
+      // #333：この人材が対象の提案ボード記録（マッチングレコード）を取得。
+      if (c?.id) matchingRecords = await getMatchingRecordsFor(sb, { candidateId: c.id });
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -124,12 +131,20 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
 
       <FlowSteps current="data" sub="人材詳細（スキルシート）" />
 
-      {/* #325①：スキル・使用経験のあるツール・開発環境を手入力で編集・保存できるフォーム（備考の上）。
-          取り込み時に入った初期値が表示され、追記・修正できる。 */}
-      <div className="card">
-        <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル・ツール</div>
-        <CandidateSkillsToolsEditor candidateNo={c.candidate_no} initialSkills={Array.isArray(c.skills) ? c.skills : []} initialTools={Array.isArray(c.tools) ? c.tools : []} />
-      </div>
+      {/* #325①/#330①：スキル・ツールの編集フォームは ENGERフリーランスの人材のみ表示。 */}
+      {isEngerFreelance(c) && (
+        <div className="card">
+          <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル・ツール</div>
+          <CandidateSkillsToolsEditor candidateNo={c.candidate_no} initialSkills={Array.isArray(c.skills) ? c.skills : []} initialTools={Array.isArray(c.tools) ? c.tools : []} />
+        </div>
+      )}
+
+      {/* #330③：ENGERフリーランス以外の人材はスキルを「プロフィール」の上にタグで表示。 */}
+      {!isEngerFreelance(c) && Array.isArray(c.skills) && c.skills.length > 0 && (
+        <div className="card" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {(c.skills as string[]).map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
+        </div>
+      )}
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 6 }}>プロフィール</div>
@@ -139,6 +154,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <Row label="希望単価" value={c.rate ?? (c.salary_min || c.salary_max ? `${c.salary_min ?? ""}〜${c.salary_max ?? ""}万円` : null)} />
         <Row label="稼働開始" value={c.avail} />
         <Row label="勤務地" value={c.location} />
+        {/* #330④：居住地（最寄駅/勤務地とは別）。 */}
+        <Row label="居住地" value={c.residence} />
         <Row label="リモート希望" value={c.remote_pref} />
         <Row label="年齢層" value={c.age_band} />
         <Row label="国籍" value={<NatBadge value={c.nationality} />} />
@@ -152,6 +169,9 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         {/* #276③：備考は常設のインライン編集欄に（ENGERフリーランス経由の人材＝note空でも書き込める）。 */}
         <CandidateNoteEditor candidateNo={c.candidate_no} initial={c.note ?? ""} />
       </div>
+
+      {/* #333：この人材が対象の提案ボード記録（マッチングレコード）一覧（リンク付き）。 */}
+      <MatchingRecordsCard records={matchingRecords} />
     </div>
   );
 }

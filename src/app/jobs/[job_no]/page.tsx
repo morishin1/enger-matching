@@ -15,6 +15,8 @@ import { CompanyLink } from "@/components/CompanyLink";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_TONE } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
+import { getMatchingRecordsFor } from "@/lib/matching-records";
+import { MatchingRecordsCard } from "@/components/MatchingRecordsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +50,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       // 拡張カラムが無い環境でも落ちないようフォールバック
       const cols = "id, job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
       // #310：nationality_requirement（国籍制限）も取得。未整備環境では下段フォールバックで外れる。
-      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement`).eq("job_no", no).maybeSingle();
+      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement, detail_note`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
@@ -81,6 +83,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         .eq("job_id", j.id).order("created_at", { ascending: false }).limit(200);
       applicants = (ar.data ?? []) as any[];
     } catch { /* applications 未整備でも詳細は出す */ }
+  }
+
+  // #333：この案件が対象の提案ボード記録（マッチングレコード）一覧（リンク付き）。
+  let matchingRecords: Awaited<ReturnType<typeof getMatchingRecordsFor>> = [];
+  if (dbConfigured && j.id) {
+    try { matchingRecords = await getMatchingRecordsFor(engerClient(), { jobId: j.id }); }
+    catch { /* proposals 未整備でも詳細は出す */ }
   }
   const APP_STAGE_TONE: Record<string, string> = {
     "応募": "#64748b", "書類選考": "#64748b", "面談": "#0b5cab", "面談合格": "#0b5cab", "稼働": "#067647", "見送り": "#b42318",
@@ -148,7 +157,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         <Row label="ステータス" value={j.status} />
         <Row label="窓口担当者" value={j.contact_name} />
         <Row label="窓口メール" value={j.contact_email} />
-        <Row label="案件詳細" value={j.detail} />
+        {/* #331⑧：手入力の案件詳細。⑦：取込メール原文は「メール原文」として表示。 */}
+        <Row label="案件詳細" value={j.detail_note} />
+        <Row label="メール原文" value={j.detail} />
       </div>
 
       {/* この案件への応募（LP「応募する」経由）。選考管理と同じ enger.applications を案件単位で表示。 */}
@@ -174,6 +185,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
           </div>
         )}
       </div>
+
+      {/* #333：この案件が対象の提案ボード記録（マッチングレコード）一覧（リンク付き）。 */}
+      <MatchingRecordsCard records={matchingRecords} />
     </div>
   );
 }

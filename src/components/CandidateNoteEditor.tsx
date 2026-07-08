@@ -26,8 +26,9 @@ export function CandidateNoteEditor({ candidateNo, initial }: { candidateNo: num
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "9px 0", fontSize: 13 }}>
-      <div className="muted" style={{ fontSize: 12, paddingTop: 7 }}>備考</div>
+    // #330②：ラベルを上に置き、入力欄を全幅に広げる（旧: 120px ラベル列で右に寄って狭かった）。
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "9px 0", fontSize: 13 }}>
+      <div className="muted" style={{ fontSize: 12 }}>備考</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <textarea
           value={val}
