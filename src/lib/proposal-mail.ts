@@ -143,9 +143,12 @@ export function buildCandMailContent(job: any, cand: any): string {
     ? `${cand.contact_name} 様`
     : (candidateCompany ? "ご担当者 様" : `${cand.name ?? ""} 様`);
 
-  // 案件の内容は「取込元メール本文(job.detail)＝案件の全文」を優先して全文掲載する。
-  //   以前は短い要約（案件名/スキル/単金/場所/期間/商流）だけで、本文全体が出ていなかった。
-  const jobDetail = (job.detail ?? job.description ?? "").toString().trim();
+  // 案件の内容は「案件詳細(job.detail_note)＝担当が整えた紹介文」を最優先で掲載する（#344③）。
+  //   未入力の案件は従来どおり取込メール原文(job.detail)→description の順でフォールバック
+  //   （既存案件のメールが空にならないようにするため）。
+  const jobDetail = [job.detail_note, job.detail, job.description]
+    .map((v: any) => (v ?? "").toString().trim())
+    .find((v: string) => v) ?? "";
   const jobSummary = jobDetail
     ? `【案件】${job.title ?? ""}\n${jobDetail}`
     : [

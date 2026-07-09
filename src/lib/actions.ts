@@ -2424,6 +2424,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
       work_location: r.work_location?.trim() || null,
       start_date: r.start_date || null,
       detail: r.detail?.trim() || null,
+      detail_note: r.detail_note?.trim() || null, // #344：CSVの「案件詳細」列（メール原文=detailとは別）
       status: r.status?.trim() || "募集中",
       contact_name: r.contact_name?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
@@ -2462,7 +2463,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     } catch { /* 取得失敗時は通常のINSERTパスへ */ }
 
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
-    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
+    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "detail_note", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
     const mergedRows: any[] = [];
     for (const r of rows) {
       const k = tk(r.title, r.client_name);
@@ -2492,7 +2493,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
         const slice = mergedRows.slice(i, i + UB);
         let { error, count } = await admin.from("jobs").upsert(slice, { onConflict: "id", count: "exact" });
         if (error && /column/i.test(error.message)) {
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator"]) delete o[k2]; return o; });
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note"]) delete o[k2]; return o; });
           ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "id", count: "exact" }));
         }
         if (!error) merged += count ?? slice.length;
@@ -2507,9 +2508,9 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     let { error, count } = await admin
       .from("jobs")
       .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
-    // contact_email / source_mail_url / operator 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /contact_email|contact_name|source_mail_url|operator|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; delete o.operator; return o; });
+    // contact_email / source_mail_url / operator / detail_note 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /contact_email|contact_name|source_mail_url|operator|detail_note|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; delete o.operator; delete o.detail_note; return o; });
       ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -2696,6 +2697,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     work_location: rec.work_location?.trim() || null,
     start_date: rec.start_date || null,
     detail: rec.detail?.trim() || null,
+    detail_note: rec.detail_note?.trim() || null, // #344：手入力の案件詳細（メール原文=detailとは別）
     status: rec.status?.trim() || "募集中",
     contact_name: rec.contact_name?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
@@ -2710,7 +2712,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; delete c.signup_source; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; delete c.signup_source; delete c.detail_note; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
