@@ -63,6 +63,7 @@ export type RankedPair = {
     rate: string | null; company: string | null; affiliation: string | null;
     skills: string[]; exp: string | null; avail: string | null; location: string | null;
     remote_pref: string | null; age_band: string | null; nationality: string | null; note: string | null;
+    detail_note: string | null; // #347：人材詳細（メール原文=note とは別）
     created_at: string | null;
   };
   proposed: boolean;          // 提案済みペアは抽出段階で除外済み＝常に false（型互換のため残置）
@@ -114,7 +115,8 @@ const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salar
 // detail_note＝手入力の案件詳細（#344：送信文プレビューの人材側メールに最優先で挿入）。未整備環境は BASE にフォールバック。
 const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
-const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url`;
+// detail_note＝人材詳細（#347）。未整備環境は BASE にフォールバック。
+const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note`;
 
 async function fetchJobsForRanking(sb: ReturnType<typeof engerClient>): Promise<any[]> {
   for (const cols of [JOB_COLS_RICH, JOB_COLS_BASE]) {
@@ -465,6 +467,7 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
       exp: h.cand.exp ?? null, avail: h.cand.avail ?? null, location: h.cand.location ?? null,
       remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
       nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
+      detail_note: h.cand.detail_note ?? null,
       created_at: h.cand.created_at ?? null,
     },
     proposed: false, // 提案済みペアは抽出段階で除外済み

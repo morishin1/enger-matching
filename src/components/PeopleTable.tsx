@@ -580,54 +580,37 @@ export function PeopleTable({
               <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 4 }}>プロフィール</div>
               {/* 全項目を常に表示。データが無い項目は空欄、「不明」と記録のあるものは不明で表示。
                   ステータスは人材一覧と同じ鮮度（新着/3日以内/…）に統一（登録日が無ければ空欄）。 */}
-              {([
-                ["ステータス", detail.created_at ? freshnessLabel(detail.created_at) : ""],
-                ["ランク", detail.rank ?? ""],
-                ["年代", (detail as any).age_band ?? ""],
-                ["国籍", (detail as any).nationality ? <CandNatBadge key="nat" value={(detail as any).nationality} /> : ""],
-                ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : "")],
-                ["稼働開始", detail.avail ?? ""],
-                ["リモート希望", remotePrefLabel(detail.remote_pref) ?? ""],
-                ["最寄駅", detail.location ?? ""],
-                ["所属", (detail.source_company || detail.company)
-                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={detail.source_company || detail.company} approved={!!detail.company_approved} badge badgeSize="xs" />{detail.affiliation ? <span className="muted" style={{ fontSize: 11.5 }}>（{detail.affiliation}）</span> : null}</span>
-                  : (detail.affiliation ?? "")],
-                ["連絡先", detail.email ?? detail.contact_email ?? ""],
-                ["窓口担当者", (detail as any).contact_name ?? ""],
-              ] as [string, React.ReactNode][]).map(([label, value]) => {
-                // #330④：最寄駅の隣（同じ行）に「居住地」を並べて表示する。
-                if (label === "最寄駅") {
-                  const sub = (lbl: string, val: React.ReactNode) => (
-                    <div style={{ display: "grid", gridTemplateColumns: "64px 1fr", gap: 8, minWidth: 0 }}>
-                      <div className="muted" style={{ fontSize: 12 }}>{lbl}</div>
-                      <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap", wordBreak: "break-word", minWidth: 0 }}>{val}</div>
-                    </div>
-                  );
-                  return (
-                    <div key={label} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
-                      {sub("最寄駅", value)}
-                      {sub("居住地", (detail as any).residence ?? "")}
-                    </div>
-                  );
-                }
-                return (
-                  <div key={label} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
-                    <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-                    <div style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>{value}</div>
+              {(() => {
+                // #347：項目を「ラベル：値」で詰めて表示し、指定の項目を同じ行にまとめる。
+                //   ① ステータス｜ランク｜希望単価 ② 年齢（年代）｜国籍 ③ 稼働開始予定日｜リモート希望｜経験。
+                const cell = (label: string, value: React.ReactNode) => (
+                  <div key={label} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 13, minWidth: 0 }}>
+                    <span className="muted" style={{ fontSize: 12, flexShrink: 0, whiteSpace: "nowrap" }}>{label}：</span>
+                    <span style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap", wordBreak: "break-word", minWidth: 0 }}>{value}</span>
                   </div>
                 );
-              })}
+                const expVal = detail.exp ? (/^\d+$/.test(String(detail.exp).trim()) ? `${String(detail.exp).trim()}年` : detail.exp) : "";
+                const company = (detail.source_company || detail.company)
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={detail.source_company || detail.company} approved={!!detail.company_approved} badge badgeSize="xs" />{detail.affiliation ? <span className="muted" style={{ fontSize: 11.5 }}>（{detail.affiliation}）</span> : null}</span>
+                  : (detail.affiliation ?? "");
+                const rows: [string, React.ReactNode][][] = [
+                  [["ステータス", detail.created_at ? freshnessLabel(detail.created_at) : ""], ["ランク", detail.rank ?? ""], ["希望単価", detail.rate ?? (detail.salary_min || detail.salary_max ? `${detail.salary_min ?? ""}〜${detail.salary_max ?? ""}万円` : "")]],
+                  [["年齢（年代）", (detail as any).age_band ?? ""], ["国籍", (detail as any).nationality ? <CandNatBadge key="nat" value={(detail as any).nationality} /> : ""]],
+                  [["稼働開始予定日", detail.avail ?? ""], ["リモート希望", remotePrefLabel(detail.remote_pref) ?? ""], ["経験", expVal]],
+                  [["最寄駅", detail.location ?? ""], ["居住地", (detail as any).residence ?? ""]],
+                  [["所属", company]],
+                  [["連絡先", detail.email ?? detail.contact_email ?? ""]],
+                  [["窓口担当者", (detail as any).contact_name ?? ""]],
+                ];
+                return rows.map((row, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`, gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)" }}>
+                    {row.map(([label, value]) => cell(label, value))}
+                  </div>
+                ));
+              })()}
             </div>
 
-            {/* 経験・経歴：案件詳細と同様に、長文をドロワー下部の独立ブロックで全文表示する。 */}
-            {detail.exp && (
-              <div className="card" style={{ padding: 12 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>経験・経歴</div>
-                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", lineHeight: 1.7 }}>
-                  {/^\d+$/.test(String(detail.exp).trim()) ? `${String(detail.exp).trim()}年` : detail.exp}
-                </div>
-              </div>
-            )}
+            {/* #347③：経験はプロフィールの行に移動したため、独立した「経験・経歴」カードは廃止。 */}
 
             {/* #325①/#330①：スキル・ツール/開発環境の編集フォームは ENGERフリーランスの人材のみ表示。
                 （それ以外の人材はスキルをプロフィール上部のタグで表示する＝#330③） */}
@@ -638,10 +621,13 @@ export function PeopleTable({
               </div>
             )}
 
-            {/* #325②：備考はドロワー内でもインライン編集・保存できるようにする（フリーランス経由で
-                登録され note が空の人材にもメモを書けるよう、常設の編集欄にする）。 */}
+            {/* #347⑤：メール原文の上に「人材詳細」の入力フォーム（手入力の整形メモ）。
+                #347④：旧「備考」はメール原文に改称。いずれもドロワー内でインライン編集・保存できる。 */}
             <div className="card" style={{ padding: 12 }}>
-              <CandidateNoteEditor candidateNo={detail.candidate_no} initial={detail.note ?? ""} />
+              <CandidateNoteEditor candidateNo={detail.candidate_no} initial={(detail as any).detail_note ?? ""} field="detail_note" label="人材詳細"
+                placeholder="人材のポイント・補足などを入力（保存でこの人材の人材詳細に反映されます）" />
+              <CandidateNoteEditor candidateNo={detail.candidate_no} initial={detail.note ?? ""} field="note" label="メール原文"
+                placeholder="取込メールの本文など（保存でこの人材のメール原文に反映されます）" />
             </div>
           </div>
         </div>
