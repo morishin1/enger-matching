@@ -34,13 +34,6 @@ function NatBadge({ value }: { value?: string | null }) {
   );
 }
 
-const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
-  value ? (
-    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
-      <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-      <div style={{ color: "var(--color-ink)" }}>{value}</div>
-    </div>
-  ) : null;
 
 export default async function SkillSheetPage({ params }: { params: Promise<{ candidate_no: string }> }) {
   // 個別詳細ページは社内(admin/agent)のみ。テナント隔離ロールは一覧ドロワーの匿名表示のみ。

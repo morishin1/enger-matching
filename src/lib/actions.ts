@@ -82,6 +82,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       remote_pref: r.remote_pref?.trim() || null,
       age_band: r.age_band?.trim() || null,
       nationality: r.nationality?.trim() || null,
+      rank: (r as any).rank?.trim() || null, // #347：CSVの「ランク」列を取り込む
       skill_level: r.skill_level?.trim() || null,
       japanese_level: r.japanese_level?.trim() || null,
       comm: r.comm?.trim() || null,

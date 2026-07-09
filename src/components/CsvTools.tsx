@@ -48,6 +48,7 @@ const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" 
   "稼働開始": "avail", "稼働": "avail", "稼働開始可能日": "avail", "稼働開始予定日": "avail",
   "勤務地": "location", "場所": "location", "希望勤務地": "location", "最寄駅": "location", "居住地": "residence",
   "経験": "exp", "経験年数": "exp", "実務経験年数": "exp", "ステータス": "status", "状態": "status", "現在のステータス": "status",
+  "ランク": "rank",
   // マッチングのリモート評価に必須
   "リモート希望": "remote_pref", "リモート": "remote_pref", "リモート可否": "remote_pref",
   // 詳細プロフィール（詳細ページで表示）。#347②：「年齢（年代）」も名前ベースで対応。
