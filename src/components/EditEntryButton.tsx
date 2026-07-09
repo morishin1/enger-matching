@@ -199,6 +199,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
     email: c.email ?? "",
     contact_email: c.contact_email ?? "",
     source_mail_url: c.source_mail_url ?? "",
+    note: c.note ?? "",                 // #347④：メール原文（旧「備考」）
+    detail_note: c.detail_note ?? "",   // #347⑤：人材詳細
     flow_depth: c.flow_depth == null ? "" : String(c.flow_depth),
     is_line: c.signup_source === "line" ? "1" : "",
   };
@@ -238,6 +240,8 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
         email: f.email,
         contact_email: f.contact_email,
         source_mail_url: f.source_mail_url,
+        note: f.note,               // #347④：メール原文
+        detail_note: f.detail_note, // #347⑤：人材詳細
         flow_depth: f.flow_depth === "" ? null : Number(f.flow_depth),
       } as any);
       if (res.ok) { setSavedF(f); setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
@@ -275,19 +279,23 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
                 <Field label="希望単価" value={f.rate} onChange={set("rate")} />
                 <ExpYearsField value={f.exp} onChange={set("exp")} />
               </div>
-              <DateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
+              {/* #347③：文言を「稼働開始予定日」に変更。 */}
+              <DateField label="稼働開始予定日" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
               <Field label="最寄駅" value={f.location} onChange={set("location")} />
               {/* #330④：居住地（最寄駅とは別）。 */}
               <Field label="居住地" value={f.residence} onChange={set("residence")} placeholder="例：東京都世田谷区（空欄で未設定）" />
               <Select label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} options={CAND_REMOTE_OPTS} />
-              {/* #237①：国籍は3択（日本国籍/外国籍/不明）。年代は誤インポート修正用に自由入力。 */}
+              {/* #237①：国籍は3択（日本国籍/外国籍/不明）。#347②：年代→年齢（年代）。 */}
               <Select label="国籍" value={f.nationality} onChange={set("nationality")} options={CAND_NAT_OPTS} />
-              <Field label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半（空欄で未設定）" />
+              <Field label="年齢（年代）" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半（空欄で未設定）" />
               <Field label="ステータス" value={f.status} onChange={set("status")} />
               <Field label="スキルシートURL" value={f.skill_sheet_url} onChange={set("skill_sheet_url")} full />
               <Field label="本人メール" value={f.email} onChange={set("email")} />
               <Field label="所属窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
               <Field label="元メールURL／Gmail メッセージ ID" value={f.source_mail_url} onChange={set("source_mail_url")} full />
+              {/* #347⑤：人材詳細（手入力の整形メモ）。#347④：メール原文（旧「備考」）。 */}
+              <Textarea label="人材詳細" value={f.detail_note} onChange={set("detail_note")} />
+              <Textarea label="メール原文" value={f.note} onChange={set("note")} />
             </div>
             <LineCheck checked={!!f.is_line} onChange={(v) => set("is_line")(v ? "1" : "")} noun="人材" />
             {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}

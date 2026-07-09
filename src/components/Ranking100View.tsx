@@ -397,8 +397,8 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             <RowKV label="リモート希望" v={p.cand.remote_pref} />
             <RowKV label="勤務地"     v={p.cand.location} />
             <RowKV label="経験"       v={p.cand.exp} />
-            <RowKV label="稼働開始"   v={p.cand.avail} />
-            <RowKV label="年代/国籍"  v={[p.cand.age_band, p.cand.nationality].filter(Boolean).join(" / ") || null} />
+            <RowKV label="稼働開始予定日" v={p.cand.avail} />
+            <RowKV label="年齢（年代）/国籍" v={[p.cand.age_band, p.cand.nationality].filter(Boolean).join(" / ") || null} />
             <RowKV label="保有スキル" v={
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {(p.cand.skills ?? []).slice(0, 40).map((s) => (
@@ -407,8 +407,13 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
                 {(p.cand.skills?.length ?? 0) > 40 && <span className="muted" style={{ fontSize: 10.5, fontWeight: 600 }}>+{p.cand.skills!.length - 40}</span>}
               </div>
             } />
+            {/* #347：人材詳細（detail_note）とメール原文（旧「備考」＝note）。 */}
+            {(p.cand as any).detail_note && <details style={{ marginTop: 4 }} open>
+              <summary style={{ fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>人材詳細を表示</summary>
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--color-ink-2)", whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: 10, borderRadius: 8 }}>{(p.cand as any).detail_note}</div>
+            </details>}
             {p.cand.note && <details style={{ marginTop: 4 }}>
-              <summary style={{ fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>備考を表示</summary>
+              <summary style={{ fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>メール原文を表示</summary>
               <div style={{ marginTop: 6, fontSize: 12, color: "var(--color-ink-2)", whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: 10, borderRadius: 8 }}>{p.cand.note}</div>
             </details>}
           </div>

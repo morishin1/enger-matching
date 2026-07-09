@@ -34,13 +34,6 @@ function NatBadge({ value }: { value?: string | null }) {
   );
 }
 
-const Row = ({ label, value }: { label: string; value?: React.ReactNode }) =>
-  value ? (
-    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--color-border)", fontSize: 13 }}>
-      <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-      <div style={{ color: "var(--color-ink)" }}>{value}</div>
-    </div>
-  ) : null;
 
 export default async function SkillSheetPage({ params }: { params: Promise<{ candidate_no: string }> }) {
   // 個別詳細ページは社内(admin/agent)のみ。テナント隔離ロールは一覧ドロワーの匿名表示のみ。
@@ -59,7 +52,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
       const base = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
       // #325/#330：tools・residence・登録元(signup_source/source_csv) は最初の取得だけに含める。
       //   未整備環境ではカラムエラーで下のフォールバック（これらを含まない版）に落ちる。
-      let r: any = await sb.from("candidates").select(`${base}, tools, residence, signup_source, source_csv, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      let r: any = await sb.from("candidates").select(`${base}, tools, residence, detail_note, signup_source, source_csv, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
@@ -148,26 +141,39 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
 
       <div className="card">
         <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 6 }}>プロフィール</div>
-        <Row label="ステータス" value={c.status} />
-        <Row label="ランク" value={c.rank} />
-        <Row label="経験" value={c.exp} />
-        <Row label="希望単価" value={c.rate ?? (c.salary_min || c.salary_max ? `${c.salary_min ?? ""}〜${c.salary_max ?? ""}万円` : null)} />
-        <Row label="稼働開始" value={c.avail} />
-        <Row label="勤務地" value={c.location} />
-        {/* #330④：居住地（最寄駅/勤務地とは別）。 */}
-        <Row label="居住地" value={c.residence} />
-        <Row label="リモート希望" value={c.remote_pref} />
-        <Row label="年齢層" value={c.age_band} />
-        <Row label="国籍" value={<NatBadge value={c.nationality} />} />
-        <Row label="日本語" value={c.japanese_level} />
-        <Row label="コミュ力" value={c.comm} />
-        <Row label="スキルレベル" value={c.skill_level} />
-        <Row label="所属" value={candCompany
-          ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={candCompany} approved={candApproved} badge badgeSize="sm" />{c.affiliation ? <span className="muted" style={{ fontSize: 12 }}>（{c.affiliation}）</span> : null}</span>
-          : (c.affiliation ?? null)} />
-        <Row label="連絡先" value={c.email ?? c.contact_email} />
-        {/* #276③：備考は常設のインライン編集欄に（ENGERフリーランス経由の人材＝note空でも書き込める）。 */}
-        <CandidateNoteEditor candidateNo={c.candidate_no} initial={c.note ?? ""} />
+        {(() => {
+          // #347：ドロワーと同じ配置。① ステータス｜ランク｜希望単価 ② 年齢（年代）｜国籍
+          //   ③ 稼働開始予定日｜リモート希望｜経験。
+          const cell = (label: string, value: React.ReactNode) => (
+            <div key={label} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 13, minWidth: 0 }}>
+              <span className="muted" style={{ fontSize: 12, flexShrink: 0, whiteSpace: "nowrap" }}>{label}：</span>
+              <span style={{ color: "var(--color-ink)", whiteSpace: "pre-wrap", wordBreak: "break-word", minWidth: 0 }}>{value}</span>
+            </div>
+          );
+          const expVal = c.exp ? (/^\d+$/.test(String(c.exp).trim()) ? `${String(c.exp).trim()}年` : c.exp) : "";
+          const company = candCompany
+            ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><CompanyLink name={candCompany} approved={candApproved} badge badgeSize="sm" />{c.affiliation ? <span className="muted" style={{ fontSize: 12 }}>（{c.affiliation}）</span> : null}</span>
+            : (c.affiliation ?? "");
+          const rows: [string, React.ReactNode][][] = [
+            [["ステータス", c.status ?? ""], ["ランク", c.rank ?? ""], ["希望単価", c.rate ?? (c.salary_min || c.salary_max ? `${c.salary_min ?? ""}〜${c.salary_max ?? ""}万円` : "")]],
+            [["年齢（年代）", c.age_band ?? ""], ["国籍", c.nationality ? <NatBadge value={c.nationality} /> : ""]],
+            [["稼働開始予定日", c.avail ?? ""], ["リモート希望", c.remote_pref ?? ""], ["経験", expVal]],
+            [["勤務地", c.location ?? ""], ["居住地", c.residence ?? ""]],
+            [["日本語", c.japanese_level ?? ""], ["コミュ力", c.comm ?? ""], ["スキルレベル", c.skill_level ?? ""]],
+            [["所属", company]],
+            [["連絡先", c.email ?? c.contact_email ?? ""]],
+          ];
+          return rows.map((row, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`, gap: 12, padding: "9px 0", borderBottom: "1px solid var(--color-border)" }}>
+              {row.map(([label, value]) => cell(label, value))}
+            </div>
+          ));
+        })()}
+        {/* #347⑤：メール原文の上に「人材詳細」の入力フォーム。#347④：旧「備考」はメール原文に改称。 */}
+        <CandidateNoteEditor candidateNo={c.candidate_no} initial={c.detail_note ?? ""} field="detail_note" label="人材詳細"
+          placeholder="人材のポイント・補足などを入力（保存でこの人材の人材詳細に反映されます）" />
+        <CandidateNoteEditor candidateNo={c.candidate_no} initial={c.note ?? ""} field="note" label="メール原文"
+          placeholder="取込メールの本文など（保存でこの人材のメール原文に反映されます）" />
       </div>
 
       {/* #333：この人材が対象の提案ボード記録（マッチングレコード）一覧（リンク付き）。 */}

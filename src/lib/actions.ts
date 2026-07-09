@@ -41,7 +41,8 @@ export type CandidateInput = {
   skill_level?: string | null;     // スキルレベル
   japanese_level?: string | null;  // 日本語レベル
   comm?: string | null;            // コミュニケーション力
-  note?: string | null;            // 備考
+  note?: string | null;            // メール原文（旧「備考」。#347④）
+  detail_note?: string | null;     // 人材詳細（メール原文とは別の整形メモ。#347⑤）
   skill_sheet_url?: string | null;
   email?: string | null;          // 人材本人の連絡先（あれば）
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
@@ -75,15 +76,18 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       rate_num: r.rate_num ?? null,
       avail: r.avail?.trim() || null,
       location: r.location?.trim() || null,
+      residence: (r as any).residence?.trim() || null, // #347/#330：居住地
       exp: r.exp?.trim() || null,
       status: r.status?.trim() || "提案可",
       remote_pref: r.remote_pref?.trim() || null,
       age_band: r.age_band?.trim() || null,
       nationality: r.nationality?.trim() || null,
+      rank: (r as any).rank?.trim() || null, // #347：CSVの「ランク」列を取り込む
       skill_level: r.skill_level?.trim() || null,
       japanese_level: r.japanese_level?.trim() || null,
       comm: r.comm?.trim() || null,
-      note: r.note?.trim() || null,
+      note: r.note?.trim() || null,                      // #347④：メール原文（旧「備考」）
+      detail_note: (r as any).detail_note?.trim() || null, // #347⑤：人材詳細
       skill_sheet_url: r.skill_sheet_url?.trim() || null,
       email: r.email?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
@@ -134,7 +138,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const stillFresh: typeof rows = [];
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
     const mergedRows: any[] = [];
-    const FILL = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
+    const FILL = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "residence", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
     for (const r of rows) {
       const nk = normKey(r.name);
       const ex = nk ? byName.get(nk) : null;
@@ -166,7 +170,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
         let { error, count } = await admin.from("candidates").upsert(slice, { onConflict: "id", count: "exact" });
         if (error && /column/i.test(error.message)) {
           // 未整備列がある環境はその列を外して再試行
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete o[k]; return o; });
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete o[k]; return o; });
           ({ error, count } = await admin.from("candidates").upsert(stripped, { onConflict: "id", count: "exact" }));
         }
         if (!error) mergedCount += count ?? slice.length;
@@ -192,8 +196,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
     // 追加列（skill_sheet_url/email/remote_pref/age_band/operator 等）が未整備でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|operator|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "operator"]) delete o[k]; return o; });
+    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|detail_note|residence|operator|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "operator"]) delete o[k]; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -2848,6 +2852,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     rate_num: rec.rate_num ?? null,
     avail: rec.avail?.trim() || null,
     location: rec.location?.trim() || null,
+    residence: (rec as any).residence?.trim() || null, // #347/#330：居住地
     exp: rec.exp?.trim() || null,
     status: rec.status?.trim() || "提案可",
     remote_pref: rec.remote_pref?.trim() || null,
@@ -2855,7 +2860,8 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     age_band: rec.age_band?.trim() || null,
     nationality: rec.nationality?.trim() || null,
     rank: (rec as any).rank?.trim() || null,
-    note: rec.note?.trim() || null,
+    note: rec.note?.trim() || null,                      // #347④：メール原文
+    detail_note: (rec as any).detail_note?.trim() || null, // #347⑤：人材詳細
     skill_sheet_url: rec.skill_sheet_url?.trim() || null,
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
@@ -2871,7 +2877,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.contact_name; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.contact_name; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; delete c.detail_note; delete c.residence; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -3059,7 +3065,8 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.age_band !== undefined) row.age_band = trim(fields.age_band);
   if (fields.exp !== undefined) row.exp = trim(fields.exp);
   if (fields.status !== undefined) row.status = trim(fields.status);
-  if (fields.note !== undefined) row.note = trim(fields.note); // #276③：人材詳細の備考欄（インライン編集）
+  if (fields.note !== undefined) row.note = trim(fields.note); // #347④：メール原文（旧「備考」）
+  if ((fields as any).detail_note !== undefined) row.detail_note = trim((fields as any).detail_note); // #347⑤：人材詳細（メール原文とは別の整形メモ）
   if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
   if ((fields as any).email !== undefined) row.email = trim((fields as any).email);
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
@@ -3073,14 +3080,14 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
   // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; delete c.residence; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; delete c.residence; delete c.detail_note; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がないテーブル定義 → タイムスタンプは省いて再試行
     r = await admin.from("candidates").update(withoutUpdatedAt(row)).eq("candidate_no", candidateNo);
   }
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|signup_source|tools|residence|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|signup_source|tools|residence|detail_note|column/i.test(r.error.message)) {
     r = await admin.from("candidates").update(stripped(withoutUpdatedAt(row))).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };

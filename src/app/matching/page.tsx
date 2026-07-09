@@ -844,9 +844,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <span className="tag">リモート {candRemoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : candRemoteLabel(person.remote_pref)}</span>
                   <span className="tag">国籍 {CAND_NAT_LABEL[classifyCandNationality(person.nationality)]}</span>
                   <span className="tag">最寄駅 {person.location ?? "不明"}</span>
-                  {person.age_band && <span className="tag">年代 {person.age_band}</span>}
+                  {person.age_band && <span className="tag">年齢（年代） {person.age_band}</span>}
                   {person.exp != null && String(person.exp).trim() !== "" && <span className="tag">経験 {/^\d+$/.test(String(person.exp).trim()) ? `${String(person.exp).trim()}年` : person.exp}</span>}
-                  {person.avail && <span className="tag">稼働 {person.avail}</span>}
+                  {person.avail && <span className="tag">稼働開始予定日 {person.avail}</span>}
                   <span className="tag">{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</span>
                 </div>
                 {person.skills?.length > 0 && (
