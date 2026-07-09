@@ -11,7 +11,7 @@ import Link from "@/components/AppLink";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { RankedPair } from "@/lib/ranking100";
-import { recordProposal } from "@/lib/actions";
+import { recordProposal, hidePairs } from "@/lib/actions";
 import { toast } from "@/components/toast";
 import { buildJobMailContent, buildCandMailContent, BUTTON_PLACEHOLDER, NOTICE_TEXT } from "@/lib/proposal-mail";
 
@@ -56,6 +56,7 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
   // チェック選択 → 一括「提案する」（提案ボードに記録）。
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<null | { done: number; total: number }>(null);
+  const [hiding, setHiding] = useState(false);
   const cancelRef = useRef(false);
   useEffect(() => {
     if (!active) { setDrawerIn(false); return; }
@@ -106,6 +107,17 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
     if (failed) parts.push(`失敗 ${failed}件`);
     toast(parts.join(" / ") + (firstError ? `（${firstError}）` : ""), failed ? "error" : "success");
     if (created > 0) { setSelected(new Set()); router.refresh(); }
+  };
+
+  // #345①：選択したペアを「表示させない」（おすすめ/ランキングから恒久除外）。
+  const doHideAll = async () => {
+    if (selectedRows.length === 0 || hiding || busy) return;
+    if (!confirm(`選択した ${selectedRows.length} ペアをランキングに表示しないようにします。\n（期間に関係なく除外され、他の担当にも表示されなくなります）`)) return;
+    setHiding(true);
+    const res: any = await hidePairs(selectedRows.map((r) => ({ jobNo: r.job.job_no, candNo: r.cand.candidate_no })));
+    setHiding(false);
+    if (res?.ok) { toast(`${res.hidden} ペアを非表示にしました（ランキングから除外）`, "success"); setSelected(new Set()); router.refresh(); }
+    else toast(res?.error || "非表示に失敗しました", "error");
   };
 
   return (
@@ -230,6 +242,13 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                   title="選択したペアを提案ボードに一括記録します（メールは送りません。提案済みのペアはスキップ扱い）">
                   <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>send</span> 提案する
                 </button>
+                {/* #345①：選択したペアをランキングから恒久的に非表示にする。 */}
+                <button type="button" className="btn ghost" onClick={doHideAll} disabled={hiding}
+                  title="選択したペアを今後ランキングに表示しないようにします（期間に関係なく除外・共有）">
+                  {hiding
+                    ? <><Spinner size={16} /> 非表示にしています…</>
+                    : <><span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>visibility_off</span> このペアは表示させない</>}
+                </button>
                 <button type="button" className="btn ghost" onClick={() => setSelected(new Set())}>選択解除</button>
               </>
             )}
@@ -256,11 +275,23 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
   const router = useRouter();
   const [navigating, startNav] = useTransition();
   const [showPreview, setShowPreview] = useState(false);
+  const [hiding, setHiding] = useState(false);
 
   // 「提案画面へ」：このペアの提案画面（/matching?job=…&cand=…）へ遷移する。
   //   遷移中はローディングを出して反応を明示（要望：押されたら反応がわかるように）。
   const goPropose = () => {
     startNav(() => { router.push(`/matching?job=${p.job.job_no}&cand=${p.cand.candidate_no}`); });
+  };
+
+  // #345①：このペアを「表示させない」（おすすめ/ランキングから恒久除外）。
+  const doHide = async () => {
+    if (hiding) return;
+    if (!confirm("このペアを今後ランキングに表示しないようにします。\n（期間に関係なく除外され、他の担当にも表示されなくなります）")) return;
+    setHiding(true);
+    const res: any = await hidePairs([{ jobNo: p.job.job_no, candNo: p.cand.candidate_no }]);
+    setHiding(false);
+    if (res?.ok) { toast("このペアを非表示にしました（ランキングから除外）", "success"); onClose(); router.refresh(); }
+    else toast(res?.error || "非表示に失敗しました", "error");
   };
 
   return (
@@ -398,6 +429,14 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             style={{ fontWeight: 700 }}
             title="実際に送信する提案メールの文面（案件側・人材側）をプレビューします">
             <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-4px" }}>{showPreview ? "visibility_off" : "visibility"}</span> {showPreview ? "プレビューを閉じる" : "送信文プレビュー"}
+          </button>
+          {/* #345①：このペアをランキングから恒久的に非表示にする。 */}
+          <button type="button" className="btn ghost" onClick={doHide} disabled={hiding || navigating}
+            style={{ fontWeight: 700, color: "var(--color-ink-3)" }}
+            title="このペアを今後ランキングに表示しないようにします（期間に関係なく除外・共有）">
+            {hiding
+              ? <><Spinner size={18} /> 非表示にしています…</>
+              : <><span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-4px" }}>visibility_off</span> このペアは表示させない</>}
           </button>
         </div>
       </div>

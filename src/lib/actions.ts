@@ -953,6 +953,49 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
   return { ok: true, id: ins.data?.id ?? null, existed: false, job_action_token, cand_action_token };
 }
 
+// ────────────────────────────────────────────────────────
+// #345①：マッチングの「このペアは表示させない」（案件×人材の恒久非表示）
+// ────────────────────────────────────────────────────────
+
+/** 指定した (案件No × 人材No) のペアをおすすめ／ランキング100から恒久的に非表示にする。
+ *   期間に関係なく除外され、他の担当が再度確認しなくてよくするための共有リスト。 */
+export async function hidePairs(pairs: { jobNo: number; candNo: number }[]) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const clean = (pairs ?? [])
+    .map((p) => ({ job_no: Number(p.jobNo), candidate_no: Number(p.candNo) }))
+    .filter((p) => Number.isFinite(p.job_no) && Number.isFinite(p.candidate_no));
+  if (clean.length === 0) return { ok: false as const, error: "対象のペアがありません" };
+  let by_email: string | null = null, by_name: string | null = null;
+  try { const a = await currentAccess(); by_email = a?.email ?? null; by_name = a?.name ?? null; } catch { /* 未ログインでも続行 */ }
+  const rows = clean.map((p) => ({ ...p, hidden_by_email: by_email, hidden_by_name: by_name }));
+  let { error } = await admin.from("hidden_pairs").upsert(rows, { onConflict: "job_no,candidate_no", ignoreDuplicates: true });
+  // hidden_by_* 列が無い旧環境でも保存できるようフォールバック
+  if (error && /hidden_by|column/i.test(error.message)) {
+    ({ error } = await admin.from("hidden_pairs").upsert(clean, { onConflict: "job_no,candidate_no", ignoreDuplicates: true }));
+  }
+  if (error) {
+    if (/hidden_pairs|relation|does not exist|schema cache/i.test(error.message)) {
+      return { ok: false as const, error: "非表示テーブルが未整備です（supabase/hidden-pairs.sql を実行してください）" };
+    }
+    return { ok: false as const, error: error.message };
+  }
+  bustRankingCaches(); // 非表示ペアをおすすめ/ランキングから即時に外す
+  revalidatePath("/matching");
+  return { ok: true as const, hidden: clean.length };
+}
+
+/** 非表示にしたペアを元に戻す（再びランキングに出す）。 */
+export async function unhidePair(jobNo: number, candNo: number) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("hidden_pairs").delete().eq("job_no", Number(jobNo)).eq("candidate_no", Number(candNo));
+  if (error) return { ok: false as const, error: error.message };
+  bustRankingCaches();
+  revalidatePath("/matching");
+  return { ok: true as const };
+}
+
 /** 既存提案のレスポンストークン（job_action_token / cand_action_token）を取得。
  *  メール送信モーダルが「📋 提案する」で記録済みの提案を再度開いた時に、DB のトークンを
  *  メール本文の「話を進める／見送り」リンクへ正しく差し込むために使う。
