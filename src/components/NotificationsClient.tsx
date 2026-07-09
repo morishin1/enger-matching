@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "@/components/AppLink";
 import { markNotificationRead, markAllRead } from "@/app/notifications/actions";
 import type { Notification } from "@/lib/notifications";
 
@@ -27,7 +28,16 @@ export function NotificationsClient({ items, me }: { items: Notification[]; me: 
               <span className="muted mono" style={{ fontSize: 11 }}>{dateLabel(n.created_at)}</span>
             </div>
             {n.body && <div style={{ fontSize: 13, color: "var(--color-ink-2)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{n.body}</div>}
-            {!n.read_at && <button className="btn ghost btn-xs" disabled={pending} onClick={() => read(n.id)} style={{ alignSelf: "flex-start" }}>既読にする</button>}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {/* #342：承認依頼の通知は該当マッチングレコード（人材名×案件名は本文に表示）から
+                  承認待ちタブへ直接飛べるリンクを添える。 */}
+              {n.kind === "approval" && (
+                <Link href="/proposals?tab=approval" className="btn brand btn-xs" style={{ textDecoration: "none" }}>
+                  承認待ちタブを開く →
+                </Link>
+              )}
+              {!n.read_at && <button className="btn ghost btn-xs" disabled={pending} onClick={() => read(n.id)}>既読にする</button>}
+            </div>
           </div>
         ))}
       </div>

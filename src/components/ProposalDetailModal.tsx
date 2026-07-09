@@ -15,7 +15,6 @@ import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { StarsInput } from "./Stars";
 import { ProposalCloseControls } from "./ProposalCloseControls";
-import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { companyIdLabel } from "@/lib/companies";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
@@ -206,14 +205,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   // ドロップダウンのチェック(✓)が選択に追従しない不具合への対応。
   const [effStage, setEffStage] = useState<string>(p.stage);
   useEffect(() => { setEffStage(p.stage); }, [p.stage]);
-
-  // #271: 通知ステータス（案件側/人材側）。ドットのクリック直後にラベル・色を即時反映するため
-  //   モーダル側でも状態を持つ（effStage と同じ「古い p を保持し続ける」問題への対応）。
-  const normNotify = (v: any): NotifyStatus => (v === "in_progress" || v === "done") ? v : "pending";
-  const [jobNotify, setJobNotify] = useState<NotifyStatus>(normNotify(p.job_notify_status));
-  const [candNotify, setCandNotify] = useState<NotifyStatus>(normNotify(p.cand_notify_status));
-  useEffect(() => { setJobNotify(normNotify(p.job_notify_status)); }, [p.job_notify_status]);
-  useEffect(() => { setCandNotify(normNotify(p.cand_notify_status)); }, [p.cand_notify_status]);
 
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(effStage)));
@@ -501,9 +492,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 {p.job_no != null ? <Link prefetch={false} href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
                 {p.job_closed && <ClosedBadge size="xs" />}
               </div>
-              {/* クライアント名（自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
+              {/* クライアント名（自動）／先方担当（任意）。いずれも編集可。
+                  #341①：「企業担当」欄は非表示（値は保持したまま画面には出さない）。 */}
               <EditInfo label="クライアント名" value={jobCompany} onChange={setJobCompany} placeholder="クライアント会社名" />
-              <EditInfo label="企業担当" value={jobCompanyContact} onChange={setJobCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
               <EditInfo label="先方担当" value={jobClientContact} onChange={setJobClientContact} placeholder="（任意）" />
               {/* 自社担当：企業メニューの会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。
                   #293：企業ID（company_no）で紐づいていることが分かるようバッジを併記。 */}
@@ -530,9 +521,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   <div className="muted" style={{ fontSize: 11.5 }}>{p.source ? `登録元: ${p.source}` : ""}</div>
                 </div>
               </div>
-              {/* 会社名（人材の所属会社・自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
+              {/* 会社名（人材の所属会社・自動）／先方担当（任意）。いずれも編集可。
+                  #341①：「企業担当」欄は非表示（値は保持したまま画面には出さない）。 */}
               <EditInfo label="会社名" value={candCompany} onChange={setCandCompany} placeholder="人材の所属会社（自動表示）" />
-              <EditInfo label="企業担当" value={candCompanyContact} onChange={setCandCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
               <EditInfo label="先方担当" value={candContact} onChange={setCandContact} placeholder="（任意）" />
               {/* 自社担当：人材の所属会社の会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。
                   #293：企業ID（company_no）で紐づいていることが分かるようバッジを併記。 */}
@@ -704,34 +695,17 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
           </div>
           ); })()}
 
-          {/* 通知ステータス（幅を狭め）＋ 案件/人材クローズボタンを隣に配置 */}
+          {/* #341②：通知ステータスのブロックは削除（進捗状況で代替）。クローズ＋進捗状況を横並びで配置。 */}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch" }}>
-            {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
-            <div className="card" style={{ padding: 16, flex: "1 1 360px", minWidth: 300 }}>
-              <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>通知ステータス</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>案件</span>
-                  <NotifyDot status={jobNotify} side="job" proposalId={p.id} size={14} onChange={setJobNotify} />
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[jobNotify]}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>人材</span>
-                  <NotifyDot status={candNotify} side="cand" proposalId={p.id} size={14} onChange={setCandNotify} />
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[candNotify]}</span>
-                </div>
-              </div>
-              <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>
-            </div>
             {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。
                 #334①：クローズ枠を左に狭め、その隣に進捗状況の選択欄を置く。 */}
-            <div className="card" style={{ padding: 16, flex: "0 1 190px", minWidth: 160, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div className="card" style={{ padding: 16, flex: "0 1 240px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>クローズ</div>
               <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} />
               <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} />
             </div>
             {/* #334①：進捗状況（返事待ちの別・未処理）。「編集を保存」で反映し、保存日を一覧に表示。 */}
-            <div className="card" style={{ padding: 16, flex: "1 1 200px", minWidth: 180, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div className="card" style={{ padding: 16, flex: "1 1 280px", minWidth: 220, display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>進捗状況</div>
               <SelField label="進捗状況" value={progress} options={[...PROGRESS_STATUSES]} onChange={setProgress} />
               <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>「編集を保存」を押すと反映され、保存日が一覧のカッコ内に表示されます。</div>

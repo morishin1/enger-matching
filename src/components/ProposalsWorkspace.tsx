@@ -92,7 +92,14 @@ export function ProposalsWorkspace({
   const [customTo, setCustomTo] = useState("");
   // 既定は「提案ボード」タブ（要望）。KPI/KGI は専用ダッシュボード（/kgi）へ集約したため、
   //   提案管理の入口は進行中の提案ボードにする。KPI推移タブは非表示（下の tabsDef で show:false）。
-  const [tab, setTab] = useState<TabKey>("board");
+  // #342：?tab=approval 等のURLパラメータで初期タブを指定可能に（承認依頼通知から承認待ちタブへ飛ぶ）。
+  const spForTab = useSearchParams();
+  const initialTab: TabKey = (() => {
+    const t = spForTab?.get("tab");
+    const valid: readonly TabKey[] = ["kpi", "approval", "board", "history", "lost", "report"];
+    return t && (valid as readonly string[]).includes(t) ? (t as TabKey) : "board";
+  })();
+  const [tab, setTab] = useState<TabKey>(initialTab);
   // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
   const [kpiSubTab, setKpiSubTab] = useState<"activity" | "stage">("activity");
   const [stageTeamEdit, setStageTeamEdit] = useState(false); // #234①：ステージ目標タブ内の「チーム目標を編集（週次）」
