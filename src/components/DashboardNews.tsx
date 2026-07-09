@@ -78,6 +78,12 @@ function NotiRow({ n, onSeen }: { n: Notification; onSeen?: () => void }) {
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ink)" }}>{n.title}</div>
         {n.body && <div className="muted" style={{ fontSize: 11.5, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.body}</div>}
+        {/* #342：承認依頼は承認待ちタブへ直接飛べるリンクを添える（人材名×案件名は本文に表示）。 */}
+        {n.kind === "approval" && (
+          <Link href="/proposals?tab=approval" style={{ display: "inline-block", marginTop: 4, fontSize: 11.5, fontWeight: 700, color: "var(--color-brand-700)", textDecoration: "none" }}>
+            承認待ちタブを開く ›
+          </Link>
+        )}
       </div>
       <span className="muted" style={{ fontSize: 11, whiteSpace: "nowrap", marginTop: 1 }}>{relTime(n.created_at)}</span>
       {onSeen && <button type="button" className="btn ghost btn-xs" onClick={onSeen} style={{ flexShrink: 0 }}>既読</button>}

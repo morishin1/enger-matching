@@ -89,8 +89,8 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
         title: `あなたへの承認依頼 ${n} 件`,
         body: "提案管理で内容を確認し、承認のうえメールを送信してください。",
         count: n,
-        href: "/proposals",
-        cta: "提案管理を開く",
+        href: "/proposals?tab=approval", // #342：承認待ちタブへ直接
+        cta: "承認待ちを開く",
       });
     } catch { /* 承認列未整備は無視 */ }
   }

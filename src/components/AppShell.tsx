@@ -154,7 +154,7 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
             const approvals = counts?.proposalApprovals ?? 0;
             const has = approvals > 0;
             return (
-              <Link href={has ? "/proposals" : "/notifications"} className="icon-btn"
+              <Link href={has ? "/proposals?tab=approval" : "/notifications"} className="icon-btn"
                 title={has ? `承認待ちが ${approvals} 件あります（クリックで承認へ）` : "お知らせ"}
                 style={{ position: "relative" }}>
                 <Icons.bell />
