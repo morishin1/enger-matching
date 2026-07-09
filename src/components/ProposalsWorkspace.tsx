@@ -86,19 +86,22 @@ export function ProposalsWorkspace({
   //   ・banner / タブ起動判定は「全期間」を見る（期間外の承認漏れを防ぐため）。
   //   ・承認タブの表示は下の approvalRowsInPeriod で期間連動させる。
   const approvalRows = useMemo(() => proposals.filter(isAwaitingApproval), [proposals]);
-  const [period, setPeriod] = useState<Period>("week");
+  // #342：?tab=approval 等のURLパラメータで初期タブを指定可能に（承認依頼通知から承認待ちタブへ飛ぶ）。
+  //   承認タブは show:false の kpi/history を除いた「表示中のタブ」のみ受け付ける。
+  const spForTab = useSearchParams();
+  const initialTab: TabKey = (() => {
+    const t = spForTab?.get("tab");
+    const valid: readonly TabKey[] = ["approval", "board", "lost", "report"];
+    return t && (valid as readonly string[]).includes(t) ? (t as TabKey) : "board";
+  })();
+  // 承認タブへ直接来たとき（通知リンク経由）は、期間外の承認漏れが見えないと意味がないので
+  //   期間を「全期間」で開く（承認待ちの件数は全期間ベースのため）。#342
+  const [period, setPeriod] = useState<Period>(initialTab === "approval" ? "all" : "week");
   // 「全期間」チップのカレンダー（任意期間）。from/to 指定時はその範囲で絞り込む。
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   // 既定は「提案ボード」タブ（要望）。KPI/KGI は専用ダッシュボード（/kgi）へ集約したため、
   //   提案管理の入口は進行中の提案ボードにする。KPI推移タブは非表示（下の tabsDef で show:false）。
-  // #342：?tab=approval 等のURLパラメータで初期タブを指定可能に（承認依頼通知から承認待ちタブへ飛ぶ）。
-  const spForTab = useSearchParams();
-  const initialTab: TabKey = (() => {
-    const t = spForTab?.get("tab");
-    const valid: readonly TabKey[] = ["kpi", "approval", "board", "history", "lost", "report"];
-    return t && (valid as readonly string[]).includes(t) ? (t as TabKey) : "board";
-  })();
   const [tab, setTab] = useState<TabKey>(initialTab);
   // KPI推移タブ内のサブタブ：メンバー別アクティビティ / ステージ目標・達成率。
   const [kpiSubTab, setKpiSubTab] = useState<"activity" | "stage">("activity");
