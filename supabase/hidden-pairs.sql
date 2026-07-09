@@ -13,3 +13,8 @@ create table if not exists enger.hidden_pairs (
   unique (job_no, candidate_no)
 );
 comment on table enger.hidden_pairs is 'マッチングで手動非表示にした案件×人材ペア（期間無関係にランキング除外）。#345';
+
+-- 権限：ランキング取得は anon クライアント（engerClient）で読むため SELECT を付与する。
+--   これが無いと fetchHiddenPairs が権限エラーで空集合になり、非表示が効かない。
+grant select on enger.hidden_pairs to anon, authenticated;
+grant all    on enger.hidden_pairs to service_role;
