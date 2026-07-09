@@ -63,7 +63,11 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "
   "案件名": "title", "クライアント名": "client_name", "クライアント": "client_name",
   "募集職種": "role_label", "職種": "role_label", "必要スキル": "skills", "スキル": "skills",
   "単価下限": "_salary_min", "単価上限": "_salary_max", "リモート可否": "remote_type", "リモート": "remote_type",
-  "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "案件詳細": "detail", "ステータス": "status",
+  "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "ステータス": "status",
+  // #344：UI改称（#331）に合わせて名前ベースの対応を更新。
+  //   「案件詳細」＝手入力の整形メモ(detail_note)／「メール原文」＝取込メール原文(detail)。
+  //   ※ このマッピングは列位置ではなくヘッダ名（列見出し）で対応付ける方式。
+  "案件詳細": "detail_note", "メール原文": "detail",
   // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
   "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
@@ -84,7 +88,7 @@ function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
   }
   return m;
 }
-const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス"];
+const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス", "案件詳細", "メール原文"];
 
 type ValRow = { rowNo: number; rec: any; label: string; errors: string[]; warnings: string[] };
 
@@ -612,6 +616,7 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
         work_location: f.work_location?.trim() || null,
         start_date: dateOf(f.start_date || "") || (f.start_date?.trim() || null),
         detail: f.detail?.trim() || null,
+        detail_note: f.detail_note?.trim() || null, // #344：手入力の案件詳細
         status: f.status?.trim() || null,
         contact_name: f.contact_name?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
@@ -736,7 +741,9 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   <FormField label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} />
                   <FormField label="窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
                   <FormField label="元メールURL／Gmail メッセージ ID" value={f.source_mail} onChange={set("source_mail")} full />
-                  <FormTextarea label="案件詳細" value={f.detail} onChange={set("detail")} />
+                  {/* #344：案件詳細＝手入力の整形メモ（メールにも挿入）／メール原文＝取込メール本文。 */}
+                  <FormTextarea label="案件詳細" value={f.detail_note} onChange={set("detail_note")} />
+                  <FormTextarea label="メール原文" value={f.detail} onChange={set("detail")} />
                 </>
               )}
             </div>

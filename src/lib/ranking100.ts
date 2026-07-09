@@ -55,6 +55,7 @@ export type RankedPair = {
     skills: string[]; salary_min: number | null; salary_max: number | null;
     role_label: string | null; remote_type: string | null; work_location: string | null;
     start_date: string | null; flow_note: string | null; detail: string | null;
+    detail_note: string | null; // #344：手入力の案件詳細（人材側メールに最優先で挿入）
     created_at: string | null;
   };
   cand: {
@@ -110,7 +111,8 @@ function normalizeAssignee(f: AssigneeFilter): AssigneeFilter {
 //   未マイグレ環境でも全体が落ちないよう、拡張SELECT → 失敗時は基本SELECT の順で試す。
 
 const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, is_focus, detail, flow_note, role_label, work_location, start_date, created_at";
-const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth`;
+// detail_note＝手入力の案件詳細（#344：送信文プレビューの人材側メールに最優先で挿入）。未整備環境は BASE にフォールバック。
+const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
 const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url`;
 
@@ -440,6 +442,7 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
       role_label: h.job.role_label ?? null, remote_type: h.job.remote_type ?? null,
       work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
       flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
+      detail_note: h.job.detail_note ?? null,
       created_at: h.job.created_at ?? null,
     },
     cand: {
