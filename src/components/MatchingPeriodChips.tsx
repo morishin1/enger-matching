@@ -69,6 +69,8 @@ export function MatchingPeriodChips() {
       onClearRange={clearRange}
       shortcuts={[
         { key: "today", label: "今日", active: !custom && period === "today", onClick: () => setPreset("today") },
+        // #345②：今日と今週の間に「3日以内」を追加。
+        { key: "3days", label: "3日以内", active: !custom && period === "3days", onClick: () => setPreset("3days") },
         { key: "week", label: "今週", active: !custom && period === "week", onClick: () => setPreset("week") },
         { key: "all", label: "全期間", active: isAll, onClick: () => setPreset("all") },
       ]}

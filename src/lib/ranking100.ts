@@ -337,16 +337,27 @@ async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<S
   return proposedPairs;
 }
 
+/** #345①：手動で「表示させない」にしたペア（job_no×candidate_no）の集合。期間無関係に恒久除外する。 */
+async function fetchHiddenPairs(sb: ReturnType<typeof engerClient>): Promise<Set<string>> {
+  const hidden = new Set<string>();
+  try {
+    const { data } = await sb.from("hidden_pairs").select("job_no, candidate_no").limit(50000);
+    for (const p of (data ?? []) as any[]) if (p.job_no != null && p.candidate_no != null) hidden.add(`${p.job_no}|${p.candidate_no}`);
+  } catch { /* hidden_pairs 未整備でも続行 */ }
+  return hidden;
+}
+
 /** 致命的NGを除外し、要確認事項でランク付けして「ランク→点数順」に並べて返す。
  *   filter で人材を担当者（operator）で絞ることで計算量を軽減する。 */
 async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   const sb = engerClient();
-  const [jobsAll, candsAll, lineIds, flIds, proposedPairs] = await Promise.all([
+  const [jobsAll, candsAll, lineIds, flIds, proposedPairs, hiddenPairs] = await Promise.all([
     fetchJobsForRanking(sb),
     fetchCandsForRanking(sb, filter),
     getLineOriginIds(),          // LINE由来の案件/人材（fail-soft：取れなければ空）
     getFreelanceCandidateIds(),  // ENGERフリーランス由来の人材（fail-soft）
     fetchProposedPairs(sb),      // 提案済みペア
+    fetchHiddenPairs(sb),        // #345①：手動で非表示にしたペア
   ]);
   const lineJobIds = new Set(lineIds.jobIds);
   const lineCandIds = new Set(lineIds.candidateIds);
@@ -371,6 +382,7 @@ async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHi
     const need = jskills.length;
     for (const { c, g: cg, set } of cands) {
       if (j.id && c.id && proposedPairs.has(`${j.id}|${c.id}`)) continue;    // 提案済み → 除外
+      if (j.job_no != null && c.candidate_no != null && hiddenPairs.has(`${j.job_no}|${c.candidate_no}`)) continue; // #345①：手動非表示 → 除外
       if (!pairAllowed(jg, cg)) continue;                                    // 年齢制限・逆ざや → 除外
       const matrix = flowMatrixCompat(jg.cat, cg.cat);
       if (matrix === "ng") continue;                                        // #8 商流の確定NG（提案不可）→ 除外

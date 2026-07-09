@@ -2,12 +2,13 @@
 //   サーバー/クライアント双方から使うため "use client" は付けない（純関数のみ）。
 //   提案ボード/失注/承認/マッチングで同じ意味（created_at の日付レンジ）に揃える。
 
-export type ClientPeriod = "today" | "week" | "lastweek" | "month" | "all";
+// #345②：マッチングの期間チップに「3日以内」を追加（today と week の間）。
+export type ClientPeriod = "today" | "3days" | "week" | "lastweek" | "month" | "all";
 
 export const CLIENT_PERIOD_LABEL: Record<ClientPeriod, string> = {
-  today: "本日", week: "今週", lastweek: "先週", month: "今月", all: "全期間",
+  today: "本日", "3days": "3日以内", week: "今週", lastweek: "先週", month: "今月", all: "全期間",
 };
-export const CLIENT_PERIOD_KEYS: ClientPeriod[] = ["today", "week", "lastweek", "month", "all"];
+export const CLIENT_PERIOD_KEYS: ClientPeriod[] = ["today", "3days", "week", "lastweek", "month", "all"];
 
 export function asClientPeriod(v: string | null | undefined, fallback: ClientPeriod = "all"): ClientPeriod {
   return (CLIENT_PERIOD_KEYS as string[]).includes(v ?? "") ? (v as ClientPeriod) : fallback;
@@ -23,6 +24,8 @@ function thisWeekStart(): number {
 export function periodStartMs(p: ClientPeriod): number {
   const now = new Date();
   if (p === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  // #345②：3日以内＝本日を含む直近3日間（本日・前日・前々日の 00:00 起点）。
+  if (p === "3days") { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() - 2 * 86400000; }
   if (p === "week") return thisWeekStart();
   if (p === "lastweek") return thisWeekStart() - 7 * 86400000;
   if (p === "month") return new Date(now.getFullYear(), now.getMonth(), 1).getTime();

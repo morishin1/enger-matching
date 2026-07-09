@@ -37,7 +37,9 @@ export function UrlPeriodChips({ basePath, counts, note, card = false }: {
     router.push(`${basePath}${qs ? `?${qs}` : ""}`);
   };
 
-  const options = CLIENT_PERIOD_KEYS.map((k) => ({ key: k, label: CLIENT_PERIOD_LABEL[k], count: counts?.[k] ?? null }));
+  // #345②：「3日以内」はマッチング画面専用のチップ（MatchingPeriodChips 側で表示）。
+  //   共通の期間バーには出さない（他画面は従来の見た目を維持）。
+  const options = CLIENT_PERIOD_KEYS.filter((k) => k !== "3days").map((k) => ({ key: k, label: CLIENT_PERIOD_LABEL[k], count: counts?.[k] ?? null }));
   return <PeriodChips card={card} value={value} onChange={go} options={options} note={note}
     calendar={{ calendarKey: "all", from, to, onRange }} />;
 }
