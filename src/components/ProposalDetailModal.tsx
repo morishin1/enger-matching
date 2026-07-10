@@ -111,11 +111,15 @@ function MailColumn({ title, side, body, url, accent }: { title: string; side: "
 //   構造化プレフィクスを入れて 手段／連絡日時 を保持する。新規テーブル不要。
 //   形式: "[電話 / 2026-06-22 13:48] メモ本文"
 //   ※ 既存の「連絡記録」メモ（プレフィクス無し）も自然に表示できる（手段=その他、日時=created_at に fallback）。
-const CONTACT_PREFIX_RE = /^\[(電話|メール|LINE|対面|その他(?:：[^\]]+)?)\s*\/\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*/;
+// #352：手段は固定リストに限定せず「[<手段> / <日時>]」を汎用に解析する
+//   （#334 で追加した「案件側へ電話」等の側つき手段もこの形式で保存されるため）。
+//   「その他：Slack/Teams」のように手入力手段へ「/」が入るケースは、その他：の枝だけ「/」を許容
+//   （日時部のアンカーでバックトラックして正しく区切れる）。
+const CONTACT_PREFIX_RE = /^\[(その他：[^\]]*?|[^/\]]+?)\s*\/\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*/;
 function parseContactBody(body: string): { channel: string; channelOther: string | null; at: Date | null; text: string } {
   const m = body.match(CONTACT_PREFIX_RE);
   if (!m) return { channel: "その他", channelOther: null, at: null, text: body };
-  const raw = m[1];
+  const raw = m[1].trim();
   let channel = raw;
   let channelOther: string | null = null;
   if (raw.startsWith("その他")) {
@@ -152,6 +156,14 @@ const CONTACT_CHANNEL_TONE: Record<string, { fg: string; bg: string; icon: strin
   "対面":  { fg: "#b45309", bg: "#fff1e6", icon: "groups" },
   "その他": { fg: "#6b7280", bg: "#f3f4f6", icon: "more_horiz" },
 };
+// 側つき手段（案件側へ電話 等）は手段名の含みでトーンを解決する（#352）。
+function contactToneOf(channel: string): { fg: string; bg: string; icon: string } {
+  if (CONTACT_CHANNEL_TONE[channel]) return CONTACT_CHANNEL_TONE[channel];
+  if (channel.includes("電話")) return CONTACT_CHANNEL_TONE["電話"];
+  if (channel.includes("メール")) return CONTACT_CHANNEL_TONE["メール"];
+  if (channel.includes("LINE")) return CONTACT_CHANNEL_TONE["LINE"];
+  return CONTACT_CHANNEL_TONE["その他"];
+}
 
 export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any; onClose: () => void; proposers?: string[]; closers?: string[] }) {
   // 選択肢の優先順位：props → 既定の定数。"パートナー"は廃止。
@@ -268,7 +280,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   };
 
   // コンタクト履歴（連絡手段＋連絡日時＋メモ）。proposal_memos(category="連絡記録") を再利用。
-  const [contactChannel, setContactChannel] = useState<ContactChannel>("電話");
+  // #352①：側なしの「電話」等は選択肢から削除したため、既定は先頭の「案件側へ電話」。
+  const [contactChannel, setContactChannel] = useState<ContactChannel>(CONTACT_CHANNELS[0]);
   const [contactChannelOther, setContactChannelOther] = useState("");
   const [contactAt, setContactAt] = useState<string>(""); // datetime-local の文字列。空のとき入力欄プレースホルダ。
   const [contactBody, setContactBody] = useState("");
@@ -288,12 +301,17 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
       try {
         const r = await addProposalMemo(p.id, "連絡記録", body);
         if (!r.ok) { setContactErr(r.error || "保存に失敗しました"); return; }
-        setContactChannel("電話"); setContactChannelOther(""); setContactAt(""); setContactBody("");
+        setContactChannel(CONTACT_CHANNELS[0]); setContactChannelOther(""); setContactAt(""); setContactBody("");
         loadMemos();
       } finally { setBusy(null); }
     });
   };
-  const contactMemos = memos.filter((m) => normalizeMemoCategory(m.category) === "連絡記録");
+  // #352⑤：コンタクト履歴＝「連絡記録」のうち [手段 / 日時] プレフィクス付き（フォームから記録したもの）だけ。
+  //   プレフィクスの無い「連絡記録」（メモ追加から書かれたもの）はメモ履歴側に表示する。
+  const contactMemos = memos.filter((m) => normalizeMemoCategory(m.category) === "連絡記録" && CONTACT_PREFIX_RE.test(m.body ?? ""));
+  // #352④：コンタクト履歴・メモ履歴とも最大4件表示＋「＋全て見る」で展開。
+  const [showAllContacts, setShowAllContacts] = useState(false);
+  const [showAllMemos, setShowAllMemos] = useState(false);
 
   const run = (key: string, fn: () => Promise<any>) => { setBusy(key); start(async () => { try { await fn(); router.refresh(); } finally { setBusy(null); } }); };
   const moveTo = (stage: string) => { if (stage !== effStage) { setEffStage(stage); run("stage", () => updateProposalStage(p.id, stage)); } };
@@ -481,6 +499,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
+                  {/* #352②：案件IDを併記。 */}
+                  {p.job_no != null && <span className="mono muted" style={{ fontSize: 11 }}>No.{String(p.job_no).padStart(5, "0")}</span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -504,6 +524,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
+                  {/* #352②：人材IDを併記。 */}
+                  {p.candidate_no != null && <span className="mono muted" style={{ fontSize: 11 }}>P-{String(p.candidate_no).padStart(5, "0")}</span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.cand_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -630,9 +652,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               ) : contactMemos.length === 0 ? (
                 <div className="muted" style={{ fontSize: 12 }}>コンタクト履歴はまだありません。上のフォームから記録できます。</div>
               ) : (
-                contactMemos.map((m) => {
+                (showAllContacts ? contactMemos : contactMemos.slice(0, 4)).map((m) => {
                   const parsed = parseContactBody(m.body);
-                  const tone = CONTACT_CHANNEL_TONE[parsed.channel] ?? CONTACT_CHANNEL_TONE["その他"];
+                  const tone = contactToneOf(parsed.channel);
                   // 表示する連絡日時：プレフィクス由来があればそれ、無ければ created_at にフォールバック。
                   const at = parsed.at ?? new Date(m.created_at);
                   const atStr = isNaN(at.getTime()) ? "—" : `${at.getFullYear()}/${String(at.getMonth() + 1).padStart(2, "0")}/${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
@@ -654,14 +676,27 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   );
                 })
               )}
+              {/* #352④：5件以上は「＋全て見る」で展開（既定は4件まで）。 */}
+              {contactMemos.length > 4 && (
+                <button type="button" className="btn ghost btn-xs" onClick={() => setShowAllContacts((v) => !v)} style={{ alignSelf: "flex-start" }}>
+                  {showAllContacts ? "− 折りたたむ" : `＋ 全て見る（残り${contactMemos.length - 4}件）`}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* メモ履歴（カテゴリ別の対応ログ）。連絡記録は上の「コンタクト履歴」で扱うのでここでは除外。 */}
-          {(() => { const otherMemos = memos.filter((m) => normalizeMemoCategory(m.category) !== "連絡記録"); return (
+          {/* メモ履歴（カテゴリ別の対応ログ）。
+              #352⑤：プレフィクス付きの「連絡記録」（コンタクト履歴のフォームから記録）だけを上のカードで扱い、
+              プレフィクスの無い「連絡記録」メモはこちらの一覧に表示する。 */}
+          {(() => { const otherMemos = memos.filter((m) => !(normalizeMemoCategory(m.category) === "連絡記録" && CONTACT_PREFIX_RE.test(m.body ?? ""))); return (
           <div className="card" style={{ padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div className="muted" style={{ fontSize: 11.5 }}>メモ履歴 {otherMemos.length > 0 && <span style={{ marginLeft: 4 }}>({otherMemos.length})</span>}</div>
+              {/* #352③：タイトルはコンタクト履歴と同じ太字に。 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>edit_note</span>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>メモ履歴</div>
+                {otherMemos.length > 0 && <span className="muted" style={{ fontSize: 11.5 }}>({otherMemos.length})</span>}
+              </div>
               <button type="button" className="btn ghost btn-sm" onClick={() => setMemoModalOpen(true)} title="新しいメモを追加">
                 <span className="material-symbols-outlined" style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>edit_note</span>
                 メモ追加
@@ -673,7 +708,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div className="muted" style={{ fontSize: 12 }}>メモはまだありません。</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {otherMemos.map((m) => {
+                {(showAllMemos ? otherMemos : otherMemos.slice(0, 4)).map((m) => {
                   const tone = memoCategoryTone(m.category);
                   const dt = new Date(m.created_at);
                   const dtStr = isNaN(dt.getTime()) ? "—" : `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
@@ -690,6 +725,12 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                     </div>
                   );
                 })}
+                {/* #352④：5件以上は「＋全て見る」で展開（既定は4件まで）。 */}
+                {otherMemos.length > 4 && (
+                  <button type="button" className="btn ghost btn-xs" onClick={() => setShowAllMemos((v) => !v)} style={{ alignSelf: "flex-start" }}>
+                    {showAllMemos ? "− 折りたたむ" : `＋ 全て見る（残り${otherMemos.length - 4}件）`}
+                  </button>
+                )}
               </div>
             )}
           </div>

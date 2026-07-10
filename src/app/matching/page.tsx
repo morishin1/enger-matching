@@ -10,6 +10,7 @@ import { ShareExternalButton } from "@/components/ShareExternalButton";
 import { FocusList } from "@/components/FocusList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { getHiddenPairsSet, hiddenPairKey } from "@/lib/hidden-pairs";
 import { relatedSearchLabels } from "@/lib/skills";
 import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
@@ -453,7 +454,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               }
             } catch { /* noop */ }
           }
-          rankedJobs = rankJobs(person as any, (jobList as Job[]).filter((j: any) => !j?.deleted_at), 10);
+          // #345②：「このペアは表示させない」に登録済みの案件は、個別マッチング（人材→案件TOP10）でも除外。
+          const hiddenForPerson = await getHiddenPairsSet();
+          const jobPool = (jobList as Job[]).filter((j: any) => !j?.deleted_at
+            && !(j?.job_no != null && person?.candidate_no != null && hiddenForPerson.has(hiddenPairKey(j.job_no, person.candidate_no))));
+          rankedJobs = rankJobs(person as any, jobPool, 10);
           // 元メールリンクを直近受信メールへ更新（同人材／同案件／同送信元の最新メールに飛ぶ）。
           if (person) await attachLatestSourceMail(sb, "candidate", [person]);
           await attachLatestSourceMail(sb, "job", rankedJobs.map((r: any) => r.job));
@@ -601,7 +606,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             } catch { /* noop */ }
           }
           // マッチング対象期間外（取込が古い）の人材は除外。明示指定された候補(reqCandNo)は残す。
-          const candInWindow = candList.filter((c: any) => !c?.deleted_at && (inWindow(c?.created_at) || c.candidate_no === reqCandNo));
+          // #345②：「このペアは表示させない」に登録済みの人材も、個別マッチング（案件→人材TOP10）から除外
+          //   （?cand= で明示指定されたペアのドリルダウンは業務確認用に残す）。
+          const hiddenForJob = await getHiddenPairsSet();
+          const candInWindow = candList.filter((c: any) => !c?.deleted_at && (inWindow(c?.created_at) || c.candidate_no === reqCandNo))
+            .filter((c: any) => !((job as any)?.job_no != null && c?.candidate_no != null && c.candidate_no !== reqCandNo
+              && hiddenForJob.has(hiddenPairKey((job as any).job_no, c.candidate_no))));
           ranked = rankCandidates(job as Job, candInWindow, 10);
           // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
           const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
