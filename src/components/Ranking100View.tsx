@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { RankedPair } from "@/lib/ranking100";
 import { recordProposal, hidePairs } from "@/lib/actions";
+import { MailButton } from "@/components/MailButton";
 import { toast } from "@/components/toast";
 import { buildJobMailContent, buildCandMailContent, BUTTON_PLACEHOLDER, NOTICE_TEXT } from "@/lib/proposal-mail";
 
@@ -356,7 +357,11 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
                   <span className="mono muted" style={{ fontSize: 11, fontWeight: 500 }}>No.{String(p.job.job_no).padStart(5, "0")}</span>
                 </div>
               </div>
-              <Link href={`/jobs/${p.job.job_no}`} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>案件ページへ</Link>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {/* #345③：案件の元メールを開くボタン。 */}
+                {p.job.source_mail_url && <MailButton url={p.job.source_mail_url} label="元メール" title="案件の元メールを開く" />}
+                <Link href={`/jobs/${p.job.job_no}`} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>案件ページへ</Link>
+              </div>
             </div>
             <RowKV label="クライアント" v={p.job.client_name} />
             <RowKV label="募集職種"     v={p.job.role_label} />
@@ -372,8 +377,13 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
                 ))}
               </div>
             } />
-            {p.job.detail && <details style={{ marginTop: 4 }}>
+            {/* #331/#344 の呼称に統一：案件詳細（detail_note）とメール原文（detail）。 */}
+            {p.job.detail_note && <details style={{ marginTop: 4 }} open>
               <summary style={{ fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>案件詳細を表示</summary>
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--color-ink-2)", whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: 10, borderRadius: 8 }}>{p.job.detail_note}</div>
+            </details>}
+            {p.job.detail && <details style={{ marginTop: 4 }}>
+              <summary style={{ fontSize: 11.5, color: "var(--color-ink-3)", cursor: "pointer" }}>メール原文を表示</summary>
               <div style={{ marginTop: 6, fontSize: 12, color: "var(--color-ink-2)", whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: 10, borderRadius: 8 }}>{p.job.detail}</div>
             </details>}
           </div>
@@ -389,7 +399,11 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
                   {p.proposed && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0" }}>✓ 提案済み</span>}
                 </div>
               </div>
-              <Link href={`/people/${p.cand.candidate_no}`} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>人材ページへ</Link>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {/* #345③：人材の元メールを開くボタン。 */}
+                {p.cand.source_mail_url && <MailButton url={p.cand.source_mail_url} label="元メール" title="人材の元メールを開く" />}
+                <Link href={`/people/${p.cand.candidate_no}`} className="btn ghost btn-xs" style={{ textDecoration: "none" }}>人材ページへ</Link>
+              </div>
             </div>
             <RowKV label="職種"       v={p.cand.title} />
             <RowKV label="所属"       v={[p.cand.company, p.cand.affiliation].filter(Boolean).join(" · ") || null} />

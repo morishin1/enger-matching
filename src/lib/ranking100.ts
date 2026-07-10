@@ -32,6 +32,7 @@ import {
 } from "./flow";
 import { resolveSkillSheetUrl } from "./proposal-mail";
 import { getLineOriginIds, getFreelanceCandidateIds } from "./line-origin";
+import { getHiddenPairsSet } from "./hidden-pairs";
 
 export type DimStatus = { pct: number; known: boolean };
 export type MatchTier = "high" | "mid" | "low";
@@ -56,6 +57,7 @@ export type RankedPair = {
     role_label: string | null; remote_type: string | null; work_location: string | null;
     start_date: string | null; flow_note: string | null; detail: string | null;
     detail_note: string | null; // #344：手入力の案件詳細（人材側メールに最優先で挿入）
+    source_mail_url: string | null; // #345③：比較ドロワーの「元メール」ボタン用
     created_at: string | null;
   };
   cand: {
@@ -64,6 +66,7 @@ export type RankedPair = {
     skills: string[]; exp: string | null; avail: string | null; location: string | null;
     remote_pref: string | null; age_band: string | null; nationality: string | null; note: string | null;
     detail_note: string | null; // #347：人材詳細（メール原文=note とは別）
+    source_mail_url: string | null; // #345③：比較ドロワーの「元メール」ボタン用
     created_at: string | null;
   };
   proposed: boolean;          // 提案済みペアは抽出段階で除外済み＝常に false（型互換のため残置）
@@ -112,11 +115,11 @@ function normalizeAssignee(f: AssigneeFilter): AssigneeFilter {
 //   未マイグレ環境でも全体が落ちないよう、拡張SELECT → 失敗時は基本SELECT の順で試す。
 
 const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, is_focus, detail, flow_note, role_label, work_location, start_date, created_at";
-// detail_note＝手入力の案件詳細（#344：送信文プレビューの人材側メールに最優先で挿入）。未整備環境は BASE にフォールバック。
-const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note`;
+// detail_note＝手入力の案件詳細（#344）／source_mail_url＝元メールボタン（#345③）。未整備環境は BASE にフォールバック。
+const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note, source_mail_url`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
-// detail_note＝人材詳細（#347）。未整備環境は BASE にフォールバック。
-const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note`;
+// detail_note＝人材詳細（#347）／source_mail_url＝元メールボタン（#345③）。未整備環境は BASE にフォールバック。
+const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note, source_mail_url`;
 
 async function fetchJobsForRanking(sb: ReturnType<typeof engerClient>): Promise<any[]> {
   for (const cols of [JOB_COLS_RICH, JOB_COLS_BASE]) {
@@ -339,15 +342,8 @@ async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<S
   return proposedPairs;
 }
 
-/** #345①：手動で「表示させない」にしたペア（job_no×candidate_no）の集合。期間無関係に恒久除外する。 */
-async function fetchHiddenPairs(sb: ReturnType<typeof engerClient>): Promise<Set<string>> {
-  const hidden = new Set<string>();
-  try {
-    const { data } = await sb.from("hidden_pairs").select("job_no, candidate_no").limit(50000);
-    for (const p of (data ?? []) as any[]) if (p.job_no != null && p.candidate_no != null) hidden.add(`${p.job_no}|${p.candidate_no}`);
-  } catch { /* hidden_pairs 未整備でも続行 */ }
-  return hidden;
-}
+// #345①：非表示ペアの読み取りは @/lib/hidden-pairs の getHiddenPairsSet に集約
+//   （個別マッチング＝matching/page.tsx と同じ集合で除外するため）。
 
 /** 致命的NGを除外し、要確認事項でランク付けして「ランク→点数順」に並べて返す。
  *   filter で人材を担当者（operator）で絞ることで計算量を軽減する。 */
@@ -359,7 +355,7 @@ async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHi
     getLineOriginIds(),          // LINE由来の案件/人材（fail-soft：取れなければ空）
     getFreelanceCandidateIds(),  // ENGERフリーランス由来の人材（fail-soft）
     fetchProposedPairs(sb),      // 提案済みペア
-    fetchHiddenPairs(sb),        // #345①：手動で非表示にしたペア
+    getHiddenPairsSet(),         // #345①：手動で非表示にしたペア（service role読み・共通ヘルパ）
   ]);
   const lineJobIds = new Set(lineIds.jobIds);
   const lineCandIds = new Set(lineIds.candidateIds);
@@ -457,6 +453,7 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
       work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
       flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
       detail_note: h.job.detail_note ?? null,
+      source_mail_url: h.job.source_mail_url ?? null,
       created_at: h.job.created_at ?? null,
     },
     cand: {
@@ -468,6 +465,7 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
       remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
       nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
       detail_note: h.cand.detail_note ?? null,
+      source_mail_url: h.cand.source_mail_url ?? null,
       created_at: h.cand.created_at ?? null,
     },
     proposed: false, // 提案済みペアは抽出段階で除外済み
