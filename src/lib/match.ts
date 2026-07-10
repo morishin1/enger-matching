@@ -689,6 +689,8 @@ function passesJobSideFilters(job: Job, c: Candidate): boolean {
 export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
   const now = Date.now();
   const scored = candidates
+    // #345②：外国籍（確定）の人材はマッチング対象外（国籍不明・空欄は残す）。
+    .filter((c) => classifyCandNationality(c.nationality) !== "foreign")
     .map((c) => ({ candidate: c, ...scoreMatch(job, c) }))
     .filter((r) => !r.excluded)
     // 既存ロジックを通過した候補に、案件側の追加ルール（勤務形態・単価マージン）を適用。
@@ -749,6 +751,8 @@ function passesCandSideFilters(cand: Candidate, job: Job): boolean {
 
 /** 案件配列を 1 人材に対してスコアリングし降順に並べて返す */
 export function rankJobs(candidate: Candidate, jobs: Job[], limit = 30) {
+  // #345②：外国籍（確定）の人材は、どの案件ともマッチングしない（国籍不明・空欄は対象）。
+  if (classifyCandNationality(candidate.nationality) === "foreign") return [];
   return jobs
     .map((j) => ({ job: j, ...scoreMatch(j, candidate) }))
     .filter((r) => !r.excluded)

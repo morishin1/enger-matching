@@ -260,16 +260,18 @@ type CandInfo = {
   cat: CandFlowCategory; cMin: number | null; ageRange: { decade: number; hi: number } | null;
   natJapan: boolean; remoteWants: boolean; hasSkillSheet: boolean;
 };
-/** 人材：致命的NG（確定「二社下以降」・55歳以上）は除外。国籍/リモート/スキルシート不明は要確認へ回す。 */
+/** 人材：致命的NG（確定「二社下以降」・55歳以上・外国籍）は除外。国籍不明/リモート/スキルシート不明は要確認へ回す。 */
 function candInfo(c: any): CandInfo | null {
   const cat = candFlowCategory(c);
   if (cat === "vendor2plus") return null;                             // #1 二社下以降（確定・全ランク除外）
+  const nat = classifyCandNationality(c.nationality);
+  if (nat === "foreign") return null;                                 // #345②：外国籍（確定）は全ランクで対象外
   const ageRange = candAgeRange(c as Candidate);
   if (ageRange && ageRange.hi >= 55) return null;                     // #5 55歳以上（全ランク除外）
   const cp = String(c.remote_pref ?? "").trim();
   return {
     cat, cMin: candRange(c as Candidate).min, ageRange,
-    natJapan: classifyCandNationality(c.nationality) === "japan",
+    natJapan: nat === "japan",
     remoteWants: cp === "full_remote" || cp === "partial_remote" || /リモート|在宅/.test(cp),
     hasSkillSheet: !!resolveSkillSheetUrl(c),
   };

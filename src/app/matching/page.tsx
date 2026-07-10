@@ -9,7 +9,7 @@ import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { ShareExternalButton } from "@/components/ShareExternalButton";
 import { FocusList } from "@/components/FocusList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { rankCandidates, rankJobs, jobOpenness, scoreMatch, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
 import { getHiddenPairsSet, hiddenPairKey } from "@/lib/hidden-pairs";
 import { relatedSearchLabels } from "@/lib/skills";
 import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
@@ -613,13 +613,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             .filter((c: any) => !((job as any)?.job_no != null && c?.candidate_no != null && c.candidate_no !== reqCandNo
               && hiddenForJob.has(hiddenPairKey((job as any).job_no, c.candidate_no))));
           ranked = rankCandidates(job as Job, candInWindow, 10);
-          // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
+          // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入。
+          //   #364：提案レコード等から ?cand= で明示指定されたペアは業務確認用のドリルダウン。
+          //   除外フィルタ（国籍NG/商流NG/充足等）で弾かれても、必ず「その人材」を先頭に表示する。
+          //   ここで挿入に失敗すると sel が別人材(ranked[0])にフォールバックし、
+          //   別人のスキルシートでメールが作られる事故になる（本チケットの症状）。
           const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
           if (reqCandNo2 && !ranked.find((r: any) => r.candidate.candidate_no === reqCandNo2)) {
             const tgt = candList.find((c) => c.candidate_no === reqCandNo2);
             if (tgt) {
+              // 通常のランキング（除外フィルタ適用）で拾えればそれを使い、弾かれる場合は
+              // scoreMatch で直接採点した結果を使って、必ず対象人材を先頭に出す。
               const single = rankCandidates(job as Job, [tgt], 1);
-              if (single.length) ranked = [single[0], ...ranked];
+              const entry = single.length ? single[0] : ({ candidate: tgt, ...scoreMatch(job as Job, tgt) } as any);
+              ranked = [entry, ...ranked.filter((r: any) => r.candidate.candidate_no !== reqCandNo2)];
             }
           }
         }
@@ -998,7 +1005,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   // ============ 案件 → 人材モードの描画 ============
   const selIdx = sp.cand ? ranked.findIndex((r) => String(r.candidate.candidate_no) === sp.cand) : 0;
-  const sel = ranked[selIdx >= 0 ? selIdx : 0];
+  // #364：?cand= が明示指定されているのに見つからない場合は、別人材(ranked[0])へフォールバックしない。
+  //   （フォールバックすると別人のスキルシートでメールが作られる事故になるため、sel は undefined にして
+  //    「指定の人材が見つかりません」を表示する。）
+  const sel = sp.cand ? (selIdx >= 0 ? ranked[selIdx] : undefined) : ranked[0];
   const jobAbbr = (job?.title ?? "").slice(0, 3);
   const linkFor = (cand?: number) => `/matching?tab=${tab}&job=${job?.job_no ?? ""}${cand != null ? `&cand=${cand}` : ""}`;
 
@@ -1117,6 +1127,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               {/* #260①：メール本文（detail）のプレビューは非表示（必須スキルの下に生の本文が出て見づらいため）。
                   本文は「元メールを開く」から確認できる。 */}
             </div>
+
+            {/* #364：?cand= 指定なのに該当人材が見つからない場合の明示メッセージ（別人材は出さない）。 */}
+            {sp.cand && !sel && (
+              <div className="card" style={{ padding: 16, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e", fontSize: 13 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠ 指定の人材（P-{String(sp.cand).padStart(5, "0")}）が見つかりませんでした</div>
+                削除・統合された、または人材NOが変更された可能性があります。提案レコードの人材を確認してください。
+                （別の人材を誤って表示しないよう、ここでは候補を表示していません。）
+              </div>
+            )}
 
             {/* 選択候補 詳細 */}
             {sel && (() => {
