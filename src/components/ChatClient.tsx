@@ -513,11 +513,26 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
           相手（フリーランス）
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="氏名（漢字・カナ）/イニシャルで絞り込み…"
             style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }} />
-          <select value={value} onChange={(e) => onValue(e.target.value)} size={6}
-            style={{ padding: "6px", borderRadius: 8, border: "1px solid var(--color-border-strong)", fontSize: 13, fontFamily: "inherit" }}>
-            {filtered.length === 0 && <option value="" disabled>該当なし</option>}
-            {filtered.slice(0, 200).map((e) => <option key={e.id} value={e.id}>{optionLabel(e)}</option>)}
-          </select>
+          {/* ネイティブ <select size> のリストボックスは、環境によって1回目のクリックがフォーカス移動だけで
+              選択が確定せず「ワンクリックで選べない／作成できない」不具合の原因になる（#354①②）。
+              クリックで確実に選択が確定する自前の行リストに置き換える（表示される名前は全員が選択できる）。 */}
+          <div role="listbox" style={{ maxHeight: 168, overflowY: "auto", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface, #fff)" }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: "10px 12px", fontSize: 13, fontWeight: 400, color: "var(--color-ink-4)" }}>該当なし</div>
+            )}
+            {filtered.slice(0, 200).map((e) => {
+              const active = e.id === value;
+              return (
+                <button key={e.id} type="button" role="option" aria-selected={active}
+                  onClick={() => onValue(e.id)}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 12px", fontSize: 13, fontWeight: active ? 700 : 400, fontFamily: "inherit",
+                    border: "none", borderBottom: "1px solid var(--color-border)", cursor: "pointer",
+                    background: active ? "var(--color-brand-50, #eef2ff)" : "transparent", color: active ? "var(--color-brand, #4f46e5)" : "inherit" }}>
+                  {optionLabel(e)}
+                </button>
+              );
+            })}
+          </div>
           {engineers.length === 0 && <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>フリーランスの一覧を取得できませんでした。</span>}
         </label>
         <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--color-ink-3)" }}>
@@ -527,7 +542,10 @@ function NewThreadModal({ engineers, value, onValue, subject, onSubject, onClose
         </label>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" className="btn ghost btn-xs" onClick={onClose}>キャンセル</button>
-          <button type="button" className="btn" disabled={pending || !value} onClick={onSubmit}>作成</button>
+          {/* #354①：!value でボタンを disabled にすると、選択直後の1回目クリックが
+              取りこぼされてダブルクリックが必要になることがある。未選択時は onSubmit 側で
+              アラート案内するため、ここでは pending のみで無効化し1クリックで確実に反応させる。 */}
+          <button type="button" className="btn" disabled={pending} onClick={onSubmit}>作成</button>
         </div>
       </div>
     </div>
