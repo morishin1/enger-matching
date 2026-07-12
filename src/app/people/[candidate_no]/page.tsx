@@ -9,7 +9,7 @@ import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { CandidateNoteEditor } from "@/components/CandidateNoteEditor";
 import { CandidateSkillsToolsEditor } from "@/components/CandidateSkillsToolsEditor";
 import { IntroLinkButton } from "@/components/IntroLinkButton";
-import { engerClient, dbConfigured } from "@/lib/supabase";
+import { engerClient, engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
 import { reSubject, gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { getViewerScope } from "@/lib/tenant";
 import { ClosedBadge } from "@/components/ClosedBadge";
@@ -45,6 +45,9 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
   let c: any = null;
   let dbError: string | null = null;
   let matchingRecords: Awaited<ReturnType<typeof getMatchingRecordsFor>> = [];
+  // #372①：ENGERフリーランス由来の人材は、フリーランス側プロフィール(public.profiles.skills)の
+  //   経験年数・担当工程をライブ表示する（人材マスタにはスキル名しか写らないため）。
+  let profileSkillDetails: Array<{ name: string; years: string | null; processes: string[] }> = [];
 
   if (dbConfigured) {
     try {
@@ -61,6 +64,26 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
       if (c) await attachLatestSourceMail(sb, "candidate", [c]);
       // #333：この人材が対象の提案ボード記録（マッチングレコード）を取得。
       if (c?.id) matchingRecords = await getMatchingRecordsFor(sb, { candidateId: c.id });
+      // #372①：E↔P 紐付け（freelance_candidate_links）経由でプロフィールのスキル詳細を取得。
+      //   フリーランス側が更新・保存すれば常に最新が表示される（コピーではなくライブ参照）。
+      if (c?.id && isEngerFreelance(c)) {
+        try {
+          const lk: any = await engerAdmin().from("freelance_candidate_links")
+            .select("engineer_id").eq("candidate_id", c.id).maybeSingle();
+          const engineerId = lk?.data?.engineer_id;
+          if (engineerId) {
+            const pr: any = await publicAdmin().from("profiles").select("skills").eq("id", engineerId).maybeSingle();
+            const raw = Array.isArray(pr?.data?.skills) ? pr.data.skills : [];
+            profileSkillDetails = raw
+              .map((s: any) => ({
+                name: String(s?.name ?? "").trim(),
+                years: typeof s?.years === "string" && s.years ? s.years : null,
+                processes: Array.isArray(s?.processes) ? s.processes.filter(Boolean).map(String) : [],
+              }))
+              .filter((s: any) => s.name);
+          }
+        } catch { /* 紐付け・プロフィール未取得でも人材詳細の表示は継続 */ }
+      }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -129,6 +152,25 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
         <div className="card">
           <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル・ツール</div>
           <CandidateSkillsToolsEditor candidateNo={c.candidate_no} initialSkills={Array.isArray(c.skills) ? c.skills : []} initialTools={Array.isArray(c.tools) ? c.tools : []} />
+          {/* #372①：フリーランス側プロフィールの経験年数・担当工程をスキルごとに1行で表示。
+              フリーランスが更新・保存すると常に最新が反映される（profiles.skills のライブ参照）。 */}
+          {profileSkillDetails.length > 0 && (
+            <div style={{ marginTop: 12, borderTop: "1px dashed var(--color-border)", paddingTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-ink-4)", marginBottom: 6 }}>
+                スキル詳細（フリーランス本人の登録：経験年数・担当工程）
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {profileSkillDetails.map((s) => (
+                  <div key={s.name} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12.5, flexWrap: "wrap", padding: "3px 0", borderBottom: "1px solid var(--color-surface-inset)" }}>
+                    <span className="tag brand" style={{ fontSize: 11, flexShrink: 0 }}>{s.name}</span>
+                    {s.years && <span style={{ color: "var(--color-ink-2)" }}>経験 {s.years}</span>}
+                    {s.processes.length > 0 && <span className="muted" style={{ fontSize: 11.5 }}>担当工程：{s.processes.join("・")}</span>}
+                    {!s.years && s.processes.length === 0 && <span className="muted" style={{ fontSize: 11.5 }}>（年数・工程は未入力）</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -159,9 +201,10 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
             [["年齢（年代）", c.age_band ?? ""], ["国籍", c.nationality ? <NatBadge value={c.nationality} /> : ""]],
             [["稼働開始予定日", c.avail ?? ""], ["リモート希望", c.remote_pref ?? ""], ["経験", expVal]],
             [["勤務地", c.location ?? ""], ["居住地", c.residence ?? ""]],
-            [["日本語", c.japanese_level ?? ""], ["コミュ力", c.comm ?? ""], ["スキルレベル", c.skill_level ?? ""]],
+            // #372②：日本語・コミュ力・スキルレベルの欄は使っていないため削除。
             [["所属", company]],
-            [["連絡先", c.email ?? c.contact_email ?? ""]],
+            // #372②：本人メールは表示しない（連絡先は所属経由の contact_email のみ）。紹介メール送信は従来どおり。
+            [["連絡先", c.contact_email ?? ""]],
           ];
           return rows.map((row, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`, gap: 12, padding: "9px 0", borderBottom: "1px solid var(--color-border)" }}>

@@ -8,7 +8,7 @@
 //     から一括で提案ボードに記録できる（おすすめTOP50・ランキング100 共通）。
 
 import Link from "@/components/AppLink";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { RankedPair } from "@/lib/ranking100";
 import { recordProposal, hidePairs } from "@/lib/actions";
@@ -196,7 +196,8 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                       <Link href={`/jobs/${r.job.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{r.job.title}</Link>
                       <span className="mono muted" style={{ fontSize: 10, fontWeight: 400 }}>No.{String(r.job.job_no).padStart(5, "0")}</span>
                     </div>
-                    <div className="muted" style={{ fontSize: 11 }}>{[r.job.client_name, salaryLabel(r.job.salary_min, r.job.salary_max)].filter(Boolean).join(" · ")}</div>
+                    {/* #375：勤務形態を追加表示（不明なら出さない）。 */}
+                    <div className="muted" style={{ fontSize: 11 }}>{[r.job.client_name, salaryLabel(r.job.salary_min, r.job.salary_max), r.job.remote_type ? remoteLabel(r.job.remote_type) : null].filter(Boolean).join(" · ")}</div>
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)" }}>
                     <div style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -205,6 +206,10 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                       {r.proposed && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0" }}>✓ 提案済み</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11 }}>{[r.cand.title, r.cand.company, r.cand.rate].filter(Boolean).join(" · ")}</div>
+                    {/* #375：年代・居住地・リモート希望を追加表示（空欄の項目は出さない・全部空なら行ごと出さない）。 */}
+                    {[r.cand.age_band, r.cand.location, r.cand.remote_pref].some(Boolean) && (
+                      <div className="muted" style={{ fontSize: 11 }}>{[r.cand.age_band, r.cand.location, r.cand.remote_pref].filter(Boolean).join(" · ")}</div>
+                    )}
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)" }}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -213,8 +218,10 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                     </div>
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {/* #371：提案画面は別タブで開く（ランキングの閲覧位置を保ったまま提案できるように）。 */}
                     <Link href={`/matching?job=${r.job.job_no}&cand=${r.cand.candidate_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}
-                      title="このペアでマッチング画面（提案）を開く">→ 提案画面</Link>
+                      target="_blank" rel="noopener noreferrer"
+                      title="このペアでマッチング画面（提案）を別タブで開く">→ 提案画面</Link>
                   </td>
                 </tr>
               ))}
@@ -274,14 +281,12 @@ function Spinner({ size = 16, color }: { size?: number; color?: string }) {
 
 function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: boolean; onClose: () => void }) {
   const router = useRouter();
-  const [navigating, startNav] = useTransition();
   const [showPreview, setShowPreview] = useState(false);
   const [hiding, setHiding] = useState(false);
 
-  // 「提案画面へ」：このペアの提案画面（/matching?job=…&cand=…）へ遷移する。
-  //   遷移中はローディングを出して反応を明示（要望：押されたら反応がわかるように）。
+  // #371：「提案画面へ」は別タブで開く（ランキング画面に戻る手間をなくす）。
   const goPropose = () => {
-    startNav(() => { router.push(`/matching?job=${p.job.job_no}&cand=${p.cand.candidate_no}`); });
+    window.open(`/matching?job=${p.job.job_no}&cand=${p.cand.candidate_no}`, "_blank", "noopener,noreferrer");
   };
 
   // #345①：このペアを「表示させない」（おすすめ/ランキングから恒久除外）。
@@ -319,7 +324,7 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
               </h3>
             </div>
           </div>
-          <button className="btn ghost btn-xs" onClick={onClose} disabled={navigating}>閉じる</button>
+          <button className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
         </div>
 
         {/* 要確認事項（中・低ランクの根拠）。高ランクは表示しない。 */}
@@ -437,20 +442,18 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
         {/* 提案アクション：下部固定フッター（要望対応：ボタンは下・常時見える位置に）。
             大きな「提案画面へ」ボタン＋送信文プレビュー。モバイルは縦積み・全幅（r100-drawer-actions）。 */}
         <div className="r100-drawer-actions" style={{ borderTop: "1px solid var(--color-border)", padding: 14, flex: "0 0 auto", background: "var(--color-surface)" }}>
-          <button type="button" className="btn brand" onClick={goPropose} disabled={navigating}
+          <button type="button" className="btn brand" onClick={goPropose}
             style={{ fontSize: 15, fontWeight: 800, padding: "12px 26px", borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 14px rgba(0,149,217,.28)" }}
-            title="このペアの提案画面を開いて提案します">
-            {navigating
-              ? <><Spinner size={20} color="#fff" /> 提案画面を開いています…</>
-              : <><span className="material-symbols-outlined" style={{ fontSize: 20, verticalAlign: "-4px" }}>send</span> この人材を提案する（提案画面へ）</>}
+            title="このペアの提案画面を別タブで開きます">
+            <span className="material-symbols-outlined" style={{ fontSize: 20, verticalAlign: "-4px" }}>send</span> この人材を提案する（提案画面へ）
           </button>
-          <button type="button" className="btn ghost" onClick={() => setShowPreview((v) => !v)} disabled={navigating}
+          <button type="button" className="btn ghost" onClick={() => setShowPreview((v) => !v)}
             style={{ fontWeight: 700 }}
             title="実際に送信する提案メールの文面（案件側・人材側）をプレビューします">
             <span className="material-symbols-outlined" style={{ fontSize: 18, verticalAlign: "-4px" }}>{showPreview ? "visibility_off" : "visibility"}</span> {showPreview ? "プレビューを閉じる" : "送信文プレビュー"}
           </button>
           {/* #345①：このペアをランキングから恒久的に非表示にする。 */}
-          <button type="button" className="btn ghost" onClick={doHide} disabled={hiding || navigating}
+          <button type="button" className="btn ghost" onClick={doHide} disabled={hiding}
             style={{ fontWeight: 700, color: "var(--color-ink-3)" }}
             title="このペアを今後ランキングに表示しないようにします（期間に関係なく除外・共有）">
             {hiding
