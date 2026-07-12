@@ -108,9 +108,11 @@ export async function sendChatMessage(input: {
       { sender_id: null },
     ];
     let error: any = null;
+    let insertedId: string | null = null;
     for (const extra of attempts) {
-      ({ error } = await admin.from("chat_messages").insert({ ...baseRow, ...extra }));
-      if (!error) break;
+      const r = await admin.from("chat_messages").insert({ ...baseRow, ...extra }).select("id").maybeSingle();
+      error = r.error;
+      if (!error) { insertedId = (r.data as any)?.id ?? null; break; }
       // フォールバックで解消しうるエラー(sender_id 型 / sender_kind 列)以外は即中断して報告。
       if (!/uuid|invalid input syntax|sender_id|sender_kind|column .* does not exist/i.test(error.message ?? "")) break;
     }
@@ -120,6 +122,31 @@ export async function sendChatMessage(input: {
         return { ok: false, error: `チャットの送信に失敗しました：${error.message}\n中央Supabaseで supabase/chat-fix.sql を実行してください（権限/列/ポリシー未適用の可能性）。` };
       }
       return { ok: false, error: error.message };
+    }
+
+    // #370②：フリーランスへのメール通知。dx は enger.chat_messages へ直接 INSERT するため、
+    //   enger.jp(LP) 側の「APIフック」「Supabase DB Webhook」「cronスイープ」のいずれにも
+    //   確実には拾われない（Webhook は手動設定・Vercel Cron はプラン制限あり）。
+    //   → 送信成功のたびに LP の通知フック /api/hooks/chat-message-created を dx から直接叩く。
+    //     フック側が「送信者=エンジニア本人か」「notify_chat_email のオプトアウト」を判定し、
+    //     notified_at を刻むのでスイープ/Webhook と二重送信にもならない（冪等）。
+    //   必要な環境変数: ENGER_LP_HOOK_SECRET（enger-lp の STAFF_API_TOKEN と同じ値）。
+    //   未設定ならスキップ（送信自体は成功のまま）。await で完了を待つ＝serverless でも確実に飛ぶ。
+    if (role !== "freelance") {
+      try {
+        const secret = process.env.ENGER_LP_HOOK_SECRET || "";
+        if (secret) {
+          const hookUrl = process.env.ENGER_LP_NOTIFY_URL || "https://enger.jp/api/hooks/chat-message-created";
+          const res = await fetch(hookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-hook-secret": secret },
+            body: JSON.stringify({ record: { id: insertedId, thread_id: input.thread_id, sender_id, body } }),
+          });
+          if (!res.ok) console.error(`[chat] LP notify hook HTTP ${res.status}`);
+        } else {
+          console.warn("[chat] ENGER_LP_HOOK_SECRET 未設定のためメール通知フックをスキップ");
+        }
+      } catch (e) { console.error("[chat] LP notify hook failed", e); }
     }
 
     // 送った本人(agent)は読んだ扱いにする（既読列が uuid 型だと email で失敗するため、失敗は無視）。
