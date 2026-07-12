@@ -57,10 +57,13 @@ const SIGNUP_SOURCE_OPTIONS = [
   { value: "line", label: "LINE登録" },
   { value: "line_works", label: "LINE WORKS" },
   { value: "enger", label: "ENGERフリーランス" },
+  { value: "coo", label: "右腕COO" },
   { value: "normal", label: "通常（CSV/手動/メール）" },
 ];
 // ENGERフリーランス(LP)由来とみなす signup_source の値（保存揺れを吸収）。
 const ENGER_SOURCES = ["enger", "enger_lp", "engerjp"];
+// 右腕COO(coo.enger.jp)由来の signup_source（エージェント承認取込 coo_import_talent_entry が付与）。
+const COO_SOURCE = "coo_enger_jp";
 // リモート希望（自由テキスト）を 3 区分に正規化したフィルタ。
 // value はカテゴリキー、label は表示テキスト。実データは ilike バケットで判定（下記 applyRemote）。
 // ※ 分類の優先順位は PeopleTable.remotePrefLabel と必ず一致させること。
@@ -264,7 +267,8 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
           if (withSourceCsv) parts.push("source_csv.ilike.freelance");
           qb = qb.or(parts.join(","));
         }
-        else if (fSignupSource === "normal") qb = qb.or(`signup_source.is.null,and(signup_source.neq.line,signup_source.neq.line_works,signup_source.not.in.(${ENGER_SOURCES.join(",")}))`);
+        else if (fSignupSource === "coo") qb = qb.eq("signup_source", COO_SOURCE);
+        else if (fSignupSource === "normal") qb = qb.or(`signup_source.is.null,and(signup_source.neq.line,signup_source.neq.line_works,signup_source.neq.${COO_SOURCE},signup_source.not.in.(${ENGER_SOURCES.join(",")}))`);
         // リモート希望は自由テキストのため ilike バケットで判定（PeopleTable.remotePrefLabel と同じ優先順位）
         if (fRemote === "remote") {
           qb = qb.ilike("remote_pref", "%フル%");

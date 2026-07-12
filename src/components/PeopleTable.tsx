@@ -16,7 +16,7 @@ import { CandidateSkillsToolsEditor } from "./CandidateSkillsToolsEditor";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
-import { isEngerFreelance } from "@/lib/candidate-source";
+import { isEngerFreelance, isCooTalent } from "@/lib/candidate-source";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
@@ -152,6 +152,8 @@ const PEOPLE_COLS: Col[] = [
       const sub = p.affiliation || "";
       // #257-1：登録元バッジは常時表示（所属会社の入力と両立・消さない）。
       const isEnger = isEngerFreelance(p);
+      // 右腕COO(coo.enger.jp)からのエージェント承認取込（signup_source='coo_enger_jp'）。
+      const isCoo = isCooTalent(p);
       return (
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <div className="ava">{p.initials || (p.name ?? "?").charAt(0)}</div>
@@ -164,7 +166,11 @@ const PEOPLE_COLS: Col[] = [
             </div>
             {/* ENGERフリーランス(LP)登録は名前の下に水色マークで識別できるようにする（LINEと同様）。
                 #257-2：改行で2行にならないよう nowrap＋フォント縮小で1行に収める。 */}
-            {isEnger && (
+            {isCoo ? (
+              <div style={{ marginTop: 2 }}>
+                <span title="右腕COO（coo.enger.jp）から登録" style={{ display: "inline-flex", alignItems: "center", whiteSpace: "nowrap", fontSize: 9, fontWeight: 700, lineHeight: 1.5, padding: "1px 6px", borderRadius: 99, background: "#f3e8ff", color: "#6d28d9", border: "1px solid #ddd6fe" }}>右腕COO</span>
+              </div>
+            ) : isEnger && (
               <div style={{ marginTop: 2 }}>
                 <span title="ENGERフリーランス（LP）から登録" style={{ display: "inline-flex", alignItems: "center", whiteSpace: "nowrap", fontSize: 9, fontWeight: 700, lineHeight: 1.5, padding: "1px 6px", borderRadius: 99, background: "#e6f4fb", color: "#0b5cab", border: "1px solid #bfe3f5" }}>ENGERフリーランス</span>
               </div>
