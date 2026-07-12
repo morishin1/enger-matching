@@ -962,7 +962,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
         {detail.bio && <div style={{ fontSize: 12, color: "var(--color-ink-2)", lineHeight: 1.7, whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", padding: "8px 11px", borderRadius: 8 }}>{detail.bio}</div>}
 
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11, color: "var(--color-ink-4)" }}>
-          <span>想定単価レンジ：{detail.estimated_pay_low ?? "—"}〜{detail.estimated_pay_high ?? "—"}万</span>
+          {/* #372②：本人がプロフィールで入力した希望単価（enger.jp の 希望単価 下限/上限）を表示するため呼称を変更。 */}
+          <span>希望単価：{detail.estimated_pay_low ?? "—"}〜{detail.estimated_pay_high ?? "—"}万</span>
           <span>登録日：{detail.created_at ? new Date(detail.created_at).toLocaleDateString("ja-JP") : "—"}</span>
           {detail.last_login_at && <span>最終ログイン：{new Date(detail.last_login_at).toLocaleDateString("ja-JP")}</span>}
         </div>

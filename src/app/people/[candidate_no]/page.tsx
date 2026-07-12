@@ -159,9 +159,10 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
             [["年齢（年代）", c.age_band ?? ""], ["国籍", c.nationality ? <NatBadge value={c.nationality} /> : ""]],
             [["稼働開始予定日", c.avail ?? ""], ["リモート希望", c.remote_pref ?? ""], ["経験", expVal]],
             [["勤務地", c.location ?? ""], ["居住地", c.residence ?? ""]],
-            [["日本語", c.japanese_level ?? ""], ["コミュ力", c.comm ?? ""], ["スキルレベル", c.skill_level ?? ""]],
+            // #372②：日本語・コミュ力・スキルレベルの欄は使っていないため削除。
             [["所属", company]],
-            [["連絡先", c.email ?? c.contact_email ?? ""]],
+            // #372②：本人メールは表示しない（連絡先は所属経由の contact_email のみ）。紹介メール送信は従来どおり。
+            [["連絡先", c.contact_email ?? ""]],
           ];
           return rows.map((row, i) => (
             <div key={i} style={{ display: "grid", gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`, gap: 12, padding: "9px 0", borderBottom: "1px solid var(--color-border)" }}>
