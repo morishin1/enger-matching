@@ -5,8 +5,8 @@ import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { updateProposalStage, convertToEngagement, updateProposalFields, requestProposalDeletion } from "@/lib/actions";
 import { toast } from "./toast";
-import { NotifyDot } from "./NotifyDot";
 import { ActionChips } from "./ProposalActionChip";
+import { progressDisplay } from "@/lib/proposal-progress";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 import { Icons } from "./icons";
 
@@ -184,10 +184,12 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
           <span style={{ flexShrink: 0 }}>
             <ActionChips jobType={p.job_action_type} candType={p.cand_action_type} compact />
           </span>
-          <span style={{ flexShrink: 0, display: "inline-flex", gap: 3, alignItems: "center" }} title="通知ステータス（左:案件 / 右:人材）">
-            <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={8} />
-            <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={8} />
-          </span>
+          {/* #341④：通知ステータスは削除し、進捗状況を表示。 */}
+          {(() => { const pg = progressDisplay(p); return (
+            <span title={`進捗状況：${pg.text}`} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3, fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: pg.tone.bg, color: pg.tone.fg, border: `1px solid ${pg.tone.bd}`, whiteSpace: "nowrap" }}>
+              {pg.status}
+            </span>
+          ); })()}
           <span style={{ flexShrink: 0, display: "inline-flex", gap: 2, alignItems: "center" }}>
             <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onOpen?.()} title="編集（詳細を開く）" style={{ padding: "2px 4px", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit</span></button>
             <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => onDelete(p.id)} title="削除" style={{ padding: "2px 4px", color: "var(--color-danger)", display: "inline-flex", alignItems: "center" }}><span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span></button>
@@ -195,7 +197,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
         </div>
       ) : (
         <>
-          {/* 登録元バッジ（固定色・アイコン）＋通知ドット（案件/人材） */}
+          {/* 登録元バッジ（固定色・アイコン）＋進捗状況（#341④：通知ドットは削除し進捗状況を表示） */}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
             {src ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: `${src.color}1a`, color: src.color, border: `1px solid ${src.color}55` }}>
@@ -207,10 +209,11 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             {p.lp_direct && (
               <span title="エンジニアがLP（enger.jp）から直接応募した提案" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc" }}>📥 LP直接応募</span>
             )}
-            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4, alignItems: "center" }} title="左:案件側 / 右:人材側 通知ステータス（赤=未処理）">
-              <NotifyDot status={p.job_notify_status} side="job" proposalId={p.id} size={9} />
-              <NotifyDot status={p.cand_notify_status} side="cand" proposalId={p.id} size={9} />
-            </span>
+            {(() => { const pg = progressDisplay(p); return (
+              <span title="進捗状況（マッチングレコード詳細で変更）" style={{ marginLeft: "auto", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: pg.tone.bg, color: pg.tone.fg, border: `1px solid ${pg.tone.bd}`, whiteSpace: "nowrap" }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>{pg.icon}</span>{pg.status}
+              </span>
+            ); })()}
           </div>
           <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.4, marginBottom: 3 }}>
             {p.job_line && <span title="LINE経由の案件" style={{ lineHeight: 0, verticalAlign: "-2px", marginRight: 3, display: "inline-flex" }}><Icons.line size={14} /></span>}

@@ -12,6 +12,16 @@ export type ProposalOwners = { proposers: string[]; closers: string[] };
 const trimUniq = (xs: any[]): string[] =>
   Array.from(new Set((xs ?? []).map((x) => String(x ?? "").trim()).filter(Boolean)));
 
+// #338：名前のみメンバー（提案者）を個人KGI(person_kgi)のキーにするための合成 owner_email。
+//   実メールは "@" を含むため衝突しない。保存側(persistKgi)は "name:" 接頭辞のとき
+//   アカウントマスタ照合をスキップし、名前だけで個人KGIを保存できるようにする。
+export function proposerMemberEmail(name: string): string {
+  return "name:" + String(name ?? "").trim().toLowerCase();
+}
+export function isProposerMemberEmail(email: string | null | undefined): boolean {
+  return /^name:/i.test(String(email ?? ""));
+}
+
 /** 提案者・クロージングの選択肢を読み込み（未設定は null を返してフォールバックさせる）。 */
 export async function loadProposalOwners(): Promise<ProposalOwners | null> {
   if (!dbConfigured) return null;

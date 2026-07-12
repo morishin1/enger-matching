@@ -12,7 +12,7 @@ import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
 import { gmailMessageUrl } from "./gmail";
 import { logActivity, logProposalActivity } from "./activity-logs";
 import {
-  bustCounts, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
+  bustCounts, bustRankingCaches, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
   listApproverNames, initialsOf, normKey,
 } from "./actions/_shared";
 import { callLLM, parseJsonLoose } from "./llm";
@@ -30,7 +30,8 @@ export type CandidateInput = {
   rate?: string | null;
   rate_num?: number | null;
   avail?: string | null;
-  location?: string | null;
+  location?: string | null;        // 最寄駅
+  residence?: string | null;       // 居住地（最寄駅とは別。#330④）
   exp?: string | null;
   status?: string | null;
   remote_pref?: string | null;     // リモート希望（マッチングのリモート評価に使用）
@@ -40,7 +41,8 @@ export type CandidateInput = {
   skill_level?: string | null;     // スキルレベル
   japanese_level?: string | null;  // 日本語レベル
   comm?: string | null;            // コミュニケーション力
-  note?: string | null;            // 備考
+  note?: string | null;            // メール原文（旧「備考」。#347④）
+  detail_note?: string | null;     // 人材詳細（メール原文とは別の整形メモ。#347⑤）
   skill_sheet_url?: string | null;
   email?: string | null;          // 人材本人の連絡先（あれば）
   contact_email?: string | null;  // 所属(SES)窓口＝元メールの送信元
@@ -74,15 +76,18 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       rate_num: r.rate_num ?? null,
       avail: r.avail?.trim() || null,
       location: r.location?.trim() || null,
+      residence: (r as any).residence?.trim() || null, // #347/#330：居住地
       exp: r.exp?.trim() || null,
       status: r.status?.trim() || "提案可",
       remote_pref: r.remote_pref?.trim() || null,
       age_band: r.age_band?.trim() || null,
       nationality: r.nationality?.trim() || null,
+      rank: (r as any).rank?.trim() || null, // #347：CSVの「ランク」列を取り込む
       skill_level: r.skill_level?.trim() || null,
       japanese_level: r.japanese_level?.trim() || null,
       comm: r.comm?.trim() || null,
-      note: r.note?.trim() || null,
+      note: r.note?.trim() || null,                      // #347④：メール原文（旧「備考」）
+      detail_note: (r as any).detail_note?.trim() || null, // #347⑤：人材詳細
       skill_sheet_url: r.skill_sheet_url?.trim() || null,
       email: r.email?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
@@ -133,7 +138,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const stillFresh: typeof rows = [];
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
     const mergedRows: any[] = [];
-    const FILL = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
+    const FILL = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "residence", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
     for (const r of rows) {
       const nk = normKey(r.name);
       const ex = nk ? byName.get(nk) : null;
@@ -165,7 +170,7 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
         let { error, count } = await admin.from("candidates").upsert(slice, { onConflict: "id", count: "exact" });
         if (error && /column/i.test(error.message)) {
           // 未整備列がある環境はその列を外して再試行
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete o[k]; return o; });
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete o[k]; return o; });
           ({ error, count } = await admin.from("candidates").upsert(stripped, { onConflict: "id", count: "exact" }));
         }
         if (!error) mergedCount += count ?? slice.length;
@@ -191,8 +196,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
     // 追加列（skill_sheet_url/email/remote_pref/age_band/operator 等）が未整備でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|operator|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "operator"]) delete o[k]; return o; });
+    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|detail_note|residence|operator|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "operator"]) delete o[k]; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -541,6 +546,30 @@ const PROPOSED_REACHED_STAGES = new Set([
   "提案済", "返信待ち", "返信あり", "面談調整", "クロージング中", "面談合格",
 ]);
 
+// #333：提案管理の該当マッチングレコードをモーダルで開くための単体取得。
+//   /proposals?open=<id> のディープリンクから、ボードに載っていない（見送り/稼働等の）レコードも
+//   開けるようにする。案件/人材の番号・クローズ状態も併せて解決してモーダル表示に足る形で返す。
+export async function getProposalForModal(id: string) {
+  if (!id) return null;
+  // 社内(admin/agent/manager/leader)のみ。テナント(client/partner/freelance)には返さない。
+  const me = await currentAccess();
+  if (!me || ["client", "partner", "freelance"].includes(String(me.role))) return null;
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return null; }
+  const pr: any = await admin.from("proposals").select("*").eq("id", id).maybeSingle();
+  if (pr.error || !pr.data) return null;
+  const p = pr.data as Record<string, any>;
+  if (p.job_id) {
+    const jr: any = await admin.from("jobs").select("job_no, is_closed").eq("id", p.job_id).maybeSingle();
+    if (jr.data) { p.job_no = jr.data.job_no; p.job_closed = jr.data.is_closed; }
+  }
+  if (p.candidate_id) {
+    const cr: any = await admin.from("candidates").select("candidate_no, is_closed, initials, source_company, company").eq("id", p.candidate_id).maybeSingle();
+    if (cr.data) { p.candidate_no = cr.data.candidate_no; p.cand_closed = cr.data.is_closed; p.c_init = cr.data.initials; }
+  }
+  return p;
+}
+
 export async function updateProposalFields(id: string, fields: Record<string, any>) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
@@ -556,10 +585,13 @@ export async function updateProposalFields(id: string, fields: Record<string, an
     // 失注時の★評価（proposals-lost-rating-delete.sql）
     "cand_rating", "job_rating",
     // #291：見送り/失注になる直前のステージ（proposals-pre-lost-stage.sql）。「提案ボードに戻す」で復元に使う。
-    "pre_lost_stage"];
-  // 上記のうち proposals-contacts.sql / proposals-lost-rating-delete.sql / proposals-pre-lost-stage.sql
-  // 未適用の環境で存在しない可能性がある列。書込みで「column ... does not exist」になったら列を外して再試行する。
-  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact", "cand_rating", "job_rating", "pre_lost_stage"];
+    "pre_lost_stage",
+    // #334①：進捗状況（返事待ちの別・未処理）＋その最終更新日（proposals-progress-status.sql）。
+    "progress_status", "progress_updated_at"];
+  // 上記のうち proposals-contacts.sql / proposals-lost-rating-delete.sql / proposals-pre-lost-stage.sql /
+  // proposals-progress-status.sql 未適用の環境で存在しない可能性がある列。書込みで
+  // 「column ... does not exist」になったら列を外して再試行する。
+  const optionalCols = ["company_contact", "cand_company", "cand_company_contact", "cand_contact", "cand_rating", "job_rating", "pre_lost_stage", "progress_status", "progress_updated_at"];
   const now = new Date().toISOString();
   const patch: Record<string, any> = { updated_at: now };
   for (const k of allowed) if (k in fields) patch[k] = fields[k];
@@ -747,6 +779,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
 
     revalidatePath("/proposals");
     revalidatePath("/matching");
+    bustRankingCaches(); // 提案済みペアをおすすめ/ランキングから即時に外す
     bustCounts();
     return { ok: true, id: dupId, existed: true };
   }
@@ -836,6 +869,7 @@ export async function createProposal(jobNo: number, candNo: number, score?: numb
   }
   revalidatePath("/proposals");
   revalidatePath("/matching");
+  bustRankingCaches(); // 提案済みペアをおすすめ/ランキングから即時に外す
   bustCounts();
   return { ok: true, id: data.id, existed: false, job_action_token, cand_action_token };
 }
@@ -868,7 +902,7 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
       if (!candTok) { candTok = randomBytes(24).toString("hex"); upd.cand_action_token = candTok; upd.cand_action_type = "未回答"; }
       try { await admin.from("proposals").update(upd).eq("id", dups[0].id); } catch { /* 列未整備でも fail-soft */ }
     }
-    revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
+    revalidatePath("/proposals"); revalidatePath("/matching"); bustRankingCaches(); bustCounts();
     return { ok: true, id: dups[0].id, existed: true, job_action_token: jobTok, cand_action_token: candTok };
   }
 
@@ -917,10 +951,53 @@ export async function recordProposal(jobNo: number, candNo: number, score?: numb
     ins = await admin.from("proposals").insert(insertBase).select("id").single();
   }
   if (ins.error) return { ok: false, error: ins.error.message };
-  revalidatePath("/proposals"); revalidatePath("/matching"); bustCounts();
+  revalidatePath("/proposals"); revalidatePath("/matching"); bustRankingCaches(); bustCounts();
   // メール送信モーダルで再利用するため、生成したトークンを呼び出し側へ返す。
   // 返さないと、後段のメールに焼き込むトークンが DB と一致せず「リンク切れ」になる。
   return { ok: true, id: ins.data?.id ?? null, existed: false, job_action_token, cand_action_token };
+}
+
+// ────────────────────────────────────────────────────────
+// #345①：マッチングの「このペアは表示させない」（案件×人材の恒久非表示）
+// ────────────────────────────────────────────────────────
+
+/** 指定した (案件No × 人材No) のペアをおすすめ／ランキング100から恒久的に非表示にする。
+ *   期間に関係なく除外され、他の担当が再度確認しなくてよくするための共有リスト。 */
+export async function hidePairs(pairs: { jobNo: number; candNo: number }[]) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const clean = (pairs ?? [])
+    .map((p) => ({ job_no: Number(p.jobNo), candidate_no: Number(p.candNo) }))
+    .filter((p) => Number.isFinite(p.job_no) && Number.isFinite(p.candidate_no));
+  if (clean.length === 0) return { ok: false as const, error: "対象のペアがありません" };
+  let by_email: string | null = null, by_name: string | null = null;
+  try { const a = await currentAccess(); by_email = a?.email ?? null; by_name = a?.name ?? null; } catch { /* 未ログインでも続行 */ }
+  const rows = clean.map((p) => ({ ...p, hidden_by_email: by_email, hidden_by_name: by_name }));
+  let { error } = await admin.from("hidden_pairs").upsert(rows, { onConflict: "job_no,candidate_no", ignoreDuplicates: true });
+  // hidden_by_* 列が無い旧環境でも保存できるようフォールバック
+  if (error && /hidden_by|column/i.test(error.message)) {
+    ({ error } = await admin.from("hidden_pairs").upsert(clean, { onConflict: "job_no,candidate_no", ignoreDuplicates: true }));
+  }
+  if (error) {
+    if (/hidden_pairs|relation|does not exist|schema cache/i.test(error.message)) {
+      return { ok: false as const, error: "非表示テーブルが未整備です（supabase/hidden-pairs.sql を実行してください）" };
+    }
+    return { ok: false as const, error: error.message };
+  }
+  bustRankingCaches(); // 非表示ペアをおすすめ/ランキングから即時に外す
+  revalidatePath("/matching");
+  return { ok: true as const, hidden: clean.length };
+}
+
+/** 非表示にしたペアを元に戻す（再びランキングに出す）。 */
+export async function unhidePair(jobNo: number, candNo: number) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const { error } = await admin.from("hidden_pairs").delete().eq("job_no", Number(jobNo)).eq("candidate_no", Number(candNo));
+  if (error) return { ok: false as const, error: error.message };
+  bustRankingCaches();
+  revalidatePath("/matching");
+  return { ok: true as const };
 }
 
 /** 既存提案のレスポンストークン（job_action_token / cand_action_token）を取得。
@@ -2359,7 +2436,8 @@ export type JobInput = {
   flow_note?: string | null;
   work_location?: string | null;
   start_date?: string | null;
-  detail?: string | null;
+  detail?: string | null;         // 取込メール原文（ドロワーでは「メール原文」として表示）
+  detail_note?: string | null;    // #331⑧：手入力の案件詳細（メール原文とは別の整形メモ）
   status?: string | null;
   contact_name?: string | null;   // 案件窓口の担当者名
   contact_email?: string | null;  // 案件窓口＝元メールの送信元（返信先）
@@ -2393,6 +2471,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
       work_location: r.work_location?.trim() || null,
       start_date: r.start_date || null,
       detail: r.detail?.trim() || null,
+      detail_note: r.detail_note?.trim() || null, // #344：CSVの「案件詳細」列（メール原文=detailとは別）
       status: r.status?.trim() || "募集中",
       contact_name: r.contact_name?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
@@ -2431,7 +2510,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     } catch { /* 取得失敗時は通常のINSERTパスへ */ }
 
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
-    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
+    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "detail_note", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
     const mergedRows: any[] = [];
     for (const r of rows) {
       const k = tk(r.title, r.client_name);
@@ -2461,7 +2540,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
         const slice = mergedRows.slice(i, i + UB);
         let { error, count } = await admin.from("jobs").upsert(slice, { onConflict: "id", count: "exact" });
         if (error && /column/i.test(error.message)) {
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator"]) delete o[k2]; return o; });
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note"]) delete o[k2]; return o; });
           ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "id", count: "exact" }));
         }
         if (!error) merged += count ?? slice.length;
@@ -2476,9 +2555,9 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     let { error, count } = await admin
       .from("jobs")
       .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
-    // contact_email / source_mail_url / operator 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /contact_email|contact_name|source_mail_url|operator|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; delete o.operator; return o; });
+    // contact_email / source_mail_url / operator / detail_note 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /contact_email|contact_name|source_mail_url|operator|detail_note|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; delete o.operator; delete o.detail_note; return o; });
       ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -2665,6 +2744,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     work_location: rec.work_location?.trim() || null,
     start_date: rec.start_date || null,
     detail: rec.detail?.trim() || null,
+    detail_note: rec.detail_note?.trim() || null, // #344：手入力の案件詳細（メール原文=detailとは別）
     status: rec.status?.trim() || "募集中",
     contact_name: rec.contact_name?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
@@ -2679,7 +2759,7 @@ export async function upsertJobManual(rec: JobInput, opts?: { updatePolicy?: Upd
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; delete c.signup_source; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.source_mail_url; delete c.source_mail_at; delete c.operator; delete c.owner_company; delete c.signup_source; delete c.detail_note; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   // 既存案件を更新・再公開する（複数ヒット時は最若番を採用）
   const updateExisting = async (id: string, jobNo: number, wasPublished: boolean) => {
@@ -2772,6 +2852,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     rate_num: rec.rate_num ?? null,
     avail: rec.avail?.trim() || null,
     location: rec.location?.trim() || null,
+    residence: (rec as any).residence?.trim() || null, // #347/#330：居住地
     exp: rec.exp?.trim() || null,
     status: rec.status?.trim() || "提案可",
     remote_pref: rec.remote_pref?.trim() || null,
@@ -2779,7 +2860,8 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     age_band: rec.age_band?.trim() || null,
     nationality: rec.nationality?.trim() || null,
     rank: (rec as any).rank?.trim() || null,
-    note: rec.note?.trim() || null,
+    note: rec.note?.trim() || null,                      // #347④：メール原文
+    detail_note: (rec as any).detail_note?.trim() || null, // #347⑤：人材詳細
     skill_sheet_url: rec.skill_sheet_url?.trim() || null,
     email: rec.email?.trim() || null,
     contact_email: rec.contact_email?.trim() || null,
@@ -2795,7 +2877,7 @@ export async function upsertCandidateManual(rec: CandidateInput, opts?: { update
     imported_at: now,
   };
 
-  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.contact_name; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; return c; };
+  const stripCols = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.contact_name; delete c.source_mail_url; delete c.source_mail_subject; delete c.source_mail_at; delete c.skill_sheet_url; delete c.operator; delete c.owner_company; delete c.remote_pref; delete c.signup_source; delete c.age_band; delete c.nationality; delete c.rank; delete c.note; delete c.detail_note; delete c.residence; return c; };
   const policy: UpdatePolicy = opts?.updatePolicy ?? "full";
   const updateExisting = async (id: string, candidateNo: number) => {
     if (policy === "skip") return { ok: true as const, action: "skipped" as const, candidate_no: candidateNo };
@@ -2977,12 +3059,14 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.rate !== undefined) { const r = trim(fields.rate); row.rate = r; if (r) { const n = Number((r.match(/\d+/g) ?? []).map(Number).filter((x) => x > 0)[0]); if (Number.isFinite(n)) row.rate_num = n; } }
   if (fields.avail !== undefined) row.avail = trim(fields.avail);
   if (fields.location !== undefined) row.location = trim(fields.location);
+  if ((fields as any).residence !== undefined) row.residence = trim((fields as any).residence); // #330④：居住地
   if (fields.remote_pref !== undefined) row.remote_pref = trim(fields.remote_pref);
   if (fields.nationality !== undefined) row.nationality = trim(fields.nationality);
   if (fields.age_band !== undefined) row.age_band = trim(fields.age_band);
   if (fields.exp !== undefined) row.exp = trim(fields.exp);
   if (fields.status !== undefined) row.status = trim(fields.status);
-  if (fields.note !== undefined) row.note = trim(fields.note); // #276③：人材詳細の備考欄（インライン編集）
+  if (fields.note !== undefined) row.note = trim(fields.note); // #347④：メール原文（旧「備考」）
+  if ((fields as any).detail_note !== undefined) row.detail_note = trim((fields as any).detail_note); // #347⑤：人材詳細（メール原文とは別の整形メモ）
   if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
   if ((fields as any).email !== undefined) row.email = trim((fields as any).email);
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
@@ -2996,14 +3080,14 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
   // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; delete c.residence; delete c.detail_note; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がないテーブル定義 → タイムスタンプは省いて再試行
     r = await admin.from("candidates").update(withoutUpdatedAt(row)).eq("candidate_no", candidateNo);
   }
-  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|signup_source|tools|column/i.test(r.error.message)) {
+  if (r.error && /skill_sheet_url|email|source_mail_url|source_company|flow_depth|remote_pref|nationality|age_band|signup_source|tools|residence|detail_note|column/i.test(r.error.message)) {
     r = await admin.from("candidates").update(stripped(withoutUpdatedAt(row))).eq("candidate_no", candidateNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
@@ -3030,6 +3114,7 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
   if (fields.work_location !== undefined) row.work_location = trim(fields.work_location);
   if (fields.start_date !== undefined) row.start_date = fields.start_date || null;
   if (fields.detail !== undefined) row.detail = trim(fields.detail);
+  if ((fields as any).detail_note !== undefined) row.detail_note = trim((fields as any).detail_note);
   if (fields.status !== undefined) row.status = trim(fields.status);
   if ((fields as any).contact_name !== undefined) row.contact_name = trim((fields as any).contact_name);
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
@@ -3041,15 +3126,15 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
     row.accept_flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
   }
   if (fields.signup_source !== undefined) row.signup_source = trim(fields.signup_source);
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.nationality_requirement; delete c.source_mail_url; delete c.accept_flow_depth; delete c.signup_source; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.nationality_requirement; delete c.source_mail_url; delete c.accept_flow_depth; delete c.signup_source; delete c.detail_note; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がない旧スキーマ → タイムスタンプは省いて再試行
     r = await admin.from("jobs").update(withoutUpdatedAt(row)).eq("job_no", jobNo);
   }
-  // #310：nationality_requirement 列が未整備の環境でも保存が通るよう、任意列を外して再試行（fail-soft）。
-  if (r.error && /nationality_requirement|contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|column/i.test(r.error.message)) {
+  // #310/#331：nationality_requirement / detail_note 列が未整備の環境でも保存が通るよう、任意列を外して再試行（fail-soft）。
+  if (r.error && /nationality_requirement|contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|detail_note|column/i.test(r.error.message)) {
     r = await admin.from("jobs").update(stripped(withoutUpdatedAt(row))).eq("job_no", jobNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };

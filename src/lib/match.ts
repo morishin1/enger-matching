@@ -99,7 +99,8 @@ function remoteFit(jobRemote: string | null | undefined, candPref: string | null
 
 // ---- 単価 / マージン ----
 const rateNums = (rate?: string | null): number[] => (rate?.match(/\d+/g) ?? []).map(Number).filter((n) => n > 0 && n < 1000);
-function candRange(c: Candidate): { min: number | null; max: number | null } {
+/** 人材の希望単価レンジ（salary_min/max → rate 文字列の順で解決）。ranking100 の単価フィルタでも使用。 */
+export function candRange(c: Candidate): { min: number | null; max: number | null } {
   let min = c.salary_min ?? null;
   let max = c.salary_max ?? null;
   if (min == null || max == null) {
@@ -602,7 +603,7 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 //      例）案件上限70万 → 希望67万以下のみ対象、68万以上は除外。単価不明・上限不明のときは判定しない。
 // 案件テキストから年齢上限を抽出（"45歳まで/以下/以内" や "20〜45歳" → ageCap、
 //   "40代まで/以下" や "30〜40代" → decadeCap）。"以上/以降" などの下限指定は無視。
-function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number | null } {
+export function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number | null } {
   const text = [job.title, (job as any).role_label, (job as any).flow_note, (job as any).detail].filter(Boolean).join(" ");
   let ageCap: number | null = null;
   let decadeCap: number | null = null;
@@ -638,7 +639,7 @@ function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number 
 
 // 人材の年代グループから「年代（decade）」と「上限年齢（hi）」を返す。判定不能（不明）なら null。
 //   前半→decade+4 / 後半→decade+9 / 修飾なし→decade+9 を上限とする。
-function candAgeRange(c: Candidate): { decade: number; hi: number } | null {
+export function candAgeRange(c: Candidate): { decade: number; hi: number } | null {
   const b = String(c.age_band ?? "").trim();
   const m = b.match(/([1-9]0)\s*代/);
   if (m) {
@@ -688,6 +689,8 @@ function passesJobSideFilters(job: Job, c: Candidate): boolean {
 export function rankCandidates(job: Job, candidates: Candidate[], limit = 30) {
   const now = Date.now();
   const scored = candidates
+    // #345②：外国籍（確定）の人材はマッチング対象外（国籍不明・空欄は残す）。
+    .filter((c) => classifyCandNationality(c.nationality) !== "foreign")
     .map((c) => ({ candidate: c, ...scoreMatch(job, c) }))
     .filter((r) => !r.excluded)
     // 既存ロジックを通過した候補に、案件側の追加ルール（勤務形態・単価マージン）を適用。
@@ -748,6 +751,8 @@ function passesCandSideFilters(cand: Candidate, job: Job): boolean {
 
 /** 案件配列を 1 人材に対してスコアリングし降順に並べて返す */
 export function rankJobs(candidate: Candidate, jobs: Job[], limit = 30) {
+  // #345②：外国籍（確定）の人材は、どの案件ともマッチングしない（国籍不明・空欄は対象）。
+  if (classifyCandNationality(candidate.nationality) === "foreign") return [];
   return jobs
     .map((j) => ({ job: j, ...scoreMatch(j, candidate) }))
     .filter((r) => !r.excluded)

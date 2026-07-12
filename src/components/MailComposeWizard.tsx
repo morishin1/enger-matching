@@ -7,8 +7,12 @@ import { gmailMessageUrl, gmailSearchUrl } from "@/lib/gmail";
 import { createProposal, isProposerPrivileged, getProposalTokens, getProposalDraft, getSourceMailSubject } from "@/lib/actions";
 import { flowMatchMatrix, JOB_FLOW_LABEL, CAND_FLOW_LABEL } from "@/lib/flow";
 import { SendBothMailsButton } from "./SendBothMailsButton";
-import { JobMailBodyCard, buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail } from "./JobMailBodyCard";
-import { CandMailBodyCard, buildCandMailContent, buildCandMailSubject, LEGACY_CAND_SUBJECT } from "./CandMailBodyCard";
+import { JobMailBodyCard } from "./JobMailBodyCard";
+import { CandMailBodyCard } from "./CandMailBodyCard";
+import {
+  buildJobMailContent, buildJobMailSubject, BUTTON_PLACEHOLDER, extractReplyEmail,
+  buildCandMailContent, buildCandMailSubject, LEGACY_CAND_SUBJECT, buildButtonHtml,
+} from "@/lib/proposal-mail";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
 function generateToken(): string {
@@ -17,41 +21,8 @@ function generateToken(): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// 「話を進める／見送り」ボタンのHTML（メール埋め込み用）。
-//   ・ENGERのレインボーカラーの帯＋ピル型ボタンで、どのメールクライアントでも崩れにくい
-//     テーブル組み＋インラインスタイルで構成（bulletproof button）。
-//   ・アイコン：メールでは Material Symbols のフォント/SVGが使えない（Gmailが除去する）ため、
-//     check_circle / cancel と同じ見た目になる「丸地＋✓/✕」のテキストグリフで表現する。
-//   ・グラデ非対応クライアント向けに background-color のフォールバックを併記。
-function buildButtonHtml(siteUrl: string, token: string): string {
-  const agreeUrl  = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("話を進める")}`;
-  const rejectUrl = `${siteUrl}/respond?token=${token}&action=${encodeURIComponent("見送り")}`;
-  const rainbow = "linear-gradient(90deg,#e94141 0%,#f5a623 22%,#ffd93d 42%,#38c172 62%,#0095D9 82%,#7c3aed 100%)";
-  return `<div style="margin:20px 0 0;max-width:420px">
-  <div style="height:5px;border-radius:99px;background:#0095D9;background-image:${rainbow}"></div>
-  <div style="font-size:12.5px;color:#334155;font-weight:bold;margin:10px 0 10px">ご確認のうえ、いずれかをお選びください</div>
-  <table cellpadding="0" cellspacing="0" border="0" style="margin:0 0 10px">
-    <tr>
-      <td style="padding-right:12px">
-        <a href="${agreeUrl}" target="_blank"
-           style="display:inline-block;padding:13px 26px;background-color:#16a34a;background-image:linear-gradient(135deg,#16a34a,#0095D9);color:#ffffff;font-weight:bold;font-size:14px;border-radius:999px;text-decoration:none;box-shadow:0 3px 10px rgba(22,163,74,.35)">
-          <span style="display:inline-block;width:18px;height:18px;line-height:18px;background:#ffffff;color:#16a34a;border-radius:50%;text-align:center;font-size:12px;font-weight:bold;margin-right:8px;vertical-align:-3px">&#10003;</span>話を進める
-        </a>
-      </td>
-      <td>
-        <a href="${rejectUrl}" target="_blank"
-           style="display:inline-block;padding:11px 24px;background-color:#ffffff;color:#b42318;font-weight:bold;font-size:14px;border-radius:999px;text-decoration:none;border:2px solid #f2b8b5">
-          <span style="display:inline-block;width:18px;height:18px;line-height:18px;background:#b42318;color:#ffffff;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;margin-right:8px;vertical-align:-3px">&#10005;</span>見送り
-        </a>
-      </td>
-    </tr>
-  </table>
-  <div style="font-size:11px;color:#64748b;line-height:1.7">
-  こちらは料金は発生しません。<br>進捗があり次第、担当者よりご連絡させていただきます。
-  </div>
-  <div style="height:5px;border-radius:99px;background:#0095D9;background-image:${rainbow};margin-top:12px"></div>
-</div>`;
-}
+// 「話を進める／見送り」ボタンのHTML（メール埋め込み用）は @/lib/proposal-mail の
+//   buildButtonHtml に集約（サーバの予約配信と同一デザイン・同一URLを保証するため）。
 
 function StepBar({ current }: { current: 1 | 2 }) {
   const steps = ["メール作成", "確認"];

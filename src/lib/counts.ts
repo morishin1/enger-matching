@@ -24,10 +24,16 @@ async function fetchCounts(): Promise<SidebarCounts> {
     return safeCount(() => sb.from("companies").select("id", { count: "exact", head: true }));
   };
 
-  // エンジャー登録数（profiles＝LP/GitHub登録）。public スキーマのため service role で集計。
+  // エンジャー登録数（ENGERフリーランス）。
+  //   #345④：以前は profiles を粗い条件でCOUNTしており、一覧（listEngineers＝classifySource が
+  //   "enger" のもの・退会処理済み除外）より大きい数字が出ていた。一覧と同じ取得・同じ判定で
+  //   数えることで、タブの人数＝一覧に表示される人数に一致させる。
   const engineerCount = async (): Promise<number | undefined> => {
-    try { const pub = publicAdmin(); const { count, error } = await pub.from("profiles").select("id", { count: "exact", head: true }).or("github_id.not.is.null,display_name.not.is.null,role.eq.student").or("signup_source.is.null,signup_source.not.in.(lms,mugen_dojo,dojo)"); return error ? undefined : (count ?? undefined); }
-    catch { return undefined; }
+    try {
+      const { listEngineers } = await import("./engineers");
+      const { rows } = await listEngineers();
+      return rows.filter((r: any) => !r.withdrawal_completed_at).length;
+    } catch { return undefined; }
   };
   // 直近24時間の新着数（NEW マークの判定。マッチング配下タブ＋サイドバー）
   const since7 = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

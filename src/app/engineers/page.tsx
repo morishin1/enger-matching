@@ -45,8 +45,11 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
   const mCustom = hasCustomRange(sp.from, sp.to);
   const inPeriod = (d: string | null | undefined) =>
     mCustom ? inCustomRange(d, sp.from, sp.to) : inClientPeriod(d, mPeriod);
+  // #345③：期間チップの件数は「一覧に出る人数（退会処理済みを含まない）」に揃える。
+  //   （退会済みの行は EngineersClient の退会フィルタ用に rows へは残す＝ここでは件数のみ除外）
+  const activeRows = rows.filter((r) => !(r as any).withdrawal_completed_at);
   const periodCounts = Object.fromEntries(
-    CLIENT_PERIOD_KEYS.map((k) => [k, k === "all" ? rows.length : rows.filter((r) => inClientPeriod(r.created_at, k)).length]),
+    CLIENT_PERIOD_KEYS.map((k) => [k, k === "all" ? activeRows.length : activeRows.filter((r) => inClientPeriod(r.created_at, k)).length]),
   ) as Partial<Record<ClientPeriod, number | null>>;
   const shownRows = (mCustom || mPeriod !== "all") ? rows.filter((r) => inPeriod(r.created_at)) : rows;
 

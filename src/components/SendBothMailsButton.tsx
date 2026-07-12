@@ -5,7 +5,7 @@
 //   送信元（差出人ドメイン）の選択肢は /api/mail/senders から取得（設定済みのものだけ表示）。
 import { useEffect, useState, useTransition, Fragment, type CSSProperties } from "react";
 import { sendMailAction } from "@/lib/actions";
-import { BUTTON_PLACEHOLDER, NOTICE_TEXT } from "./JobMailBodyCard";
+import { BUTTON_PLACEHOLDER, NOTICE_TEXT, buildHtmlBody } from "@/lib/proposal-mail";
 import { SHARED_MAILBOX } from "@/lib/proposal-constants";
 
 type SenderKey = "enger" | "8grp" | "its";
@@ -52,20 +52,8 @@ export function SendBothMailsButton({
   );
 }
 
-function buildHtmlBody(text: string, buttonHtml: string): string {
-  // 改行は <br> に変換して送る。Gmail は inline style の white-space を無視（除去）するため、
-  // pre-wrap 頼みだと受信側で改行が全て潰れて1行のベタ文になる（先方指摘の不具合）。
-  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\r?\n/g, "<br>");
-  const wrapStyle = `font-family:sans-serif;font-size:14px;line-height:1.75;color:#1e293b`;
-  const parts = text.split(BUTTON_PLACEHOLDER);
-  if (parts.length === 1) {
-    return `<div style="${wrapStyle}">${escape(text)}</div>\n${buttonHtml}`;
-  }
-  return parts.map((part, i) => {
-    const div = `<div style="${wrapStyle}">${escape(part)}</div>`;
-    return i < parts.length - 1 ? `${div}\n${buttonHtml}` : div;
-  }).join("\n");
-}
+// 送信用HTML化（改行→<br> 変換）は @/lib/proposal-mail の buildHtmlBody に集約
+//   （サーバの予約配信と同一処理を共有する）。
 
 type SideState = {
   sender: SenderKey;

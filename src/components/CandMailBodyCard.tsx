@@ -1,86 +1,14 @@
 "use client";
 
 import { PROPOSERS, SHARED_MAILBOX } from "@/lib/proposal-constants";
-import { reSubject } from "@/lib/gmail";
 
-import { BUTTON_PLACEHOLDER } from "./JobMailBodyCard";
+import { BUTTON_PLACEHOLDER } from "@/lib/proposal-mail";
 import type { MailForm, MailErrors } from "./JobMailBodyCard";
 
-const SIGNATURE = `∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞
-株式会社エイト
-ITS事業部
-野澤：080-4191-4175
- Mail：support_eigyo@8grp.co.jp
-エンジニア・PM・DX人材の即戦力マッチング：https://enger.jp/
-インキュベーションスペース：https://8sp.jp/
- 自社サイト：https://8grp.co.jp/
-〒150-0001 東京都渋谷区神宮前6-33-14-エイトカフェ2F
-∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞
-「株式会社エイト」公式ホームページ
-デキルがあふれる社会をつくる - 「株式会社エイト」公式ホームページ
-異なるアイデアと先進技術を融合し、革新的なサービスを生み出す。コラボレーションとテクノロジーで、企業の課題解決と新たな価値創造を支援します。`;
-
-// 人材取込元メール(SES窓口/エージェント)に「Re: <人材側元件名>」で返信し、Gmail に
-// スレッド統合させて相手の受信箱の元スレッドに返信として届くようにする。
-// ※ 案件名へはフォールバックしない：人材側メールに案件側と同じ件名が表示される
-//    （送信確認画面で「人材側＝案件側の件名」になる）混乱の原因になっていたため。
-//    人材側元件名が解決できない場合のみ、人材向けの定型件名にフォールバックする。
+// 定義本体は @/lib/proposal-mail（サーバの予約配信と共通化）。既存 import 互換のため再export。
 //   ※ 定型文言は下書き(proposals.pending_mail)に既に保存されていることがあるため、
 //     呼び出し側で「保存値が旧文言なら無視して再計算」できるよう export しておく。
-export const LEGACY_CAND_SUBJECT = "【案件のご紹介】希望条件に合致する案件のお知らせ";
-
-export function buildCandMailSubject(cand?: { source_mail_subject?: string | null } | null): string {
-  const orig = String(cand?.source_mail_subject ?? "").trim();
-  if (orig) return reSubject(orig); // 「Re: <人材側元メールの件名>」
-  return LEGACY_CAND_SUBJECT;        // 案件名は使わない（案件側と同一件名になるのを防ぐ）
-}
-
-export function buildCandMailContent(job: any, cand: any): string {
-  const salary = (lo?: number | null, hi?: number | null) =>
-    lo && hi ? (lo === hi ? `${lo}万円` : `${lo}〜${hi}万円`) : hi ? `〜${hi}万円` : lo ? `${lo}万円〜` : "スキル見合い";
-
-  const candidateCompany = cand.source_company || cand.company || null;
-
-  const greeting = cand.contact_name
-    ? `${cand.contact_name} 様`
-    : (candidateCompany ? "ご担当者 様" : `${cand.name ?? ""} 様`);
-
-  // 案件の内容は「取込元メール本文(job.detail)＝案件の全文」を優先して全文掲載する。
-  //   以前は短い要約（案件名/スキル/単金/場所/期間/商流）だけで、本文全体が出ていなかった。
-  const jobDetail = (job.detail ?? job.description ?? "").toString().trim();
-  const jobSummary = jobDetail
-    ? `【案件】${job.title ?? ""}\n${jobDetail}`
-    : [
-        `【案件】${job.title ?? ""}`,
-        Array.isArray(job.skills) && job.skills.length ? `【スキル】${job.skills.join("、")}` : "",
-        `【単金】${salary(job.salary_min, job.salary_max)}`,
-        job.work_location ? `【場所】${job.work_location}` : "",
-        job.start_date ? `【期間】${job.start_date}〜` : "",
-        job.flow_note ? `【商流】${job.flow_note}` : "",
-      ].filter(Boolean).join("\n");
-
-  return `${candidateCompany ?? "〇〇"}
-${greeting}
-
-いつも大変お世話になっております。
-株式会社エイトの営業担当でございます。
-この度は要員様をご紹介いただき、誠にありがとうございます。
-
-下記の案件をぜひご紹介させていただきたくご連絡いたしました。
-※ご案内文に必須スキル、尚可スキルの記載がある場合は、スキル、経験等を○×でご返信ください。
-ご確認のほど何卒よろしくお願い申し上げます。
-────────────────────────────────────
-◆ご紹介していただいた要員
-${cand.name ?? ""}
-${cand.age_band ? cand.age_band : ""}
-${cand.location ? `【最寄駅】${cand.location}` : ""}
-────────────────────────────────────
-◆ご紹介する案件
-${jobSummary}
-────────────────────────────────────
-${BUTTON_PLACEHOLDER}
-${SIGNATURE}`;
-}
+export { LEGACY_CAND_SUBJECT, buildCandMailSubject, buildCandMailContent } from "@/lib/proposal-mail";
 
 const DOT_COLOR = "#3b82f6";
 
@@ -191,10 +119,11 @@ export function CandMailBodyCard({
                     .replace(/^.*<<[A-Z_].*$/gm, "")
                     .replace(/^.*[A-Z_]+>>.*$/gm, "")
                     .replace(/\n{3,}/g, "\n\n");
-                  const sig = cleaned.indexOf("∞∞∞");
-                  const restored = sig >= 0
-                    ? cleaned.slice(0, sig) + BUTTON_PLACEHOLDER + "\n" + cleaned.slice(sig)
-                    : cleaned + "\n" + BUTTON_PLACEHOLDER;
+                  // ボタンは本文冒頭（最初の区切り線の直前）に復元する
+                  const div = cleaned.indexOf("─");
+                  const restored = div >= 0
+                    ? cleaned.slice(0, div) + BUTTON_PLACEHOLDER + "\n" + cleaned.slice(div)
+                    : BUTTON_PLACEHOLDER + "\n" + cleaned;
                   onChange("body", restored);
                 }}
                 style={{ fontSize: 11, padding: "2px 8px", borderRadius: 5, border: "1px solid #d97706", background: "#fffbeb", color: "#b45309", cursor: "pointer" }}
@@ -256,7 +185,7 @@ export function CandMailBodyCard({
                 ref={ar}
                 value={after.replace(/^\n/, "")}
                 onChange={(e) => { ar(e.currentTarget); onChange("body", before + BUTTON_PLACEHOLDER + "\n" + e.target.value); }}
-                style={{ ...taStyle, fontSize: 12, color: "var(--color-ink-3)" }}
+                style={taStyle}
               />
             </div>
           );

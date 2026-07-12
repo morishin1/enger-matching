@@ -9,7 +9,8 @@ import { CopyLinkButton } from "@/components/CopyLinkButton";
 import { ShareExternalButton } from "@/components/ShareExternalButton";
 import { FocusList } from "@/components/FocusList";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { rankCandidates, rankJobs, jobOpenness, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { rankCandidates, rankJobs, jobOpenness, scoreMatch, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
+import { getHiddenPairsSet, hiddenPairKey } from "@/lib/hidden-pairs";
 import { relatedSearchLabels } from "@/lib/skills";
 import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
@@ -25,8 +26,9 @@ import { getSidebarCounts } from "@/lib/counts";
 import { loadProposalOwners } from "@/lib/proposal-owners";
 import { getStaff } from "@/lib/staff";
 import { loadMatchWindow, withinWindow } from "@/lib/match-window";
-import { asClientPeriod, inClientPeriod, inCustomRange, hasCustomRange } from "@/lib/period";
+import { asClientPeriod, inClientPeriod, inCustomRange, hasCustomRange, monthToRange } from "@/lib/period";
 import { MatchingPeriodChips } from "@/components/MatchingPeriodChips";
+import { MatchingAssigneePicker } from "@/components/MatchingAssigneePicker";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE, classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 import { listLineworksTargets } from "@/lib/lineworks-targets";
@@ -214,20 +216,27 @@ async function loadTenantData(company: string, meetingDone: boolean = true) {
   return { jobs: jobs ? maskJobs(jobs, company, meetingDone) : null, cands: cands ? maskCandidates(cands, company, meetingDone) : null };
 }
 
-export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string; stale?: string; period?: string; from?: string; to?: string }> }) {
+export default async function MatchingPage({ searchParams }: { searchParams: Promise<{ job?: string; tab?: string; cand?: string; person?: string; stale?: string; period?: string; from?: string; to?: string; assignee?: string }> }) {
   const sp = await searchParams;
   // 古い案件（配信から JOB_STALE_DAYS 超）/ 期間外を含めて表示するか。既定は false（隠す）。
   const showStale = sp.stale === "1";
-  // 期間セレクタ（統一デザイン）。登録日(created_at)でマッチング対象を絞り込む。既定は全期間（no-op）。
-  //   全期間チップのカレンダー（from/to）が指定されていれば、その任意期間で絞り込む。
+  // 期間セレクタ（統一デザイン）。登録日(created_at)でマッチング対象を絞り込む。
+  //   既定は「当月」（要望：全期間ではなく、今が7月なら7月をデフォルト表示）。
+  //   URLに period も from/to も無い初回アクセス時だけ当月レンジを既定として適用する。
+  //   「全期間」を明示選択（?period=all）した場合は従来どおり全期間（no-op）にする。
+  const nowD = new Date();
+  const bareVisit = !sp.period && !hasCustomRange(sp.from, sp.to);
+  const defMonth = monthToRange(nowD.getFullYear(), nowD.getMonth() + 1);
+  const effFrom = bareVisit ? defMonth.from : sp.from;
+  const effTo = bareVisit ? defMonth.to : sp.to;
   const mPeriod = asClientPeriod(sp.period, "all");
-  const mCustom = hasCustomRange(sp.from, sp.to);
+  const mCustom = hasCustomRange(effFrom, effTo);
   const periodActive = mCustom || mPeriod !== "all";
   const inMPeriod = (createdAt: string | null | undefined) =>
-    mCustom ? inCustomRange(createdAt, sp.from, sp.to) : inClientPeriod(createdAt, mPeriod);
+    mCustom ? inCustomRange(createdAt, effFrom, effTo) : inClientPeriod(createdAt, mPeriod);
   // 特定の人材/案件を明示選択したドリルダウン（一覧の「マッチング」ボタンからの遷移）。
   //   この場合は相手側を鮮度ウィンドウ・注力フラグで絞らず、全件から上位をランキング表示する。
-  //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP10・注力ボード・一覧に限定する。
+  //   （鮮度ガード/注力は「束ねて探す」用途＝おすすめTOP50・注力ボード・一覧に限定する。
   //    明示的に1件を選んだのに相手が0件、という事故を防ぐ。）
   const drillDown = !!sp.person || !!sp.job;
   // マッチング対象期間（鮮度ウィンドウ）。取込日が直近 days 日以内のみ対象。showStale=1 で期間外も表示。
@@ -289,6 +298,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     sp.tab === "focus" ? "focus" : "auto";
   const personNo = sp.person ? Number(sp.person) : null;
 
+  // おすすめ（自動マッチング）モードか。担当者フィルタ（?assignee=）で対象人材を絞る。
+  //   ・autoMode のときだけ担当者セレクタを出し、担当者が選ばれるまでランキングは計算しない（負荷軽減）。
+  const autoMode = tab === "auto" && !sp.job && !sp.person;
+  const { parseAssigneeParam } = await import("@/lib/ranking100");
+  const assigneeFilter = parseAssigneeParam(sp.assignee);
+  const assigneeSelected = !!assigneeFilter;
+  // 担当者セレクタ用の件数（operator列のみの軽量集計・5分キャッシュ）。autoMode のときだけ取得。
+  let assigneeCounts: { agents: { name: string; count: number }[]; unassigned: number; total: number } =
+    { agents: [], unassigned: 0, total: 0 };
+  if (autoMode && dbConfigured) {
+    try { const { getOperatorCounts } = await import("@/lib/ranking100"); assigneeCounts = await getOperatorCounts(); } catch { /* fail-soft */ }
+  }
+  const assigneeOpColMissing = autoMode && dbConfigured && assigneeCounts.total === 0 && assigneeCounts.agents.length === 0 && assigneeCounts.unassigned === 0;
+
   let dbError: string | null = null;
 
   // 人材→案件モード用
@@ -302,7 +325,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   let jobList: any[] = [];
   let job: any = null;
   let ranked: any[] = [];
-  // 自動マッチング上位（おすすめの組み合わせ TOP10）。tab=auto かつ案件未指定で表示。
+  // 自動マッチング上位（おすすめの組み合わせ TOP50）。tab=auto かつ案件未指定で表示。
   let autoTop: { rows: any[]; jobsScanned: number; candsScanned: number; pairsHit: number } = { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
   // 注力(ウォッチリスト)モード用
   let focusJobs: any[] = [];   // ♥お気に入り（手動・is_focus）
@@ -431,7 +454,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               }
             } catch { /* noop */ }
           }
-          rankedJobs = rankJobs(person as any, (jobList as Job[]).filter((j: any) => !j?.deleted_at), 10);
+          // #345②：「このペアは表示させない」に登録済みの案件は、個別マッチング（人材→案件TOP10）でも除外。
+          const hiddenForPerson = await getHiddenPairsSet();
+          const jobPool = (jobList as Job[]).filter((j: any) => !j?.deleted_at
+            && !(j?.job_no != null && person?.candidate_no != null && hiddenForPerson.has(hiddenPairKey(j.job_no, person.candidate_no))));
+          rankedJobs = rankJobs(person as any, jobPool, 10);
           // 元メールリンクを直近受信メールへ更新（同人材／同案件／同送信元の最新メールに飛ぶ）。
           if (person) await attachLatestSourceMail(sb, "candidate", [person]);
           await attachLatestSourceMail(sb, "job", rankedJobs.map((r: any) => r.job));
@@ -479,14 +506,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         recoCands = curateFocus("cands", [...ppCands, ...recCands]).filter((c) => !c.is_focus).slice(0, 40);
       } else {
         // ---- 自動マッチング = 全データから合う候補をランキング（案件 → 人材）----
-        // 上部に「おすすめの組み合わせ TOP10」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
+        // 上部に「おすすめの組み合わせ TOP50」（高マッチ率×新案件×新人材・人材/案件は重複なし）を表示する。
         //   ただし個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）は
         //   絞り込み結果に集中させるため非表示にする（要望対応）。その場合は取得自体スキップ。
-        if (!sp.job && !sp.person) {
+        // おすすめは担当者が選ばれたときだけ計算する（負荷軽減＝遅延ロード）。
+        if (autoMode && assigneeSelected) {
           try {
-            const { getAutoMatchTop } = await import("@/lib/ranking100");
-            autoTop = await getAutoMatchTop();
-          } catch { /* TOP10 取得失敗時はセクション非表示で続行 */ }
+            const { getAutoMatchTopFor } = await import("@/lib/ranking100");
+            autoTop = await getAutoMatchTopFor(assigneeFilter!);
+          } catch { /* TOP50 取得失敗時はセクション非表示で続行 */ }
         }
         // 削除済(deleted_at)・クローズ済(is_closed)はサーバ側で必ず除外（一覧と整合させる）。
         const buildList = (cols: string, safe = true) => {
@@ -578,15 +606,27 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             } catch { /* noop */ }
           }
           // マッチング対象期間外（取込が古い）の人材は除外。明示指定された候補(reqCandNo)は残す。
-          const candInWindow = candList.filter((c: any) => !c?.deleted_at && (inWindow(c?.created_at) || c.candidate_no === reqCandNo));
+          // #345②：「このペアは表示させない」に登録済みの人材も、個別マッチング（案件→人材TOP10）から除外
+          //   （?cand= で明示指定されたペアのドリルダウンは業務確認用に残す）。
+          const hiddenForJob = await getHiddenPairsSet();
+          const candInWindow = candList.filter((c: any) => !c?.deleted_at && (inWindow(c?.created_at) || c.candidate_no === reqCandNo))
+            .filter((c: any) => !((job as any)?.job_no != null && c?.candidate_no != null && c.candidate_no !== reqCandNo
+              && hiddenForJob.has(hiddenPairKey((job as any).job_no, c.candidate_no))));
           ranked = rankCandidates(job as Job, candInWindow, 10);
-          // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入
+          // 指定された候補者が ranked(上位10)に入っていない場合は個別にスコア計算して先頭に挿入。
+          //   #364：提案レコード等から ?cand= で明示指定されたペアは業務確認用のドリルダウン。
+          //   除外フィルタ（国籍NG/商流NG/充足等）で弾かれても、必ず「その人材」を先頭に表示する。
+          //   ここで挿入に失敗すると sel が別人材(ranked[0])にフォールバックし、
+          //   別人のスキルシートでメールが作られる事故になる（本チケットの症状）。
           const reqCandNo2 = sp.cand ? Number(sp.cand) : null;
           if (reqCandNo2 && !ranked.find((r: any) => r.candidate.candidate_no === reqCandNo2)) {
             const tgt = candList.find((c) => c.candidate_no === reqCandNo2);
             if (tgt) {
+              // 通常のランキング（除外フィルタ適用）で拾えればそれを使い、弾かれる場合は
+              // scoreMatch で直接採点した結果を使って、必ず対象人材を先頭に出す。
               const single = rankCandidates(job as Job, [tgt], 1);
-              if (single.length) ranked = [single[0], ...ranked];
+              const entry = single.length ? single[0] : ({ candidate: tgt, ...scoreMatch(job as Job, tgt) } as any);
+              ranked = [entry, ...ranked.filter((r: any) => r.candidate.candidate_no !== reqCandNo2)];
             }
           }
         }
@@ -666,9 +706,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     recoJobs = recoJobs.filter(keepJob);
     focusCands = focusCands.filter(keepCand);
     recoCands = recoCands.filter(keepCand);
-    // おすすめ TOP10：案件 or 人材が期間内のペアを残す
+    // おすすめ TOP50：案件 or 人材が期間内のペアを残す
     autoTop = { ...autoTop, rows: autoTop.rows.filter((r: any) => inMPeriod(r?.job?.created_at) || inMPeriod(r?.cand?.created_at)) };
   }
+  // おすすめは点数順で上位50件に確定し、順位を振り直す（期間フィルタ後でも1〜50位が連番になる）。
+  autoTop = { ...autoTop, rows: autoTop.rows.slice(0, 50).map((r: any, i: number) => ({ ...r, rank: i + 1 })) };
 
   // 送達不能アドレスの照会（バナー表示用）。is_undeliverable は既に各 job に付与済み（applyOpenness内）。
   const bouncedSet: Map<string, BounceRecord> = await getBouncedSet([
@@ -819,9 +861,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   <span className="tag">リモート {candRemoteLabel(person.remote_pref) === "—" ? (person.remote_pref ?? "—") : candRemoteLabel(person.remote_pref)}</span>
                   <span className="tag">国籍 {CAND_NAT_LABEL[classifyCandNationality(person.nationality)]}</span>
                   <span className="tag">最寄駅 {person.location ?? "不明"}</span>
-                  {person.age_band && <span className="tag">年代 {person.age_band}</span>}
+                  {person.age_band && <span className="tag">年齢（年代） {person.age_band}</span>}
                   {person.exp != null && String(person.exp).trim() !== "" && <span className="tag">経験 {/^\d+$/.test(String(person.exp).trim()) ? `${String(person.exp).trim()}年` : person.exp}</span>}
-                  {person.avail && <span className="tag">稼働 {person.avail}</span>}
+                  {person.avail && <span className="tag">稼働開始予定日 {person.avail}</span>}
                   <span className="tag">{person.rate ?? salaryLabel(person.salary_min, person.salary_max)}</span>
                 </div>
                 {person.skills?.length > 0 && (
@@ -963,7 +1005,10 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
 
   // ============ 案件 → 人材モードの描画 ============
   const selIdx = sp.cand ? ranked.findIndex((r) => String(r.candidate.candidate_no) === sp.cand) : 0;
-  const sel = ranked[selIdx >= 0 ? selIdx : 0];
+  // #364：?cand= が明示指定されているのに見つからない場合は、別人材(ranked[0])へフォールバックしない。
+  //   （フォールバックすると別人のスキルシートでメールが作られる事故になるため、sel は undefined にして
+  //    「指定の人材が見つかりません」を表示する。）
+  const sel = sp.cand ? (selIdx >= 0 ? ranked[selIdx] : undefined) : ranked[0];
   const jobAbbr = (job?.title ?? "").slice(0, 3);
   const linkFor = (cand?: number) => `/matching?tab=${tab}&job=${job?.job_no ?? ""}${cand != null ? `&cand=${cand}` : ""}`;
 
@@ -990,26 +1035,44 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       {opennessBanner}
 
       {/* 以下は案件を1件選んで候補を見る従来ツール（ドリルダウン用）。
-          上部の「おすすめの組み合わせ TOP10」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
+          上部の「おすすめの組み合わせ TOP50」は全案件×全人材から全体最適で抽出（人材/案件は重複なし）。
           その下に、案件を1件選んで候補人材を絞り込む従来ビュー（左：ランキング／右：詳細）を表示する。 */}
 
-      {/* 🔥 自動マッチング全体最適 TOP10。
+      {/* 🔥 自動マッチング全体最適 TOP50（総合点数順・チェック選択→「提案する」で一括記録）。
+          抽出条件は「マッチング自動ランキング条件定義書」準拠（src/lib/ranking100.ts）。
           メニューの「マッチング」を直接押した時（案件/人材を指定していない＝tab=autoの初期状態）のみ
           上部に表示する。個別の案件・人材から「マッチングボタン」で遷移した時（?job=… / ?person=…）
           は、絞り込み結果に集中できるよう非表示にする（要望対応）。 */}
-      {tab === "auto" && !sp.job && !sp.person && autoTop.rows.length > 0 && (
-        <Ranking100View
-          rows={autoTop.rows}
-          meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
-          title="🔥 おすすめの組み合わせ TOP10"
-          subtitle={<>高マッチ率 × 新しい案件 × 新しい人材を重み付けした<b>案件×人材の組み合わせ</b>を自動表示（同じ人材・同じ案件は重複しません）。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
-        />
+      {autoMode && (
+        <>
+          {/* 担当者フィルタ（負荷軽減：選んだ担当者の人材だけをマッチング。選ぶまで計算しない） */}
+          <MatchingAssigneePicker agents={assigneeCounts.agents} unassigned={assigneeCounts.unassigned} total={assigneeCounts.total} opColMissing={assigneeOpColMissing} />
+
+          {!assigneeSelected ? (
+            <div className="card" style={{ padding: 28, textAlign: "center", color: "var(--color-ink-3)", fontSize: 13, marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>担当者を選択してください</div>
+              上の「担当者でしぼる」から担当者を1人以上（または「全員」）選ぶと、その担当の人材だけでマッチングを計算します。<br />
+              負荷軽減のため、選択するまで全人材の読み込みは行いません。
+            </div>
+          ) : autoTop.rows.length > 0 ? (
+            <Ranking100View
+              rows={autoTop.rows}
+              meta={{ jobsScanned: autoTop.jobsScanned, candsScanned: autoTop.candsScanned, pairsHit: autoTop.pairsHit }}
+              title="🔥 おすすめの組み合わせ TOP50"
+              subtitle={<>組み合わせを<b>高・中・低</b>の3ランクで表示。<b>高</b>＝定義書の絶対条件を確定データで全て満たす／<b>中</b>＝1〜2点の要確認あり／<b>低</b>＝要確認3点以上（要確認事項は各行を開くと確認できます）。致命的NG（提案不可・二社下以降・55歳以上・国籍NG・LINE/フリーランス由来・<b>提案済み</b>）は全ランクで除外。各ランク内は総合点数順・同じ人材/案件は重複しません。チェックで選択して<b>「提案する」</b>で一括記録できます。対象：案件 {autoTop.jobsScanned.toLocaleString("ja-JP")} 件 × 人材 {autoTop.candsScanned.toLocaleString("ja-JP")} 名・5分毎に更新。</>}
+            />
+          ) : (
+            <div className="card" style={{ padding: 28, textAlign: "center", color: "var(--color-ink-4)", fontSize: 13, marginBottom: 12 }}>
+              選択した担当者の人材で、条件を満たす組み合わせが見つかりませんでした。別の担当者や「全員」を選ぶか、期間を広げてお試しください。
+            </div>
+          )}
+        </>
       )}
 
-      {/* 案件を指定せず TOP10 を見ているときは、下の「マッチング対象 案件」「人材ランキング」は表示しない。
+      {/* 案件を指定せず TOP50 を見ているときは、下の「マッチング対象 案件」「人材ランキング」は表示しない。
           関係のない案件（先頭のjobList[0]）が出てしまう混乱を避けるための要望対応。 */}
       {(() => {
-        const showAutoTop = tab === "auto" && !sp.job && !sp.person && autoTop.rows.length > 0;
+        const showAutoTop = autoMode;
         if (showAutoTop) return null;
         return (
           <>
@@ -1064,6 +1127,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               {/* #260①：メール本文（detail）のプレビューは非表示（必須スキルの下に生の本文が出て見づらいため）。
                   本文は「元メールを開く」から確認できる。 */}
             </div>
+
+            {/* #364：?cand= 指定なのに該当人材が見つからない場合の明示メッセージ（別人材は出さない）。 */}
+            {sp.cand && !sel && (
+              <div className="card" style={{ padding: 16, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e", fontSize: 13 }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠ 指定の人材（P-{String(sp.cand).padStart(5, "0")}）が見つかりませんでした</div>
+                削除・統合された、または人材NOが変更された可能性があります。提案レコードの人材を確認してください。
+                （別の人材を誤って表示しないよう、ここでは候補を表示していません。）
+              </div>
+            )}
 
             {/* 選択候補 詳細 */}
             {sel && (() => {

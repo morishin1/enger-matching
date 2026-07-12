@@ -10,6 +10,7 @@ import { canManageDept, DEPARTMENTS } from "@/lib/roles";
 import { listPersonKgi, monthKey, businessDaysInMonth } from "@/lib/person-kgi";
 import { loadTeamGoal } from "@/lib/team-kgi-goals";
 import { loadPersonKgiMembers } from "@/lib/person-kgi-members";
+import { loadProposalOwners, proposerMemberEmail } from "@/lib/proposal-owners";
 import { getFunnel, resolveFunnelPeriod, rate } from "@/lib/funnel";
 import { KgiWorkspace } from "@/components/KgiWorkspace";
 
@@ -29,7 +30,7 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
   // 対象部署のメンバー一覧。
   //   ・名簿(person_kgi_members)が設定されていればそれを“正”とする（#313：手動で増減・改名できる）。
   //   ・未設定の部署は従来どおりアカウント（active・agent/admin・当該 department）から自動表示。
-  const [allAccs, roster] = await Promise.all([listAccounts(), loadPersonKgiMembers(department)]);
+  const [allAccs, roster, owners] = await Promise.all([listAccounts(), loadPersonKgiMembers(department), loadProposalOwners()]);
   const activeAccs = allAccs.filter((a) => a.status === "active" && (a.role === "agent" || a.role === "admin") && a.name && a.email);
   const acctByEmail = new Map(activeAccs.map((a) => [a.email!.toLowerCase(), a] as const));
   // アカウント由来の当該部署メンバー（名簿未設定時のデフォルト）。
@@ -38,15 +39,26 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
     .map((a) => ({ email: a.email!.toLowerCase(), name: a.name!, teamRole: (a as any).team_role ?? null }));
   const usingAuto = roster.length === 0;
   // 実効メンバー：名簿があれば名簿（氏名は名簿優先、team_role はアカウントから補完）。無ければアカポン自動。
-  const members = usingAuto
+  const baseMembers = usingAuto
     ? deptMembers
     : roster.map((r) => {
         const a = acctByEmail.get(r.email);
         return { email: r.email, name: r.name || a?.name || r.email, teamRole: a ? ((a as any).team_role ?? null) : null };
       });
+  // #338：メンバー編集（proposal_owners）で登録した「提案者」を、氏名だけでメンバー別KPIに表示する。
+  //   既にアカウント/名簿で載っている氏名は重複させない（氏名・大小無視で突合）。メール不要の合成キーで持つ。
+  const initialOwners = owners ?? { proposers: [], closers: [] };
+  const existingNames = new Set(baseMembers.map((m) => m.name.trim().toLowerCase()));
+  const proposerMembers = initialOwners.proposers
+    .map((n) => n.trim())
+    .filter((n) => n && !existingNames.has(n.toLowerCase()))
+    .map((n) => ({ email: proposerMemberEmail(n), name: n, teamRole: null as string | null }));
+  const members = [...baseMembers, ...proposerMembers];
   // 「メンバー追加・削除・編集」の追加候補（既存アカウント）。管理者=全アカウント、マネージャー=自部署のみ。
   const memberSuggestions = (isAdmin ? activeAccs : activeAccs.filter((a) => (a as any).department === department))
     .map((a) => ({ email: a.email!.toLowerCase(), name: a.name! }));
+  // #338：名前のみエディタの氏名サジェスト（既存アカウント名）。
+  const ownerSuggestions = Array.from(new Set(activeAccs.map((a) => a.name!).filter(Boolean)));
 
   // 既存KGI＋チーム目標＋全社転換率（同月のものを使う想定で当月ファネル）
   const [kgis, teamGoal, funnel] = await Promise.all([
@@ -140,9 +152,11 @@ export default async function PersonKgiPage({ searchParams }: { searchParams: Pr
         bizDays={bizDays}
         initialTeamGoal={teamGoal}
         initialPersons={initialPersons}
-        memberRoster={usingAuto ? members.map((m) => ({ email: m.email, name: m.name })) : roster}
+        memberRoster={usingAuto ? baseMembers.map((m) => ({ email: m.email, name: m.name })) : roster}
         memberSuggestions={memberSuggestions}
         usingAutoMembers={usingAuto}
+        initialOwners={initialOwners}
+        ownerSuggestions={ownerSuggestions}
       />
 
       <div className="muted" style={{ fontSize: 11 }}>

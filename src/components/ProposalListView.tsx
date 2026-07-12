@@ -6,14 +6,14 @@
 //   - ステージ・担当者での絞り込み
 //   - テーブル（行クリックで詳細モーダル）
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
-import { Fragment, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "@/components/toast";
-import { bulkDeleteProposals } from "@/lib/actions";
+import { bulkDeleteProposals, getProposalForModal } from "@/lib/actions";
 import { ProposalDetailModal } from "./ProposalDetailModal";
-import { NotifyChip } from "./NotifyDot";
 import { ActionChips } from "./ProposalActionChip";
 import { PROPOSAL_STAGES } from "@/lib/proposal-constants";
+import { progressDisplay } from "@/lib/proposal-progress";
 import { Icons } from "./icons";
 
 const UNASSIGNED = "__unassigned__"; // 担当者フィルタの「未割当」用の特別値
@@ -73,45 +73,7 @@ function hashColor(name?: string | null): string {
   return PALETTE[h % PALETTE.length];
 }
 
-// ネクストアクション判定。ステージ × 通知ステータス × 滞留日数から「今何をすべきか」を返す。
-type NextAction = { text: string; urgency: "high" | "medium" | "low" | "ok"; icon: string };
-function nextActionFor(p: any): NextAction {
-  const stage = normStage(p.stage);
-  const jobPending = !p.job_notify_status || p.job_notify_status === "pending";
-  const candPending = !p.cand_notify_status || p.cand_notify_status === "pending";
-  const stageDays = daysAgo(p.stage_updated_at || p.updated_at || p.created_at);
-  const caller = p.caller_status || "";
-
-  if (stage === "合格") return { text: "稼働化へ（契約・条件確認）", urgency: "high", icon: "rocket_launch" };
-
-  if (stage === "面談") {
-    if (p.meeting_date && p.meeting_status !== "実施済") return { text: `面談 ${String(p.meeting_date).slice(5)} 当日対応`, urgency: "medium", icon: "event_available" };
-    return { text: "面談日程の確定・実施", urgency: "high", icon: "event" };
-  }
-
-  if (stage === "所属確認") {
-    if (stageDays >= 2) return { text: `在否確認の催促（${stageDays}日滞留）`, urgency: "high", icon: "contact_phone" };
-    return { text: "案件先・人材先に営業可否を確認", urgency: "medium", icon: "contact_phone" };
-  }
-
-  // 提案中（提案を実施し反応待ち）
-  if (caller === "未架電" || !caller) {
-    if (jobPending && candPending) return { text: "案件・人材へ初回コンタクト", urgency: "high", icon: "call" };
-    if (jobPending) return { text: "クライアントへ確認連絡", urgency: "medium", icon: "business" };
-    if (candPending) return { text: "候補者へ意思確認", urgency: "medium", icon: "person" };
-  }
-  if (jobPending) return { text: "クライアントへフォロー", urgency: "medium", icon: "business" };
-  if (candPending) return { text: "候補者へフォロー", urgency: "medium", icon: "person" };
-  if (stageDays >= 5) return { text: `フォロー必須（${stageDays}日滞留）`, urgency: "high", icon: "priority_high" };
-  return { text: "フォロー検討", urgency: "low", icon: "schedule" };
-}
-
-const URGENCY_TONE: Record<NextAction["urgency"], { fg: string; bg: string; bd: string }> = {
-  high:   { fg: "#b42318", bg: "#fdecef", bd: "#f7c5cf" },
-  medium: { fg: "#b45309", bg: "#fff6e0", bd: "#fde9b0" },
-  low:    { fg: "#0b5cab", bg: "#eaf4fd", bd: "#bfd9f5" },
-  ok:     { fg: "#067647", bg: "#e7f7ee", bd: "#bfe3cc" },
-};
+// 進捗状況の表示（#334①）は共通モジュール @/lib/proposal-progress に集約（カンバンと共用）。
 
 function StageBadge({ stage }: { stage: string }) {
   const tone = STAGE_TONE[stage] ?? "#6b7280";
@@ -128,13 +90,30 @@ function StageBadge({ stage }: { stage: string }) {
 export function ProposalListView({ proposals, proposers, closers }: { proposals: any[]; members?: string[]; proposers?: string[]; closers?: string[] }) {
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("");
-  const [ownerFilter, setOwnerFilter] = useState<string>("");
+  // #343：担当者フィルタを「提案者」「クロージング担当」の2つに分割。
+  const [proposerFilter, setProposerFilter] = useState<string>("");
+  const [closerFilter, setCloserFilter] = useState<string>("");
   const [pendingOnly, setPendingOnly] = useState(false);
   // 同一案件（企業×案件名）に複数人材を提案している行をまとめて表示する（既定ON）。
   //   1社の複数募集に対し同じ案件が重複して並び、コンタクト確認が漏れる問題への対応。
   // まとめ表示モード：案件(job) / 人材(cand) / まとめない(none)。
   const [groupMode, setGroupMode] = useState<"job" | "cand" | "none">("job");
   const [active, setActive] = useState<any | null>(null);
+  // #333：/proposals?open=<id> で該当マッチングレコードのモーダルを自動で開く。
+  //   ボードに載っている（進行中）レコードはその場のデータで開き、見送り/稼働など
+  //   ボード外のレコードはサーバから単体取得して開く。
+  const searchParams = useSearchParams();
+  const openId = searchParams.get("open");
+  const openedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openId || openedRef.current === openId) return;
+    openedRef.current = openId;
+    const local = proposals.find((p) => String(p.id) === String(openId));
+    if (local) { setActive(local); return; }
+    let cancelled = false;
+    getProposalForModal(openId).then((rec) => { if (!cancelled && rec) setActive(rec); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [openId, proposals]);
   // 行クリックで開くドロワー(ProposalDetailModal)に詳細・編集・削除を集約（人材/案件一覧と同じ操作感）。
   const router = useRouter();
   const [busy, start] = useTransition();
@@ -183,27 +162,34 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     return m;
   }, [proposals]);
 
-  // 担当者の選択肢（提案者・パートナー・クロージングをまとめて）
-  const owners = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of proposals) { for (const k of [p.proposer, p.partner, p.closer, p.company_owner]) if (k) set.add(k); }
-    return [...set].sort();
-  }, [proposals]);
+  // #343②：フィルタ候補は KPI推移の「メンバー編集」（proposal_owners）と連動。
+  //   追加した人は選択肢に出て、削除した人は消える（proposals から拾わず、渡された名簿を使う）。
+  const proposerOptions = useMemo(
+    () => Array.from(new Set((proposers ?? []).map((s) => String(s).trim()).filter(Boolean))).sort(),
+    [proposers],
+  );
+  const closerOptions = useMemo(
+    () => Array.from(new Set((closers ?? []).map((s) => String(s).trim()).filter((v) => v && v !== "未割当"))).sort(),
+    [closers],
+  );
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return proposals
       .filter((p) => !stageFilter || normStage(p.stage) === stageFilter)
+      // #343：提案者フィルタ（未割当＝提案者が空欄）。
       .filter((p) => {
-        if (!ownerFilter) return true;
-        // 「未割当」：提案者 もしくは クロージング担当 が空欄（漏れ防止のため拾う）。
-        if (ownerFilter === UNASSIGNED) {
-          const noProposer = !String(p.proposer ?? "").trim();
-          const cl = String(p.closer ?? p.company_owner ?? "").trim();
-          const noCloser = !cl || cl === "未割当";
-          return noProposer || noCloser;
-        }
-        return [p.proposer, p.partner, p.closer, p.company_owner].includes(ownerFilter);
+        if (!proposerFilter) return true;
+        const pr = String(p.proposer ?? "").trim();
+        if (proposerFilter === UNASSIGNED) return !pr;
+        return pr === proposerFilter;
+      })
+      // #343：クロージング担当フィルタ（closer 未設定時は company_owner を代替。未割当＝空欄/「未割当」）。
+      .filter((p) => {
+        if (!closerFilter) return true;
+        const cl = String(p.closer ?? p.company_owner ?? "").trim();
+        if (closerFilter === UNASSIGNED) return !cl || cl === "未割当";
+        return cl === closerFilter;
       })
       .filter((p) => !pendingOnly || isPending(p.job_notify_status) || isPending(p.cand_notify_status))
       .filter((p) => {
@@ -211,7 +197,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
         return [p.candidate_name, p.c_init, p.job_title, p.company, p.client_contact].some((v) => String(v ?? "").toLowerCase().includes(needle));
       })
       .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
-  }, [proposals, q, stageFilter, ownerFilter, pendingOnly]);
+  }, [proposals, q, stageFilter, proposerFilter, closerFilter, pendingOnly]);
 
   // 案件（企業×案件名）または人材（人材NO×イニシャル×氏名）ごとにグルーピング。出現順は維持。
   const groups = useMemo(() => {
@@ -251,14 +237,8 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
     );
   };
 
-  // 通知ステータス：クリックで 未処理→処理中→完了 を循環する操作ボタン（案件側 / 人材側）。
-  //   旧実装は静的な色ドットでクリックしても反応しなかったため NotifyChip に置き換える。
-  const notifyDots = (p: any) => (
-    <span style={{ flex: "0 0 auto", display: "inline-flex", gap: 4, alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
-      <NotifyChip status={p.job_notify_status} side="job" proposalId={p.id} />
-      <NotifyChip status={p.cand_notify_status} side="cand" proposalId={p.id} />
-    </span>
-  );
+  // #341③：通知ステータス（未処理→処理中→完了のチップ）は一覧から削除。
+  //   進捗状況（進捗状況バッジ）で状況が分かるようになったため。
 
   // 受信側の応答ランプ（話を進める=緑 / 見送り=赤 / 未回答=破線）。
   const actionLamps = (p: any) => (
@@ -269,8 +249,9 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
 
   // 1提案の行。member=true は同案件グループの配下（人材を主役に表示）。
   const renderRow = (p: any, member: boolean) => {
-    const na = nextActionFor(p);
-    const naTone = URGENCY_TONE[na.urgency];
+    // #334①：表側は手動の進捗状況（未処理/返事待ち＋日付）を表示する。
+    const na = progressDisplay(p);
+    const naTone = na.tone;
     const sel = selected.has(p.id);
     const isLine = p.source === "line";
     return (
@@ -309,12 +290,11 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
             </>
           )}
           <div style={{ flex: "0 0 auto" }}><StageBadge stage={normStage(p.stage)} /></div>
-          <span title={`緊急度: ${na.urgency}`} style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
+          <span title="進捗状況（マッチングレコード詳細で変更）" style={{ flex: "0 0 auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: naTone.bg, color: naTone.fg, border: `1px solid ${naTone.bd}`, whiteSpace: "nowrap" }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14, lineHeight: 1 }}>{na.icon}</span>
             {na.text}
           </span>
           {actionLamps(p)}
-          {notifyDots(p)}
           <span className="muted" style={{ flex: "0 0 auto", fontSize: 11, whiteSpace: "nowrap" }}>{fmtDate(p.created_at)}</span>
         </div>
       </div>
@@ -411,12 +391,21 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
             {BOARD_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
+        {/* #343：担当者フィルタを「提案者」「クロージング担当」に分割（選択肢は KPI推移のメンバー編集と連動）。 */}
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }}>
-          担当者
-          <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+          提案者
+          <select value={proposerFilter} onChange={(e) => setProposerFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
             <option value="">すべて</option>
-            <option value={UNASSIGNED}>未割当（提案者/CL空欄）</option>
-            {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+            <option value={UNASSIGNED}>未割当（空欄）</option>
+            {proposerOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-ink-3)" }}>
+          クロージング担当
+          <select value={closerFilter} onChange={(e) => setCloserFilter(e.target.value)} style={{ fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
+            <option value="">すべて</option>
+            <option value={UNASSIGNED}>未割当（空欄）</option>
+            {closerOptions.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </label>
         <button type="button" onClick={() => setPendingOnly((v) => !v)} aria-pressed={pendingOnly}
@@ -481,7 +470,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
         )}
       </div>
 
-      <div className="muted" style={{ fontSize: 11.5 }}>{rows.length} 件を表示中{stageFilter || ownerFilter || q ? "（絞り込み適用中）" : ""}</div>
+      <div className="muted" style={{ fontSize: 11.5 }}>{rows.length} 件を表示中{stageFilter || proposerFilter || closerFilter || q ? "（絞り込み適用中）" : ""}</div>
 
       {active && <ProposalDetailModal p={active} onClose={() => setActive(null)} proposers={proposers} closers={closers} />}
     </div>

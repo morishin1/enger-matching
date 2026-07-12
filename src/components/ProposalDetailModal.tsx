@@ -15,12 +15,11 @@ import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { StarsInput } from "./Stars";
 import { ProposalCloseControls } from "./ProposalCloseControls";
-import { NotifyDot, NOTIFY_LABEL, type NotifyStatus } from "./NotifyDot";
 import { ProposalMemoModal, memoCategoryTone } from "./ProposalMemoModal";
 import { companyIdLabel } from "@/lib/companies";
 import { ApproveAndSendButton } from "./ApproveAndSendButton";
 import { ProposalMeetingModal } from "./ProposalMeetingModal";
-import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, normalizeMemoCategory, CONTACT_CHANNELS, type ContactChannel } from "@/lib/proposal-constants";
+import { PROPOSAL_STAGES, CALLER_STATUSES, MEETING_STATUSES, PROPOSERS, CLOSERS, LOST_PHASES, LOST_REASONS, normalizeStage, normalizeMemoCategory, CONTACT_CHANNELS, PROGRESS_STATUSES, type ContactChannel } from "@/lib/proposal-constants";
 
 const STAGES = [...PROPOSAL_STAGES];
 const STAGE_TONE: Record<string, string> = {
@@ -112,11 +111,15 @@ function MailColumn({ title, side, body, url, accent }: { title: string; side: "
 //   構造化プレフィクスを入れて 手段／連絡日時 を保持する。新規テーブル不要。
 //   形式: "[電話 / 2026-06-22 13:48] メモ本文"
 //   ※ 既存の「連絡記録」メモ（プレフィクス無し）も自然に表示できる（手段=その他、日時=created_at に fallback）。
-const CONTACT_PREFIX_RE = /^\[(電話|メール|LINE|対面|その他(?:：[^\]]+)?)\s*\/\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*/;
+// #352：手段は固定リストに限定せず「[<手段> / <日時>]」を汎用に解析する
+//   （#334 で追加した「案件側へ電話」等の側つき手段もこの形式で保存されるため）。
+//   「その他：Slack/Teams」のように手入力手段へ「/」が入るケースは、その他：の枝だけ「/」を許容
+//   （日時部のアンカーでバックトラックして正しく区切れる）。
+const CONTACT_PREFIX_RE = /^\[(その他：[^\]]*?|[^/\]]+?)\s*\/\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*/;
 function parseContactBody(body: string): { channel: string; channelOther: string | null; at: Date | null; text: string } {
   const m = body.match(CONTACT_PREFIX_RE);
   if (!m) return { channel: "その他", channelOther: null, at: null, text: body };
-  const raw = m[1];
+  const raw = m[1].trim();
   let channel = raw;
   let channelOther: string | null = null;
   if (raw.startsWith("その他")) {
@@ -153,6 +156,14 @@ const CONTACT_CHANNEL_TONE: Record<string, { fg: string; bg: string; icon: strin
   "対面":  { fg: "#b45309", bg: "#fff1e6", icon: "groups" },
   "その他": { fg: "#6b7280", bg: "#f3f4f6", icon: "more_horiz" },
 };
+// 側つき手段（案件側へ電話 等）は手段名の含みでトーンを解決する（#352）。
+function contactToneOf(channel: string): { fg: string; bg: string; icon: string } {
+  if (CONTACT_CHANNEL_TONE[channel]) return CONTACT_CHANNEL_TONE[channel];
+  if (channel.includes("電話")) return CONTACT_CHANNEL_TONE["電話"];
+  if (channel.includes("メール")) return CONTACT_CHANNEL_TONE["メール"];
+  if (channel.includes("LINE")) return CONTACT_CHANNEL_TONE["LINE"];
+  return CONTACT_CHANNEL_TONE["その他"];
+}
 
 export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any; onClose: () => void; proposers?: string[]; closers?: string[] }) {
   // 選択肢の優先順位：props → 既定の定数。"パートナー"は廃止。
@@ -169,6 +180,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const [closer, setCloser] = useState(p.closer ?? p.company_owner ?? "");
   const [meetingDate, setMeetingDate] = useState(p.meeting_date ?? "");
   const [meetingStatus, setMeetingStatus] = useState(p.meeting_status ?? "");
+  // #334①：進捗状況（返事待ちの別・未処理）。記録初期は「未処理」。日付は保存時に自動更新。
+  const [progress, setProgress] = useState<string>(p.progress_status ?? "未処理");
   const [lostOpen, setLostOpen] = useState(false);
   const [lostPhase, setLostPhase] = useState(p.lost_phase ?? "");
   const [lostReason, setLostReason] = useState(p.lost_reason ?? "");
@@ -204,14 +217,6 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   // ドロップダウンのチェック(✓)が選択に追従しない不具合への対応。
   const [effStage, setEffStage] = useState<string>(p.stage);
   useEffect(() => { setEffStage(p.stage); }, [p.stage]);
-
-  // #271: 通知ステータス（案件側/人材側）。ドットのクリック直後にラベル・色を即時反映するため
-  //   モーダル側でも状態を持つ（effStage と同じ「古い p を保持し続ける」問題への対応）。
-  const normNotify = (v: any): NotifyStatus => (v === "in_progress" || v === "done") ? v : "pending";
-  const [jobNotify, setJobNotify] = useState<NotifyStatus>(normNotify(p.job_notify_status));
-  const [candNotify, setCandNotify] = useState<NotifyStatus>(normNotify(p.cand_notify_status));
-  useEffect(() => { setJobNotify(normNotify(p.job_notify_status)); }, [p.job_notify_status]);
-  useEffect(() => { setCandNotify(normNotify(p.cand_notify_status)); }, [p.cand_notify_status]);
 
   // DB stage（旧名混在）を新ステージに正規化してステッパー位置を決める
   const stageIdx = Math.max(0, STAGES.indexOf(normalizeStage(effStage)));
@@ -275,7 +280,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   };
 
   // コンタクト履歴（連絡手段＋連絡日時＋メモ）。proposal_memos(category="連絡記録") を再利用。
-  const [contactChannel, setContactChannel] = useState<ContactChannel>("電話");
+  // #352①：側なしの「電話」等は選択肢から削除したため、既定は先頭の「案件側へ電話」。
+  const [contactChannel, setContactChannel] = useState<ContactChannel>(CONTACT_CHANNELS[0]);
   const [contactChannelOther, setContactChannelOther] = useState("");
   const [contactAt, setContactAt] = useState<string>(""); // datetime-local の文字列。空のとき入力欄プレースホルダ。
   const [contactBody, setContactBody] = useState("");
@@ -295,12 +301,17 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
       try {
         const r = await addProposalMemo(p.id, "連絡記録", body);
         if (!r.ok) { setContactErr(r.error || "保存に失敗しました"); return; }
-        setContactChannel("電話"); setContactChannelOther(""); setContactAt(""); setContactBody("");
+        setContactChannel(CONTACT_CHANNELS[0]); setContactChannelOther(""); setContactAt(""); setContactBody("");
         loadMemos();
       } finally { setBusy(null); }
     });
   };
-  const contactMemos = memos.filter((m) => normalizeMemoCategory(m.category) === "連絡記録");
+  // #352⑤：コンタクト履歴＝「連絡記録」のうち [手段 / 日時] プレフィクス付き（フォームから記録したもの）だけ。
+  //   プレフィクスの無い「連絡記録」（メモ追加から書かれたもの）はメモ履歴側に表示する。
+  const contactMemos = memos.filter((m) => normalizeMemoCategory(m.category) === "連絡記録" && CONTACT_PREFIX_RE.test(m.body ?? ""));
+  // #352④：コンタクト履歴・メモ履歴とも最大4件表示＋「＋全て見る」で展開。
+  const [showAllContacts, setShowAllContacts] = useState(false);
+  const [showAllMemos, setShowAllMemos] = useState(false);
 
   const run = (key: string, fn: () => Promise<any>) => { setBusy(key); start(async () => { try { await fn(); router.refresh(); } finally { setBusy(null); } }); };
   const moveTo = (stage: string) => { if (stage !== effStage) { setEffStage(stage); run("stage", () => updateProposalStage(p.id, stage)); } };
@@ -319,7 +330,15 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     toast("担当者（提案者）を選択してください", "error");
     return false;
   };
-  const saveFields = () => { if (!requireProposer()) return; run("save", () => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...contactFields() })); };
+  // #334①：進捗状況＋その更新日。進捗が変わったときだけ日付を「今日（保存時点）」に更新する。
+  const progressFields = () => {
+    const cur = progress || "未処理";
+    const prev = p.progress_status ?? "未処理";
+    const patch: Record<string, any> = { progress_status: cur };
+    if (cur !== prev) patch.progress_updated_at = new Date().toISOString();
+    return patch;
+  };
+  const saveFields = () => { if (!requireProposer()) return; run("save", () => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...progressFields(), ...contactFields() })); };
   // ステータス更新ドロップダウンからの選択：フォーム項目もまとめて保存しつつステージ遷移する。
   const pickStage = (stage: string) => {
     setStageMenuOpen(false);
@@ -330,6 +349,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
       stage,
       caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null,
       meeting_date: meetingDate || null, meeting_status: meetingStatus || null,
+      ...progressFields(),
     }));
   };
   const engage = () => run("engage", () => convertToEngagement(p.id));
@@ -479,6 +499,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>案件情報</div>
+                  {/* #352②：案件IDを併記。 */}
+                  {p.job_no != null && <span className="mono muted" style={{ fontSize: 11 }}>No.{String(p.job_no).padStart(5, "0")}</span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.job_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -490,9 +512,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                 {p.job_no != null ? <Link prefetch={false} href={`/jobs/${p.job_no}`} style={{ color: "var(--color-brand-700)", textDecoration: "none" }}>{p.job_title ?? "—"}</Link> : (p.job_title ?? "—")}
                 {p.job_closed && <ClosedBadge size="xs" />}
               </div>
-              {/* クライアント名（自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
+              {/* クライアント名（自動）／先方担当（任意）。いずれも編集可。
+                  #341①：「企業担当」欄は非表示（値は保持したまま画面には出さない）。 */}
               <EditInfo label="クライアント名" value={jobCompany} onChange={setJobCompany} placeholder="クライアント会社名" />
-              <EditInfo label="企業担当" value={jobCompanyContact} onChange={setJobCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
               <EditInfo label="先方担当" value={jobClientContact} onChange={setJobClientContact} placeholder="（任意）" />
               {/* 自社担当：企業メニューの会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。
                   #293：企業ID（company_no）で紐づいていることが分かるようバッジを併記。 */}
@@ -502,6 +524,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
                   <div className="muted" style={{ fontSize: 11.5 }}>人材情報</div>
+                  {/* #352②：人材IDを併記。 */}
+                  {p.candidate_no != null && <span className="mono muted" style={{ fontSize: 11 }}>P-{String(p.candidate_no).padStart(5, "0")}</span>}
                 </div>
                 {(() => { const url = gmailMessageUrl(p.cand_source_mail_url); return (
                   <a href={url ?? undefined} target="_blank" rel="noopener noreferrer" className="btn ghost btn-xs"
@@ -519,9 +543,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   <div className="muted" style={{ fontSize: 11.5 }}>{p.source ? `登録元: ${p.source}` : ""}</div>
                 </div>
               </div>
-              {/* 会社名（人材の所属会社・自動）／企業担当（窓口担当者・自動）／先方担当（任意）。いずれも編集可。 */}
+              {/* 会社名（人材の所属会社・自動）／先方担当（任意）。いずれも編集可。
+                  #341①：「企業担当」欄は非表示（値は保持したまま画面には出さない）。 */}
               <EditInfo label="会社名" value={candCompany} onChange={setCandCompany} placeholder="人材の所属会社（自動表示）" />
-              <EditInfo label="企業担当" value={candCompanyContact} onChange={setCandCompanyContact} placeholder="企業記録の窓口担当者（自動表示）" />
               <EditInfo label="先方担当" value={candContact} onChange={setCandContact} placeholder="（任意）" />
               {/* 自社担当：人材の所属会社の会社データ（owner_staff）と連携して自動表示（空欄ならそのまま空欄）。
                   #293：企業ID（company_no）で紐づいていることが分かるようバッジを併記。 */}
@@ -628,9 +652,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               ) : contactMemos.length === 0 ? (
                 <div className="muted" style={{ fontSize: 12 }}>コンタクト履歴はまだありません。上のフォームから記録できます。</div>
               ) : (
-                contactMemos.map((m) => {
+                (showAllContacts ? contactMemos : contactMemos.slice(0, 4)).map((m) => {
                   const parsed = parseContactBody(m.body);
-                  const tone = CONTACT_CHANNEL_TONE[parsed.channel] ?? CONTACT_CHANNEL_TONE["その他"];
+                  const tone = contactToneOf(parsed.channel);
                   // 表示する連絡日時：プレフィクス由来があればそれ、無ければ created_at にフォールバック。
                   const at = parsed.at ?? new Date(m.created_at);
                   const atStr = isNaN(at.getTime()) ? "—" : `${at.getFullYear()}/${String(at.getMonth() + 1).padStart(2, "0")}/${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
@@ -652,14 +676,27 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   );
                 })
               )}
+              {/* #352④：5件以上は「＋全て見る」で展開（既定は4件まで）。 */}
+              {contactMemos.length > 4 && (
+                <button type="button" className="btn ghost btn-xs" onClick={() => setShowAllContacts((v) => !v)} style={{ alignSelf: "flex-start" }}>
+                  {showAllContacts ? "− 折りたたむ" : `＋ 全て見る（残り${contactMemos.length - 4}件）`}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* メモ履歴（カテゴリ別の対応ログ）。連絡記録は上の「コンタクト履歴」で扱うのでここでは除外。 */}
-          {(() => { const otherMemos = memos.filter((m) => normalizeMemoCategory(m.category) !== "連絡記録"); return (
+          {/* メモ履歴（カテゴリ別の対応ログ）。
+              #352⑤：プレフィクス付きの「連絡記録」（コンタクト履歴のフォームから記録）だけを上のカードで扱い、
+              プレフィクスの無い「連絡記録」メモはこちらの一覧に表示する。 */}
+          {(() => { const otherMemos = memos.filter((m) => !(normalizeMemoCategory(m.category) === "連絡記録" && CONTACT_PREFIX_RE.test(m.body ?? ""))); return (
           <div className="card" style={{ padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div className="muted" style={{ fontSize: 11.5 }}>メモ履歴 {otherMemos.length > 0 && <span style={{ marginLeft: 4 }}>({otherMemos.length})</span>}</div>
+              {/* #352③：タイトルはコンタクト履歴と同じ太字に。 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-700)" }}>edit_note</span>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>メモ履歴</div>
+                {otherMemos.length > 0 && <span className="muted" style={{ fontSize: 11.5 }}>({otherMemos.length})</span>}
+              </div>
               <button type="button" className="btn ghost btn-sm" onClick={() => setMemoModalOpen(true)} title="新しいメモを追加">
                 <span className="material-symbols-outlined" style={{ fontSize: 15, marginRight: 4, verticalAlign: "-2px" }}>edit_note</span>
                 メモ追加
@@ -671,7 +708,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
               <div className="muted" style={{ fontSize: 12 }}>メモはまだありません。</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {otherMemos.map((m) => {
+                {(showAllMemos ? otherMemos : otherMemos.slice(0, 4)).map((m) => {
                   const tone = memoCategoryTone(m.category);
                   const dt = new Date(m.created_at);
                   const dtStr = isNaN(dt.getTime()) ? "—" : `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
@@ -688,35 +725,31 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                     </div>
                   );
                 })}
+                {/* #352④：5件以上は「＋全て見る」で展開（既定は4件まで）。 */}
+                {otherMemos.length > 4 && (
+                  <button type="button" className="btn ghost btn-xs" onClick={() => setShowAllMemos((v) => !v)} style={{ alignSelf: "flex-start" }}>
+                    {showAllMemos ? "− 折りたたむ" : `＋ 全て見る（残り${otherMemos.length - 4}件）`}
+                  </button>
+                )}
               </div>
             )}
           </div>
           ); })()}
 
-          {/* 通知ステータス（幅を狭め）＋ 案件/人材クローズボタンを隣に配置 */}
+          {/* #341②：通知ステータスのブロックは削除（進捗状況で代替）。クローズ＋進捗状況を横並びで配置。 */}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch" }}>
-            {/* 通知ステータス（案件側 / 人材側） — ドットで「やってない / 処理中 / 完了」を示す */}
-            <div className="card" style={{ padding: 16, flex: "1 1 360px", minWidth: 300 }}>
-              <div className="muted" style={{ fontSize: 11.5, marginBottom: 10 }}>通知ステータス</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>案件</span>
-                  <NotifyDot status={jobNotify} side="job" proposalId={p.id} size={14} onChange={setJobNotify} />
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[jobNotify]}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12.5, color: "var(--color-ink-3)", minWidth: 36 }}>人材</span>
-                  <NotifyDot status={candNotify} side="cand" proposalId={p.id} size={14} onChange={setCandNotify} />
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{NOTIFY_LABEL[candNotify]}</span>
-                </div>
-              </div>
-              <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>ドットをクリックで <b>未処理 → 処理中 → 完了 → 未処理</b> と切替。未処理は赤く脈動します。</div>
-            </div>
-            {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。 */}
-            <div className="card" style={{ padding: 16, flex: "1 1 220px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* 案件/人材クローズ（一覧と同じ is_closed。理由必須＋会社評価連動）。押すと「クローズ済み」に。
+                #334①：クローズ枠を左に狭め、その隣に進捗状況の選択欄を置く。 */}
+            <div className="card" style={{ padding: 16, flex: "0 1 240px", minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="muted" style={{ fontSize: 11.5 }}>クローズ</div>
               <ProposalCloseControls side="job" label="案件" no={p.job_no} closed={!!p.job_closed} />
               <ProposalCloseControls side="cand" label="人材" no={p.candidate_no} closed={!!p.cand_closed} />
+            </div>
+            {/* #334①：進捗状況（返事待ちの別・未処理）。「編集を保存」で反映し、保存日を一覧に表示。 */}
+            <div className="card" style={{ padding: 16, flex: "1 1 280px", minWidth: 220, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="muted" style={{ fontSize: 11.5 }}>進捗状況</div>
+              <SelField label="進捗状況" value={progress} options={[...PROGRESS_STATUSES]} onChange={setProgress} />
+              <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>「編集を保存」を押すと反映され、保存日が一覧のカッコ内に表示されます。</div>
             </div>
           </div>
 
@@ -768,7 +801,13 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                   会社名・先方担当者は案件情報／人材情報（①）から選んで自動入力でき、手入力もできる。 */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10 }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "var(--color-ink-4)" }}>会社名<span style={{ color: "var(--color-danger)" }}> *</span>
-                  <select value="" onChange={(e) => { const v = e.target.value; if (v === "job") setLostCompany(jobCompany); else if (v === "cand") setLostCompany(candCompany); }}
+                  {/* #332：会社名を選ぶと先方担当者も同じ側（案件側／人材側）の担当者名を自動で入れる。
+                      （担当者だけ後から別に変えたい場合は右の「先方担当者」で上書きできる） */}
+                  <select value="" onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "job") { setLostCompany(jobCompany); setLostContactMode("job"); setLostClientContact(jobClientContact); }
+                      else if (v === "cand") { setLostCompany(candCompany); setLostContactMode("cand"); setLostClientContact(candContact); }
+                    }}
                     style={{ fontFamily: "inherit", fontSize: 11.5, padding: "5px 8px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
                     <option value="">案件側／人材側から選択…</option>
                     <option value="job">案件側：{jobCompany || "（空欄）"}</option>

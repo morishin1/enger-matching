@@ -20,8 +20,9 @@ export default async function MailComposePage({
   if (!jobNo || !candNo || !dbConfigured) return notFound();
 
   const sb = engerClient();
+  // detail_note＝手入力の案件詳細（#344：人材側メールに最優先で挿入）。未整備環境は下のフォールバックで外れる。
   const JOB =
-    "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, contact_email, contact_name, source_mail_url, work_location, start_date";
+    "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, detail_note, contact_email, contact_name, source_mail_url, work_location, start_date";
   // contact_name は candidates テーブルには存在せず attachCompanyContact で動的付与されるため除外
   const CAND =
     "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, note, source_mail_url, source_mail_subject, email, contact_email, skill_sheet_url";

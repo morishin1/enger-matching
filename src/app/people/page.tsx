@@ -22,13 +22,16 @@ async function fetchFocusCandidate(focus?: string | null): Promise<any | null> {
   if (!v || !dbConfigured) return null;
   try {
     const sb = engerClient();
-    const cols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, is_closed, signup_source, created_at";
+    const baseCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, nationality, age_band, rank, note, email, contact_email, contact_name, source_mail_url, skill_sheet_url, is_focus, is_closed, signup_source, created_at";
+    const cols = `${baseCols}, tools, residence, detail_note`; // #330④居住地／#325ツール／#347人材詳細。未整備環境ではフォールバック。
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
     const isNum  = /^\d+$/.test(v);
-    let r: any;
-    if (isUuid)      r = await sb.from("candidates").select(cols).eq("id", v).maybeSingle();
-    else if (isNum)  r = await sb.from("candidates").select(cols).eq("candidate_no", Number(v)).maybeSingle();
-    else             return null;
+    const fetchWith = (c: string) => isUuid
+      ? sb.from("candidates").select(c).eq("id", v).maybeSingle()
+      : sb.from("candidates").select(c).eq("candidate_no", Number(v)).maybeSingle();
+    if (!isUuid && !isNum) return null;
+    let r: any = await fetchWith(cols);
+    if (r.error && /tools|residence|detail_note|column/i.test(r.error.message ?? "")) r = await fetchWith(baseCols);
     if (r.error || !r.data) return null;
     return r.data;
   } catch { return null; }
@@ -317,7 +320,7 @@ export default async function PeoplePage({ searchParams }: { searchParams: Promi
       //   一覧から消えるデグレになるため）。source_csv も登録元判定の補助に取得する。
       // #325：tools（使用経験のあるツール・開発環境）は最初の取得だけに含める。未整備環境では
       //   カラムエラーで下のフォールバック（tools を含まない列）に落ちるため一覧は壊れない。
-      let res: any = await order(buildBase(`${baseCols}, tools, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, true, hideClosed));
+      let res: any = await order(buildBase(`${baseCols}, tools, is_closed, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv, residence, detail_note`, true, true, hideClosed));
       if (res.error && /deleted_at|is_closed|column/i.test(res.error.message)) {
         res = await order(buildBase(`${baseCols}, rank, email, contact_email, source_mail_url, skill_sheet_url, signup_source, source_csv`, true, false));
       }

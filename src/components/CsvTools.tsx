@@ -44,14 +44,19 @@ const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" 
   "スキル": "skills", "必要スキル": "skills", "保有スキル": "skills", "技術スキル": "skills",
   "単価": "rate", "希望単価": "rate", "希望単価下限": "_rate_min", "希望単価上限": "_rate_max", "単価下限": "_rate_min", "単価上限": "_rate_max",
   "スキル見合い": "_skill_based",
-  "稼働開始": "avail", "稼働": "avail", "稼働開始可能日": "avail", "勤務地": "location", "場所": "location", "希望勤務地": "location",
+  // #347③：人材詳細の項目名「稼働開始予定日」「最寄駅」「居住地」も名前ベースで対応。
+  "稼働開始": "avail", "稼働": "avail", "稼働開始可能日": "avail", "稼働開始予定日": "avail",
+  "勤務地": "location", "場所": "location", "希望勤務地": "location", "最寄駅": "location", "居住地": "residence",
   "経験": "exp", "経験年数": "exp", "実務経験年数": "exp", "ステータス": "status", "状態": "status", "現在のステータス": "status",
+  "ランク": "rank",
   // マッチングのリモート評価に必須
   "リモート希望": "remote_pref", "リモート": "remote_pref", "リモート可否": "remote_pref",
-  // 詳細プロフィール（詳細ページで表示）
-  "年齢層": "age_band", "希望年齢層": "age_band", "国籍": "nationality",
+  // 詳細プロフィール（詳細ページで表示）。#347②：「年齢（年代）」も名前ベースで対応。
+  "年齢層": "age_band", "希望年齢層": "age_band", "年代": "age_band", "年齢（年代）": "age_band", "年齢": "age_band", "国籍": "nationality",
   "スキルレベル": "skill_level", "日本語レベル": "japanese_level", "日本語": "japanese_level",
-  "コミュニケーション力": "comm", "コミュ力": "comm", "備考": "note", "メモ": "note",
+  "コミュニケーション力": "comm", "コミュ力": "comm",
+  // #347④⑤：UI改称に合わせ「メール原文」＝note／「人材詳細」＝detail_note を名前ベースで対応。
+  "備考": "note", "メモ": "note", "メール原文": "note", "人材詳細": "detail_note",
   "スキルシートURL": "skill_sheet_url", "スキルシート": "skill_sheet_url", "職務経歴書": "skill_sheet_url", "添付ファイルID": "skill_sheet_url", "添付ファイル": "skill_sheet_url",
   // メール連携：送信元(所属窓口)＝返信先 / 元メールへの直リンク（URL or GASのメッセージID）
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
@@ -63,14 +68,18 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "
   "案件名": "title", "クライアント名": "client_name", "クライアント": "client_name",
   "募集職種": "role_label", "職種": "role_label", "必要スキル": "skills", "スキル": "skills",
   "単価下限": "_salary_min", "単価上限": "_salary_max", "リモート可否": "remote_type", "リモート": "remote_type",
-  "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "案件詳細": "detail", "ステータス": "status",
+  "商流": "flow_note", "勤務地": "work_location", "稼働開始希望日": "start_date", "ステータス": "status",
+  // #344：UI改称（#331）に合わせて名前ベースの対応を更新。
+  //   「案件詳細」＝手入力の整形メモ(detail_note)／「メール原文」＝取込メール原文(detail)。
+  //   ※ このマッピングは列位置ではなくヘッダ名（列見出し）で対応付ける方式。
+  "案件詳細": "detail_note", "メール原文": "detail",
   // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
   "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
   "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
   "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
 };
-const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始", "勤務地", "経験", "ステータス", "スキルシートURL"];
+const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始予定日", "最寄駅", "居住地", "経験", "ステータス", "ランク", "年齢（年代）", "国籍", "リモート希望", "スキルシートURL", "人材詳細", "メール原文"];
 
 /** 仮説立案・マッチングに不可欠な重要データの欠落（取込ゲート用）。 */
 function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
@@ -84,7 +93,7 @@ function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
   }
   return m;
 }
-const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス"];
+const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス", "案件詳細", "メール原文"];
 
 type ValRow = { rowNo: number; rec: any; label: string; errors: string[]; warnings: string[] };
 
@@ -251,7 +260,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   };
 
   const template = kind === "candidates"
-    ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,個人事業,Java/Spring/AWS,¥80万,即日,東京,8y,提案可,https://drive.google.com/file/d/XXXX/view" }
+    ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,個人事業,Java/Spring/AWS,¥80万,即日,東京駅,東京都世田谷区,8y,提案可,A,30代,日本国籍,一部リモート希望,https://drive.google.com/file/d/XXXX/view,即戦力・リーダー経験あり,（取込メール本文をここに）" }
     : { name: "案件テンプレート.csv", body: "﻿" + JOB_TEMPLATE.join(",") + "\nReact開発案件,株式会社サンプル,フロントエンドエンジニア,React/TypeScript/AWS,70,90,一部リモート,東京,2026/06/01,募集中" };
 
   const errCount = preview?.rows.filter((r) => r.errors.length).length ?? 0;
@@ -577,7 +586,9 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
         age_band: f.age_band?.trim() || null,
         nationality: f.nationality?.trim() || null,
         rank: f.rank?.trim() || null,
-        note: f.note?.trim() || null,
+        note: f.note?.trim() || null,                    // #347④：メール原文
+        detail_note: f.detail_note?.trim() || null,      // #347⑤：人材詳細
+        residence: f.residence?.trim() || null,          // #347/#330：居住地
         skill_sheet_url: f.skill_sheet_url?.trim() ? driveUrl(f.skill_sheet_url.trim()) : null,
         email: f.email?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
@@ -612,6 +623,7 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
         work_location: f.work_location?.trim() || null,
         start_date: dateOf(f.start_date || "") || (f.start_date?.trim() || null),
         detail: f.detail?.trim() || null,
+        detail_note: f.detail_note?.trim() || null, // #344：手入力の案件詳細
         status: f.status?.trim() || null,
         contact_name: f.contact_name?.trim() || null,
         contact_email: f.contact_email?.trim() || null,
@@ -682,8 +694,10 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   <FormField label="保有スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full placeholder="Java, Spring, AWS" />
                   <FormField label="希望単価" value={f.rate} onChange={set("rate")} placeholder="例：80万 / ¥70〜90万" />
                   <FormField label="経験年数" value={f.exp} onChange={set("exp")} placeholder="例：8 / 8年" />
-                  <FormDateField label="稼働開始" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
+                  <FormDateField label="稼働開始予定日" value={f.avail} onChange={set("avail")} placeholder="例：即日 / 6月〜（カレンダー選択可）" />
                   <FormField label="最寄駅" value={f.location} onChange={set("location")} />
+                  {/* #347/#330：居住地（最寄駅とは別）。 */}
+                  <FormField label="居住地" value={f.residence} onChange={set("residence")} placeholder="例：東京都世田谷区" />
                   <FormSelect label="リモート希望" value={remoteBucketValue(f.remote_pref)} onChange={set("remote_pref")} options={[
                     { value: "", label: "未設定" },
                     { value: "フルリモート希望", label: "フルリモート希望" },
@@ -692,7 +706,8 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   ]} />
                   <FormField label="ステータス" value={f.status} onChange={set("status")} placeholder="例：提案可 / 即アサイン可能" />
                   <FormField label="ランク" value={f.rank} onChange={set("rank")} placeholder="例：A / B / C" />
-                  <FormField label="年代" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半" />
+                  {/* #347②：年代→年齢（年代）。 */}
+                  <FormField label="年齢（年代）" value={f.age_band} onChange={set("age_band")} placeholder="例：30代 / 40代後半" />
                   <FormSelect label="国籍" value={f.nationality} onChange={set("nationality")} options={[
                     { value: "", label: "未設定" },
                     { value: "日本国籍", label: "日本国籍" },
@@ -704,7 +719,9 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   <FormField label="本人メール" value={f.email} onChange={set("email")} />
                   <FormField label="所属窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
                   <FormField label="元メールURL／Gmail メッセージ ID" value={f.source_mail} onChange={set("source_mail")} full />
-                  <FormTextarea label="備考（LINE/メール本文のメモ・特記事項）" value={f.note} onChange={set("note")} />
+                  {/* #347⑤：人材詳細（手入力の整形メモ）。#347④：備考→メール原文。 */}
+                  <FormTextarea label="人材詳細" value={f.detail_note} onChange={set("detail_note")} />
+                  <FormTextarea label="メール原文（取込メール本文・特記事項）" value={f.note} onChange={set("note")} />
                 </>
               ) : (
                 <>
@@ -736,7 +753,9 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                   <FormField label="窓口担当者名" value={f.contact_name} onChange={set("contact_name")} />
                   <FormField label="窓口メール（返信先）" value={f.contact_email} onChange={set("contact_email")} />
                   <FormField label="元メールURL／Gmail メッセージ ID" value={f.source_mail} onChange={set("source_mail")} full />
-                  <FormTextarea label="案件詳細" value={f.detail} onChange={set("detail")} />
+                  {/* #344：案件詳細＝手入力の整形メモ（メールにも挿入）／メール原文＝取込メール本文。 */}
+                  <FormTextarea label="案件詳細" value={f.detail_note} onChange={set("detail_note")} />
+                  <FormTextarea label="メール原文" value={f.detail} onChange={set("detail")} />
                 </>
               )}
             </div>

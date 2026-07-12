@@ -4,6 +4,14 @@ import { MailButton } from "@/components/MailButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { listEngineers, freelanceShortId } from "@/lib/engineers";
 import { resolveEngineerProfileNames } from "@/lib/chat";
+import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
+
+// #360②：検索結果に付ける「提案済み」バッジ。
+function ProposedBadge() {
+  return (
+    <span className="tag" style={{ fontSize: 9.5, fontWeight: 700, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0", whiteSpace: "nowrap" }}>✓ 提案済み</span>
+  );
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -24,6 +32,9 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   let jobs: any[] = [], people: any[] = [], companies: { name: string; active_jobs: number; job_count: number }[] = [];
   let freelancers: { id: string; shortId: string; label: string; sub: string }[] = [];
   let dbError: string | null = null;
+  // #360②：提案済みの案件/人材（id）。検索結果に「提案済み」マークを付ける。
+  const proposedJobIds = new Set<string>();
+  const proposedCandIds = new Set<string>();
 
   if (term && dbConfigured) {
     try {
@@ -59,11 +70,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       ].join(",");
 
       // メイン検索（テキスト ilike）。非公開も含めて拾うため is_published 制約は外す。
-      const jobCols = "job_no, title, client_name, role_label, remote_type, salary_min, salary_max, is_published";
+      //   id は #360②「提案済み」マーク（proposals.job_id/candidate_id との突合）に使う。
+      const jobCols = "id, job_no, title, client_name, role_label, remote_type, salary_min, salary_max, is_published";
       // #276①：検索結果の人材行にも通常一覧と同じ操作ボタン（マッチング/元メール/スキルシート）を
       //   出すため、必要な列を追加。列が無い旧環境ではベース列にフォールバック。
-      let candCols = "candidate_no, name, initials, title, affiliation, source_company, rate, source_mail_url, skill_sheet_url, is_closed";
-      const candColsBase = "candidate_no, name, initials, title, affiliation, source_company, rate";
+      // #360①：年代(age_band)・国籍(nationality)・所属会社(company)も表示するため取得。
+      let candCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, rate, source_mail_url, skill_sheet_url, is_closed";
+      const candColsBase = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, rate";
       let [jr, cr, co] = await Promise.all([
         sb.from("jobs").select(jobCols).or(orJob + skillsOr).order("created_at", { ascending: false }).limit(20),
         sb.from("candidates").select(candCols).or(orCand + skillsOr).order("created_at", { ascending: false }).limit(20),
@@ -96,6 +109,19 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       people = cr.data ?? [];
       const allCo = (Array.isArray(co.data) ? co.data : []) as any[];
       companies = allCo.filter((c) => (c.name ?? "").toLowerCase().includes(safe.toLowerCase())).slice(0, 20);
+
+      // #360②：検索結果の案件・人材に「提案済み」マークを付けるため、提案レコードの有無を引く。
+      //   proposals は job_id / candidate_id（UUID）で紐づくので、検索結果の id で照合する（.in で軽量）。
+      try {
+        const jobIds = jobs.map((j: any) => j.id).filter(Boolean);
+        const candIds = people.map((p: any) => p.id).filter(Boolean);
+        const [pj, pc] = await Promise.all([
+          jobIds.length ? sb.from("proposals").select("job_id").in("job_id", jobIds).limit(5000) : Promise.resolve({ data: [] } as any),
+          candIds.length ? sb.from("proposals").select("candidate_id").in("candidate_id", candIds).limit(5000) : Promise.resolve({ data: [] } as any),
+        ]);
+        for (const r of (pj.data ?? []) as any[]) if (r.job_id) proposedJobIds.add(String(r.job_id));
+        for (const r of (pc.data ?? []) as any[]) if (r.candidate_id) proposedCandIds.add(String(r.candidate_id));
+      } catch { /* proposals 未整備でもマーク無しで続行 */ }
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
@@ -160,7 +186,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div key={j.job_no} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               {/* 案件名クリックは詳細画面へ（マッチングはボタンから）。 */}
               <Link href={`/jobs/${j.job_no}`} style={{ textDecoration: "none", color: "inherit", minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{j.job_no}</span>{j.title}{j.is_published === false && <span className="tag" style={{ fontSize: 9.5, marginLeft: 6 }}>非公開</span>}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><span className="muted tnum">#{j.job_no}</span>{j.title}{j.is_published === false && <span className="tag" style={{ fontSize: 9.5 }}>非公開</span>}{j.id && proposedJobIds.has(String(j.id)) && <ProposedBadge />}</div>
                 <div className="muted" style={{ fontSize: 10.5 }}>{j.client_name ?? "—"} · {j.role_label ?? ""} · {remoteLabel(j.remote_type)} · {salaryLabel(j.salary_min, j.salary_max)}</div>
               </Link>
               <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
@@ -178,8 +204,19 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div key={p.candidate_no} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none", color: "inherit", minWidth: 0 }}>
                 {/* #267①：人材名（イニシャル）を必ず表示（name 空は initials 補完・異なる場合は併記）。 */}
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}><span className="muted tnum" style={{ marginRight: 6 }}>#{p.candidate_no}</span>{p.name || p.initials || "—"}{p.name && p.initials && p.name !== p.initials ? <span className="muted">（{p.initials}）</span> : null}</div>
-                <div className="muted" style={{ fontSize: 10.5 }}>{p.title ?? "—"} · {p.affiliation ?? p.source_company ?? ""} · {p.rate ?? ""}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><span className="muted tnum">#{p.candidate_no}</span>{p.name || p.initials || "—"}{p.name && p.initials && p.name !== p.initials ? <span className="muted">（{p.initials}）</span> : null}{p.id && proposedCandIds.has(String(p.id)) && <ProposedBadge />}</div>
+                {/* #360①：職種・所属会社・年代・国籍・単価を表示（空欄/不明の項目は出さない）。 */}
+                <div className="muted" style={{ fontSize: 10.5 }}>{(() => {
+                  const natCat = classifyCandNationality(p.nationality);
+                  const parts = [
+                    p.title,
+                    p.source_company || p.company,                                 // 所属会社
+                    p.age_band,                                                    // 年代
+                    natCat !== "unknown" ? CAND_NAT_LABEL[natCat] : null,          // 国籍（不明は非表示）
+                    p.rate,
+                  ].map((x) => (x == null ? "" : String(x).trim())).filter(Boolean);
+                  return parts.length ? parts.join(" · ") : "—";
+                })()}</div>
               </Link>
               {/* #276①：通常の人材一覧（PeopleTable）と同じ操作ボタンを表示。
                   マッチング（クローズ済は非表示）／元メール（URLあるときのみ）／スキルシート（URLあるときのみ）。 */}
