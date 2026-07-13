@@ -19,6 +19,12 @@ export function FreelanceNgSelect({ jobNo, initial, compact }: { jobNo: number; 
     start(async () => {
       const r = await updateJobById(jobNo, { freelance_ng: next === "NG" ? "NG" : null } as any);
       if (!r.ok) { setVal(prev); toast(("error" in r ? r.error : null) || "フリーランスの応募の保存に失敗しました", "error"); return; }
+      // #389：DBに freelance_ng 列が未整備だと fail-soft で外されて保存されないため、明示エラーで知らせる。
+      if ((r as any).skipped?.includes("freelance_ng")) {
+        setVal(prev);
+        toast("保存できませんでした：データベースに「フリーランスNG」列（freelance_ng）が未整備です。中央 Supabase の SQL Editor で supabase/jobs-freelance-ng.sql を実行してください", "error");
+        return;
+      }
       toast(next === "NG" ? "フリーランスNGに設定しました" : "フリーランスNGを解除しました", "success");
       router.refresh();
     });

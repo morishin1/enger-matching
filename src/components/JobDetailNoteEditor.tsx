@@ -19,6 +19,12 @@ export function JobDetailNoteEditor({ jobNo, initial }: { jobNo: number; initial
     start(async () => {
       const r = await updateJobById(jobNo, { detail_note: val } as any);
       if (!r.ok) { toast(("error" in r ? r.error : null) || "案件詳細の保存に失敗しました", "error"); return; }
+      // #389：DBに detail_note 列が未整備だと fail-soft で外されて「保存したのに消える」ため、
+      //   成功扱いにせず明示エラーにする（supabase/jobs-detail-note.sql の実行で根治）。
+      if ((r as any).skipped?.includes("detail_note")) {
+        toast("保存できませんでした：データベースに「案件詳細」列（detail_note）が未整備です。中央 Supabase の SQL Editor で supabase/jobs-detail-note.sql を実行してください", "error");
+        return;
+      }
       setSavedVal(val);
       toast("案件詳細を保存しました", "success");
       router.refresh();

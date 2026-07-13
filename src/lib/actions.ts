@@ -2473,6 +2473,9 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
       start_date: r.start_date || null,
       detail: r.detail?.trim() || null,
       detail_note: r.detail_note?.trim() || null, // #344：CSVの「案件詳細」列（メール原文=detailとは別）
+      // #389：CSVの「フリーランスNG」列。"NG"（大文字小文字不問）→ "NG"、空欄 → null（そのまま反映）。
+      //   CSV に列自体が無い場合は undefined のまま（JSON化で落ちる）＝既存値に触れない。
+      freelance_ng: r.freelance_ng === undefined ? undefined : ((r.freelance_ng ?? "").toString().trim().toUpperCase() === "NG" ? "NG" : null),
       status: r.status?.trim() || "募集中",
       contact_name: r.contact_name?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
@@ -2489,6 +2492,14 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
 
   let inserted = 0;
   let merged = 0;
+  // #389：DB列未整備（SQL未実行）でfail-softが外した列。空でなければ呼び出し元へ返し、
+  //   「取り込んだのに反映されない」をサイレントにしない（案件詳細/フリーランスNGが消えた事故の再発防止）。
+  const skippedCols = new Set<string>();
+  // fail-soft の除外対象（任意列）。バッチ内にこれらの値があるときだけ「保存されなかった列」として報告する。
+  const OPTIONAL_JOB_COLS = ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note", "freelance_ng"] as const;
+  const noteSkipped = (batch: any[]) => {
+    for (const c of OPTIONAL_JOB_COLS) if (batch.some((b) => b[c] != null && b[c] !== "")) skippedCols.add(c);
+  };
   // mergeExisting: 既存(title × client_name 一致)を空欄補完で更新し、INSERT はスキップ。
   //   - 既存値は上書きしない（運用上の手動編集を保護）
   //   - スキル/タグ等の配列は重複排除でマージ
@@ -2511,7 +2522,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     } catch { /* 取得失敗時は通常のINSERTパスへ */ }
 
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
-    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "detail_note", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
+    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "detail_note", "freelance_ng", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
     const mergedRows: any[] = [];
     for (const r of rows) {
       const k = tk(r.title, r.client_name);
@@ -2532,6 +2543,9 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
         const union = Array.from(new Set([...curSkills, ...newSkills]));
         if (union.length !== curSkills.length) m.skills = union;
       }
+      // #389：上書きモードでは CSV の「フリーランスNG」列の値（NG/空欄）をそのまま反映する。
+      //   空欄（null）は FILL の空値スキップに掛かるため、列が存在するときだけ明示的に代入。
+      if (opts?.overwrite && (r as any).freelance_ng !== undefined) m.freelance_ng = (r as any).freelance_ng;
       mergedRows.push(m);
     }
     // ★ 一括 upsert（id 衝突＝既存IDの UPDATE）に変更
@@ -2541,7 +2555,8 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
         const slice = mergedRows.slice(i, i + UB);
         let { error, count } = await admin.from("jobs").upsert(slice, { onConflict: "id", count: "exact" });
         if (error && /column/i.test(error.message)) {
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note"]) delete o[k2]; return o; });
+          noteSkipped(slice); // #389：外した列を報告（サイレント消失防止）
+          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of OPTIONAL_JOB_COLS) delete o[k2]; return o; });
           ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "id", count: "exact" }));
         }
         if (!error) merged += count ?? slice.length;
@@ -2556,9 +2571,10 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     let { error, count } = await admin
       .from("jobs")
       .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
-    // contact_email / source_mail_url / operator / detail_note 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /contact_email|contact_name|source_mail_url|operator|detail_note|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; delete o.contact_name; delete o.contact_email; delete o.source_mail_url; delete o.operator; delete o.detail_note; return o; });
+    // contact_email / source_mail_url / operator / detail_note / freelance_ng 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
+    if (error && /contact_email|contact_name|source_mail_url|operator|detail_note|freelance_ng|column/i.test(error.message)) {
+      noteSkipped(batch); // #389：外した列を報告（サイレント消失防止）
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k2 of OPTIONAL_JOB_COLS) delete (o as any)[k2]; return o; });
       ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -2567,7 +2583,8 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
 
   revalidatePath("/jobs");
   bustCounts();
-  return { ok: true, inserted, merged };
+  // #389：skippedCols が空でない＝DB列未整備で一部の列が保存されていない（SQL Editor で該当SQLの実行が必要）。
+  return { ok: true, inserted, merged, skippedCols: Array.from(skippedCols) };
 }
 
 // ----- 手動登録前の類似候補プレビュー --------------------------------------
@@ -3129,20 +3146,25 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
     row.accept_flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
   }
   if (fields.signup_source !== undefined) row.signup_source = trim(fields.signup_source);
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.contact_name; delete c.contact_email; delete c.nationality_requirement; delete c.freelance_ng; delete c.source_mail_url; delete c.accept_flow_depth; delete c.signup_source; delete c.detail_note; return c; };
+  const OPTIONAL_COLS = ["contact_name", "contact_email", "nationality_requirement", "freelance_ng", "source_mail_url", "accept_flow_depth", "signup_source", "detail_note"];
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; for (const k of OPTIONAL_COLS) delete c[k]; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
     // updated_at 列がない旧スキーマ → タイムスタンプは省いて再試行
     r = await admin.from("jobs").update(withoutUpdatedAt(row)).eq("job_no", jobNo);
   }
-  // #310/#331：nationality_requirement / detail_note 列が未整備の環境でも保存が通るよう、任意列を外して再試行（fail-soft）。
+  // #310/#331：nationality_requirement / detail_note 等の列が未整備の環境でも保存が通るよう、任意列を外して再試行（fail-soft）。
+  // #389：外した列は skipped として返し、呼び出し元が「保存されなかった」と明示できるようにする
+  //   （「案件詳細を保存」が成功トーストなのに実際は保存されない事故の再発防止）。
+  let skipped: string[] = [];
   if (r.error && /nationality_requirement|freelance_ng|contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|detail_note|column/i.test(r.error.message)) {
+    skipped = OPTIONAL_COLS.filter((k) => k in row);
     r = await admin.from("jobs").update(stripped(withoutUpdatedAt(row))).eq("job_no", jobNo);
   }
   if (r.error) return { ok: false as const, error: r.error.message };
   revalidatePath(`/jobs/${jobNo}`); revalidatePath("/jobs"); bustCounts();
-  return { ok: true as const };
+  return { ok: true as const, skipped };
 }
 
 // ────────────────────────────────────────────────────────

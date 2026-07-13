@@ -73,6 +73,8 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "
   //   「案件詳細」＝手入力の整形メモ(detail_note)／「メール原文」＝取込メール原文(detail)。
   //   ※ このマッピングは列位置ではなくヘッダ名（列見出し）で対応付ける方式。
   "案件詳細": "detail_note", "メール原文": "detail",
+  // #389：CSVの「フリーランスNG」列（NG／空欄）。ドロワーの項目名「フリーランスの応募」でも受け付ける。
+  "フリーランスNG": "freelance_ng", "フリーランスの応募": "freelance_ng",
   // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
   "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
@@ -93,7 +95,7 @@ function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
   }
   return m;
 }
-const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス", "案件詳細", "メール原文"];
+const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス", "案件詳細", "フリーランスNG", "メール原文"];
 
 type ValRow = { rowNo: number; rec: any; label: string; errors: string[]; warnings: string[] };
 
@@ -181,7 +183,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   // 統合時に CSV の値で既存を「上書き」するか（精度の高いデータで更新する用）。
   const [overwrite, setOverwrite] = useState(false);
   // 取込完了後、結果を残したまま「閉じる」ボタンで明示的に閉じる
-  const [doneInfo, setDoneInfo] = useState<{ inserted: number; merged: number; skipped: number } | null>(null);
+  const [doneInfo, setDoneInfo] = useState<{ inserted: number; merged: number; skipped: number; skippedCols?: string[] } | null>(null);
   // 問題行プレビューの「行クリックでハイライト」
   const [focusedRow, setFocusedRow] = useState<number | null>(null);
 
@@ -215,6 +217,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
     setProg({ done: 0, total: recs.length, phase: "送信準備中…" });
     start(async () => {
       let inserted = 0, skipped = 0, merged = 0;
+      const skippedColSet = new Set<string>(); // #389：DB列未整備で保存されなかった列（importJobs から返る）
       let completedRows = 0;
       let nextStart = 0;
       let aborted = false;
@@ -236,6 +239,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
             inserted += res.inserted ?? 0;
             skipped += (res as any).skipped ?? 0;
             merged += (res as any).merged ?? 0;
+            for (const c of ((res as any).skippedCols ?? []) as string[]) skippedColSet.add(c); // #389
             completedRows += slice.length;
             setProg({ done: Math.min(completedRows, totalRows), total: totalRows, phase });
           } catch (e) {
@@ -249,7 +253,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
         await Promise.all(Array.from({ length: workerCount }, () => worker()));
         if (aborted) { setProg(null); setMsg({ ok: false, text: `${errMsg ?? "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
         setProg(null);
-        setDoneInfo({ inserted, merged, skipped });
+        setDoneInfo({ inserted, merged, skipped, skippedCols: Array.from(skippedColSet) });
         setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（既存 ${merged} 件を${overwrite ? "上書き更新" : "統合"}）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
         router.refresh();
       } catch (e) {
@@ -261,7 +265,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
 
   const template = kind === "candidates"
     ? { name: "人材テンプレート.csv", body: "﻿" + CAND_TEMPLATE.join(",") + "\n山田 太郎,バックエンドエンジニア,フリーランス,個人事業,Java/Spring/AWS,¥80万,即日,東京駅,東京都世田谷区,8y,提案可,A,30代,日本国籍,一部リモート希望,https://drive.google.com/file/d/XXXX/view,即戦力・リーダー経験あり,（取込メール本文をここに）" }
-    : { name: "案件テンプレート.csv", body: "﻿" + JOB_TEMPLATE.join(",") + "\nReact開発案件,株式会社サンプル,フロントエンドエンジニア,React/TypeScript/AWS,70,90,一部リモート,東京,2026/06/01,募集中" };
+    : { name: "案件テンプレート.csv", body: "﻿" + JOB_TEMPLATE.join(",") + "\nReact開発案件,株式会社サンプル,フロントエンドエンジニア,React/TypeScript/AWS,70,90,一部リモート,東京,2026/06/01,募集中,（案件のポイント・補足メモ）,NG,（取込メール本文をここに）" };
 
   const errCount = preview?.rows.filter((r) => r.errors.length).length ?? 0;
   const warnCount = preview?.rows.filter((r) => !r.errors.length && r.warnings.length).length ?? 0;
@@ -304,6 +308,13 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                   <div style={{ fontSize: 12 }}>
                     新規 <b>{doneInfo.inserted}</b> 件{doneInfo.merged ? `／既存${overwrite ? "上書き更新" : "統合"} ${doneInfo.merged} 件` : ""}{doneInfo.skipped ? `／重複スキップ ${doneInfo.skipped} 件` : ""} を登録しました。
                   </div>
+                  {/* #389：DB列未整備でfail-softが外した列の警告（案件詳細/フリーランスNGが黙って消える事故の防止） */}
+                  {(doneInfo.skippedCols ?? []).length > 0 && (
+                    <div style={{ fontSize: 12, color: "#b42318", fontWeight: 600 }}>
+                      ⚠ 次の列はデータベース側の列が未整備のため保存されませんでした：{(doneInfo.skippedCols ?? []).map((c) => ({ detail_note: "案件詳細", freelance_ng: "フリーランスNG", contact_email: "窓口メール", contact_name: "窓口担当者", source_mail_url: "元メールURL", operator: "登録担当" } as Record<string, string>)[c] ?? c).join("・")}。
+                      中央 Supabase の SQL Editor で supabase/ 配下の該当SQL（jobs-detail-note.sql / jobs-freelance-ng.sql 等）を実行後、再取込してください。
+                    </div>
+                  )}
                   <div className="muted" style={{ fontSize: 10.5 }}>※ 一覧の更新が反映されているか確認してから閉じてください。</div>
                 </div>
               )}

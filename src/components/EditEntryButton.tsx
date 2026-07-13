@@ -376,7 +376,14 @@ export function EditJobButton({ job }: { job: any }) {
         nationality_requirement: f.nationality_requirement,
         source_mail_url: f.source_mail_url,
       } as any);
-      if (res.ok) { setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
+      // #389：DB列未整備で fail-soft が外した項目は「保存しました」にせず明示する（サイレント消失防止）。
+      const skipped: string[] = (res as any).skipped ?? [];
+      if (res.ok && skipped.length > 0) {
+        const JP: Record<string, string> = { detail_note: "案件詳細", freelance_ng: "フリーランスNG", nationality_requirement: "国籍制限", contact_name: "窓口担当者", contact_email: "窓口メール", source_mail_url: "元メールURL", accept_flow_depth: "商流（受入上限）", signup_source: "LINE登録" };
+        setMsg({ ok: false, text: `一部の項目はデータベースの列が未整備のため保存できませんでした：${skipped.map((k) => JP[k] ?? k).join("・")}。中央 Supabase で supabase/ 配下の該当SQLを実行してください（他の項目は保存済み）` });
+        router.refresh();
+      }
+      else if (res.ok) { setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
       else setMsg({ ok: false, text: res.error || "保存に失敗しました" });
     });
   };
