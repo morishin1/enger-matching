@@ -50,7 +50,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       // 拡張カラムが無い環境でも落ちないようフォールバック
       const cols = "id, job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
       // #310：nationality_requirement（国籍制限）も取得。未整備環境では下段フォールバックで外れる。
-      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement, detail_note`).eq("job_no", no).maybeSingle();
+      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement, freelance_ng, detail_note`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
@@ -151,6 +151,17 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
             } />
           );
         })()}
+        {/* #368：フリーランスNG（提案前チェック用の社内フラグ）。国籍要件と同じく警告として表示。 */}
+        <Row label="フリーランス" value={
+          j.freelance_ng ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: "#fdf3f2", color: "#b42318", border: "1px solid #f0a29a" }}>フリーランスNG</span>
+              <span style={{ fontSize: 11, color: "#b42318" }}>フリーランス人材の提案不可。</span>
+            </span>
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>制限なし（フリーランス提案可）</span>
+          )
+        } />
         <Row label="勤務地" value={j.work_location ?? "不明"} />
         <Row label="商流" value={j.flow_note} />
         <Row label="開始希望" value={j.start_date} />

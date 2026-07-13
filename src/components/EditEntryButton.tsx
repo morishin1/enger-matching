@@ -341,6 +341,7 @@ export function EditJobButton({ job }: { job: any }) {
     contact_name: j.contact_name ?? "",
     contact_email: j.contact_email ?? "",
     nationality_requirement: j.nationality_requirement ?? "", // #310：国籍制限（日本国籍のみ/国籍不問/不明）
+    freelance_ng: j.freelance_ng ? "1" : "", // #368：フリーランスNG
     source_mail_url: j.source_mail_url ?? "",
     is_line: j.signup_source === "line" ? "1" : "",
   };
@@ -372,6 +373,7 @@ export function EditJobButton({ job }: { job: any }) {
         contact_name: f.contact_name,
         contact_email: f.contact_email,
         nationality_requirement: f.nationality_requirement,
+        freelance_ng: !!f.freelance_ng, // #368：フリーランスNG
         source_mail_url: f.source_mail_url,
       } as any);
       if (res.ok) { setMsg({ ok: true, text: "保存しました" }); router.refresh(); setTimeout(close, 800); }
@@ -419,6 +421,11 @@ export function EditJobButton({ job }: { job: any }) {
                 { value: "国籍不問", label: "国籍不問" },
                 { value: "不明", label: "不明" },
               ]} />
+              {/* #368：フリーランスNG。ON でフリーランス提案不可（提案前チェック用の社内フラグ）。 */}
+              <label style={{ gridColumn: "1 / -1", display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: f.freelance_ng ? "#b42318" : "var(--color-ink-2)", cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${f.freelance_ng ? "#f0a29a" : "var(--color-border-strong)"}`, background: f.freelance_ng ? "#fdf3f2" : "var(--color-surface)", alignSelf: "flex-start" }}>
+                <input type="checkbox" checked={!!f.freelance_ng} onChange={(e) => set("freelance_ng")(e.target.checked ? "1" : "")} style={{ accentColor: "#b42318", width: 16, height: 16 }} />
+                フリーランスNG（フリーランス人材の提案不可）
+              </label>
               <Field label="元メールURL／Gmail メッセージ ID" value={f.source_mail_url} onChange={set("source_mail_url")} full />
               {/* #331⑧：手入力の案件詳細（メール原文とは別）。 */}
               <Textarea label="案件詳細" value={f.detail_note} onChange={set("detail_note")} />
