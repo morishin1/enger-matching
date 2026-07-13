@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { freelanceShortId, hasJapanese, skillTagLabel, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, syncLinkedCandidateFromProfile, type FreelancePrefill, type ProfileSyncChange } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, syncLinkedCandidateFromProfile, getEngineerContactInfo, saveEngineerContactInfo, type FreelancePrefill, type ProfileSyncChange, type EngineerContactInfo } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { CopyButton } from "@/components/CopyButton";
 import { Icons } from "./icons";
@@ -925,21 +925,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
             </div>
           </div>
         </div>
-        {/* 連絡先（メール・電話）と登録情報。
-            #275③：「メッセージ」項目は「人材ID」に変更し、人材マスタ登録済み（P番号発行済み）なら P番号を表示。 */}
-        <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>連絡先・登録情報</div>
-          <div style={{ display: "grid", gridTemplateColumns: "92px 1fr", gap: "4px 10px", fontSize: 12.5 }}>
-            {/* #275①：E番号は「フリーランスID」表記（人材ID＝P番号と区別）。 */}
-            <span className="muted">フリーランスID</span><span className="mono">{shortId(detail.id)}</span>
-            <span className="muted">登録日時</span><span className="mono">{fmtDateTime(detail.created_at)}</span>
-            <span className="muted">メール</span><span>{detail.email ? <a href={`mailto:${detail.email}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.email}</a> : <span className="muted">—</span>}</span>
-            <span className="muted">電話</span><span>{detail.phone ? <a href={`tel:${detail.phone}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{detail.phone}</a> : <span className="muted">—</span>}</span>
-            <span className="muted">人材ID</span><span>{candidateNo != null
-              ? <a href={`/people/${candidateNo}`} target="_blank" rel="noopener noreferrer" className="mono" style={{ fontWeight: 700, color: "var(--color-brand-700,#0b5cab)" }} title="人材詳細（P番号）を開く">P-{String(candidateNo).padStart(5, "0")}</a>
-              : <span className="muted" title="「人材マスタへ登録」で P番号を発行すると表示されます">未登録</span>}</span>
-          </div>
-        </div>
+        {/* #367②③：連絡先・登録情報（フリーランス本人プロフィールの最新値を表示・編集）。 */}
+        <ContactRegInfoBlock engineer={detail} candidateNo={candidateNo} />
 
         {/* 退会セクション：退会申請がある／処理済みのときだけ表示。
             ・申請のみ（処理未済） → 「退会処理する（無効化）」ボタンを赤系で出す
@@ -1410,6 +1397,163 @@ function ProfileUpdateModal({ engineer, candidateNo, onClose }: { engineer: Engi
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// #367②③：連絡先・登録情報ブロック（フリーランス本人プロフィールの最新値を表示・編集）。
+//   ・上段：フリーランスID の隣に人材ID（②）。
+//   ・電話の隣に 都道府県（居住地）・最寄り駅、電話の下に 生年月日・年齢・性別（②）。
+//   ・「編集」で public.profiles の最新値を読み込み、氏名系・連絡先系を編集→保存で LP にも反映（③）。
+//   ・面談済のときは注意表示（#367④のロックは別対応。ここでは編集自体は可）。
+function calcAgeText(ymd: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+  const b = new Date(ymd); if (isNaN(b.getTime())) return "";
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
+  return age >= 0 && age < 130 ? `${age} 歳` : "";
+}
+
+function ContactRegInfoBlock({ engineer: detail, candidateNo }: { engineer: Engineer; candidateNo: number | null }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<EngineerContactInfo | null>(null);
+  const [f, setF] = useState<EngineerContactInfo | null>(null);
+
+  const pid = candidateNo != null
+    ? <a href={`/people/${candidateNo}`} target="_blank" rel="noopener noreferrer" className="mono" style={{ fontWeight: 700, color: "var(--color-brand-700,#0b5cab)" }} title="人材詳細（P番号）を開く">P-{String(candidateNo).padStart(5, "0")}</a>
+    : <span className="muted" title="「人材マスタへ登録」で P番号を発行すると表示されます">未登録</span>;
+
+  const openEdit = () => {
+    setErr(null); setLoading(true); setEditing(true);
+    getEngineerContactInfo(detail.id).then((r) => {
+      setLoading(false);
+      if (!r.ok || !r.data) { setErr(r.error ?? "取得に失敗しました"); setEditing(false); return; }
+      setInfo(r.data); setF(r.data);
+    }).catch((e) => { setLoading(false); setEditing(false); setErr(e instanceof Error ? e.message : "取得に失敗しました"); });
+  };
+  const cancel = () => { setEditing(false); setErr(null); setF(info); };
+  const setField = (k: keyof EngineerContactInfo) => (v: string) => setF((s) => (s ? { ...s, [k]: v } : s));
+
+  const save = () => {
+    if (!f) return;
+    setErr(null);
+    start(async () => {
+      const r = await saveEngineerContactInfo({
+        engineer_id: detail.id,
+        real_name_kanji_sei: f.real_name_kanji_sei, real_name_kanji_mei: f.real_name_kanji_mei,
+        real_name_kana_sei: f.real_name_kana_sei, real_name_kana_mei: f.real_name_kana_mei,
+        initial_display: f.initial_display,
+        email: f.email, phone: f.phone, prefecture: f.prefecture, nearest_station: f.nearest_station,
+        birth_date: f.birth_date, gender: f.gender,
+      });
+      if (!r.ok) { setErr(r.error ?? "保存に失敗しました"); return; }
+      setInfo(f); setEditing(false);
+      toast("連絡先・登録情報を更新しました（プロフィールに反映）", "success");
+      router.refresh();
+    });
+  };
+
+  const cell = (label: string, node: React.ReactNode) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+      <span className="muted" style={{ fontSize: 10.5 }}>{label}</span>
+      <span style={{ fontSize: 12.5, wordBreak: "break-word" }}>{node}</span>
+    </div>
+  );
+  const Row = ({ children }: { children: React.ReactNode }) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10 }}>{children}</div>
+  );
+
+  const view = info; // 編集を開くまでは list 由来（email/phone）で最低限表示。開いた後は最新値で表示。
+  const displayEmail = view?.email ?? detail.email ?? "";
+  const displayPhone = view?.phone ?? detail.phone ?? "";
+  const fullKanji = view ? [view.real_name_kanji_sei, view.real_name_kanji_mei].filter(Boolean).join(" ") : "";
+  const fullKana = view ? [view.real_name_kana_sei, view.real_name_kana_mei].filter(Boolean).join(" ") : "";
+
+  return (
+    <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontSize: 11, color: "var(--color-ink-4)", fontWeight: 600 }}>連絡先・登録情報</span>
+        {!editing
+          ? <button type="button" className="btn ghost btn-xs" onClick={openEdit}><span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: "-2px" }}>edit</span> 編集</button>
+          : <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={cancel} disabled={pending}>キャンセル</button>
+              <button type="button" className="btn brand btn-xs" onClick={save} disabled={pending || loading}>{pending ? "保存中…" : "この内容で保存"}</button>
+            </div>}
+      </div>
+
+      {/* ② フリーランスID の隣に 人材ID。 */}
+      <Row>
+        {cell("フリーランスID", <span className="mono">{shortId(detail.id)}</span>)}
+        {cell("人材ID", pid)}
+        {cell("登録日時", <span className="mono" style={{ fontSize: 11.5 }}>{fmtDateTime(detail.created_at)}</span>)}
+      </Row>
+
+      {err && <div style={{ fontSize: 11.5, color: "var(--color-danger)" }}>{err}</div>}
+
+      {!editing ? (
+        loading ? <div className="muted" style={{ fontSize: 12, padding: 6 }}>読み込み中…</div> : (
+          <>
+            {view && (
+              <Row>
+                {cell("氏名（漢字）", fullKanji || <span className="muted">—</span>)}
+                {cell("氏名（カナ）", fullKana || <span className="muted">—</span>)}
+                {cell("イニシャル", view.initial_display || <span className="muted">—</span>)}
+              </Row>
+            )}
+            <Row>
+              {cell("メール", displayEmail ? <a href={`mailto:${displayEmail}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{displayEmail}</a> : <span className="muted">—</span>)}
+              {cell("電話", displayPhone ? <a href={`tel:${displayPhone}`} style={{ color: "var(--color-brand-700,#0b5cab)" }}>{displayPhone}</a> : <span className="muted">—</span>)}
+              {cell("性別", view?.gender || <span className="muted">—</span>)}
+            </Row>
+            {view && (
+              <Row>
+                {cell("都道府県（居住地）", view.prefecture || <span className="muted">—</span>)}
+                {cell("最寄り駅", view.nearest_station || <span className="muted">—</span>)}
+                {cell("生年月日 / 年齢", view.birth_date ? `${view.birth_date}${calcAgeText(view.birth_date) ? `（${calcAgeText(view.birth_date)}）` : ""}` : <span className="muted">—</span>)}
+              </Row>
+            )}
+            {!view && (
+              <div className="muted" style={{ fontSize: 11 }}>「編集」を押すと、都道府県・最寄り駅・生年月日・性別・氏名などの最新プロフィールを表示・編集できます。</div>
+            )}
+            {view?.meeting_done && <div style={{ fontSize: 10.5, color: "#067647" }}>✓ 面談済</div>}
+          </>
+        )
+      ) : loading || !f ? (
+        <div className="muted" style={{ fontSize: 12, padding: 6 }}>最新プロフィールを読み込み中…</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* ③ 氏名系（姓名 漢字/カナ・イニシャル）を編集して profiles に反映。 */}
+          <Row>
+            <RegField label="姓（漢字）" value={f.real_name_kanji_sei} onChange={setField("real_name_kanji_sei")} placeholder="山田" />
+            <RegField label="名（漢字）" value={f.real_name_kanji_mei} onChange={setField("real_name_kanji_mei")} placeholder="太郎" />
+            <RegField label="イニシャル" value={f.initial_display} onChange={setField("initial_display")} placeholder="YT" />
+          </Row>
+          <Row>
+            <RegField label="姓（カナ）" value={f.real_name_kana_sei} onChange={setField("real_name_kana_sei")} placeholder="ヤマダ" />
+            <RegField label="名（カナ）" value={f.real_name_kana_mei} onChange={setField("real_name_kana_mei")} placeholder="タロウ" />
+            <RegField label="性別（男性/女性）" value={f.gender} onChange={setField("gender")} placeholder="男性 / 女性" />
+          </Row>
+          <Row>
+            <RegField label="メール" value={f.email} onChange={setField("email")} placeholder="you@example.com" />
+            <RegField label="電話（ハイフンなし）" value={f.phone} onChange={setField("phone")} placeholder="09012345678" />
+            <RegField label="生年月日" type="date" value={f.birth_date} onChange={setField("birth_date")} />
+          </Row>
+          <Row>
+            <RegField label="都道府県（居住地）" value={f.prefecture} onChange={setField("prefecture")} placeholder="例：東京都" />
+            <RegField label="最寄り駅" value={f.nearest_station} onChange={setField("nearest_station")} placeholder="例：渋谷駅" />
+            {cell("年齢（自動）", <span style={{ fontSize: 12.5 }}>{calcAgeText(f.birth_date) || "—"}</span>)}
+          </Row>
+          <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>
+            ※ 保存すると ENGERフリーランス側のプロフィールにも反映されます。フリーランスID・人材ID・登録日時は変更できません。
+          </div>
+        </div>
+      )}
     </div>
   );
 }

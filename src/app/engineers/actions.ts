@@ -454,6 +454,115 @@ export async function setEngineerMeetingDone(input: { engineer_id: string; engin
   return { ok: true };
 }
 
+// #367②③：連絡先・登録情報（フリーランス本人のプロフィール項目）を dx から閲覧・編集する。
+//   ・表示は常に public.profiles の最新値（ライブ参照）。
+//   ・保存は public.profiles を更新し、LP側プロフィールにも反映される（同一テーブル）。
+//   ・氏名系（姓名漢字/カナ/イニシャル）と連絡先系（電話/メール/都道府県/最寄り駅/生年月日/性別）が対象。
+export type EngineerContactInfo = {
+  real_name_kanji_sei: string; real_name_kanji_mei: string;
+  real_name_kana_sei: string;  real_name_kana_mei: string;
+  initial_display: string;
+  email: string; phone: string;
+  prefecture: string; nearest_station: string;
+  birth_date: string;   // YYYY-MM-DD
+  gender: string;       // 男性 / 女性
+  meeting_done: boolean; // #367④の下地：面談済なら true（現状は表示のみ）
+};
+
+const CONTACT_COLS = "real_name_kanji_sei, real_name_kanji_mei, real_name_kana_sei, real_name_kana_mei, initial_display, real_name_kanji, real_name_kana, email, phone, prefecture, nearest_station, birth_date, gender, agent_meeting_done_at";
+
+/** 対象フリーランスの連絡先・登録情報（最新プロフィール）を取得。 */
+export async function getEngineerContactInfo(engineerId: string): Promise<{ ok: boolean; data?: EngineerContactInfo; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（ENGERスタッフのみ）" };
+  const id = (engineerId ?? "").trim();
+  if (!id) return { ok: false, error: "engineer_id がありません" };
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return { ok: false, error: "サーバ設定エラー（SUPABASE_SERVICE_ROLE_KEY 未設定）" }; }
+
+  let p: any = {};
+  let r: any = await pub.from("profiles").select(CONTACT_COLS).eq("id", id).maybeSingle();
+  if (r.error) r = await pub.from("profiles").select("*").eq("id", id).maybeSingle();
+  if (!r.error && r.data) p = r.data;
+
+  // 連結姓名しか無い旧データは分割してフォールバック。
+  const split = (full?: string | null): { sei: string; mei: string } => {
+    const parts = String(full ?? "").trim().split(/[\s　]+/).filter(Boolean);
+    return { sei: parts[0] ?? "", mei: parts.slice(1).join("") ?? "" };
+  };
+  const kanji = split(p.real_name_kanji);
+  const kana = split(p.real_name_kana);
+  const s = (v: any) => String(v ?? "").trim();
+  return {
+    ok: true,
+    data: {
+      real_name_kanji_sei: s(p.real_name_kanji_sei) || kanji.sei,
+      real_name_kanji_mei: s(p.real_name_kanji_mei) || kanji.mei,
+      real_name_kana_sei:  s(p.real_name_kana_sei)  || kana.sei,
+      real_name_kana_mei:  s(p.real_name_kana_mei)  || kana.mei,
+      initial_display: s(p.initial_display),
+      email: s(p.email), phone: s(p.phone),
+      prefecture: s(p.prefecture), nearest_station: s(p.nearest_station),
+      birth_date: s(p.birth_date).slice(0, 10),
+      gender: s(p.gender),
+      meeting_done: !!p.agent_meeting_done_at,
+    },
+  };
+}
+
+/** 連絡先・登録情報を public.profiles へ保存（LP側プロフィールにも反映）。 */
+export async function saveEngineerContactInfo(input: { engineer_id: string } & Partial<Omit<EngineerContactInfo, "meeting_done">>):
+  Promise<{ ok: boolean; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（ENGERスタッフのみ）" };
+  const id = (input.engineer_id ?? "").trim();
+  if (!id) return { ok: false, error: "engineer_id がありません" };
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return { ok: false, error: "サーバ設定エラー（SUPABASE_SERVICE_ROLE_KEY 未設定）" }; }
+
+  const t = (v?: string) => (v ?? "").trim();
+  const kanjiSei = t(input.real_name_kanji_sei), kanjiMei = t(input.real_name_kanji_mei);
+  const kanaSei = t(input.real_name_kana_sei),   kanaMei = t(input.real_name_kana_mei);
+  const email = t(input.email);
+  if (email && !/^[\x21-\x7e]+@[\x21-\x7e]+\.[\x21-\x7e]+$/.test(email)) return { ok: false, error: "メールアドレスの形式が正しくありません" };
+  const phone = t(input.phone);
+  if (phone && !/^\d{10,11}$/.test(phone)) return { ok: false, error: "電話番号は半角数字10〜11桁で入力してください（ハイフン不要）" };
+  const birth = t(input.birth_date);
+  if (birth && !/^\d{4}-\d{2}-\d{2}$/.test(birth)) return { ok: false, error: "生年月日は YYYY-MM-DD 形式で入力してください" };
+  const gender = t(input.gender);
+  if (gender && gender !== "男性" && gender !== "女性") return { ok: false, error: "性別は「男性」または「女性」を選択してください" };
+
+  const kanjiFull = [kanjiSei, kanjiMei].filter(Boolean).join(" ");
+  const kanaFull = [kanaSei, kanaMei].filter(Boolean).join(" ");
+  const update: Record<string, any> = {
+    real_name_kanji_sei: kanjiSei || null, real_name_kanji_mei: kanjiMei || null,
+    real_name_kana_sei: kanaSei || null,   real_name_kana_mei: kanaMei || null,
+    real_name_kanji: kanjiFull || null,    real_name_kana: kanaFull || null,
+    initial_display: t(input.initial_display) || null,
+    email: email || null, phone: phone || null,
+    prefecture: t(input.prefecture) || null, nearest_station: t(input.nearest_station) || null,
+    birth_date: birth || null, gender: gender || null,
+    updated_at: new Date().toISOString(),
+  };
+  // 氏名（漢字）がある場合は display_name も合わせて更新（一覧の氏名表示に使われるため）。
+  if (kanjiFull) update.display_name = kanjiFull;
+
+  // 列未整備環境はエラーが指す列を落として再試行（保存できる項目は確実に保存）。
+  const skipped: string[] = [];
+  let r: any = await pub.from("profiles").update(update).eq("id", id);
+  for (let i = 0; i < 14 && r.error; i++) {
+    const m = /'([A-Za-z0-9_]+)' column/.exec(r.error.message ?? "") || /column "([A-Za-z0-9_]+)"/.exec(r.error.message ?? "");
+    const col = m?.[1];
+    if (!col || !(col in update)) break;
+    delete update[col]; skipped.push(col);
+    r = await pub.from("profiles").update(update).eq("id", id);
+  }
+  if (r.error) return { ok: false, error: r.error.message };
+
+  revalidatePath("/engineers");
+  return { ok: true };
+}
+
 /** LP登録者を複数まとめて完全削除（admin / agent）。#277
  *  「フリーランス（E番号）としてのアカウント・プロフィールの完全リセット」が目的：
  *   ① E番号側の完全削除（物理削除）
