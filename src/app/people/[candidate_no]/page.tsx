@@ -55,7 +55,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
       const base = "id, candidate_no, name, initials, title, affiliation, source_company, company, skills, rate, salary_min, salary_max, avail, location, exp, status, remote_pref, age_band, nationality, skill_level, japanese_level, comm, note, is_focus";
       // #325/#330：tools・residence・登録元(signup_source/source_csv) は最初の取得だけに含める。
       //   未整備環境ではカラムエラーで下のフォールバック（これらを含まない版）に落ちる。
-      let r: any = await sb.from("candidates").select(`${base}, tools, residence, detail_note, signup_source, source_csv, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      let r: any = await sb.from("candidates").select(`${base}, tools, residence, industries, detail_note, signup_source, source_csv, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
+      if (r.error) r = await sb.from("candidates").select(`${base}, tools, residence, detail_note, signup_source, source_csv, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, is_closed, email, contact_email, rank, skill_sheet_url, source_mail_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(`${base}, email, contact_email, rank, skill_sheet_url`).eq("candidate_no", no).maybeSingle();
       if (r.error) r = await sb.from("candidates").select(base).eq("candidate_no", no).maybeSingle();
@@ -72,7 +73,10 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
             .select("engineer_id").eq("candidate_id", c.id).maybeSingle();
           const engineerId = lk?.data?.engineer_id;
           if (engineerId) {
-            const pr: any = await publicAdmin().from("profiles").select("skills").eq("id", engineerId).maybeSingle();
+            // #387④：スキル詳細に加えて 経験業種・居住地・最寄駅・リモート希望・職種・ツール も
+            //   ライブ参照し、「プロフィールを更新」なしで最新値を表示する（未整備環境は skills のみ）。
+            let pr: any = await publicAdmin().from("profiles").select("skills, tools, industries, prefecture, nearest_station, remote_pref, desired_role").eq("id", engineerId).maybeSingle();
+            if (pr.error) pr = await publicAdmin().from("profiles").select("skills").eq("id", engineerId).maybeSingle();
             const raw = Array.isArray(pr?.data?.skills) ? pr.data.skills : [];
             profileSkillDetails = raw
               .map((s: any) => ({
@@ -81,6 +85,26 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
                 processes: Array.isArray(s?.processes) ? s.processes.filter(Boolean).map(String) : [],
               }))
               .filter((s: any) => s.name);
+            // #387②：年数・工程の入力があるスキルを先に（元の順序は維持）。
+            profileSkillDetails = [
+              ...profileSkillDetails.filter((s) => s.years || s.processes.length > 0),
+              ...profileSkillDetails.filter((s) => !s.years && s.processes.length === 0),
+            ];
+            // #387④：表示値をライブ値で上書き（プロフィール側が空の項目は既存表示を維持）。
+            const lp: any = pr?.data ?? {};
+            const liveIndustries = (Array.isArray(lp.industries) ? (lp.industries as any[]) : [])
+              .map((x) => { const n = String(x?.name ?? "").trim(); if (!n) return ""; const y = String(x?.years ?? "").trim(); return y ? `${n}（${y}）` : n; })
+              .filter(Boolean).join(", ");
+            if (liveIndustries) c.industries = liveIndustries;
+            if (String(lp.prefecture ?? "").trim()) c.residence = String(lp.prefecture).trim();
+            if (String(lp.nearest_station ?? "").trim()) c.location = String(lp.nearest_station).trim();
+            if (String(lp.remote_pref ?? "").trim()) {
+              const rp = String(lp.remote_pref).trim();
+              c.remote_pref = rp === "full_remote" ? "フルリモート希望" : rp === "hybrid" ? "一部リモート可" : rp === "onsite_ok" ? "出社可" : rp;
+            }
+            if (String(lp.desired_role ?? "").trim()) c.title = String(lp.desired_role).trim();
+            const liveTools = Array.isArray(lp.tools) ? (lp.tools as any[]).map((t) => String(t).trim()).filter(Boolean) : [];
+            if (liveTools.length > 0) c.tools = liveTools;
           }
         } catch { /* 紐付け・プロフィール未取得でも人材詳細の表示は継続 */ }
       }
@@ -151,7 +175,9 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
       {isEngerFreelance(c) && (
         <div className="card">
           <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 10 }}>スキル・ツール</div>
-          <CandidateSkillsToolsEditor candidateNo={c.candidate_no} initialSkills={Array.isArray(c.skills) ? c.skills : []} initialTools={Array.isArray(c.tools) ? c.tools : []} />
+          {/* #387①：このブロックの「スキル」は「経験業種」に変更（candidates.industries を編集）。
+              スキルの紐づけはここから解除（スキル詳細＝本人登録・一覧ドロワーの「スキル詳細」で管理）。 */}
+          <CandidateSkillsToolsEditor candidateNo={c.candidate_no} variant="industries" initialIndustries={String(c.industries ?? "")} initialSkills={Array.isArray(c.skills) ? c.skills : []} initialTools={Array.isArray(c.tools) ? c.tools : []} />
           {/* #372①：フリーランス側プロフィールの経験年数・担当工程をスキルごとに1行で表示。
               フリーランスが更新・保存すると常に最新が反映される（profiles.skills のライブ参照）。 */}
           {profileSkillDetails.length > 0 && (
@@ -160,12 +186,13 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
                 スキル詳細（フリーランス本人の登録：経験年数・担当工程）
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {/* #387②：年数・工程の入力があるスキルを先に表示（並び替えはデータ取得側）。
+                    未入力スキルは「（年数・工程は未入力）」の文言を出さずタグのみ表示。 */}
                 {profileSkillDetails.map((s) => (
                   <div key={s.name} style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12.5, flexWrap: "wrap", padding: "3px 0", borderBottom: "1px solid var(--color-surface-inset)" }}>
                     <span className="tag brand" style={{ fontSize: 11, flexShrink: 0 }}>{s.name}</span>
                     {s.years && <span style={{ color: "var(--color-ink-2)" }}>経験 {s.years}</span>}
                     {s.processes.length > 0 && <span className="muted" style={{ fontSize: 11.5 }}>担当工程：{s.processes.join("・")}</span>}
-                    {!s.years && s.processes.length === 0 && <span className="muted" style={{ fontSize: 11.5 }}>（年数・工程は未入力）</span>}
                   </div>
                 ))}
               </div>

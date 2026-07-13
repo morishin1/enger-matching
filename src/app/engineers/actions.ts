@@ -1145,3 +1145,74 @@ export async function syncLinkedCandidateFromProfile(input: { engineer_id: strin
   revalidatePath("/engineers");
   return { ok: true, candidate_no: candNo, changes };
 }
+
+// ────────────────────────────────────────────────────────
+// #387④：人材（P番号）に紐づく ENGERフリーランスの最新プロフィールのライブ取得。
+//   人材プロフィールドロワー／人材詳細で「プロフィールを更新」を押さなくても、
+//   フリーランス側の更新が開くたびに自動反映されるようにする（コピーではなくライブ参照）。
+// ────────────────────────────────────────────────────────
+
+export type LinkedProfileLive = {
+  linked: boolean;
+  skill_details: Array<{ name: string; years: string | null; processes: string[] }>; // スキル詳細（#387②の並び順で返す）
+  skill_names: string[];   // スキルタグ
+  tools: string[];         // 使用経験のあるツール・開発環境
+  industries: string;      // 経験業種（「業種（年数）」カンマ区切り）
+  residence: string;       // 居住地（都道府県）
+  nearest_station: string; // 最寄駅
+  remote_pref: string;     // リモート希望（3区分の表示テキスト）
+  title: string;           // 職種（希望職種）
+};
+
+export async function getLinkedProfileLive(candidateId: string): Promise<{ ok: boolean; data?: LinkedProfileLive; error?: string }> {
+  const access = await currentAccess();
+  if (!access) return { ok: false, error: "権限がありません" };
+  const id = (candidateId ?? "").trim();
+  if (!id) return { ok: false, error: "candidate_id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  let pub: ReturnType<typeof publicAdmin>;
+  try { admin = engerAdmin(); pub = publicAdmin(); } catch { return { ok: false, error: "サーバ設定エラー（SUPABASE_SERVICE_ROLE_KEY 未設定）" }; }
+
+  let engineerId: string | null = null;
+  try {
+    const lk: any = await admin.from("freelance_candidate_links").select("engineer_id").eq("candidate_id", id).maybeSingle();
+    engineerId = lk?.data?.engineer_id ?? null;
+  } catch { /* リンク未整備 */ }
+  if (!engineerId) return { ok: true, data: { linked: false, skill_details: [], skill_names: [], tools: [], industries: "", residence: "", nearest_station: "", remote_pref: "", title: "" } };
+
+  let p: any = {};
+  try {
+    const r: any = await pub.from("profiles").select("*").eq("id", engineerId).maybeSingle();
+    if (!r.error && r.data) p = r.data;
+  } catch { /* 取得失敗は空扱い */ }
+
+  const f = extractFreelanceFields(p);
+  const raw = Array.isArray(p?.skills) ? (p.skills as any[]) : [];
+  const details = raw
+    .map((s) => ({
+      name: String(s?.name ?? "").trim(),
+      years: typeof s?.years === "string" && s.years ? s.years : null,
+      processes: Array.isArray(s?.processes) ? s.processes.filter(Boolean).map(String) : [],
+    }))
+    .filter((s) => s.name);
+  // #387②：経験年数・担当工程の入力があるスキルを先に、未入力のスキルを後ろに（元の順序は維持）。
+  const filled = details.filter((s) => s.years || s.processes.length > 0);
+  const empty = details.filter((s) => !s.years && s.processes.length === 0);
+
+  return {
+    ok: true,
+    data: {
+      linked: true,
+      skill_details: [...filled, ...empty],
+      skill_names: details.map((s) => s.name),
+      tools: normalizeTools(p?.tools ?? p?.dev_env ?? p?.development_environment ?? p?.dev_tools ?? p?.tools_env ?? []),
+      industries: (Array.isArray(p?.industries) ? (p.industries as any[]) : [])
+        .map((x) => { const n = String(x?.name ?? "").trim(); if (!n) return ""; const y = String(x?.years ?? "").trim(); return y ? `${n}（${y}）` : n; })
+        .filter(Boolean).join(", "),
+      residence: String(p?.prefecture ?? p?.residence ?? "").trim(),
+      nearest_station: f.nearestStation,
+      remote_pref: normalizeRemote(f.remote),
+      title: f.desiredJob,
+    },
+  };
+}

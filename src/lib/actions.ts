@@ -3068,6 +3068,7 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   if (fields.status !== undefined) row.status = trim(fields.status);
   if (fields.note !== undefined) row.note = trim(fields.note); // #347④：メール原文（旧「備考」）
   if ((fields as any).detail_note !== undefined) row.detail_note = trim((fields as any).detail_note); // #347⑤：人材詳細（メール原文とは別の整形メモ）
+  if ((fields as any).industries !== undefined) row.industries = trim((fields as any).industries); // #388②/#387①：経験業種（テキスト）
   if (fields.skill_sheet_url !== undefined) row.skill_sheet_url = trim(fields.skill_sheet_url);
   if ((fields as any).email !== undefined) row.email = trim((fields as any).email);
   if ((fields as any).contact_email !== undefined) row.contact_email = trim((fields as any).contact_email);
@@ -3081,7 +3082,7 @@ export async function updateCandidateById(candidateNo: number, fields: Partial<C
   // source_company の同期：会社名(=company)を変更する場合は source_company も同期しておく
   if (row.company !== undefined && (fields as any).source_company === undefined) row.source_company = row.company;
   // updated_at 列が無い環境（旧スキーマ）でも保存できるよう、stripped で落とせるように。
-  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; delete c.residence; delete c.detail_note; return c; };
+  const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.contact_email; delete c.source_mail_url; delete c.skill_sheet_url; delete c.source_company; delete c.flow_depth; delete c.remote_pref; delete c.nationality; delete c.age_band; delete c.signup_source; delete c.tools; delete c.residence; delete c.detail_note; delete c.industries; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("candidates").update(row).eq("candidate_no", candidateNo);
   if (r.error && /updated_at|column|schema cache/i.test(r.error.message)) {
