@@ -285,9 +285,12 @@ export function JobsTable({
     if (!detail) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeDetail(); };
     document.addEventListener("keydown", onKey);
+    // #368①：広い画面（≥1280px）では右ドッキングの常設パネルなので body スクロールはロックしない。
+    //   狭い画面は従来どおりオーバーレイのため背景スクロールをロックする。
+    const isOverlay = typeof window !== "undefined" && window.matchMedia("(max-width: 1279px)").matches;
     const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+    if (isOverlay) document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); if (isOverlay) document.body.style.overflow = prev; };
   }, [detail]);
 
   const mailFor = (r: any) => ({ url: r.source_mail_url, search: [r.client_name, r.title].filter(Boolean).join(" ") || r.title, to: r.contact_email });
@@ -307,7 +310,9 @@ export function JobsTable({
   const colSpan = visibleCols.length + 3; // checkbox + actions + heart
 
   return (
-    <div className="card flush">
+    // #368①：テーブル（左）＋詳細パネル（右）のマスター詳細。広い画面で右ドッキング。
+    <div className="jobs-md">
+      <div className="card flush jobs-md-main">
       <div className="tbl-toolbar">
         <div className="tbl-search">
           <Icons.search />
@@ -473,22 +478,18 @@ export function JobsTable({
         <span style={{ whiteSpace: "nowrap" }}>1ページ {pageSize} 件</span>
       </div>
 
-      {/* 詳細ドロワー */}
+      </div>{/* /.jobs-md-main（テーブル本体） */}
+
+      {/* #368①：詳細は右のパネルへ。広い画面（≥1280px）では右にドッキングした常設パネル、
+          狭い画面では従来どおり右からのオーバーレイ。スタイルは globals.css の .jobs-md* を参照。 */}
       {detail && (
-        <div onClick={closeDetail} style={{ position: "fixed", inset: 0, zIndex: 300, background: `rgba(15,23,42,${drawerIn ? 0.45 : 0})`, transition: "background .26s ease" }}>
+        <div className={"jobs-md-detail" + (drawerIn ? " in" : "")}>
+          <div className="jobs-md-backdrop" onClick={closeDetail} />
           <div
             onClick={(e) => e.stopPropagation()}
-            className="card"
+            className="card jobs-md-panel"
             role="dialog" aria-modal="true"
-            style={{
-              position: "absolute", top: 0, right: 0, height: "100%",
-              width: "min(680px, 94vw)", maxWidth: "94vw",
-              borderRadius: 0, borderTop: 0, borderRight: 0, borderBottom: 0,
-              overflowY: "auto", display: "flex", flexDirection: "column", gap: 12,
-              boxShadow: "-12px 0 32px rgba(15,23,42,.18)",
-              transform: drawerIn ? "translateX(0)" : "translateX(100%)",
-              transition: "transform .26s cubic-bezier(.22,.61,.36,1)",
-            }}
+            style={{ display: "flex", flexDirection: "column", gap: 12 }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
               <div style={{ minWidth: 0 }}>
