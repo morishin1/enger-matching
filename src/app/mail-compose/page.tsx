@@ -24,8 +24,9 @@ export default async function MailComposePage({
   const JOB =
     "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, detail_note, contact_email, contact_name, source_mail_url, work_location, start_date";
   // contact_name は candidates テーブルには存在せず attachCompanyContact で動的付与されるため除外
+  // detail_note＝人材詳細（#347・#384：案件側メールの「◆ご紹介する要員」に最優先で挿入）。未整備環境は下のフォールバックで外れる。
   const CAND =
-    "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, note, source_mail_url, source_mail_subject, email, contact_email, skill_sheet_url";
+    "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, exp, rate, avail, location, note, detail_note, source_mail_url, source_mail_subject, email, contact_email, skill_sheet_url";
 
   // JOB は fallback 付き（contact_name / source_mail_url が無い古いスキーマに対応）
   let jr: any = await sb.from("jobs").select(JOB).eq("job_no", jobNo).maybeSingle();
