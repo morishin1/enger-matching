@@ -92,10 +92,12 @@ export function resolveSkillSheetUrl(cand: any): string | null {
 
 /** クライアント（案件企業）宛て：人材を提案する本文。 */
 export function buildJobMailContent(job: any, cand: any): string {
-  // 要員情報は「整形ブロック（名前/最寄駅/稼動日/所属/単価/スキル/実績）」を生成する。
-  //   以前は取込元メール本文(cand.note)をそのまま貼っていたため、先方SESの挨拶・署名まで
-  //   入って定型文が崩れていた。旧enger同様、整形済みブロックで出す。
-  const remark = [
+  // 要員情報（◆ご紹介する要員）:
+  //   #384：人材詳細（cand.detail_note＝担当が整えた紹介文）が入っていれば、それを最優先で本文にする。
+  //     この場合、名前/所属/単価/スキル/実績の整形ブロックは出さない（スキルシートのブロックは別途出す）。
+  //   人材詳細が空欄のときは従来どおり整形ブロック（名前/最寄駅/稼動日/所属/単価/スキル/実績）を出す。
+  const detailNote = String(cand.detail_note ?? "").trim();
+  const remark = detailNote || [
     `【 名　前 】${cand.name ?? ""}${cand.age_band ? `　(${cand.age_band})` : ""}`,
     cand.location ? `【最 寄 駅】${cand.location}` : "",
     cand.avail ? `【稼 動 日】${cand.avail}` : "",
