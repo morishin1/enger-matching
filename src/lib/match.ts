@@ -84,6 +84,37 @@ export function overlapSkills(jobSkills?: string[] | null, candSkills?: string[]
 }
 
 // ---- 勤務形態（旧 remote） ----
+// 人材のリモート希望を3区分に正規化（#376）。表示・除外の両方でこの分類を単一の基準にする。
+//   ・格納値は日本語（フルリモート希望／一部リモート希望／一部リモート可／出社可）が主だが、
+//     enum（full_remote/hybrid/onsite_ok）混在にも耐える。
+//   ・「出社可」は出社OK＝最も柔軟。ENGERプロフィールの hybrid は正規化で「一部リモート可」に
+//     なるため、"可" だけで出社扱いにせず、"出社/常駐" を優先判定して partial を守る。
+export type CandRemotePref = "full" | "partial" | "onsite" | "unknown";
+export function classifyCandRemote(pref?: string | null): CandRemotePref {
+  const s = String(pref ?? "").trim();
+  if (!s) return "unknown";
+  const low = s.toLowerCase();
+  if (/出社|常駐/.test(s) || low === "onsite_ok" || low === "onsite") return "onsite";
+  if ((/フル|完全/.test(s) && /リモート|在宅/.test(s)) || low === "full_remote" || /full/.test(low)) return "full";
+  if (/一部|ハイブリッド|リモート|在宅|hybrid|partial/.test(low)) return "partial";
+  return "unknown";
+}
+// 人材側リモート希望の表示ラベル（#376①：フルリモート希望／一部リモート希望／出社可）。
+export const CAND_REMOTE_LABEL: Record<CandRemotePref, string> = {
+  full: "フルリモート希望", partial: "一部リモート希望", onsite: "出社可", unknown: "",
+};
+export function candRemoteLabel(pref?: string | null): string {
+  const cat = classifyCandRemote(pref);
+  return CAND_REMOTE_LABEL[cat] || (pref ?? "").trim();
+}
+// 案件側リモートの表示ラベル（#376②：フルリモート／一部リモート可／出社必須）。
+export function jobRemoteLabel(remoteType?: string | null): string {
+  return remoteType === "full_remote" ? "フルリモート"
+    : remoteType === "partial_remote" ? "一部リモート可"
+    : remoteType === "onsite" ? "出社必須"
+    : (remoteType ?? "").trim();
+}
+
 function remoteFit(jobRemote: string | null | undefined, candPref: string | null | undefined): { fit: number; known: boolean } {
   const cp = candPref ?? "";
   const wantsFull = /フル/.test(cp);
@@ -238,16 +269,15 @@ function nationalityWarn(job: Job, c: Candidate): boolean {
 }
 
 // ---- 勤務形態ハードフィルター ----
-/** 案件が「出社必須」(remote_type=onsite) で、候補がリモート/在宅を希望（出社不可）の場合に true。
- *   「出社可」「常駐可」等（"可"を含む）や、リモート希望の記載なし（不明/空欄）は除外しない。
- *   例）「フルリモート希望」「一部在宅希望」→ 除外 ／「出社可」「不明」「空欄」→ 残す。 */
+/** 勤務形態のハードNG（#376③④）。人材のリモート希望3区分で判定する（不明/空欄は除外しない）。
+ *   ③ 案件=出社必須(onsite) × 人材=フルリモート希望 or 一部リモート希望 → 除外
+ *   ④ 案件=一部リモート可(partial_remote) × 人材=フルリモート希望 → 除外
+ *   ・案件=フルリモート、および人材=出社可/不明 は除外しない。 */
 function remoteHardNg(job: Job, c: Candidate): boolean {
-  if (job.remote_type !== "onsite") return false;
-  const cp = (c.remote_pref ?? "").trim();
-  if (!cp) return false; // 不明・空欄は除外しない
-  const wantsRemote = /リモート|在宅/.test(cp);
-  const onsiteOk = /出社|常駐|可/.test(cp);
-  return wantsRemote && !onsiteOk; // 在宅/リモート希望 かつ 出社可の記載なし → 除外
+  const cand = classifyCandRemote(c.remote_pref);
+  if (job.remote_type === "onsite") return cand === "full" || cand === "partial";
+  if (job.remote_type === "partial_remote") return cand === "full";
+  return false;
 }
 
 // ---- 業界経験（推定・ボーナス＋注意事項） ----
@@ -504,7 +534,9 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
   if (ngNat) notes.push({ level: "red", text: "国籍要件NG（日本国籍のみの案件に外国籍の人材）" });
   else if (nationalityWarn(job, c)) notes.push({ level: "yellow", text: "国籍要件に言及あり（候補の国籍を要確認）" });
-  if (ngRemote) notes.push({ level: "red", text: "勤務形態NG（出社必須の案件にリモート/在宅希望の人材）" });
+  if (ngRemote) notes.push({ level: "red", text: job.remote_type === "onsite"
+    ? "勤務形態NG（出社必須の案件にリモート希望の人材）"
+    : "勤務形態NG（一部リモート可の案件にフルリモート希望の人材）" });
 
   if (jobSkills.length) {
     // 完全一致は「全件が skills 列で直接一致」のときのみ。内包/本文ヒットを含む場合は「充足」と表記。

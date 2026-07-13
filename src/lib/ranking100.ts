@@ -64,6 +64,7 @@ export type RankedPair = {
     candidate_no: number; id: string | null; name: string; initials: string | null; title: string | null;
     rate: string | null; company: string | null; affiliation: string | null;
     skills: string[]; exp: string | null; avail: string | null; location: string | null;
+    residence: string | null; // #376⑤：居住地（勤務地 location とは別。ドロワーに表示）
     remote_pref: string | null; age_band: string | null; nationality: string | null; note: string | null;
     detail_note: string | null; // #347：人材詳細（メール原文=note とは別）
     source_mail_url: string | null; // #345③：比較ドロワーの「元メール」ボタン用
@@ -118,8 +119,8 @@ const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salar
 // detail_note＝手入力の案件詳細（#344）／source_mail_url＝元メールボタン（#345③）。未整備環境は BASE にフォールバック。
 const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note, source_mail_url`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
-// detail_note＝人材詳細（#347）／source_mail_url＝元メールボタン（#345③）。未整備環境は BASE にフォールバック。
-const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note, source_mail_url`;
+// detail_note＝人材詳細（#347）／source_mail_url＝元メールボタン（#345③）／residence＝居住地（#376⑤）。未整備環境は BASE にフォールバック。
+const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note, source_mail_url, residence`;
 
 async function fetchJobsForRanking(sb: ReturnType<typeof engerClient>): Promise<any[]> {
   for (const cols of [JOB_COLS_RICH, JOB_COLS_BASE]) {
@@ -464,6 +465,7 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
       rate: h.cand.rate ?? null, company: (h.cand.source_company || h.cand.company) ?? null,
       affiliation: h.cand.affiliation ?? null, skills: h.cand.skills ?? [],
       exp: h.cand.exp ?? null, avail: h.cand.avail ?? null, location: h.cand.location ?? null,
+      residence: h.cand.residence ?? null,
       remote_pref: h.cand.remote_pref ?? null, age_band: h.cand.age_band ?? null,
       nationality: h.cand.nationality ?? null, note: h.cand.note ?? null,
       detail_note: h.cand.detail_note ?? null,
