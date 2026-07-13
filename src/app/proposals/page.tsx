@@ -116,17 +116,19 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         //    /api/proposals/[id]/source で個別取得）。ここでは一覧表示に必要な軽い列だけ取る。
         const fetchJobs = async () => {
           if (!jobIds.length) return [];
-          let r: any = await sb.from("jobs").select("id, job_no, source_mail_url, source_mail_at, contact_email, is_closed, signup_source").in("id", jobIds).limit(2000);
-          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, is_closed, signup_source").in("id", jobIds).limit(2000);
-          if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url, is_closed").in("id", jobIds).limit(2000);
+          // #383：案件名(title)も取得し、提案レコードの案件名を「案件詳細の現在値」へ自動追随させる。
+          let r: any = await sb.from("jobs").select("id, job_no, title, source_mail_url, source_mail_at, contact_email, is_closed, signup_source").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, title, source_mail_url, is_closed, signup_source").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, title, source_mail_url, is_closed").in("id", jobIds).limit(2000);
           if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
         // ② 人材: 同上。note/exp(経歴・本文)はモーダルで個別取得する。所属会社名(source_company/company)は軽いので取る。
         const fetchCands = async () => {
           if (!candIds.length) return [];
-          let r: any = await sb.from("candidates").select("id, candidate_no, source_mail_url, source_mail_at, contact_email, is_closed, source_company, company, signup_source").in("id", candIds).limit(2000);
-          if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, is_closed, source_company, company, signup_source").in("id", candIds).limit(2000);
+          // #383：氏名(name)・イニシャル(initials)も取得し、提案レコードの人材名を「人材詳細の現在値」へ自動追随させる。
+          let r: any = await sb.from("candidates").select("id, candidate_no, name, initials, source_mail_url, source_mail_at, contact_email, is_closed, source_company, company, signup_source").in("id", candIds).limit(2000);
+          if (r.error) r = await sb.from("candidates").select("id, candidate_no, name, initials, source_mail_url, is_closed, source_company, company, signup_source").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url, is_closed, source_company, company").in("id", candIds).limit(2000);
           if (r.error) r = await sb.from("candidates").select("id, candidate_no, source_mail_url").in("id", candIds).limit(2000);
           return r.error ? [] : nq(r.data);
@@ -202,10 +204,10 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         };
 
         try {
-          const mJ: Record<string, { job_no: number; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
-          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, url: j.source_mail_url ?? null, detail: j.detail ?? null, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
-          const mC: Record<string, { candidate_no: number; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
-          for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, url: c.source_mail_url ?? null, detail: c.note ?? c.exp ?? null, closed: !!c.is_closed, line: String(c.signup_source ?? "") === "line" };
+          const mJ: Record<string, { job_no: number; title: string | null; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
+          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, title: (j.title ?? null), url: j.source_mail_url ?? null, detail: j.detail ?? null, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
+          const mC: Record<string, { candidate_no: number; name: string | null; initials: string | null; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
+          for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, name: (c.name ?? null), initials: (c.initials ?? null), url: c.source_mail_url ?? null, detail: c.note ?? c.exp ?? null, closed: !!c.is_closed, line: String(c.signup_source ?? "") === "line" };
           const ownerByTitle: Record<string, string> = {};
           for (const j of jr as any[]) if (j?.outside_owner) ownerByTitle[j.title] = j.outside_owner;
           const ownerByCompany: Record<string, string> = {};
@@ -250,8 +252,20 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
             return null;
           };
           for (const p of all) {
-            if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed; }
-            if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed; }
+            if (p.job_id && mJ[p.job_id])       {
+              p.job_no = mJ[p.job_id].job_no; p.job_source_mail_url = mJ[p.job_id].url; p.job_detail = mJ[p.job_id].detail; p.job_closed = mJ[p.job_id].closed;
+              // #383：案件名を案件詳細の現在値へ自動追随（案件が存在する限り最新のタイトルで表示）。
+              const t = (mJ[p.job_id].title ?? "").trim();
+              if (t) p.job_title = t;
+            }
+            if (p.candidate_id && mC[p.candidate_id]) {
+              p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed;
+              // #383：人材名・イニシャルを人材詳細の現在値へ自動追随。
+              const nm = (mC[p.candidate_id].name ?? "").trim();
+              const ini = (mC[p.candidate_id].initials ?? "").trim();
+              if (nm) p.candidate_name = nm;
+              if (ini) p.c_init = ini;
+            }
             // LINE経由（案件 or 人材のどちらかが LINE登録、または提案自体が source='line'）。失注分析のLINEグラフ集計に使う。
             p.line_origin = String(p.source ?? "") === "line" || !!(p.job_id && mJ[p.job_id]?.line) || !!(p.candidate_id && mC[p.candidate_id]?.line);
             // 案件側/人材側のどちらが LINE 由来かを個別判定（名前の横にLINEアイコンを出す用）。

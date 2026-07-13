@@ -31,7 +31,28 @@ export async function getMatchingRecordsFor(
   // progress_status 未整備の環境ではフォールバック（#334 の列が無くても一覧は出す）。
   if (r.error && /progress_status|column/i.test(r.error.message ?? "")) r = await run(COLS_FALLBACK);
   if (r.error || !Array.isArray(r.data)) return [];
-  return r.data as MatchingRecord[];
+  const rows = r.data as MatchingRecord[];
+
+  // #383：案件名・人材名は提案記録に保存されたスナップショットだが、案件詳細/人材詳細で
+  //   タイトル・氏名が編集されたら「現在値」に追随させる（存在する案件/人材の最新名で上書き）。
+  try {
+    const jobIds = Array.from(new Set(rows.map((x) => x.job_id).filter(Boolean))) as string[];
+    const candIds = Array.from(new Set(rows.map((x) => x.candidate_id).filter(Boolean))) as string[];
+    const [jt, cn] = await Promise.all([
+      jobIds.length ? sb.from("jobs").select("id, title").in("id", jobIds).limit(500).then((x: any) => x.error ? [] : (x.data ?? [])) : Promise.resolve([]),
+      candIds.length ? sb.from("candidates").select("id, name").in("id", candIds).limit(500).then((x: any) => x.error ? [] : (x.data ?? [])) : Promise.resolve([]),
+    ]);
+    const titleById = new Map<string, string>();
+    for (const j of jt as any[]) { const t = String(j?.title ?? "").trim(); if (j?.id && t) titleById.set(String(j.id), t); }
+    const nameById = new Map<string, string>();
+    for (const c of cn as any[]) { const n = String(c?.name ?? "").trim(); if (c?.id && n) nameById.set(String(c.id), n); }
+    for (const x of rows) {
+      if (x.job_id && titleById.has(x.job_id)) x.job_title = titleById.get(x.job_id)!;
+      if (x.candidate_id && nameById.has(x.candidate_id)) x.candidate_name = nameById.get(x.candidate_id)!;
+    }
+  } catch { /* 現在値解決に失敗してもスナップショットで表示は継続 */ }
+
+  return rows;
 }
 
 /** 終了系（見送り/失注）ステージかどうか。表示バッジの出し分けに使う。 */
