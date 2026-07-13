@@ -330,6 +330,7 @@ export function EditJobButton({ job }: { job: any }) {
     skills: Array.isArray(j.skills) ? j.skills.join(", ") : "",
     salary_min: j.salary_min != null ? String(j.salary_min) : "",
     salary_max: j.salary_max != null ? String(j.salary_max) : "",
+    freelance_ng: j.freelance_ng === "NG" ? "NG" : "", // #368：フリーランスの応募（NG / 空欄）
     remote_type: j.remote_type ?? "",
     flow_note: j.flow_note ?? "",
     accept_flow_depth: j.accept_flow_depth == null ? "" : String(j.accept_flow_depth),
@@ -361,6 +362,7 @@ export function EditJobButton({ job }: { job: any }) {
         skills: f.skills ? f.skills.split(/[,、\/／・]+/).map((s) => s.trim()).filter(Boolean) : [],
         salary_min: numOf(f.salary_min),
         salary_max: numOf(f.salary_max),
+        freelance_ng: f.freelance_ng === "NG" ? "NG" : null, // #368
         remote_type: f.remote_type,
         flow_note: f.flow_note,
         accept_flow_depth: f.accept_flow_depth === "" ? null : Number(f.accept_flow_depth),
@@ -396,6 +398,11 @@ export function EditJobButton({ job }: { job: any }) {
               <Field label="必要スキル（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               <Field label="単価下限（万）" value={f.salary_min} onChange={set("salary_min")} />
               <Field label="単価上限（万）" value={f.salary_max} onChange={set("salary_max")} />
+              {/* #368：フリーランスの応募（単価上限の隣）。「NG」と空欄（真っ白）の2択。 */}
+              <Select label="フリーランスの応募" value={f.freelance_ng} onChange={set("freelance_ng")} options={[
+                { value: "", label: "（空欄）" },
+                { value: "NG", label: "NG" },
+              ]} />
               <Select label="リモート可否" value={f.remote_type} onChange={set("remote_type")} options={REMOTE_OPTS} />
               <Select label="商流（受入上限）" value={f.flow_note} onChange={set("flow_note")} options={[
                 { value: "",                  label: "不明" },

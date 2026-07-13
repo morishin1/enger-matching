@@ -16,6 +16,7 @@ import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
+import { FreelanceNgSelect } from "./FreelanceNgSelect";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -548,7 +549,8 @@ export function JobsTable({
                   [["必要スキル", (detail.skills ?? []).join(" / ") || null]],
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
                   [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />]],
-                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note]],
+                  // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
+                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note ?? "不明"], ["フリーランスの応募", <FreelanceNgSelect key="fng" jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
                   [["窓口メール", detail.contact_email], ["担当者名", detail.contact_name]],
                 ];
@@ -556,7 +558,7 @@ export function JobsTable({
                   const cells = row.filter(([, v]) => v != null && v !== "");
                   if (cells.length === 0) return null;
                   return (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: cells.length === 2 ? "1fr 1fr" : "1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)" }}>
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: cells.length >= 3 ? "1fr 1fr 1fr" : cells.length === 2 ? "1fr 1fr" : "1fr", gap: 12, padding: "8px 0", borderBottom: "1px solid var(--color-border)" }}>
                       {cells.map(([label, value]) => cell(label, value))}
                     </div>
                   );
