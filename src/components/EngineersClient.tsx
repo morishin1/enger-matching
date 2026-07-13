@@ -8,6 +8,7 @@ import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
 import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { CopyButton } from "@/components/CopyButton";
+import { EditFreelanceProfileButton } from "@/components/EditFreelanceProfileButton";
 import { Icons } from "./icons";
 
 // ---------- 一覧表示用ヘルパ（人材一覧 EntityTable と同じ rule） ----------
@@ -194,7 +195,7 @@ function SkillSheetMarks({ sheets }: { sheets: SkillSheet[] | null | undefined }
   );
 }
 
-export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {}, initialQ = "", candidateNos = {} }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus>; initialQ?: string; candidateNos?: Record<string, number> }) {
+export function EngineersClient({ engineers, actions = {}, scouts = {}, applications = {}, favorites = {}, profileNames = {}, chatStatus = {}, initialQ = "", candidateNos = {}, viewerRole = null }: { engineers: Engineer[]; actions?: Record<string, EngineerAction[]>; scouts?: Record<string, Scout[]>; applications?: Record<string, Application[]>; favorites?: Record<string, JobFavorite[]>; profileNames?: Record<string, EngineerProfileName>; chatStatus?: Record<string, EngineerChatStatus>; initialQ?: string; candidateNos?: Record<string, number>; viewerRole?: string | null }) {
   const router = useRouter();
   const [q, setQ] = useState(initialQ); // #255：検索結果からの遷移で ?q= を初期反映
   // お気に入り案件一覧モーダル（履歴列のハートをクリックで開く）。
@@ -620,7 +621,7 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
       </div>
 
       {detail && (
-        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} profile={profileNames[detail.id]} candidateNo={candidateNos[detail.id] ?? null} onClose={() => setDetail(null)} />
+        <DetailModal engineer={detail} log={actions[detail.id] ?? []} scoutLog={scouts[detail.id] ?? []} appLog={applications[detail.id] ?? []} profile={profileNames[detail.id]} candidateNo={candidateNos[detail.id] ?? null} viewerRole={viewerRole} onClose={() => setDetail(null)} />
       )}
 
       {favDetail && (
@@ -720,7 +721,7 @@ function FavoritesModal({ engineer, favorites, profile, onClose }: { engineer: E
   );
 }
 
-function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candidateNo = null, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; profile?: EngineerProfileName; candidateNo?: number | null; onClose: () => void }) {
+function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candidateNo = null, viewerRole = null, onClose }: { engineer: Engineer; log: EngineerAction[]; scoutLog: Scout[]; appLog: Application[]; profile?: EngineerProfileName; candidateNo?: number | null; viewerRole?: string | null; onClose: () => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [action, setAction] = useState<string>("");
@@ -885,6 +886,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
               <span className="material-symbols-outlined" style={{ fontSize: 15, lineHeight: 1 }}>person_add</span>
               人材マスタへ新規登録
             </button>
+            {/* #367：LP プロフィール（public.profiles）の DX 側直接編集＋本人編集ロック管理。 */}
+            <EditFreelanceProfileButton engineerId={detail.id} engineerName={resolveDisplayName(detail, profile)} viewerRole={viewerRole} />
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>

@@ -80,7 +80,8 @@ export default async function EngineersPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} initialQ={sp.q ?? ""} candidateNos={candidateNos} />
+      {/* #367：viewerRole はプロフィール編集モーダルの「本人編集ロック解除」トグル（admin のみ表示）に使う。 */}
+      <EngineersClient engineers={shownRows} actions={actions} scouts={scouts} applications={applications} favorites={favorites} profileNames={profileNames} chatStatus={chatStatus} initialQ={sp.q ?? ""} candidateNos={candidateNos} viewerRole={access?.role ?? null} />
     </div>
   );
 }

@@ -939,3 +939,135 @@ export async function registerCandidateFromFreelancer(input: {
   revalidatePath("/engineers");
   return { ok: true, candidate_no: candidateNo };
 }
+
+// ────────────────────────────────────────────────────────
+// #367：フリーランスプロフィールの DX 側編集（双方向同期）＋ 編集ロック管理
+//   ・DX スタッフ（admin/agent）が public.profiles を直接編集・保存できる。
+//   ・保存は updated_at 突合の楽観ロック：フリーランス本人が先に更新していたら
+//     保存を拒否して最新の再読込を促す（衝突時はフリーランス側優先の合意仕様）。
+//   ・面談済み（agent_meeting_done_at）後は本人の LP 編集がロックされる。
+//     解除（profile_edit_unlocked=true）は dx 管理者（admin）のみ。
+// ────────────────────────────────────────────────────────
+
+/** DX 編集モーダルが読む・書くプロフィール項目（LP /api/profile/save と互換の実在カラムのみ）。 */
+const FREELANCE_PROFILE_EDIT_COLS = [
+  "display_name", "headline", "primary_language", "portfolio_url",
+  "real_name_kanji", "real_name_kana", "email", "phone", "contact_line",
+  "prefecture", "nearest_station", "weekly_days", "remote_pref",
+  "estimated_pay_low", "estimated_pay_high",
+] as const;
+export type FreelanceProfileEdit = Partial<Record<(typeof FREELANCE_PROFILE_EDIT_COLS)[number], string | number | null>>;
+
+/** 編集モーダルの初期表示用に、プロフィールの現在値＋ロック状態を取得する（admin/agent）。 */
+export async function getFreelanceProfileForEdit(engineerId: string): Promise<{
+  ok: boolean; error?: string;
+  profile?: Record<string, any>;
+  updated_at?: string | null;
+  meeting_done_at?: string | null;
+  edit_unlocked?: boolean;
+}> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const id = (engineerId ?? "").trim();
+  if (!id) return { ok: false, error: "対象が未指定です" };
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  // profile_edit_unlocked / agent_meeting_done_at は列未整備環境でも読めるよう select を段階フォールバック。
+  const base = `id, updated_at, ${FREELANCE_PROFILE_EDIT_COLS.join(", ")}`;
+  let r: any = await pub.from("profiles").select(`${base}, agent_meeting_done_at, profile_edit_unlocked`).eq("id", id).maybeSingle();
+  if (r.error) r = await pub.from("profiles").select(`${base}, agent_meeting_done_at`).eq("id", id).maybeSingle();
+  if (r.error) r = await pub.from("profiles").select(base).eq("id", id).maybeSingle();
+  if (r.error) return { ok: false, error: r.error.message };
+  if (!r.data) return { ok: false, error: "プロフィールが見つかりません" };
+  const d = r.data as Record<string, any>;
+  return {
+    ok: true,
+    profile: d,
+    updated_at: d.updated_at ?? null,
+    meeting_done_at: d.agent_meeting_done_at ?? null,
+    edit_unlocked: !!d.profile_edit_unlocked,
+  };
+}
+
+/** DX スタッフによるプロフィール保存（admin/agent）。
+ *  expected_updated_at＝モーダルが読み込んだ時点の updated_at。DB の現在値と一致した時だけ
+ *  更新する（楽観ロック）。不一致＝フリーランス本人（または他スタッフ）が先に更新済みなので、
+ *  上書きせずエラーを返して再読込してもらう（衝突時フリーランス側優先）。 */
+export async function updateFreelanceProfile(input: {
+  engineer_id: string;
+  expected_updated_at: string | null;
+  fields: FreelanceProfileEdit;
+}): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（管理者またはエージェントのみ）" };
+  const id = (input.engineer_id ?? "").trim();
+  if (!id) return { ok: false, error: "対象が未指定です" };
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+
+  // 許可カラムだけに絞って正規化（空文字は NULL、単価は数値化）。name は NOT NULL のため display_name に追随。
+  const row: Record<string, any> = { updated_at: new Date().toISOString() };
+  for (const col of FREELANCE_PROFILE_EDIT_COLS) {
+    if (!(col in input.fields)) continue;
+    const v = (input.fields as any)[col];
+    if (col === "estimated_pay_low" || col === "estimated_pay_high") {
+      const n = v === null || v === "" ? null : Math.round(Number(v));
+      row[col] = Number.isFinite(n as number) ? n : null;
+    } else {
+      const s = v == null ? "" : String(v).trim();
+      row[col] = s || null;
+    }
+  }
+  if (Object.keys(row).length <= 1) return { ok: false, error: "更新する項目がありません" };
+  if (row.display_name) row.name = row.display_name;
+  // 単価は LP と同じく中央値も更新（下限・上限が揃った時のみ）。
+  if ("estimated_pay_low" in row || "estimated_pay_high" in row) {
+    const lo = row.estimated_pay_low, hi = row.estimated_pay_high;
+    if (typeof lo === "number" && typeof hi === "number") {
+      if (lo > hi) return { ok: false, error: `希望単価の下限（${lo}万円）は上限（${hi}万円）以下にしてください` };
+      row.estimated_pay_mid = Math.round((lo + hi) / 2);
+    }
+  }
+
+  // 楽観ロック：読み込み時の updated_at と一致する行だけ更新。0件＝先に更新されている。
+  let q = pub.from("profiles").update(row).eq("id", id);
+  q = input.expected_updated_at ? q.eq("updated_at", input.expected_updated_at) : q.is("updated_at", null);
+  const r: any = await q.select("id");
+  if (r.error) {
+    // estimated_pay_mid 等の任意列が未整備の環境では外して再試行（fail-soft・jobs 編集と同じ流儀）。
+    if (/column|schema cache/i.test(r.error.message ?? "")) {
+      const slim = { ...row }; delete slim.estimated_pay_mid;
+      let q2 = pub.from("profiles").update(slim).eq("id", id);
+      q2 = input.expected_updated_at ? q2.eq("updated_at", input.expected_updated_at) : q2.is("updated_at", null);
+      const r2: any = await q2.select("id");
+      if (r2.error) return { ok: false, error: r2.error.message };
+      if (!r2.data || r2.data.length === 0) return { ok: false, error: "フリーランス側で更新されています。モーダルを開き直して最新の内容を確認してください（フリーランス側の変更を優先）" };
+    } else {
+      return { ok: false, error: r.error.message };
+    }
+  } else if (!r.data || r.data.length === 0) {
+    return { ok: false, error: "フリーランス側で更新されています。モーダルを開き直して最新の内容を確認してください（フリーランス側の変更を優先）" };
+  }
+  revalidatePath("/engineers");
+  revalidatePath("/people");
+  return { ok: true };
+}
+
+/** #367③：面談済み後の本人編集ロックを解除／再ロックする。dx の管理者（admin）のみ。 */
+export async function setProfileEditUnlocked(engineerId: string, unlocked: boolean): Promise<Result> {
+  const access = await currentAccess();
+  if (!access || access.role !== "admin") return { ok: false, error: "権限がありません（ロック解除は管理者のみ）" };
+  const id = (engineerId ?? "").trim();
+  if (!id) return { ok: false, error: "対象が未指定です" };
+  let pub: ReturnType<typeof publicAdmin>;
+  try { pub = publicAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
+  const r: any = await pub.from("profiles").update({ profile_edit_unlocked: unlocked }).eq("id", id);
+  if (r.error) {
+    if (/profile_edit_unlocked|column|schema cache/i.test(r.error.message ?? "")) {
+      return { ok: false, error: "ロック解除用の列が未整備です。supabase/profiles-edit-lock.sql を実行してください" };
+    }
+    return { ok: false, error: r.error.message };
+  }
+  revalidatePath("/engineers");
+  return { ok: true };
+}
