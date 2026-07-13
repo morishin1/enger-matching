@@ -16,7 +16,6 @@ import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
-import { FreelanceNgSelect } from "./FreelanceNgSelect";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -549,8 +548,12 @@ export function JobsTable({
                   [["必要スキル", (detail.skills ?? []).join(" / ") || null]],
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
                   [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />]],
-                  // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
-                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note ?? "不明"], ["フリーランスの応募", <FreelanceNgSelect key="fng" jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
+                  // #368：勤務地・商流と同じ行に「フリーランスの応募」。
+                  // #390：ドロワー内は表示のみ（誤操作防止）。変更は案件編集モーダルか「案件ページへ」先の
+                  //   案件ページで行い、保存値がここに連動して表示される（同じ jobs.freelance_ng を参照）。
+                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note ?? "不明"], ["フリーランスの応募", detail.freelance_ng === "NG"
+                    ? <span key="fng" style={{ fontSize: 11.5, fontWeight: 700, padding: "1px 8px", borderRadius: 99, background: "#fdf3f2", color: "#b42318", border: "1px solid #f0a29a" }}>NG</span>
+                    : <span key="fng" className="muted">（空欄）</span>]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
                   [["窓口メール", detail.contact_email], ["担当者名", detail.contact_name]],
                 ];

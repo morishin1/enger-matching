@@ -17,6 +17,7 @@ import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JO
 import { attachLatestSourceMail } from "@/lib/source-mail";
 import { getMatchingRecordsFor } from "@/lib/matching-records";
 import { MatchingRecordsCard } from "@/components/MatchingRecordsCard";
+import { FreelanceNgSelect } from "@/components/FreelanceNgSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
       // 拡張カラムが無い環境でも落ちないようフォールバック
       const cols = "id, job_no, title, client_name, role_label, skills, salary_min, salary_max, remote_type, flow_note, work_location, start_date, detail, status, is_focus, is_published, created_at";
       // #310：nationality_requirement（国籍制限）も取得。未整備環境では下段フォールバックで外れる。
-      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement, detail_note`).eq("job_no", no).maybeSingle();
+      // #390：freelance_ng（フリーランスの応募）も取得し、このページで選択・保存できるようにする。
+      let r: any = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement, detail_note, freelance_ng`).eq("job_no", no).maybeSingle();
+      if (r.error) r = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url, nationality_requirement, detail_note`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, is_closed, contact_email, contact_name, source_mail_url`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(`${cols}, contact_email, contact_name`).eq("job_no", no).maybeSingle();
       if (r.error) r = await sb.from("jobs").select(cols).eq("job_no", no).maybeSingle();
@@ -153,6 +156,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         })()}
         <Row label="勤務地" value={j.work_location ?? "不明"} />
         <Row label="商流" value={j.flow_note} />
+        {/* #390：フリーランスの応募（NG/空欄）。ドロワーは表示のみで、変更はこのページ（と編集モーダル）で行う。 */}
+        <Row label="フリーランスの応募" value={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <FreelanceNgSelect jobNo={j.job_no} initial={j.freelance_ng} />
+            <span className="muted" style={{ fontSize: 11 }}>NG＝フリーランス人材の応募・提案不可。保存すると案件一覧のドロワーにも反映されます。</span>
+          </span>
+        } />
         <Row label="開始希望" value={j.start_date} />
         <Row label="ステータス" value={j.status} />
         <Row label="窓口担当者" value={j.contact_name} />
