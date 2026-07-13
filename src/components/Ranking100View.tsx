@@ -15,11 +15,12 @@ import { recordProposal, hidePairs } from "@/lib/actions";
 import { MailButton } from "@/components/MailButton";
 import { toast } from "@/components/toast";
 import { buildJobMailContent, buildCandMailContent, BUTTON_PLACEHOLDER, NOTICE_TEXT } from "@/lib/proposal-mail";
+import { jobRemoteLabel, candRemoteLabel } from "@/lib/match";
 
 const salaryLabel = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
-const remoteLabel = (r?: string | null) =>
-  r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
+// #376②：案件側リモートは「フルリモート／一部リモート可／出社必須」で表示（match.ts に集約）。
+const remoteLabel = (r?: string | null) => jobRemoteLabel(r) || "—";
 
 function RankBadge({ n }: { n: number }) {
   const color = n === 1 ? "#f0a92b" : n === 2 ? "#9aa7b4" : n === 3 ? "#cd853f" : "var(--color-surface-inset)";
@@ -206,9 +207,9 @@ export function Ranking100View({ rows, meta, title, subtitle }: { rows: RankedPa
                       {r.proposed && <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0" }}>✓ 提案済み</span>}
                     </div>
                     <div className="muted" style={{ fontSize: 11 }}>{[r.cand.title, r.cand.company, r.cand.rate].filter(Boolean).join(" · ")}</div>
-                    {/* #375：年代・居住地・リモート希望を追加表示（空欄の項目は出さない・全部空なら行ごと出さない）。 */}
-                    {[r.cand.age_band, r.cand.location, r.cand.remote_pref].some(Boolean) && (
-                      <div className="muted" style={{ fontSize: 11 }}>{[r.cand.age_band, r.cand.location, r.cand.remote_pref].filter(Boolean).join(" · ")}</div>
+                    {/* #375/#376：年代・居住地・リモート希望を追加表示（リモートは3区分ラベル。空欄は出さない・全部空なら行ごと出さない）。 */}
+                    {[r.cand.age_band, r.cand.residence || r.cand.location, candRemoteLabel(r.cand.remote_pref)].some(Boolean) && (
+                      <div className="muted" style={{ fontSize: 11 }}>{[r.cand.age_band, r.cand.residence || r.cand.location, candRemoteLabel(r.cand.remote_pref)].filter(Boolean).join(" · ")}</div>
                     )}
                   </td>
                   <td style={{ padding: "8px 10px", borderTop: "1px solid var(--color-border)" }}>
@@ -413,8 +414,11 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             <RowKV label="職種"       v={p.cand.title} />
             <RowKV label="所属"       v={[p.cand.company, p.cand.affiliation].filter(Boolean).join(" · ") || null} />
             <RowKV label="希望単価"   v={p.cand.rate} />
-            <RowKV label="リモート希望" v={p.cand.remote_pref} />
+            {/* #376①：リモート希望は「フルリモート希望／一部リモート希望／出社可」で表示。 */}
+            <RowKV label="リモート希望" v={candRemoteLabel(p.cand.remote_pref)} />
             <RowKV label="勤務地"     v={p.cand.location} />
+            {/* #376⑤：人材プロフィールに居住地を追加。 */}
+            <RowKV label="居住地"     v={p.cand.residence} />
             <RowKV label="経験"       v={p.cand.exp} />
             <RowKV label="稼働開始予定日" v={p.cand.avail} />
             <RowKV label="年齢（年代）/国籍" v={[p.cand.age_band, p.cand.nationality].filter(Boolean).join(" / ") || null} />
