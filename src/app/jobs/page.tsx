@@ -25,7 +25,7 @@ async function fetchFocusJob(focus?: string | null): Promise<any | null> {
   try {
     const sb = engerClient();
     const baseCols = "id, job_no, title, client_name, role_label, salary_min, salary_max, remote_type, rank, skills, is_focus, flow_note, work_location, status, detail, contact_name, contact_email, source_mail_url, start_date, is_closed, signup_source, created_at, is_published";
-    const cols = `${baseCols}, detail_note`; // #331⑧：案件詳細（手入力メモ）。未整備環境ではフォールバック。
+    const cols = `${baseCols}, detail_note, freelance_ng`; // #331⑧案件詳細／#368フリーランスNG。未整備環境ではフォールバック。
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
     const isNum  = /^\d+$/.test(v);
     const fetchWith = (c: string) => isUuid
@@ -33,7 +33,7 @@ async function fetchFocusJob(focus?: string | null): Promise<any | null> {
       : sb.from("jobs").select(c).eq("job_no", Number(v)).maybeSingle();
     if (!isUuid && !isNum) return null;
     let r: any = await fetchWith(cols);
-    if (r.error && /detail_note|column/i.test(r.error.message ?? "")) r = await fetchWith(baseCols);
+    if (r.error && /detail_note|freelance_ng|column/i.test(r.error.message ?? "")) r = await fetchWith(baseCols);
     if (r.error || !r.data) return null;
     return r.data;
   } catch { return null; }
@@ -336,8 +336,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       // #327：クローズ表示モード。closed=クローズ済のみ／all=両方／既定=公開中のみ。
       //   検索時は従来どおりクローズ済も含める（"all"）。f_closed が明示されていればそれを優先。
       const closedMode: "open" | "closed" | "all" = fClosed === "closed" ? "closed" : (fClosed === "all" || needle) ? "all" : "open";
-      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url, signup_source, detail_note`, closedMode)));
-      if (listRes.error && /deleted_at|is_closed|detail_note|column/i.test(listRes.error.message)) {
+      let listRes: any = await order(withOwner(buildBase(`${baseCols}, is_closed, outside_owner, contact_email, contact_name, source_mail_url, signup_source, detail_note, freelance_ng`, closedMode)));
+      if (listRes.error && /deleted_at|is_closed|detail_note|freelance_ng|column/i.test(listRes.error.message)) {
         listRes = await order(withOwner(buildBaseNoTrash(`${baseCols}, outside_owner, contact_email, contact_name, source_mail_url`, closedMode)));
       }
       if (listRes.error) listRes = await order(withOwner(buildBase(`${baseCols}, outside_owner`, closedMode)));
