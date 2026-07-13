@@ -754,6 +754,7 @@ export type FreelancePrefill = {
   rate: string;                    // 希望単価（"50万〜" / "50万〜60万"）
   rate_num: number | null;
   location: string;                // 最寄駅
+  residence: string;               // 都道府県（居住地）＝profiles.prefecture（#366）
   remote_pref: string;             // リモート希望（3区分）
   age_band: string;                // 年代区分（年齢から自動変換：36→"30代後半"）
   nationality: string;             // 国籍（3区分）
@@ -824,6 +825,7 @@ export async function prepareCandidateFromFreelancer(engineerId: string): Promis
       rate: formatRateRange(f.rateMin, f.rateMax),
       rate_num: f.rateMin ?? f.rateMax ?? null,
       location: f.nearestStation,
+      residence: String(p?.prefecture ?? p?.residence ?? p?.pref ?? "").trim(),  // #366 都道府県（居住地）
       remote_pref: normalizeRemote(f.remote),
       age_band: ageToBand(f.age),
       nationality: normalizeNationality(f.nationality),
@@ -851,6 +853,7 @@ export async function registerCandidateFromFreelancer(input: {
   rate?: string | null;
   rate_num?: number | null;
   location?: string | null;
+  residence?: string | null;       // #366 都道府県（居住地）
   remote_pref?: string | null;
   age_band?: string | null;
   nationality?: string | null;
@@ -891,6 +894,7 @@ export async function registerCandidateFromFreelancer(input: {
     rate: input.rate?.trim() || null,
     rate_num: input.rate_num ?? null,
     location: input.location?.trim() || null,
+    residence: input.residence?.trim() || null,   // #366 都道府県（居住地）。列未整備環境は下の再試行で自動除去。
     remote_pref: input.remote_pref?.trim() || null,
     age_band: input.age_band?.trim() || null,
     nationality: input.nationality?.trim() || null,
@@ -938,4 +942,97 @@ export async function registerCandidateFromFreelancer(input: {
   revalidatePath("/people");
   revalidatePath("/engineers");
   return { ok: true, candidate_no: candidateNo };
+}
+
+// #366：紐づく人材マスタ(candidate)を、ENGERフリーランス側の最新プロフィールへ更新する。
+//   ・dryRun=true … 書き込まず、変更のある項目だけ before/after を返す（UIの赤字diff用）。
+//   ・dryRun=false … 実際に candidates を更新（列未整備環境は列を落として再試行）。
+//   同期対象は人材一覧・マッチングで使う「プロフィール由来」の項目のみ（氏名/イニシャル等の
+//   識別子や、スタッフ手入力の所属区分などは対象外＝上書きしない）。
+const PROFILE_SYNC_FIELDS: { key: keyof FreelancePrefill; col: string; label: string; array?: boolean }[] = [
+  { key: "title",       col: "title",       label: "職種" },
+  { key: "rate",        col: "rate",        label: "希望単価" },
+  { key: "location",    col: "location",    label: "最寄駅" },
+  { key: "residence",   col: "residence",   label: "居住地（都道府県）" },
+  { key: "remote_pref", col: "remote_pref", label: "リモート希望" },
+  { key: "age_band",    col: "age_band",    label: "年代" },
+  { key: "nationality", col: "nationality", label: "国籍" },
+  { key: "email",       col: "email",       label: "連絡先（メール）" },
+  { key: "skills",      col: "skills",      label: "スキル", array: true },
+  { key: "tools",       col: "tools",       label: "ツール・開発環境", array: true },
+];
+
+export type ProfileSyncChange = { label: string; before: string; after: string };
+
+export async function syncLinkedCandidateFromProfile(input: { engineer_id: string; dryRun?: boolean }):
+  Promise<{ ok: boolean; candidate_no?: number; changes?: ProfileSyncChange[]; error?: string }> {
+  const access = await currentAccess();
+  if (!access || (access.role !== "admin" && access.role !== "agent")) return { ok: false, error: "権限がありません（ENGERスタッフのみ）" };
+  const engId = (input.engineer_id ?? "").trim();
+  if (!engId) return { ok: false, error: "engineer_id がありません" };
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー（SUPABASE_SERVICE_ROLE_KEY 未設定）" }; }
+
+  // 紐づく人材マスタ（candidate）を取得。未登録なら更新できない。
+  let candId: string | null = null;
+  let candNo: number | undefined;
+  try {
+    const lk: any = await admin.from("freelance_candidate_links").select("candidate_id, candidate_no").eq("engineer_id", engId).maybeSingle();
+    candId = lk?.data?.candidate_id ?? null;
+    candNo = lk?.data?.candidate_no != null ? Number(lk.data.candidate_no) : undefined;
+  } catch { /* リンク未整備 */ }
+  if (!candId) return { ok: false, error: "この人材はまだ人材マスタに登録されていません。先に「人材マスタ新規登録」を行ってください。" };
+
+  // 最新プロフィール（流し込みと同じ抽出ロジック）。
+  const prep = await prepareCandidateFromFreelancer(engId);
+  if (!prep.ok || !prep.data) return { ok: false, error: prep.error ?? "最新プロフィールの取得に失敗しました" };
+  const latest = prep.data;
+
+  // 現在の人材マスタ値。
+  let cur: any = {};
+  try {
+    const cols = PROFILE_SYNC_FIELDS.map((f) => f.col).join(", ");
+    let r: any = await admin.from("candidates").select(cols).eq("id", candId).maybeSingle();
+    if (r.error) r = await admin.from("candidates").select("*").eq("id", candId).maybeSingle();
+    cur = r.data ?? {};
+  } catch { /* 取得失敗は空扱い（全項目が差分に見える） */ }
+
+  const asText = (v: any, array?: boolean): string =>
+    array ? (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).join(" / ") : "")
+          : String(v ?? "").trim();
+
+  const changes: ProfileSyncChange[] = [];
+  const update: Record<string, any> = {};
+  for (const f of PROFILE_SYNC_FIELDS) {
+    const nextVal = f.array ? (latest[f.key] as string[]) : (latest[f.key] as string);
+    const beforeText = asText(cur[f.col], f.array);
+    const afterText = asText(nextVal, f.array);
+    // プロフィール側が空欄の項目は既存値を消さない（上書きしない）。
+    if (!afterText) continue;
+    if (beforeText !== afterText) {
+      changes.push({ label: f.label, before: beforeText, after: afterText });
+      update[f.col] = f.array ? (nextVal as string[]).map((s) => String(s).trim()).filter(Boolean) : afterText;
+    }
+  }
+  // rate 更新時は rate_num も追随（マッチングの数値比較に使うため）。
+  if ("rate" in update && latest.rate_num != null) update.rate_num = latest.rate_num;
+
+  if (input.dryRun) return { ok: true, candidate_no: candNo, changes };
+  if (changes.length === 0) return { ok: true, candidate_no: candNo, changes: [] };
+
+  update.updated_at = new Date().toISOString();
+  let upd: any = await admin.from("candidates").update(update).eq("id", candId);
+  for (let i = 0; i < 8 && upd.error; i++) {
+    const msg = String(upd.error.message ?? "");
+    const m = msg.match(/Could not find the '([a-z_0-9]+)' column|column "?([a-z_0-9]+)"? of relation/i);
+    const col = m?.[1] || m?.[2];
+    if (!col || !(col in update)) break;
+    delete (update as any)[col];
+    upd = await admin.from("candidates").update(update).eq("id", candId);
+  }
+  if (upd.error) return { ok: false, error: upd.error.message ?? "人材マスタの更新に失敗しました" };
+
+  revalidatePath("/people");
+  revalidatePath("/engineers");
+  return { ok: true, candidate_no: candNo, changes };
 }

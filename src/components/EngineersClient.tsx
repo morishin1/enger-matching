@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/AppLink";
 import { freelanceShortId, hasJapanese, skillTagLabel, type Engineer, type EngineerAction, type EngineerSource, type Scout, type Application, type JobFavorite, type SkillSheet } from "@/lib/engineers";
 import type { EngineerChatStatus, EngineerProfileName } from "@/lib/chat";
-import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
+import { addEngineerAction, deleteEngineerAction, sendScout, setEngineerMeetingDone, bulkDeleteEngineers, bulkSetLoginSuspension, markEngineerWithdrawn, unmarkEngineerWithdrawn, openScoutThread, lookupJobByNo, prepareCandidateFromFreelancer, registerCandidateFromFreelancer, syncLinkedCandidateFromProfile, type FreelancePrefill, type ProfileSyncChange } from "@/app/engineers/actions";
 import { toast } from "@/components/toast";
 import { CopyButton } from "@/components/CopyButton";
 import { Icons } from "./icons";
@@ -735,6 +735,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
   const [logPage, setLogPage] = useState(0);            // 対応履歴ページャ（5件/ページ）
   const [appPage, setAppPage] = useState(0);            // 応募した案件ページャ（5件/ページ）
   const [registerOpen, setRegisterOpen] = useState(false); // #250：人材マスタへ新規登録モーダル
+  const [updateOpen, setUpdateOpen] = useState(false);     // #366：プロフィールを更新モーダル
   const [chatBusy, setChatBusy] = useState<string | null>(null); // チャット起動中の scout_id
 
   // 「スカウト送信」の対応履歴行に、対応するスカウト(scouts)を突合（scout_id/job_title を引く）。
@@ -885,6 +886,16 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
               <span className="material-symbols-outlined" style={{ fontSize: 15, lineHeight: 1 }}>person_add</span>
               人材マスタへ新規登録
             </button>
+            {/* #366：既に人材マスタ登録済みのときだけ「プロフィールを更新」を表示。
+                最新プロフィールとの差分を赤字で確認し、人材マスタ(candidate)を最新化する。 */}
+            {candidateNo != null && (
+              <button type="button" className="btn ghost btn-xs" onClick={() => setUpdateOpen(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}
+                title="ENGERフリーランス側の最新プロフィールで、紐づく人材マスタ（P番号）を更新します">
+                <span className="material-symbols-outlined" style={{ fontSize: 15, lineHeight: 1 }}>sync</span>
+                プロフィールを更新
+              </button>
+            )}
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
@@ -1130,6 +1141,7 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
       </div>
     </div>
     {registerOpen && <RegisterToMasterModal engineer={detail} onClose={() => setRegisterOpen(false)} />}
+    {updateOpen && <ProfileUpdateModal engineer={detail} candidateNo={candidateNo} onClose={() => setUpdateOpen(false)} />}
     </>
   );
 }
@@ -1159,7 +1171,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
   //   #262：所属区分の既定＝「弊社所属フリーランス」、所属会社の既定＝「ENGERフリーランス」、稼働開始（カレンダー選択）を追加。
   const [f, setF] = useState({
     name: "", title: "", affiliation: "弊社所属フリーランス", source_company: "ENGERフリーランス", avail_date: "", skills: "", tools: "", rate: "",
-    location: "", remote_pref: "", age_band: "", nationality: "", email: "",
+    location: "", residence: "", remote_pref: "", age_band: "", nationality: "", email: "",
   });
 
   useEffect(() => {
@@ -1174,6 +1186,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
         ...s,
         name: d.name, title: d.title, affiliation: d.affiliation || "弊社所属フリーランス",
         skills: (d.skills ?? []).join(", "), tools: (d.tools ?? []).join(", "), rate: d.rate, location: d.location,
+        residence: d.residence ?? "",
         remote_pref: d.remote_pref, age_band: d.age_band, nationality: d.nationality, email: d.email,
       }));
     }).catch((e) => { if (!cancelled) { setLoading(false); setErr(e instanceof Error ? e.message : "取得に失敗しました"); } });
@@ -1200,7 +1213,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
         skills: f.skills ? f.skills.split(/[,、\/／]+/).map((s) => s.trim()).filter(Boolean) : [],
         tools: f.tools ? f.tools.split(/[,、\/／\n]+/).map((s) => s.trim()).filter(Boolean) : [],
         rate: f.rate || null, rate_num: pre?.rate_num ?? null,
-        location: f.location || null, remote_pref: f.remote_pref || null,
+        location: f.location || null, residence: f.residence || null, remote_pref: f.remote_pref || null,
         age_band: f.age_band || null, nationality: f.nationality || null, email: f.email || null,
         skill_sheets: pre?.skill_sheets ?? [],
       });
@@ -1261,7 +1274,9 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
               <RegField label="国籍" value={f.nationality} onChange={set("nationality")} placeholder="日本国籍 / 外国籍 / 不明" />
               <RegField label="最寄駅" value={f.location} onChange={set("location")} />
               <RegField label="リモート希望" value={f.remote_pref} onChange={set("remote_pref")} />
-              <RegField label="連絡先（メール）" value={f.email} onChange={set("email")} full />
+              {/* #366①：連絡先（メール）の隣に居住地（都道府県）。プロフィールの都道府県を流し込み。 */}
+              <RegField label="連絡先（メール）" value={f.email} onChange={set("email")} />
+              <RegField label="居住地（都道府県）" value={f.residence} onChange={set("residence")} placeholder="例：東京都" />
               <RegField label="スキルタグ（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               {/* #325：使用経験のあるツール・開発環境（取込時に candidates.tools へ保存）。 */}
               <RegField label="ツール・開発環境（カンマ区切り）" value={f.tools} onChange={set("tools")} full />
@@ -1290,6 +1305,107 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" className="btn ghost" onClick={onClose} disabled={pending}>キャンセル</button>
               <button type="button" className="btn brand" onClick={submit} disabled={pending || pre?.already_no != null}>{pending ? "登録中…" : "この内容で登録"}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// #366：プロフィールを更新モーダル。ENGERフリーランス側の最新プロフィールと、紐づく人材マスタ
+//   （P番号）の現在値を比較し、変更のある項目を赤字で見せてから、確定で人材マスタを最新化する。
+function ProfileUpdateModal({ engineer, candidateNo, onClose }: { engineer: Engineer; candidateNo: number | null; onClose: () => void }) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+  const [changes, setChanges] = useState<ProfileSyncChange[] | null>(null);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    syncLinkedCandidateFromProfile({ engineer_id: engineer.id, dryRun: true }).then((r) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!r.ok) { setErr(r.error ?? "差分の取得に失敗しました"); return; }
+      setChanges(r.changes ?? []);
+    }).catch((e) => { if (!cancelled) { setLoading(false); setErr(e instanceof Error ? e.message : "取得に失敗しました"); } });
+    return () => { cancelled = true; };
+  }, [engineer.id]);
+
+  const apply = () => {
+    setErr(null);
+    start(async () => {
+      const r = await syncLinkedCandidateFromProfile({ engineer_id: engineer.id, dryRun: false });
+      if (!r.ok) { setErr(r.error ?? "更新に失敗しました"); return; }
+      setDone(true);
+      toast(`人材マスタを最新プロフィールで更新しました（${r.changes?.length ?? 0}項目）`, "success");
+      router.refresh();
+    });
+  };
+
+  const hasChanges = (changes?.length ?? 0) > 0;
+
+  return (
+    <div onClick={() => { if (!pending) onClose(); }} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.55)", display: "grid", placeItems: "center", zIndex: 340, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 19, color: "var(--color-brand-700)" }}>sync</span>
+            プロフィールを更新
+          </h3>
+          <button className="btn ghost btn-xs" onClick={onClose} disabled={pending}>閉じる</button>
+        </div>
+
+        <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+          ENGERフリーランス側の最新プロフィールで、紐づく人材マスタ
+          {candidateNo != null && <> （<b className="mono">P-{String(candidateNo).padStart(5, "0")}</b>）</>}
+          を更新します。<b style={{ color: "var(--color-danger)" }}>赤字</b>が変更される項目です。
+        </div>
+
+        {loading ? (
+          <div className="muted" style={{ fontSize: 13, padding: 20, textAlign: "center" }}>最新プロフィールと比較中…</div>
+        ) : done ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 4px" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#067647" }}>✓ 人材マスタを更新しました</div>
+            <div className="muted" style={{ fontSize: 11.5 }}>マッチング・人材一覧に最新のプロフィールが反映されます。</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+              {candidateNo != null && <Link href={`/people/${candidateNo}`} className="btn btn-xs" onClick={onClose}>人材詳細を開く →</Link>}
+              <button type="button" className="btn ghost btn-xs" onClick={onClose}>閉じる</button>
+            </div>
+          </div>
+        ) : !hasChanges ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "8px 4px" }}>
+            <div style={{ fontSize: 13, color: "var(--color-ink-2)" }}>最新プロフィールと人材マスタの内容は一致しています（更新する項目はありません）。</div>
+            {err && <div style={{ fontSize: 12, color: "var(--color-danger)" }}>{err}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={onClose}>閉じる</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 1, background: "var(--color-border)", border: "1px solid var(--color-border)", borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 1, background: "var(--color-border)" }}>
+                {["項目", "現在（人材マスタ）", "最新（プロフィール）"].map((h) => (
+                  <div key={h} style={{ background: "var(--color-surface-soft)", padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--color-ink-4)" }}>{h}</div>
+                ))}
+              </div>
+              {(changes ?? []).map((c) => (
+                <div key={c.label} style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 1, background: "var(--color-border)" }}>
+                  <div style={{ background: "var(--color-surface)", padding: "8px 10px", fontSize: 12, fontWeight: 600 }}>{c.label}</div>
+                  <div style={{ background: "var(--color-surface)", padding: "8px 10px", fontSize: 12, color: "var(--color-ink-3)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{c.before || <span className="muted">（空欄）</span>}</div>
+                  <div style={{ background: "var(--color-surface)", padding: "8px 10px", fontSize: 12, color: "var(--color-danger)", fontWeight: 700, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{c.after || <span className="muted">（空欄）</span>}</div>
+                </div>
+              ))}
+            </div>
+            <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.6 }}>
+              ※ プロフィール側が空欄の項目は上書きしません（既存値を保持）。氏名・イニシャル等の識別子は対象外です。
+            </div>
+            {err && <div style={{ fontSize: 12, color: "var(--color-danger)" }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={onClose} disabled={pending}>キャンセル</button>
+              <button type="button" className="btn brand" onClick={apply} disabled={pending}>{pending ? "更新中…" : "この内容で更新"}</button>
             </div>
           </>
         )}
