@@ -405,6 +405,8 @@ export function ProposalsWorkspace({
               shortcuts={[
                 { key: "today", label: "今日", active: period === "today", onClick: () => setPreset("today") },
                 { key: "week", label: "今週", active: period === "week", onClick: () => setPreset("week") },
+                // 先週（前週の月曜〜日曜）。period.ts の lastweek 範囲（thisWeekStart-7日 〜 thisWeekStart）で絞り込む。
+                { key: "lastweek", label: "先週", active: period === "lastweek", onClick: () => setPreset("lastweek") },
                 { key: "all", label: "全期間", active: isAllShown, onClick: clearRange },
               ]}
             />
