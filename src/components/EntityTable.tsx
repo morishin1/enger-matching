@@ -10,6 +10,7 @@ import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { EditCandidateButton, EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
+import { FreelanceLiveProfile } from "./FreelanceLiveProfile";
 import { bulkSetFocus, bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
 // ---------- 表示用ヘルパ ----------
@@ -527,15 +528,19 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, p
               )}
             </div>
 
-            {/* スキル */}
+            {/* #387③：人材は文言を「スキル」→「スキル詳細」に変更（案件は従来どおり）。 */}
             {Array.isArray(detail.skills) && detail.skills.length > 0 && (
               <div className="card" style={{ padding: 12 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル</div>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>{kind === "jobs" ? "スキル" : "スキル詳細"}</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {(detail.skills as string[]).map((s) => <span key={s} className="tag brand" style={{ fontSize: 12 }}>{s}</span>)}
                 </div>
               </div>
             )}
+
+            {/* #387②④：ENGERフリーランス紐づき人材は、本人プロフィールの最新値（スキル詳細＝年数・工程つき・
+                経験業種・居住地・最寄駅・リモート希望・ツール・職種）を開くたびにライブ表示（自動反映）。 */}
+            {kind !== "jobs" && detail.id && <FreelanceLiveProfile candidateId={String(detail.id)} />}
 
             {/* プロフィール／案件情報（ラベル + 値 の行レイアウト） */}
             <div className="card" style={{ padding: 12 }}>

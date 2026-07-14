@@ -13,6 +13,7 @@ import { DeleteEntityButton } from "./DeleteEntityButton";
 import { CloseToggleButton } from "./CloseToggleButton";
 import { CandidateNoteEditor } from "./CandidateNoteEditor";
 import { CandidateSkillsToolsEditor } from "./CandidateSkillsToolsEditor";
+import { FreelanceLiveProfile } from "./FreelanceLiveProfile";
 import { bulkSetFocus, bulkDeleteCandidates, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
@@ -623,9 +624,15 @@ export function PeopleTable({
             {isEngerFreelance(detail) && (
               <div className="card" style={{ padding: 12 }}>
                 <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>スキル・ツール</div>
-                <CandidateSkillsToolsEditor candidateNo={detail.candidate_no} initialSkills={Array.isArray(detail.skills) ? detail.skills : []} initialTools={Array.isArray((detail as any).tools) ? (detail as any).tools : []} />
+                {/* #387③：ドロワーの「スキル」は「スキル詳細」に改称。ここで編集・保存した内容は
+                    candidates.skills に入るため、人材詳細（P番号ページ）のスキルタグとも連動する。 */}
+                <CandidateSkillsToolsEditor candidateNo={detail.candidate_no} skillsLabel="スキル詳細" initialSkills={Array.isArray(detail.skills) ? detail.skills : []} initialTools={Array.isArray((detail as any).tools) ? (detail as any).tools : []} />
               </div>
             )}
+
+            {/* #387②④：本人プロフィールの最新値（スキル詳細＝年数・工程つき・経験業種・居住地・最寄駅・
+                リモート希望・ツール・職種）を開くたびにライブ表示（プロフィールを更新ボタン不要）。 */}
+            {(detail as any).id && <FreelanceLiveProfile candidateId={String((detail as any).id)} />}
 
             {/* #347⑤：メール原文の上に「人材詳細」の入力フォーム（手入力の整形メモ）。
                 #347④：旧「備考」はメール原文に改称。いずれもドロワー内でインライン編集・保存できる。 */}
