@@ -7,7 +7,7 @@
 //   項目定義は /api/public/form-defs（business-forms.ts）が正。
 // ============================================================
 import { NextRequest, NextResponse } from "next/server";
-import { engerAdmin, dbConfigured } from "@/lib/supabase";
+import { engerAdmin, authAdmin, dbConfigured } from "@/lib/supabase";
 import { bizCorsHeaders, resolveBusinessViewer } from "@/lib/business-api";
 
 export const runtime = "nodejs";
@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     company: {
       name: viewer.companyName,
+      company_name: viewer.companyName, // #414：会社名編集欄の初期値
       website: profile.website ?? master.website ?? null,
       corporate_no: profile.corporate_no ?? null,
       industry: master.industry ?? null,
@@ -72,9 +73,47 @@ export async function PUT(req: NextRequest) {
   try { body = await req.json(); } catch { return json({ ok: false, error: "JSONボディが必要です" }, 400); }
 
   const sb = engerAdmin();
+
+  // #414：会社名の変更（案件・企業管理・自社情報の紐付けキーのため、関連レコードを一括リネーム）。
+  //   ・他の稼働中アカウントが同名で既に使っている場合は、案件一覧の混在（データ越境）を
+  //     防ぐため拒否する。
+  //   ・app_users にレコードが無い（承認前・LP直後）アカウントは Auth の user_metadata.company を更新。
+  let companyName = viewer.companyName;
+  const requestedName = s(body.company_name, 120);
+  if (requestedName && requestedName !== viewer.companyName) {
+    try {
+      const collide: any = await sb.from("app_users").select("email").ilike("company_name", requestedName).neq("email", viewer.email).maybeSingle();
+      if (collide?.data) {
+        return json({ ok: false, error: `会社名「${requestedName}」は既に別のアカウントで登録されています。別の名称にするか、同名の会社が複数登録されている場合は運営にご連絡ください。` }, 409);
+      }
+    } catch { /* 照合失敗時は続行（過度なブロックをしない） */ }
+
+    const oldName = viewer.companyName;
+    try {
+      const au: any = await sb.from("app_users").select("email").ilike("email", viewer.email).maybeSingle();
+      if (au?.data) {
+        await sb.from("app_users").update({ company_name: requestedName }).ilike("email", viewer.email);
+      } else {
+        // app_users 未作成（承認前）：Auth の user_metadata.company を更新して次回解決時に使わせる。
+        try {
+          const ures: any = await authAdmin().auth.admin.listUsers({ page: 1, perPage: 1000 });
+          const hit = (ures?.data?.users ?? []).find((u: any) => (u.email ?? "").toLowerCase() === viewer.email.toLowerCase());
+          if (hit) await authAdmin().auth.admin.updateUserById(hit.id, { user_metadata: { ...(hit.user_metadata ?? {}), company: requestedName } });
+        } catch { /* auth 側の更新失敗でも下のカスケードは進める */ }
+      }
+      // 既存の紐付けデータを新しい会社名へ引き継ぐ（fail-soft・未作成テーブル/未該当行はそのまま無視）。
+      await sb.from("companies").update({ name: requestedName }).eq("name", oldName);
+      await sb.from("company_profiles").update({ company: requestedName }).eq("company", oldName);
+      await sb.from("jobs").update({ client_name: requestedName }).eq("client_name", oldName);
+      companyName = requestedName;
+    } catch (e: any) {
+      return json({ ok: false, error: `会社名の変更に失敗しました：${e?.message ?? String(e)}` }, 500);
+    }
+  }
+
   // ① company_profiles（Mission 等）を upsert。corporate_no 未整備環境は列を外して再試行。
   const prow: Record<string, any> = {
-    company: viewer.companyName,
+    company: companyName,
     mission: s(body.mission), culture: s(body.culture), ideal_persona: s(body.ideal_persona), appeal: s(body.appeal),
     website: s(body.website, 300), corporate_no: s(String(body.corporate_no ?? "").replace(/\D/g, ""), 13),
     updated_at: new Date().toISOString(),
@@ -88,16 +127,16 @@ export async function PUT(req: NextRequest) {
 
   // ② 企業管理（companies）へも連動反映（存在する項目のみ・空では上書きしない）。
   try {
-    const crow: Record<string, any> = { name: viewer.companyName };
+    const crow: Record<string, any> = { name: companyName };
     const industry = s(body.industry, 100); if (industry) crow.industry = industry;
     const contact = s(body.contact_name, 60); if (contact) crow.contact_name = contact;
     const phone = s(body.phone, 40); if (phone) crow.phone = phone;
     const website = s(body.website, 300); if (website) crow.website = website;
     if (Object.keys(crow).length > 1) {
       const r: any = await sb.from("companies").upsert(crow, { onConflict: "name" });
-      if (r.error) await sb.from("companies").upsert({ name: viewer.companyName }, { onConflict: "name" });
+      if (r.error) await sb.from("companies").upsert({ name: companyName }, { onConflict: "name" });
     }
   } catch { /* 企業管理側の反映失敗でも会社情報保存は成立させる */ }
 
-  return json({ ok: true });
+  return json({ ok: true, company_name: companyName });
 }
