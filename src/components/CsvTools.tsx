@@ -61,7 +61,8 @@ const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" 
   // メール連携：送信元(所属窓口)＝返信先 / 元メールへの直リンク（URL or GASのメッセージID）
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
   "本人メール": "email", "連絡先メール": "email",
-  "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
+  // #398：CSV出力側の列名「元メールリンク」を「元メールURL」相当として認識できるよう別名を追加。
+  "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "元メールリンク": "source_mail_url", "元メールリンク（URL）": "source_mail_url", "メールリンク": "source_mail_url", "source_mail_url": "source_mail_url",
   "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
 };
 const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "_mail_id"> = {
@@ -78,7 +79,8 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "
   // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
   "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
-  "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "source_mail_url": "source_mail_url",
+  // #398：CSV出力側の列名「元メールリンク」を「元メールURL」相当として認識できるよう別名を追加。
+  "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "元メールリンク": "source_mail_url", "元メールリンク（URL）": "source_mail_url", "メールリンク": "source_mail_url", "source_mail_url": "source_mail_url",
   "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
 };
 const CAND_TEMPLATE = ["氏名", "職種", "所属区分", "所属", "スキル", "希望単価", "稼働開始予定日", "最寄駅", "居住地", "経験", "ステータス", "ランク", "年齢（年代）", "国籍", "リモート希望", "スキルシートURL", "人材詳細", "メール原文"];
