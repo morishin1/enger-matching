@@ -307,7 +307,12 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                       <span aria-label="未読あり" title="未読のチャットがあります"
                         style={{ width: 9, height: 9, borderRadius: 99, background: "var(--color-danger,#dc2626)", flexShrink: 0, marginLeft: badge != null ? 6 : "auto", boxShadow: "0 0 0 2px var(--color-surface)" }} />
                     )}
-                    {badge != null && <span className={"badge " + (n.hot ? "hot" : "")}>{badge}</span>}
+                    {/* #412：未読チャット等（hot）が届いたら「New」マークを出して気づけるようにする。件数も併記。 */}
+                    {n.hot && rawCount != null && rawCount > 0 && (
+                      <span aria-label="新着あり" title="新着のチャットがあります"
+                        style={{ flexShrink: 0, marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: ".02em", color: "#fff", background: "var(--color-danger,#dc2626)", padding: "1px 7px", borderRadius: 99 }}>New</span>
+                    )}
+                    {badge != null && <span className={"badge " + (n.hot ? "hot" : "")} style={n.hot ? { marginLeft: 6 } : undefined}>{badge}</span>}
                     {partialLocked && (
                       <span className="material-symbols-outlined" aria-label="承認前は一部のみ"
                         title="承認前は匿名情報のみ。承認後にフル機能が使えます。"
