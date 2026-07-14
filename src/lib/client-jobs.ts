@@ -42,10 +42,19 @@ export async function insertClientJob(companyName: string, email: string | null,
       status: "審査中",
       is_published: false,
     };
+    // 列未整備の環境でも登録できるよう、エラーが指す列を「動的に」外して再試行する。
+    //   #402：従来は固定リスト（work_location 等）だけを外していたため、live 環境に存在しない
+    //   別の任意列（posted_by_client / detail / review_status 等）でエラーになると復旧できず
+    //   「AIで下書きした案件が登録できない」原因になっていた。エラーの指す列を順に除去する。
+    const PROTECTED = new Set(["job_no", "title", "client_name"]); // これらが欠ける環境は本当の異常
     let { error } = await sb.from("jobs").insert(row);
-    // 列未整備の環境（work_location / start_date / description 等）は該当キーを外して再試行。
-    if (error && /column|schema cache/i.test(error.message ?? "")) {
-      for (const k of ["work_location", "start_date", "description", "contract_types", "posted_by_email", "review_status"]) delete row[k];
+    for (let i = 0; i < 12 && error; i++) {
+      const msg = String(error.message ?? "");
+      if (!/column|schema cache|could not find/i.test(msg)) break;
+      const m = msg.match(/'([a-z_0-9]+)' column|column "?([a-z_0-9]+)"?/i);
+      const col = m?.[1] || m?.[2];
+      if (!col || PROTECTED.has(col) || !(col in row)) break;
+      delete row[col];
       ({ error } = await sb.from("jobs").insert(row));
     }
     if (error) return { ok: false, error: error.message };
