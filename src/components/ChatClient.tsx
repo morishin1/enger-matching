@@ -305,7 +305,7 @@ export function ChatClient({
                 ・編集中（未保存）＝背景に色を付け、外枠も色付きにして「編集中」を一目で分かるようにする。 */}
             {isStaff ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 220 }}>
-                <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", color: subjectDirty ? "var(--color-brand-700,#1d4ed8)" : "var(--color-ink-4)" }}>
+                <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", color: subjectDirty ? "var(--color-brand-700,#1d4ed8)" : "var(--color-ink-3)" }}>
                   スレッド名{subjectDirty ? "（編集中）" : subjectIsSaved ? "（保存済み）" : ""}
                 </span>
                 <div style={{
@@ -316,8 +316,9 @@ export function ChatClient({
                   background: subjectDirty ? "var(--color-brand-25,#eff6ff)" : "var(--color-surface)",
                   borderRadius: 10, padding: "2px 4px 2px 8px", transition: "border-color .2s, background .2s",
                 }}>
-                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 16, color: subjectDirty ? "var(--color-brand-600,#2563eb)" : "var(--color-ink-5)" }}>
-                    {subjectDirty ? "edit" : "label"}
+                  {/* #410：スレッド名（付箋）マークが薄くて見つけづらいため、常に濃い色・やや大きめにする。 */}
+                  <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, color: "var(--color-brand-600,#2563eb)" }}>
+                    {subjectDirty ? "edit" : "sticky_note_2"}
                   </span>
                   <input
                     value={subject}
@@ -347,7 +348,9 @@ export function ChatClient({
           </div>
 
           {/* メッセージ */}
-          <div style={{ flex: 1, overflowY: "auto", maxHeight: "56vh", padding: 16, display: "flex", flexDirection: "column", gap: 10, background: "var(--color-surface-2, var(--color-surface))" }}>
+          {/* #410：チャット面の背景が薄く（外部モニタでほぼ真っ白に）なるため、はっきりした
+              薄グレーの下地にして受信バブルとのコントラストを確保する。 */}
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "56vh", padding: 16, display: "flex", flexDirection: "column", gap: 10, background: "var(--color-surface-inset, #eef2f7)" }}>
             {selected.messages.length === 0 && (
               <div className="muted" style={{ textAlign: "center", fontSize: 12, padding: 20 }}>まだメッセージはありません。下の入力欄から送信できます。</div>
             )}
@@ -380,9 +383,11 @@ export function ChatClient({
                       lineHeight: 1.7,
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
-                      background: mine ? "var(--color-brand-600)" : "var(--color-surface)",
+                      // #410：受信（対象者）バブルは薄グレー下地の上で白＋濃いめの枠にして輪郭を明確にする。
+                      background: mine ? "var(--color-brand-600)" : "var(--color-surface, #fff)",
                       color: mine ? "#fff" : "var(--color-ink)",
-                      border: mine ? "none" : "1px solid var(--color-border)",
+                      border: mine ? "none" : "1px solid var(--color-border-strong)",
+                      boxShadow: mine ? "none" : "0 1px 2px rgba(15,23,42,.06)",
                     }}
                   >
                     {m.body}
