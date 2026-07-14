@@ -525,7 +525,8 @@ export async function saveEngineerContactInfo(input: { engineer_id: string } & P
   const kanaSei = t(input.real_name_kana_sei),   kanaMei = t(input.real_name_kana_mei);
   const email = t(input.email);
   if (email && !/^[\x21-\x7e]+@[\x21-\x7e]+\.[\x21-\x7e]+$/.test(email)) return { ok: false, error: "メールアドレスの形式が正しくありません" };
-  const phone = t(input.phone);
+  // #388①：ハイフン・空白・全角数字入りでも保存できるよう正規化してから検証（「編集できない」の一因）。
+  const phone = t(input.phone).replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[-‐－ー\s()（）]/g, "");
   if (phone && !/^\d{10,11}$/.test(phone)) return { ok: false, error: "電話番号は半角数字10〜11桁で入力してください（ハイフン不要）" };
   const birth = t(input.birth_date);
   if (birth && !/^\d{4}-\d{2}-\d{2}$/.test(birth)) return { ok: false, error: "生年月日は YYYY-MM-DD 形式で入力してください" };
@@ -868,6 +869,8 @@ export type FreelancePrefill = {
   age_band: string;                // 年代区分（年齢から自動変換：36→"30代後半"）
   nationality: string;             // 国籍（3区分）
   email: string;                   // 連絡先メール
+  industries: string;              // #388②：経験業種（LPの選択＋年数を「業種（年数）」カンマ区切りに整形）
+  pr_text: string;                 // #388③④：自己PR（profiles.headline）。登録/更新時に人材詳細へ追記
   skill_sheets: SkillSheet[];      // スキルシート（署名URL付き・ログイン不要で閲覧/DL可）
   predicted_no: number | null;     // 表示用：次に振られる見込みのP番号
   already_no: number | null;       // 既にマスタ登録済みなら そのP番号
@@ -939,6 +942,12 @@ export async function prepareCandidateFromFreelancer(engineerId: string): Promis
       age_band: ageToBand(f.age),
       nationality: normalizeNationality(f.nationality),
       email: String(p?.email ?? "").trim(),
+      // #388②：経験業種。LP（profiles.industries jsonb: [{name, years}]）を「業種（年数）」のカンマ区切りへ。
+      industries: (Array.isArray(p?.industries) ? (p.industries as any[]) : [])
+        .map((x) => { const n = String(x?.name ?? "").trim(); if (!n) return ""; const y = String(x?.years ?? "").trim(); return y ? `${n}（${y}）` : n; })
+        .filter(Boolean).join(", "),
+      // #388③④：自己PR（LPの「自己PR」＝profiles.headline）。
+      pr_text: String(p?.headline ?? "").trim(),
       skill_sheets,
       predicted_no: predicted,
       already_no: already,
@@ -967,6 +976,8 @@ export async function registerCandidateFromFreelancer(input: {
   age_band?: string | null;
   nationality?: string | null;
   email?: string | null;
+  industries?: string | null;      // #388②：経験業種（「業種（年数）」カンマ区切りテキスト）
+  pr_text?: string | null;         // #388④：自己PR → candidates.detail_note（人材詳細）へ保存
   skill_sheets?: SkillSheet[];
 }): Promise<{ ok: boolean; candidate_no?: number; existed?: boolean; error?: string }> {
   const access = await currentAccess();
@@ -1008,6 +1019,8 @@ export async function registerCandidateFromFreelancer(input: {
     age_band: input.age_band?.trim() || null,
     nationality: input.nationality?.trim() || null,
     email: input.email?.trim() || null,
+    industries: input.industries?.trim() || null,   // #388②：経験業種（列未整備環境は下の再試行で自動除去）
+    detail_note: input.pr_text?.trim() || null,     // #388④：自己PR → 人材詳細（新規作成のため追記考慮不要）
     skill_sheet_url: sheets[0]?.url || null,
     skill_sheets: sheets.length ? sheets : null,
     status: "提案可",
@@ -1069,6 +1082,7 @@ const PROFILE_SYNC_FIELDS: { key: keyof FreelancePrefill; col: string; label: st
   { key: "email",       col: "email",       label: "連絡先（メール）" },
   { key: "skills",      col: "skills",      label: "スキル", array: true },
   { key: "tools",       col: "tools",       label: "ツール・開発環境", array: true },
+  { key: "industries",  col: "industries",  label: "経験業種" },  // #388②：LPの選択＋年数（テキスト）
 ];
 
 export type ProfileSyncChange = { label: string; before: string; after: string };
@@ -1097,10 +1111,10 @@ export async function syncLinkedCandidateFromProfile(input: { engineer_id: strin
   if (!prep.ok || !prep.data) return { ok: false, error: prep.error ?? "最新プロフィールの取得に失敗しました" };
   const latest = prep.data;
 
-  // 現在の人材マスタ値。
+  // 現在の人材マスタ値。#388④：自己PRの追記判定用に detail_note（人材詳細）も読む。
   let cur: any = {};
   try {
-    const cols = PROFILE_SYNC_FIELDS.map((f) => f.col).join(", ");
+    const cols = PROFILE_SYNC_FIELDS.map((f) => f.col).join(", ") + ", detail_note";
     let r: any = await admin.from("candidates").select(cols).eq("id", candId).maybeSingle();
     if (r.error) r = await admin.from("candidates").select("*").eq("id", candId).maybeSingle();
     cur = r.data ?? {};
@@ -1125,6 +1139,19 @@ export async function syncLinkedCandidateFromProfile(input: { engineer_id: strin
   }
   // rate 更新時は rate_num も追随（マッチングの数値比較に使うため）。
   if ("rate" in update && latest.rate_num != null) update.rate_num = latest.rate_num;
+
+  // #388④：自己PR（LPの headline）を人材詳細（detail_note）へ「追記」する。
+  //   ・既存の人材詳細は上書きしない（追記のみ）。
+  //   ・同じ自己PR文が既に含まれていれば何もしない（更新を押すたびに増殖させない）。
+  {
+    const pr = (latest.pr_text ?? "").trim();
+    const curNote = String(cur.detail_note ?? "").trim();
+    if (pr && !curNote.includes(pr)) {
+      const nextNote = curNote ? `${curNote}\n\n${pr}` : pr;
+      changes.push({ label: "人材詳細（自己PRを追記）", before: curNote, after: nextNote });
+      update.detail_note = nextNote;
+    }
+  }
 
   if (input.dryRun) return { ok: true, candidate_no: candNo, changes };
   if (changes.length === 0) return { ok: true, candidate_no: candNo, changes: [] };

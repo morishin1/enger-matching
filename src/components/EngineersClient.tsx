@@ -875,7 +875,8 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
                   </div>
                 );
               })()}
-              {detail.headline && <div style={{ fontSize: 12, color: "var(--color-ink-2)", marginTop: 2 }}>{detail.headline}</div>}
+              {/* #388③：自己PR（headline）はここ（イニシャル下）には出さない。
+                  「人材マスタへ新規登録」モーダルのページ下部に表示し、登録時に人材詳細へ保存する。 */}
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
@@ -1157,7 +1158,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
   // 編集可能なフォーム値（流し込み後に管理者が確認・修正できる）。
   //   #262：所属区分の既定＝「弊社所属フリーランス」、所属会社の既定＝「ENGERフリーランス」、稼働開始（カレンダー選択）を追加。
   const [f, setF] = useState({
-    name: "", title: "", affiliation: "弊社所属フリーランス", source_company: "ENGERフリーランス", avail_date: "", skills: "", tools: "", rate: "",
+    name: "", title: "", affiliation: "弊社所属フリーランス", source_company: "ENGERフリーランス", avail_date: "", skills: "", tools: "", industries: "", rate: "",
     location: "", residence: "", remote_pref: "", age_band: "", nationality: "", email: "",
   });
 
@@ -1172,7 +1173,7 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
       setF((s) => ({
         ...s,
         name: d.name, title: d.title, affiliation: d.affiliation || "弊社所属フリーランス",
-        skills: (d.skills ?? []).join(", "), tools: (d.tools ?? []).join(", "), rate: d.rate, location: d.location,
+        skills: (d.skills ?? []).join(", "), tools: (d.tools ?? []).join(", "), industries: d.industries ?? "", rate: d.rate, location: d.location,
         residence: d.residence ?? "",
         remote_pref: d.remote_pref, age_band: d.age_band, nationality: d.nationality, email: d.email,
       }));
@@ -1202,6 +1203,8 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
         rate: f.rate || null, rate_num: pre?.rate_num ?? null,
         location: f.location || null, residence: f.residence || null, remote_pref: f.remote_pref || null,
         age_band: f.age_band || null, nationality: f.nationality || null, email: f.email || null,
+        industries: f.industries || null,            // #388②：経験業種
+        pr_text: pre?.pr_text || null,               // #388④：自己PR → 人材詳細（detail_note）
         skill_sheets: pre?.skill_sheets ?? [],
       });
       if (!r.ok) { setErr(r.error ?? "登録に失敗しました"); return; }
@@ -1267,6 +1270,9 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
               <RegField label="スキルタグ（カンマ区切り）" value={f.skills} onChange={set("skills")} full />
               {/* #325：使用経験のあるツール・開発環境（取込時に candidates.tools へ保存）。 */}
               <RegField label="ツール・開発環境（カンマ区切り）" value={f.tools} onChange={set("tools")} full />
+              {/* #388②：経験業種（ツール・開発環境の下）。ENGERフリーランス側の「経験のある業種」
+                  チェック＋経験年数を「業種（年数）」のカンマ区切りで流し込み（編集可）。 */}
+              <RegField label="経験業種（カンマ区切り・例：金融業（3〜5年）, ゲーム業界）" value={f.industries} onChange={set("industries")} full />
             </div>
 
             {/* スキルシート（署名URL・ログイン不要で閲覧/DL可）。引き継ぎ対象を表示。 */}
@@ -1281,6 +1287,16 @@ function RegisterToMasterModal({ engineer, onClose }: { engineer: Engineer; onCl
                     </a>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* #388③④：自己PR（LPプロフィールの「自己PR」）。ページ下部に表示し、登録すると
+                人材プロフィールの「人材詳細」に保存される（フリーランス詳細のイニシャル下からは移設）。 */}
+            {(pre?.pr_text ?? "").trim() && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <span style={labelStyle}>自己PR（ENGERフリーランス側の入力）</span>
+                <div style={{ fontSize: 12, lineHeight: 1.7, whiteSpace: "pre-wrap", background: "var(--color-surface-inset)", border: "1px solid var(--color-border)", borderRadius: 8, padding: "8px 11px" }}>{pre?.pr_text}</div>
+                <span className="muted" style={{ fontSize: 10.5 }}>※ 登録すると人材プロフィールの「人材詳細」に保存されます。</span>
               </div>
             )}
 
@@ -1537,7 +1553,15 @@ function ContactRegInfoBlock({ engineer: detail, candidateNo }: { engineer: Engi
           <Row>
             <RegField label="姓（カナ）" value={f.real_name_kana_sei} onChange={setField("real_name_kana_sei")} placeholder="ヤマダ" />
             <RegField label="名（カナ）" value={f.real_name_kana_mei} onChange={setField("real_name_kana_mei")} placeholder="タロウ" />
-            <RegField label="性別（男性/女性）" value={f.gender} onChange={setField("gender")} placeholder="男性 / 女性" />
+            {/* #388①：性別は自由入力だと保存側の検証（男性/女性のみ）で弾かれ「保存できない」ため選択式にする。 */}
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={REG_LABEL}>性別</span>
+              <select value={f.gender} onChange={(e) => setField("gender")(e.target.value)} style={REG_FIELD}>
+                <option value="">未設定</option>
+                <option value="男性">男性</option>
+                <option value="女性">女性</option>
+              </select>
+            </label>
           </Row>
           <Row>
             <RegField label="メール" value={f.email} onChange={setField("email")} placeholder="you@example.com" />
