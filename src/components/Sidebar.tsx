@@ -38,7 +38,8 @@ const NAV: NavItem[] = [
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
   { href: "/prospecting", id: "prospecting", label: "エンド開拓", desc: "リスト投入・接触・アポ獲得", icon: "bolt" },
   { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・案件/人材情報の仕入れ", icon: "inbox" },
-  { href: "/companies", id: "companies", label: "企業管理", desc: "取引先・商談の管理", icon: "company", count: "companies" },
+  // #419：案件企業（法人）の新規登録があるとき赤い印（ドット）を出して気づけるようにする。
+  { href: "/companies", id: "companies", label: "企業管理", desc: "取引先・商談の管理", icon: "company", count: "companies", dot: "newClients" },
   { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", count: "chatUnread", hot: true },
   // 稼働管理は当面使わないためサイドメニューから非表示（要望）。復活時は下のコメントを解除するだけ。
   //   ※ ページ自体（/progress・/documents）は URL では引き続きアクセス可能。
@@ -304,7 +305,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                     </span>
                     <NavPending />
                     {showDot && (
-                      <span aria-label="未読あり" title="未読のチャットがあります"
+                      <span aria-label="新着あり" title="新着があります（未確認の登録・未読があります）"
                         style={{ width: 9, height: 9, borderRadius: 99, background: "var(--color-danger,#dc2626)", flexShrink: 0, marginLeft: badge != null ? 6 : "auto", boxShadow: "0 0 0 2px var(--color-surface)" }} />
                     )}
                     {/* #412：未読チャット等（hot）が届いたら「New」マークを出して気づけるようにする。件数も併記。 */}
