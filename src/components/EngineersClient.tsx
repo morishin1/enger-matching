@@ -497,19 +497,21 @@ export function EngineersClient({ engineers, actions = {}, scouts = {}, applicat
                     {/* #300③：登録日時（最終ログインは ID の隣へ移動済み）。 */}
                     <td><span className="mono" style={{ fontSize: 11, color: "var(--color-ink-3)" }} title={`登録日時：${fmtDateTime(e.created_at)}`}>{fmtDateTime(e.created_at)}</span></td>
                     <td>
-                      <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                      {/* #409：応募・お気に入りボタンは押すと一覧がポップアップするため、
+                          小さく折返す表示をやめ、少し大きめのボタンで横並び（折返さない）にする。 */}
+                      <span style={{ display: "inline-flex", gap: 6, flexWrap: "nowrap", alignItems: "center", whiteSpace: "nowrap" }}>
                         {ap.length > 0 && <button type="button" title="応募した案件名を一覧で見る"
                           onClick={(ev) => { ev.stopPropagation(); setHistDetail({ engineer: e, kind: "応募" }); }}
-                          style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", cursor: "pointer", lineHeight: 1 }}>応募{ap.length}</button>}
+                          style={{ fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 99, background: "#e7f7ee", color: "#067647", border: "1px solid #bfe3cc", cursor: "pointer", lineHeight: 1 }}>応募 {ap.length}</button>}
                         {sc.length > 0 && <button type="button" title="スカウトした案件名を一覧で見る"
                           onClick={(ev) => { ev.stopPropagation(); setHistDetail({ engineer: e, kind: "スカ" }); }}
-                          style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab", border: "1px solid #cfe0f5", cursor: "pointer", lineHeight: 1 }}>スカ{sc.length}</button>}
+                          style={{ fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 99, background: "#e7f0fb", color: "#0b5cab", border: "1px solid #cfe0f5", cursor: "pointer", lineHeight: 1 }}>スカ {sc.length}</button>}
                         {/* 「対応」をハート（お気に入り数）に置換。クリックで該当フリーランスのお気に入り案件一覧を表示。 */}
                         {fav.length > 0 && (
-                          <button type="button" title="お気に入り数"
+                          <button type="button" title="お気に入りした案件名を一覧で見る"
                             onClick={(ev) => { ev.stopPropagation(); setFavDetail(e); }}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99, background: "#fdecef", color: "#d23f57", border: "1px solid #f7c5cf", cursor: "pointer", lineHeight: 1 }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: "'FILL' 1" }}>favorite</span>{fav.length}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 99, background: "#fdecef", color: "#d23f57", border: "1px solid #f7c5cf", cursor: "pointer", lineHeight: 1 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 15, fontVariationSettings: "'FILL' 1" }}>favorite</span>{fav.length}
                           </button>
                         )}
                         {ap.length + sc.length + fav.length === 0 && <span className="muted" style={{ fontSize: 11 }}>—</span>}
