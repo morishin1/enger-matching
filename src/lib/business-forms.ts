@@ -34,6 +34,9 @@ export const NATIONALITY_OPTIONS = ["日本", "外国籍", "不明"] as const;
 
 /** ① 会社情報（enger.company_profiles ＋ enger.companies 企業管理と連動）。 */
 export const COMPANY_FORM: BizField[] = [
+  // #414：会社名の編集欄。案件・企業管理・自社情報の紐付けキーのため、変更時は
+  //   関連レコードを一括リネームする（PUT /api/public/company-profile 側で処理）。
+  { key: "company_name",  label: "会社名",              type: "text",    required: true, placeholder: "例：株式会社エンジャー", maxLength: 120, hint: "登録済みの案件・自社情報とまとめて紐づく名称です。変更すると既存の案件・自社情報も新しい社名に引き継がれます。" },
   { key: "website",       label: "会社ホームページURL", type: "url",     placeholder: "https://your-company.co.jp", hint: "URLか法人番号を入れて「AIで下書き」を押すと下の項目を自動入力できます" },
   { key: "corporate_no",  label: "法人番号（13桁）",     type: "text",    placeholder: "1234567890123", hint: "国税庁の法人番号。ホームページが無い場合はこちらでもAI下書きできます", maxLength: 13 },
   { key: "industry",      label: "業種",                type: "text",    placeholder: "例：受託開発 / SES / 自社サービス" },
