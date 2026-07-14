@@ -226,9 +226,10 @@ button { font-family: inherit; }
 .card.flush { padding: 0; overflow: hidden; }
 .card.inset { background: var(--color-surface-soft); }
 
-/* #368①：案件一覧のマスター詳細（左=テーブル / 右=案件詳細パネル）。
-   既定（〜1279px）は右からのオーバーレイ。1280px以上では右にドッキングした常設パネルにして、
-   行を選ぶと右余白にその案件の詳細（案件詳細フォーム・フリーランスの応募など）を表示する。 */
+/* #368①：案件一覧の案件詳細（右からのドロワー）。
+   #393：以前の「他の場所をクリックすると閉じる」挙動に戻すため、全幅で常設ドッキングせず、
+   人材プロフィール詳細ドロワーと同じ「右からのオーバーレイ（背景クリックで閉じる）」に統一する。
+   案件詳細フォーム・フリーランスの応募などの内容はドロワー内にそのまま表示する。 */
 .jobs-md-detail { position: fixed; inset: 0; z-index: 300; }
 .jobs-md-backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0); transition: background .26s ease; }
 .jobs-md-detail.in .jobs-md-backdrop { background: rgba(15, 23, 42, .45); }
@@ -240,19 +241,6 @@ button { font-family: inherit; }
   transform: translateX(100%); transition: transform .26s cubic-bezier(.22, .61, .36, 1);
 }
 .jobs-md-detail.in .jobs-md-panel { transform: translateX(0); }
-
-@media (min-width: 1280px) {
-  .jobs-md { display: flex; align-items: flex-start; gap: 16px; }
-  .jobs-md-main { flex: 1 1 auto; min-width: 0; }
-  .jobs-md-detail { position: sticky; top: 16px; inset: auto; z-index: 1; flex: 0 0 clamp(380px, 30vw, 460px); align-self: flex-start; }
-  .jobs-md-detail .jobs-md-backdrop { display: none; }
-  .jobs-md-panel {
-    position: static; height: auto; width: 100%; max-width: none;
-    max-height: calc(100vh - 32px);
-    border: 1px solid var(--color-border); border-radius: var(--radius-lg);
-    box-shadow: 0 8px 28px rgba(15, 23, 42, .10); transform: none;
-  }
-}
 .card-h { display:flex; align-items:center; justify-content: space-between; margin-bottom: 16px; }
 .card-h h3 { margin:0; font-size: 14px; font-weight: 700; color: var(--color-ink); letter-spacing: -0.005em; }
 .card-h .sub { color: var(--color-ink-3); font-size: 12px; }
