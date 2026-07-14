@@ -18,8 +18,22 @@ export async function signIn(_prev: LoginState, formData: FormData): Promise<Log
   const supabase = await authServerClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    // #407：営業アカウントが「時々ログインできない」事象の原因切り分けのため、実際の失敗理由を
+    //   サーバログに残す（本文はユーザーに晒さない）。次回発生時に Vercel ログで原因を特定できるようにする。
+    const msg = String(error.message ?? "");
+    const code = String((error as any)?.code ?? (error as any)?.status ?? "");
+    console.error("[login] signInWithPassword failed", { email, code, message: msg });
     // #263 ログイン停止（Auth の ban）中は固定文言で遮断（要件どおり）。
-    if (/banned/i.test(error.message ?? "")) return { error: "このアカウントはログインできません" };
+    if (/banned/i.test(msg)) return { error: "このアカウントはログインできません" };
+    // メール未確認：発行済みアカウントで起こると「パスワードは合っているのに入れない」原因になる。
+    //   admin 側の再発行（メール認証リンク）で解消されるため、その旨を案内する。
+    if (/email not confirmed|not confirmed|confirm/i.test(msg)) {
+      return { error: "メールアドレスの確認が完了していないためログインできません。管理者にアカウントの再発行（パスワード再設定）を依頼してください。" };
+    }
+    // レート制限：短時間に試行が集中したときの一時的な遮断。時間をおけば回復する。
+    if (/rate|too many|429/i.test(msg + code)) {
+      return { error: "ログイン試行が一時的に制限されています。少し時間をおいてから、もう一度お試しください。" };
+    }
     return { error: "メールアドレスまたはパスワードが正しくありません" };
   }
 
