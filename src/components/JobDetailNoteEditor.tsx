@@ -3,7 +3,7 @@
 // 案件詳細（案件詳細ドロワーのインライン編集）。#331⑧
 //   取込メール原文（detail＝「メール原文」）とは別に、担当が手入力で整える案件詳細メモ。
 //   窓口メールの下・メール原文の上に配置し、その場で入力・保存できるようにする。
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/toast";
 import { updateJobById } from "@/lib/actions";
@@ -14,6 +14,12 @@ export function JobDetailNoteEditor({ jobNo, initial }: { jobNo: number; initial
   const [pending, start] = useTransition();
   const router = useRouter();
   const dirty = val !== savedVal;
+
+  // #368①：案件詳細（右パネル）は全文が見えるよう、内容量に合わせて高さを自動調整（クリップさせない）。
+  //   空欄のときは最小高さのまま（そのまま空欄表示）。
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const autosize = () => { const el = taRef.current; if (!el) return; el.style.height = "auto"; el.style.height = Math.max(el.scrollHeight, 84) + "px"; };
+  useEffect(() => { autosize(); }, [val]);
 
   const save = () => {
     start(async () => {
@@ -36,13 +42,12 @@ export function JobDetailNoteEditor({ jobNo, initial }: { jobNo: number; initial
       <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>案件詳細</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <textarea
+          ref={taRef}
           value={val}
           onChange={(e) => setVal(e.target.value)}
-          // #368①：案件詳細は「全文見えるように」。内容の行数に合わせて自動で高さを広げる
-          //   （最低4行。折返しも考慮して1行80字換算で加算。空欄はそのまま4行の空欄表示）。
-          rows={Math.max(4, val.split("\n").reduce((n, line) => n + 1 + Math.floor(line.length / 80), 0) + 1)}
+          rows={3}
           placeholder="案件のポイント・補足などを入力（保存でこの案件の案件詳細に反映されます）"
-          style={{ fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.7, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical", width: "100%", boxSizing: "border-box" }}
+          style={{ fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.7, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical", width: "100%", boxSizing: "border-box", overflow: "hidden" }}
         />
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button type="button" className="btn btn-xs" disabled={!dirty || pending} onClick={save}

@@ -551,7 +551,7 @@ export function JobsTable({
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
                   [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />]],
                   // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
-                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note ?? "不明"], ["フリーランスの応募", <FreelanceNgSelect key="fng" jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
+                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note ?? "不明"], ["フリーランスの応募", <FreelanceNgSelect key={`fng-${detail.job_no}`} jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
                   [["窓口メール", detail.contact_email], ["担当者名", detail.contact_name]],
                 ];
@@ -567,8 +567,10 @@ export function JobsTable({
               })()}
             </div>
 
-            {/* #331⑧：窓口メールの下・メール原文の上に「案件詳細」の入力欄。社内向けのみ表示。 */}
-            {!partner && <JobDetailNoteEditor jobNo={detail.job_no} initial={detail.detail_note ?? ""} />}
+            {/* #331⑧：窓口メールの下・メール原文の上に「案件詳細」の入力欄。社内向けのみ表示。
+                #368①：常設パネルは案件切替でアンマウントされないため、job_no を key にして
+                選択案件ごとに確実に初期値・自動高さを反映させる（前の案件の値が残らないように）。 */}
+            {!partner && <JobDetailNoteEditor key={detail.job_no} jobNo={detail.job_no} initial={detail.detail_note ?? ""} />}
 
             {detail.detail && (
               <div className="card" style={{ padding: 12 }}>
