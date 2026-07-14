@@ -152,16 +152,23 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
               クリックで提案管理（承認タブが自動で開く）へ。無いときは通常のお知らせへ。 */}
           {(() => {
             const approvals = counts?.proposalApprovals ?? 0;
-            const has = approvals > 0;
+            // #419：案件企業（法人）の新規登録もベルの赤バッジに含め、気づけるようにする。
+            const newClients = counts?.newClients ?? 0;
+            const total = approvals + newClients;
+            const has = total > 0;
+            const href = approvals > 0 ? "/proposals?tab=approval" : newClients > 0 ? "/settings/approvals" : "/notifications";
+            const title = has
+              ? [approvals > 0 ? `提案の承認待ち ${approvals} 件` : "", newClients > 0 ? `新規の案件企業登録 ${newClients} 件` : ""].filter(Boolean).join(" ／ ") + "（クリックで確認）"
+              : "お知らせ";
             return (
-              <Link href={has ? "/proposals?tab=approval" : "/notifications"} className="icon-btn"
-                title={has ? `承認待ちが ${approvals} 件あります（クリックで承認へ）` : "お知らせ"}
+              <Link href={href} className="icon-btn"
+                title={title}
                 style={{ position: "relative" }}>
                 <Icons.bell />
                 {has ? (
-                  <span aria-label={`承認待ち ${approvals} 件`}
+                  <span aria-label={title}
                     style={{ position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 99, background: "#dc2626", color: "#fff", fontSize: 10, fontWeight: 800, lineHeight: "16px", textAlign: "center", border: "1.5px solid var(--color-surface, #fff)", boxSizing: "border-box" }}>
-                    {approvals > 99 ? "99+" : approvals}
+                    {total > 99 ? "99+" : total}
                   </span>
                 ) : null}
               </Link>
