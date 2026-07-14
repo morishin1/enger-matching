@@ -56,6 +56,7 @@ export type RankedPair = {
     skills: string[]; salary_min: number | null; salary_max: number | null;
     role_label: string | null; remote_type: string | null; work_location: string | null;
     start_date: string | null; flow_note: string | null; detail: string | null;
+    freelance_ng: string | null; // #420④：フリーランスの応募（NG/空欄）。ドロワーの商流の隣に表示
     detail_note: string | null; // #344：手入力の案件詳細（人材側メールに最優先で挿入）
     source_mail_url: string | null; // #345③：比較ドロワーの「元メール」ボタン用
     created_at: string | null;
@@ -117,7 +118,7 @@ function normalizeAssignee(f: AssigneeFilter): AssigneeFilter {
 
 const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, is_focus, detail, flow_note, role_label, work_location, start_date, created_at";
 // detail_note＝手入力の案件詳細（#344）／source_mail_url＝元メールボタン（#345③）。未整備環境は BASE にフォールバック。
-const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note, source_mail_url`;
+const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note, source_mail_url, freelance_ng`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
 // detail_note＝人材詳細（#347）／source_mail_url＝元メールボタン（#345③）／residence＝居住地（#376⑤）。未整備環境は BASE にフォールバック。
 const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note, source_mail_url, residence`;
@@ -385,6 +386,10 @@ async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHi
       if (j.id && c.id && proposedPairs.has(`${j.id}|${c.id}`)) continue;    // 提案済み → 除外
       if (j.job_no != null && c.candidate_no != null && hiddenPairs.has(`${j.job_no}|${c.candidate_no}`)) continue; // #345①：手動非表示 → 除外
       if (!pairAllowed(jg, cg)) continue;                                    // 年齢制限・逆ざや → 除外
+      // #420③：出社必須・一部リモートの案件は、通勤圏（東京/神奈川/埼玉/千葉）在住か
+      //   居住地が空欄の人材のみマッチング対象にする（フルリモート案件は居住地を問わない）。
+      if ((j.remote_type === "onsite" || j.remote_type === "partial_remote")
+        && c.residence && !/東京|神奈川|埼玉|千葉/.test(String(c.residence))) continue;
       const matrix = flowMatrixCompat(jg.cat, cg.cat);
       if (matrix === "ng") continue;                                        // #8 商流の確定NG（提案不可）→ 除外
       let m = 0; for (const s of jskills) if (set.has(s)) m++;
@@ -455,6 +460,7 @@ function toRankedPair(h: ScoredHit, i: number): RankedPair {
       role_label: h.job.role_label ?? null, remote_type: h.job.remote_type ?? null,
       work_location: h.job.work_location ?? null, start_date: h.job.start_date ?? null,
       flow_note: h.job.flow_note ?? null, detail: h.job.detail ?? null,
+      freelance_ng: h.job.freelance_ng ?? null,
       detail_note: h.job.detail_note ?? null,
       source_mail_url: h.job.source_mail_url ?? null,
       created_at: h.job.created_at ?? null,
