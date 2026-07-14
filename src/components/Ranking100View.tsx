@@ -376,6 +376,10 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             <RowKV label="勤務地"       v={p.job.work_location} />
             <RowKV label="開始希望"     v={p.job.start_date} />
             <RowKV label="商流"         v={p.job.flow_note} />
+            {/* #420④：商流の隣（直下）に「フリーランスの応募」（NG／空欄＝制限なし）を表示。 */}
+            <RowKV label="フリーランスの応募" v={p.job.freelance_ng === "NG"
+              ? <span style={{ color: "#b42318", fontWeight: 700 }}>NG</span>
+              : <span className="muted">（空欄＝制限なし）</span>} />
             <RowKV label="必要スキル"   v={
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {(p.job.skills ?? []).map((s) => (
@@ -413,13 +417,19 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             </div>
             <RowKV label="職種"       v={p.cand.title} />
             <RowKV label="所属"       v={[p.cand.company, p.cand.affiliation].filter(Boolean).join(" · ") || null} />
-            <RowKV label="希望単価"   v={p.cand.rate} />
+            {/* #420②：希望単価・最寄り駅・居住地を同じ行に表示（#405①の改称を維持）。 */}
+            {(p.cand.rate || p.cand.location || p.cand.residence) && (
+              <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: 10, padding: "6px 0", borderBottom: "1px dashed var(--color-border)", fontSize: 12.5 }}>
+                <div className="muted" style={{ fontSize: 11, fontWeight: 600 }}>希望単価</div>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: "var(--color-ink)", alignItems: "baseline" }}>
+                  <span>{p.cand.rate || "—"}</span>
+                  <span><span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>最寄り駅：</span>{p.cand.location || "—"}</span>
+                  <span><span className="muted" style={{ fontSize: 11, fontWeight: 600 }}>居住地：</span>{p.cand.residence || "—"}</span>
+                </div>
+              </div>
+            )}
             {/* #376①：リモート希望は「フルリモート希望／一部リモート希望／出社可」で表示。 */}
             <RowKV label="リモート希望" v={candRemoteLabel(p.cand.remote_pref)} />
-            {/* #405①：人材側の「勤務地」は最寄り駅を指すため「最寄り駅」に改称。 */}
-            <RowKV label="最寄り駅"   v={p.cand.location} />
-            {/* #376⑤／#405②：最寄り駅の隣（直下）に居住地を表示。 */}
-            <RowKV label="居住地"     v={p.cand.residence} />
             <RowKV label="経験"       v={p.cand.exp} />
             <RowKV label="稼働開始予定日" v={p.cand.avail} />
             <RowKV label="年齢（年代）/国籍" v={[p.cand.age_band, p.cand.nationality].filter(Boolean).join(" / ") || null} />
