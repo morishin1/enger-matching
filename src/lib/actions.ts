@@ -2497,8 +2497,25 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
   const skippedCols = new Set<string>();
   // fail-soft の除外対象（任意列）。バッチ内にこれらの値があるときだけ「保存されなかった列」として報告する。
   const OPTIONAL_JOB_COLS = ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note", "freelance_ng"] as const;
-  const noteSkipped = (batch: any[]) => {
-    for (const c of OPTIONAL_JOB_COLS) if (batch.some((b) => b[c] != null && b[c] !== "")) skippedCols.add(c);
+  const OPTIONAL_SET = new Set<string>(OPTIONAL_JOB_COLS as readonly string[]);
+  // #398：DB列未整備でエラーになったとき、エラーが指す「その列だけ」を外して再試行する。
+  //   従来は任意列をまとめて外していたため、実在する contact_email / source_mail_url / operator まで
+  //   道連れで保存されず「窓口メール・元メールURL・登録担当も保存されない」と誤って報告・欠落していた。
+  //   実際に未整備だった列だけを skippedCols に記録する。
+  const upsertJobsDropMissing = async (payload: any[], conflictOpts: any): Promise<{ error: any; count: number | null }> => {
+    let cur = payload;
+    let res: any = await admin.from("jobs").upsert(cur, conflictOpts);
+    for (let i = 0; i < OPTIONAL_JOB_COLS.length + 2 && res.error; i++) {
+      const msg = String(res.error.message ?? "");
+      if (!/column|schema cache|could not find/i.test(msg)) break;
+      const m = msg.match(/'([a-z_0-9]+)' column|column "?([a-z_0-9]+)"?/i);
+      const col = m?.[1] || m?.[2];
+      if (!col || !OPTIONAL_SET.has(col)) break; // 任意列以外（＝本当の異常）はそのままエラーを返す
+      if (cur.some((b) => b[col] != null && b[col] !== "")) skippedCols.add(col);
+      cur = cur.map((b) => { const o: any = { ...b }; delete o[col]; return o; });
+      res = await admin.from("jobs").upsert(cur, conflictOpts);
+    }
+    return { error: res.error, count: res.count ?? null };
   };
   // mergeExisting: 既存(title × client_name 一致)を空欄補完で更新し、INSERT はスキップ。
   //   - 既存値は上書きしない（運用上の手動編集を保護）
@@ -2553,12 +2570,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
       const UB = 300; // detail を含むため小さめ
       for (let i = 0; i < mergedRows.length; i += UB) {
         const slice = mergedRows.slice(i, i + UB);
-        let { error, count } = await admin.from("jobs").upsert(slice, { onConflict: "id", count: "exact" });
-        if (error && /column/i.test(error.message)) {
-          noteSkipped(slice); // #389：外した列を報告（サイレント消失防止）
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k2 of OPTIONAL_JOB_COLS) delete o[k2]; return o; });
-          ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "id", count: "exact" }));
-        }
+        const { error, count } = await upsertJobsDropMissing(slice, { onConflict: "id", count: "exact" });
         if (!error) merged += count ?? slice.length;
       }
     }
@@ -2568,15 +2580,8 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
   const BATCH = 500;
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
-    let { error, count } = await admin
-      .from("jobs")
-      .upsert(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
-    // contact_email / source_mail_url / operator / detail_note / freelance_ng 列が未追加（SQL未実行）でも落ちないよう、その列を外して再試行
-    if (error && /contact_email|contact_name|source_mail_url|operator|detail_note|freelance_ng|column/i.test(error.message)) {
-      noteSkipped(batch); // #389：外した列を報告（サイレント消失防止）
-      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k2 of OPTIONAL_JOB_COLS) delete (o as any)[k2]; return o; });
-      ({ error, count } = await admin.from("jobs").upsert(stripped, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" }));
-    }
+    // #398：DB列未整備でも落ちないよう、エラーが指す列「だけ」を外して再試行（実在列は保存する）。
+    const { error, count } = await upsertJobsDropMissing(batch, { onConflict: "title,client_name", ignoreDuplicates: true, count: "exact" });
     if (error) return { ok: false, inserted, error: error.message };
     inserted += count ?? batch.length;
   }
