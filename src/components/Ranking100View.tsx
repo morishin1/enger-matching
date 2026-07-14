@@ -416,8 +416,9 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             <RowKV label="希望単価"   v={p.cand.rate} />
             {/* #376①：リモート希望は「フルリモート希望／一部リモート希望／出社可」で表示。 */}
             <RowKV label="リモート希望" v={candRemoteLabel(p.cand.remote_pref)} />
-            <RowKV label="勤務地"     v={p.cand.location} />
-            {/* #376⑤：人材プロフィールに居住地を追加。 */}
+            {/* #405①：人材側の「勤務地」は最寄り駅を指すため「最寄り駅」に改称。 */}
+            <RowKV label="最寄り駅"   v={p.cand.location} />
+            {/* #376⑤／#405②：最寄り駅の隣（直下）に居住地を表示。 */}
             <RowKV label="居住地"     v={p.cand.residence} />
             <RowKV label="経験"       v={p.cand.exp} />
             <RowKV label="稼働開始予定日" v={p.cand.avail} />
