@@ -281,9 +281,22 @@ export function JobsTable({
     return () => cancelAnimationFrame(id);
   }, [detail]);
   const closeDetail = () => { setDrawerIn(false); setTimeout(() => setDetail(null), 260); };
+  // #406：バックドロップは「押下開始もクリックも背景自身」のときだけ閉じる。
+  //   入力欄からのテキスト選択ドラッグが背景上で離れても閉じないようにする（編集中の誤閉じ防止）。
+  const pressedBackdrop = useRef(false);
+  const onBackdropDown = (e: React.MouseEvent) => { pressedBackdrop.current = e.target === e.currentTarget; };
+  const onBackdropClick = (e: React.MouseEvent) => { if (pressedBackdrop.current && e.target === e.currentTarget) closeDetail(); };
   useEffect(() => {
     if (!detail) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeDetail(); };
+    // #406：編集中に誤って閉じないようにする。入力欄にフォーカスがある間や
+    //   日本語IMEの変換中（Escで変換キャンセル）は Esc で閉じない。入力欄の外で押したときだけ閉じる。
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if ((e as any).isComposing || (e as any).keyCode === 229) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return;
+      closeDetail();
+    };
     document.addEventListener("keydown", onKey);
     // #368①：広い画面（≥1280px）では右ドッキングの常設パネルなので body スクロールはロックしない。
     //   狭い画面は従来どおりオーバーレイのため背景スクロールをロックする。
@@ -484,7 +497,7 @@ export function JobsTable({
           狭い画面では従来どおり右からのオーバーレイ。スタイルは globals.css の .jobs-md* を参照。 */}
       {detail && (
         <div className={"jobs-md-detail" + (drawerIn ? " in" : "")}>
-          <div className="jobs-md-backdrop" onClick={closeDetail} />
+          <div className="jobs-md-backdrop" onMouseDown={onBackdropDown} onClick={onBackdropClick} />
           <div
             onClick={(e) => e.stopPropagation()}
             className="card jobs-md-panel"
