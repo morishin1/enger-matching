@@ -38,7 +38,9 @@ export function JobDetailNoteEditor({ jobNo, initial }: { jobNo: number; initial
         <textarea
           value={val}
           onChange={(e) => setVal(e.target.value)}
-          rows={4}
+          // #368①：案件詳細は「全文見えるように」。内容の行数に合わせて自動で高さを広げる
+          //   （最低4行。折返しも考慮して1行80字換算で加算。空欄はそのまま4行の空欄表示）。
+          rows={Math.max(4, val.split("\n").reduce((n, line) => n + 1 + Math.floor(line.length / 80), 0) + 1)}
           placeholder="案件のポイント・補足などを入力（保存でこの案件の案件詳細に反映されます）"
           style={{ fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.7, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)", resize: "vertical", width: "100%", boxSizing: "border-box" }}
         />
