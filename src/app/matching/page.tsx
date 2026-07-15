@@ -362,7 +362,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
-      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth, deleted_at`;
+      // #436②：freelance_ng（フリーランスNG案件のFL系除外）も rich 側で取得（列未整備は BASE へフォールバック）。
+      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth, freelance_ng, deleted_at`;
 
       // 充足案件（filledJobIds）と送達不能アドレス（bouncedMap）は互いに独立なので並列取得する。
       //   以前は2クエリを直列 await していて遷移のたびに余分な往復が発生していた。

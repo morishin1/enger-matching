@@ -336,14 +336,24 @@ type ScoredHit = {
   matchedCount: number; jobSkillCount: number;
 };
 
-/** 提案済みペア（job_id×candidate_id）の集合。定義書の追加条件によりランキングから除外する。 */
-async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<Set<string>> {
-  const proposedPairs = new Set<string>();
+/** 提案済みペア（job_id×candidate_id）の集合と、案件/人材ごとの提案件数。
+ *   ・ペア集合   … 定義書の追加条件によりランキングから除外する（既存）。
+ *   ・提案件数   … #446②：提案が2件以上ある案件/人材はおすすめTOP50から除外する
+ *                 （一人の人材・1つの案件への大量提案メール送信を防ぐ。期間・ステージ不問）。 */
+type ProposedInfo = { pairs: Set<string>; jobCounts: Map<string, number>; candCounts: Map<string, number> };
+async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<ProposedInfo> {
+  const pairs = new Set<string>();
+  const jobCounts = new Map<string, number>();
+  const candCounts = new Map<string, number>();
   try {
     const { data } = await sb.from("proposals").select("job_id, candidate_id").limit(20000);
-    for (const p of (data ?? []) as any[]) if (p.job_id && p.candidate_id) proposedPairs.add(`${p.job_id}|${p.candidate_id}`);
+    for (const p of (data ?? []) as any[]) {
+      if (p.job_id) jobCounts.set(String(p.job_id), (jobCounts.get(String(p.job_id)) ?? 0) + 1);
+      if (p.candidate_id) candCounts.set(String(p.candidate_id), (candCounts.get(String(p.candidate_id)) ?? 0) + 1);
+      if (p.job_id && p.candidate_id) pairs.add(`${p.job_id}|${p.candidate_id}`);
+    }
   } catch { /* proposals 未整備でも続行 */ }
-  return proposedPairs;
+  return { pairs, jobCounts, candCounts };
 }
 
 // #345①：非表示ペアの読み取りは @/lib/hidden-pairs の getHiddenPairsSet に集約
@@ -351,16 +361,17 @@ async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<S
 
 /** 致命的NGを除外し、要確認事項でランク付けして「ランク→点数順」に並べて返す。
  *   filter で人材を担当者（operator）で絞ることで計算量を軽減する。 */
-async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
+async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHit[]; jobsScanned: number; candsScanned: number; pairsHit: number; proposed: ProposedInfo }> {
   const sb = engerClient();
-  const [jobsAll, candsAll, lineIds, flIds, proposedPairs, hiddenPairs] = await Promise.all([
+  const [jobsAll, candsAll, lineIds, flIds, proposed, hiddenPairs] = await Promise.all([
     fetchJobsForRanking(sb),
     fetchCandsForRanking(sb, filter),
     getLineOriginIds(),          // LINE由来の案件/人材（fail-soft：取れなければ空）
     getFreelanceCandidateIds(),  // ENGERフリーランス由来の人材（fail-soft）
-    fetchProposedPairs(sb),      // 提案済みペア
+    fetchProposedPairs(sb),      // 提案済みペア＋案件/人材ごとの提案件数（#446②）
     getHiddenPairsSet(),         // #345①：手動で非表示にしたペア（service role読み・共通ヘルパ）
   ]);
+  const proposedPairs = proposed.pairs;
   const lineJobIds = new Set(lineIds.jobIds);
   const lineCandIds = new Set(lineIds.candidateIds);
   const flCandIds = new Set(flIds);
@@ -392,6 +403,9 @@ async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHi
         && c.residence && !/東京|神奈川|埼玉|千葉/.test(String(c.residence))) continue;
       const matrix = flowMatrixCompat(jg.cat, cg.cat);
       if (matrix === "ng") continue;                                        // #8 商流の確定NG（提案不可）→ 除外
+      // #436②：フリーランスNG案件は「エイト社員」「一社下社員」のみ対象（FL系・二社下以降・不明は除外）。
+      if (String(j.freelance_ng ?? "").trim().toUpperCase() === "NG"
+        && !(cg.cat === "self_emp" || cg.cat === "vendor1_emp")) continue;
       let m = 0; for (const s of jskills) if (set.has(s)) m++;
       const pct = m / need;
       if (pct < SKILL_FLOOR) continue;                                       // スキル一致率が低すぎる → 除外
@@ -435,7 +449,7 @@ async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHi
     || (b.job.job_no - a.job.job_no),
   );
 
-  return { hits, jobsScanned: jobs.length, candsScanned: cands.length, pairsHit };
+  return { hits, jobsScanned: jobs.length, candsScanned: cands.length, pairsHit, proposed };
 }
 
 function toRankedPair(h: ScoredHit, i: number): RankedPair {
@@ -503,7 +517,15 @@ export const getRanking100 = unstable_cache(fetchRanking100, ["ranking-100"], { 
 
 async function fetchAutoMatchTop(filter: AssigneeFilter): Promise<{ rows: RankedPair[]; jobsScanned: number; candsScanned: number; pairsHit: number }> {
   if (!dbConfigured) return { rows: [], jobsScanned: 0, candsScanned: 0, pairsHit: 0 };
-  const { hits, jobsScanned, candsScanned, pairsHit } = await buildRankedHits(filter);
+  const { hits: hitsAll, jobsScanned, candsScanned, pairsHit, proposed } = await buildRankedHits(filter);
+
+  // #446②：提案（マッチングレコード）が2件以上ある案件・人材は、おすすめTOP50の対象外にする。
+  //   一人の人材・1つの案件への大量提案メール送信を防ぐ（期間・ステージ不問。どちらか一方でも2件以上なら除外）。
+  //   ※ ランキング100には適用しない（要望の対象はTOP50のみ）。
+  const PROPOSAL_CAP = 2;
+  const hits = hitsAll.filter((h) =>
+    (proposed.jobCounts.get(String(h.job.id ?? "")) ?? 0) < PROPOSAL_CAP
+    && (proposed.candCounts.get(String(h.cand.id ?? "")) ?? 0) < PROPOSAL_CAP);
 
   // 重複排除：同じ人材・同じ案件は最良の1組だけ採用（ランク→点数順なので先勝ち＝最良）。
   const usedPerson = new Set<string>();

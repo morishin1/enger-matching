@@ -21,6 +21,8 @@ export type Job = {
   contact_email?: string | null;
   is_undeliverable?: boolean;         // contact_email がバウンスしている
   undeliverable_count?: number;       // 観測回数（表示用）
+  // #436②：フリーランスの応募（"NG" or null）。NG のとき FL系・二社下以降・所属不明はマッチング対象外。
+  freelance_ng?: string | null;
 };
 export type Candidate = {
   candidate_no?: number; id?: string; name: string; title?: string | null;
@@ -591,12 +593,19 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 
   if (/即アサイン|即日/.test(c.status ?? "")) notes.push({ level: "green", text: "即アサイン可" });
 
+  // #436②：フリーランスNG案件（freelance_ng="NG"）は、所属区分が「エイト社員」「一社下社員」の
+  //   人材のみマッチング対象。FL系（弊社所属フリーランス/一社下フリーランス）・二社下以降・
+  //   所属不明はハード除外する（人材側・案件側のマッチング結果とおすすめTOP50の全てに効く）。
+  const flNg = String((job as any).freelance_ng ?? "").trim().toUpperCase() === "NG"
+    && !(fm.candCat === "self_emp" || fm.candCat === "vendor1_emp");
+  if (flNg) notes.push({ level: "red", text: `フリーランスNG案件のため対象外（人材所属: ${CAND_FLOW_LABEL[fm.candCat]}。対象はエイト社員・一社下社員のみ）` });
+
   // ---- 互換用 reasons ----
   const reasons = notes.map((n) => `${n.level === "red" ? "🔴" : n.level === "yellow" ? "🟡" : "🟢"} ${n.text}`);
 
   // 充足/終了はハード除外。古い案件・送達不能・商流NG は除外せず判定の引き下げで提案抑止する
   //   （バッジ＋提案時確認の運用に合わせ、完全ブロックは避ける）。
-  const hardExcluded = ngNat || ngRemote || open.closed;
+  const hardExcluded = ngNat || ngRemote || open.closed || flNg;
   let verdict = verdictOf(score, hardExcluded);
   if (!hardExcluded && (open.stale || job.is_undeliverable) && (verdict === "提案推奨" || verdict === "条件付き提案推奨")) {
     verdict = "条件付き提案検討";

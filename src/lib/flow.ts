@@ -166,7 +166,7 @@ export const CAND_FLOW_OPTIONS: { value: Exclude<CandFlowCategory, "unknown">; l
   { value: "self_emp",    label: "エイト社員" },
   { value: "self_bp",     label: "弊社所属フリーランス" },  // #261：旧表記「BP」から文言変更（分類キー・判定は不変）
   { value: "vendor1_emp", label: "一社下社員" },
-  { value: "vendor1_fl",  label: "一社下FL" },
+  { value: "vendor1_fl",  label: "一社下フリーランス" },  // #436①：旧表記「一社下FL」から文言変更（分類キー・判定は不変。旧値は classifyCandFlow のフォールバックで拾う）
   { value: "vendor2plus", label: "二社下以降" },
 ];
 
@@ -184,7 +184,7 @@ export const CAND_FLOW_LABEL: Record<CandFlowCategory, string> = {
   self_emp: "エイト社員",
   self_bp: "弊社所属フリーランス",  // #261：旧表記「BP」から文言変更
   vendor1_emp: "一社下社員",
-  vendor1_fl: "一社下FL",
+  vendor1_fl: "一社下フリーランス",  // #436①：旧表記「一社下FL」から文言変更
   vendor2plus: "二社下以降",
   unknown: "不明",
 };
