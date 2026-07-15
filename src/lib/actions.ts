@@ -334,6 +334,10 @@ export async function bulkSetClosed(
   }
   if (revalidate) revalidatePath(revalidate);
   bustCounts();
+  // #423：クローズ／再開したら、おすすめの組み合わせ TOP50・ランキング100 のキャッシュも即時無効化する。
+  //   is_closed の案件・人材は DB 取得時点で除外されるが、5分キャッシュが残ると「クローズしたのに
+  //   ランキングに残る」ため、ここで即時反映する（value=false の再開時はランキングへ復帰）。
+  bustRankingCaches();
   return { ok: true, updated: idValues.length };
 }
 
@@ -398,6 +402,8 @@ export async function closeProposalEntity(input: {
   }
   revalidatePath("/proposals");
   bustCounts();
+  // #423：クローズしたら、おすすめの組み合わせ TOP50・ランキング100 からも即時除外する。
+  bustRankingCaches();
   return { ok: true };
 }
 
