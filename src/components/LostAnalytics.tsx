@@ -606,40 +606,10 @@ export function LostAnalytics({ history, activeRows = [] }: { history: HItem[]; 
       {/* 👍 リアクション件数（話を進める／見送りボタンが押された件数）。承認済企業 起因の失注のすぐ下。 */}
       <ReactionStatsCard stats={reactionStats} />
 
-      {/* 会社×失注理由ヒートマップ */}
-      {data.companies.length > 0 && data.topReasons.length > 0 && (() => {
-        const top = [...data.companies].sort((a, b) => b.lost - a.lost).slice(0, 10);
-        const max = Math.max(1, ...top.flatMap((c) => data.topReasons.map((r) => c.reasons[r] ?? 0)));
-        return (
-          <div className="card" style={{ padding: 14, overflowX: "auto" }}>
-            <Header title="🔍 会社 × 失注理由 ヒートマップ（上位）" hint="同じ会社で同じ失注理由が続くなら、その問題を回避する提案戦略に切替" />
-            <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 600 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid var(--color-border)", position: "sticky", left: 0, background: "var(--color-surface)" }}>会社</th>
-                  {data.topReasons.map((r) => (
-                    <th key={r} style={{ padding: "4px 8px", borderBottom: "1px solid var(--color-border)", textAlign: "center", fontWeight: 600, color: "var(--color-ink-3)" }} title={r}>{r.length > 16 ? r.slice(0, 16) + "…" : r}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {top.map((c) => (
-                  <tr key={c.name}>
-                    <td style={{ padding: "4px 8px", borderBottom: "1px dashed var(--color-border)", fontWeight: 600, position: "sticky", left: 0, background: "var(--color-surface)", whiteSpace: "nowrap", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={c.name}>{c.name}</td>
-                    {data.topReasons.map((r) => {
-                      const n = c.reasons[r] ?? 0;
-                      const alpha = n === 0 ? 0 : 0.15 + 0.75 * (n / max);
-                      return (
-                        <td key={r} style={{ padding: "4px 8px", textAlign: "center", borderBottom: "1px dashed var(--color-border)", background: n === 0 ? "transparent" : `rgba(180, 35, 24, ${alpha})`, color: n === 0 ? "var(--color-ink-5)" : alpha > 0.5 ? "#fff" : "#b42318", fontWeight: 700 }}>{n || "—"}</td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      })()}
+      {/* 会社×失注理由ヒートマップ。#445：数字にマウスをあてると該当レコード（案件名×人材名＋人材ID）を表示。 */}
+      {data.companies.length > 0 && data.topReasons.length > 0 && (
+        <LostHeatmap companies={data.companies} topReasons={data.topReasons} lostRows={data.lostRows} />
+      )}
 
       {/* ⏱ 提案 → 失注 タイムラグ（スピード分析） */}
       {data.lagStats.total > 0 && (
@@ -1341,6 +1311,75 @@ function Header({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
+// #445：会社×失注理由ヒートマップ。数字セルにマウスをあてると、該当レコード
+//   （案件名 × 人材名＋人材ID）の一覧をポップオーバー表示する（失注ログから同キーで引く）。
+function LostHeatmap({ companies, topReasons, lostRows }: { companies: Aggregated["companies"]; topReasons: string[]; lostRows: Aggregated["lostRows"] }) {
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const top = [...companies].sort((a, b) => b.lost - a.lost).slice(0, 10);
+  const max = Math.max(1, ...top.flatMap((c) => topReasons.map((r) => c.reasons[r] ?? 0)));
+  // (会社, 理由) → 該当レコード。集計と同じ company / reason 値で失注ログをグルーピング。
+  const cellRows = useMemo(() => {
+    const m = new Map<string, Aggregated["lostRows"]>();
+    for (const r of lostRows) {
+      const k = `${r.company}|${r.reason}`;
+      const arr = m.get(k); if (arr) arr.push(r); else m.set(k, [r]);
+    }
+    return m;
+  }, [lostRows]);
+  const CELL_MAX = 8; // ポップオーバーに出す最大件数（残りは「ほか◯件」）
+  return (
+    <div className="card" style={{ padding: 14, overflowX: "auto" }}>
+      <Header title="🔍 会社 × 失注理由 ヒートマップ（上位）" hint="同じ会社で同じ失注理由が続くなら、その問題を回避する提案戦略に切替。数字にマウスをあてると該当の案件×人材を表示" />
+      <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 600 }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid var(--color-border)", position: "sticky", left: 0, background: "var(--color-surface)" }}>会社</th>
+            {topReasons.map((r) => (
+              <th key={r} style={{ padding: "4px 8px", borderBottom: "1px solid var(--color-border)", textAlign: "center", fontWeight: 600, color: "var(--color-ink-3)" }} title={r}>{r.length > 16 ? r.slice(0, 16) + "…" : r}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {top.map((c) => (
+            <tr key={c.name}>
+              <td style={{ padding: "4px 8px", borderBottom: "1px dashed var(--color-border)", fontWeight: 600, position: "sticky", left: 0, background: "var(--color-surface)", whiteSpace: "nowrap", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={c.name}>{c.name}</td>
+              {topReasons.map((r) => {
+                const n = c.reasons[r] ?? 0;
+                const alpha = n === 0 ? 0 : 0.15 + 0.75 * (n / max);
+                const key = `${c.name}|${r}`;
+                const recs = n > 0 ? (cellRows.get(key) ?? []) : [];
+                const open = hoverKey === key && recs.length > 0;
+                return (
+                  <td key={r}
+                    onMouseEnter={() => setHoverKey(key)}
+                    onMouseLeave={() => setHoverKey((k) => (k === key ? null : k))}
+                    style={{ padding: "4px 8px", textAlign: "center", borderBottom: "1px dashed var(--color-border)", background: n === 0 ? "transparent" : `rgba(180, 35, 24, ${alpha})`, color: n === 0 ? "var(--color-ink-5)" : alpha > 0.5 ? "#fff" : "#b42318", fontWeight: 700, position: "relative", cursor: n > 0 ? "help" : "default" }}>
+                    {n || "—"}
+                    {open && (
+                      <div style={{ position: "absolute", zIndex: 60, top: "100%", right: 0, minWidth: 300, maxWidth: 420, background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", borderRadius: 10, boxShadow: "0 12px 32px rgba(15,23,42,.18)", padding: "10px 12px", textAlign: "left", fontWeight: 400, color: "var(--color-ink)", whiteSpace: "normal" }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--color-ink-3)", marginBottom: 6 }}>{c.name} × {r}（{recs.length}件）</div>
+                        {recs.slice(0, CELL_MAX).map((x) => (
+                          <div key={x.id} style={{ fontSize: 11.5, lineHeight: 1.6, padding: "3px 0", borderTop: "1px dashed var(--color-border)" }}>
+                            <span style={{ fontWeight: 600 }}>{x.job_title || "（案件名なし）"}</span>
+                            <span className="muted"> × </span>
+                            <span style={{ fontWeight: 600 }}>{x.candidate_name || "—"}</span>
+                            {x.candidate_no != null && <span className="mono muted" style={{ fontSize: 10, marginLeft: 4 }}>P-{String(x.candidate_no).padStart(5, "0")}</span>}
+                          </div>
+                        ))}
+                        {recs.length > CELL_MAX && <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>ほか {recs.length - CELL_MAX} 件（下の失注ログでフリーワード検索できます）</div>}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // 失注ログテーブル：担当者・理由・タイムラグを一覧。担当者/期間で絞り込み可能。
 function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
   const router = useRouter();
@@ -1362,6 +1401,8 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
   const [reasonFilter, setReasonFilter] = useState("");
   // #267②：案件ID / 人材ID での検索（数字の部分一致。「P-17352」「#45509」等の接頭辞・記号は無視）。
   const [idFilter, setIdFilter] = useState("");
+  // #429②：フリーワード検索（案件名・人材名・会社名の部分一致。空白区切りは AND）。
+  const [nameFilter, setNameFilter] = useState("");
   const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(1);
   const proposers = useMemo(() => Array.from(new Set(rows.map((r) => r.proposer).filter((v) => v && v !== "—"))).sort(), [rows]);
@@ -1376,11 +1417,19 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
     if (reasonFilter) r = r.filter((x) => x.reason === reasonFilter);
     const idDigits = idFilter.replace(/\D/g, "");
     if (idDigits) r = r.filter((x: any) => String(x.job_no ?? "").includes(idDigits) || String(x.candidate_no ?? "").includes(idDigits));
+    // #429②：フリーワード（案件名・人材名・会社名の部分一致・大文字小文字/全半角スペース無視・AND）。
+    const words = nameFilter.toLowerCase().split(/[\s　]+/).filter(Boolean);
+    if (words.length > 0) {
+      r = r.filter((x) => {
+        const hay = `${x.job_title ?? ""} ${x.candidate_name ?? ""} ${x.company ?? ""}`.toLowerCase();
+        return words.every((w) => hay.includes(w));
+      });
+    }
     return [...r].sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0));
-  }, [rows, proposerFilter, closerFilter, reasonFilter, idFilter]);
+  }, [rows, proposerFilter, closerFilter, reasonFilter, idFilter, nameFilter]);
 
   // フィルタ・表示件数が変わったら1ページ目へ戻す。
-  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, idFilter, pageSize]);
+  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, idFilter, nameFilter, pageSize]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -1435,6 +1484,12 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
           案件ID / 人材ID
           <input type="text" value={idFilter} onChange={(e) => setIdFilter(e.target.value)} placeholder="例：45509 / P-17352"
             style={{ ...sel, width: 150 }} />
+        </label>
+        {/* #429②：案件名・人材名・会社名のフリーワード検索（部分一致・空白区切りAND）。 */}
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          フリーワード
+          <input type="text" value={nameFilter} onChange={(e) => setNameFilter(e.target.value)} placeholder="案件名・人材名・会社名"
+            style={{ ...sel, width: 180 }} />
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
           表示件数
