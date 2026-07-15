@@ -50,6 +50,76 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+// ── #435 重複メールの除去（ダウンロード時）─────────────────────────
+//   同じ紹介文（同案件・同人材）のメールが大量に届き、Claude 整形の時間を浪費するため、
+//   本文をハッシュ化して照合し「最新の1通だけ」を残してダウンロードする。
+//   ① 完全一致 … URL・空白を除去して正規化した本文のハッシュが同じ → 重複。
+//   ② 準一致   … 差出人ドメインが同じ＋本文がほぼ同一（長さ比85%以上かつ指紋一致率90%以上）
+//                → 同じ紹介文を別の担当者が送ってきたケースを重複として畳む。
+function dedupNormBody(r: InboxExportRow): string {
+  return String((r as any).body ?? "")
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, "")      // 配信解除リンク等の個別URLの差を無視
+    .replace(/[\s　]+/g, "");        // 空白・改行・全角スペースの差を無視
+}
+// 軽量ハッシュ（cyrb53）。crypto 不要・十分な分散。
+function dedupHash(s: string): string {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${(h2 >>> 0).toString(36)}${(h1 >>> 0).toString(36)}`;
+}
+function dedupDomain(r: InboxExportRow): string {
+  const m = String((r as any).from_email ?? "").match(/@([A-Za-z0-9.-]+)/);
+  return (m?.[1] ?? "").toLowerCase();
+}
+// 本文の指紋（12文字のかけらを一定間隔で採取）。準一致判定（Jaccard 係数）に使う。
+function dedupShingles(s: string): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i + 12 <= s.length && out.size < 500; i += 24) out.add(s.slice(i, i + 12));
+  return out;
+}
+function dedupJaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+function dedupeExportRows(rows: InboxExportRow[]): { kept: InboxExportRow[]; removed: number } {
+  // 受信日時の新しい順に見て、先に採用した方（＝最新）を残す。
+  const sorted = [...rows].sort((a, b) => String((b as any).received_at ?? "").localeCompare(String((a as any).received_at ?? "")));
+  const seen = new Set<string>();
+  const byDomain = new Map<string, { fp: Set<string>; len: number }[]>();
+  const kept: InboxExportRow[] = [];
+  let removed = 0;
+  for (const r of sorted) {
+    const body = dedupNormBody(r);
+    if (body.length < 40) { kept.push(r); continue; }   // 短文（通知等）は畳まない
+    const h = dedupHash(body);
+    if (seen.has(h)) { removed++; continue; }           // ① 完全一致
+    const dom = dedupDomain(r);
+    let dup = false;
+    if (dom) {
+      const fp = dedupShingles(body);
+      const list = byDomain.get(dom) ?? [];
+      for (const k of list) {
+        const lenRatio = Math.min(k.len, body.length) / Math.max(k.len, body.length);
+        if (lenRatio >= 0.85 && dedupJaccard(fp, k.fp) >= 0.9) { dup = true; break; }  // ② 準一致
+      }
+      if (!dup) { list.push({ fp, len: body.length }); byDomain.set(dom, list); }
+    }
+    if (dup) { removed++; continue; }
+    seen.add(h);
+    kept.push(r);
+  }
+  return { kept, removed };
+}
+
 // ── 書き戻しインポート（CSV/JSONL パース）──────────────────────────
 //   ダウンロードしたファイルをローカルで整形（extracted_kind / extracted_data を編集）して再アップ。
 //   JSONL は各行が {gmail_message_id, extracted_kind, extracted_data:{...}} でそのまま突き合わせ可。
@@ -184,6 +254,8 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
   const [dlTo, setDlTo] = useState<string>(`${todayLocal()}T23:59`);
   const [dlFormat, setDlFormat] = useState<"csv" | "jsonl">("csv");
   const [dlInclArchived, setDlInclArchived] = useState(false);
+  // #435：重複メール（本文がほぼ同一・同ドメイン）は最新の1通だけ残してダウンロード（既定ON）。
+  const [dlDedup, setDlDedup] = useState(true);
   const [dlMsg, setDlMsg] = useState<string | null>(null);
   const [dlBusy, setDlBusy] = useState(false);
 
@@ -196,15 +268,17 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
       try {
         const res = await exportInboxEmails({ from: dlFrom || undefined, to: dlTo || undefined, includeArchived: dlInclArchived });
         if (!res.ok) { setDlMsg(`ダウンロード失敗: ${res.error}`); return; }
-        const rows = res.rows ?? [];
-        if (rows.length === 0) { setDlMsg("該当期間のメールが0通でした。まず「Gmail 同期」で取り込んでください。"); return; }
+        const rowsAll = res.rows ?? [];
+        if (rowsAll.length === 0) { setDlMsg("該当期間のメールが0通でした。まず「Gmail 同期」で取り込んでください。"); return; }
+        // #435：重複除去（本文ハッシュ完全一致＋同ドメイン準一致は最新のみ残す）。
+        const { kept: rows, removed } = dlDedup ? dedupeExportRows(rowsAll) : { kept: rowsAll, removed: 0 };
         const ext = dlFormat === "csv" ? "csv" : "jsonl";
         const tag = (s: string) => (s || "all").replace("T", "_").replace(":", "");
         const filename = `inbox_${tag(dlFrom)}_${tag(dlTo)}.${ext}`;
         const text = dlFormat === "csv" ? rowsToCsv(rows) : rowsToJsonl(rows);
         const mime = dlFormat === "csv" ? "text/csv;charset=utf-8" : "application/x-ndjson;charset=utf-8";
         downloadText(filename, text, mime);
-        setDlMsg(`✓ ${rows.length}通をダウンロードしました（${filename}）${res.capped ? "。上限に達したため一部のみ。期間を狭めてください。" : ""}`);
+        setDlMsg(`✓ ${rows.length}通をダウンロードしました${removed > 0 ? `（重複 ${removed}通を除外）` : ""}（${filename}）${res.capped ? "。上限に達したため一部のみ。期間を狭めてください。" : ""}`);
       } catch (e) {
         setDlMsg(`ダウンロード失敗: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
@@ -328,6 +402,11 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
           <input type="checkbox" checked={dlInclArchived} onChange={(e) => setDlInclArchived(e.target.checked)} />
           アーカイブも含む
+        </label>
+        {/* #435：本文ハッシュ照合＋同ドメイン準一致（担当者違いの同一紹介文）で最新のみ残す。 */}
+        <label title="本文がほぼ同一のメール（同じ案件・人材の紹介が複数届いたもの）は、最新の1通だけを残して書き出します" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
+          <input type="checkbox" checked={dlDedup} onChange={(e) => setDlDedup(e.target.checked)} />
+          重複メールを除く（最新のみ）
         </label>
         <button type="button" className="btn brand" disabled={dlBusy} onClick={downloadRange}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>download</span>

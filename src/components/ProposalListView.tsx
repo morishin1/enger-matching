@@ -283,7 +283,8 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
                 <div className="ava" style={{ width: 28, height: 28, fontSize: 10.5, flexShrink: 0 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>{p.cand_line && <span title="LINE経由の人材" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={14} /></span>}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</span></div>
-                  <div className="muted" style={{ fontSize: 10 }}>{idCand(p) ?? ""}{p.lp_direct ? " · 📥LP" : ""}</div>
+                  {/* #429①：人材側にも人材ID＋会社名（所属会社）を表示（案件側の「クライアント名 · No.」と対称）。 */}
+                  <div className="muted" style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[idCand(p), p.cand_company].filter(Boolean).join(" · ")}{p.lp_direct ? " · 📥LP" : ""}</div>
                 </div>
                 {proposerTag(p.proposer)}{closerTag(p)}
               </div>

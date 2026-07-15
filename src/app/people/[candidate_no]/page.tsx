@@ -227,7 +227,8 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
             [["ステータス", c.status ?? ""], ["ランク", c.rank ?? ""], ["希望単価", c.rate ?? (c.salary_min || c.salary_max ? `${c.salary_min ?? ""}〜${c.salary_max ?? ""}万円` : "")]],
             [["年齢（年代）", c.age_band ?? ""], ["国籍", c.nationality ? <NatBadge value={c.nationality} /> : ""]],
             [["稼働開始予定日", c.avail ?? ""], ["リモート希望", c.remote_pref ?? ""], ["経験", expVal]],
-            [["勤務地", c.location ?? ""], ["居住地", c.residence ?? ""]],
+            // #446①：location は最寄り駅を保存している欄のため、表示名を「勤務地」→「最寄り駅」に変更。
+            [["最寄り駅", c.location ?? ""], ["居住地", c.residence ?? ""]],
             // #372②：日本語・コミュ力・スキルレベルの欄は使っていないため削除。
             [["所属", company]],
             // #372②：本人メールは表示しない（連絡先は所属経由の contact_email のみ）。紹介メール送信は従来どおり。

@@ -226,8 +226,12 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       ...baseVariants,
     ];
     // 無限道場（role=student）は DX の LP登録一覧に出さないため、student のみで拾う条件は外す。
-    // ※ ENGERフリーランス登録者は github_login / display_name / email のいずれかを持つため取りこぼさない。
-    const orFilter = "github_id.not.is.null,github_login.not.is.null,display_name.not.is.null";
+    // #438：従来の条件（github_id / github_login / display_name のいずれか NOT NULL）だと、
+    //   メールで登録して氏名（display_name）未入力のフリーランスが SQL の時点で除外され、
+    //   「登録したのにエージェント側に表示されない」が起きていた（名前を入れた人だけ表示される）。
+    //   email も取得対象に加え、後段の許可フィルタ（classifySource='enger' ＋ 明示シグナル）で
+    //   LMS 等の混入を防ぐ二段構えにする。
+    const orFilter = "github_id.not.is.null,github_login.not.is.null,display_name.not.is.null,email.not.is.null";
     let data: any[] | null = null;
     for (const sel of richVariants) {
       const r: any = await sb.from("profiles").select(sel).or(orFilter).order("created_at", { ascending: false }).limit(500);
@@ -253,7 +257,18 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
     //   ・許可リスト方式：classifySource が "enger" と判定した行だけを残す（dojo・その他は除外）。
     //   ・signup_source が NULL の既存データはヒューリスティック（GitHub/表示名/メール→enger、
     //     role=student→dojo）でフォールバック判定。確実な分離には profiles.signup_source の保存を推奨。
-    data = data.filter((r: any) => !isExcludedProfile(r) && classifySource(r).key === "enger");
+    // #438：email しか持たない行（GitHub・氏名なし）は、ENGER 登録の明示シグナル
+    //   （signup_source=enger/enger_lp または bootstrapProfile が立てる role='engineer'）がある場合のみ
+    //   表示する。ヒューリスティック（email だけ→enger）で LMS 等の外部行が混入するのを防ぐ。
+    const engerExplicit = (r: any): boolean => {
+      const ss = String(r?.signup_source ?? "").toLowerCase().trim();
+      return ss === "enger" || ss === "enger_lp" || String(r?.role ?? "").toLowerCase().trim() === "engineer";
+    };
+    data = data.filter((r: any) => {
+      if (isExcludedProfile(r) || classifySource(r).key !== "enger") return false;
+      const emailOnly = !r.github_id && !r.github_login && !r.display_name;
+      return emailOnly ? engerExplicit(r) : true;
+    });
     // 連絡先の別名を吸収して統一プロパティに正規化（phone / contact_line）。
     const phoneOf = (r: any) => r.phone ?? r.phone_number ?? r.tel ?? r.mobile ?? null;
     const lineOf = (r: any) => r.contact_line ?? r.line_id ?? r.line ?? r.messenger ?? r.message_app ?? null;
