@@ -23,8 +23,10 @@ export type BizField = {
 export const REMOTE_OPTIONS = ["full_remote", "partial_remote", "onsite"] as const;
 export const REMOTE_LABELS: Record<string, string> = { full_remote: "フルリモート", partial_remote: "一部リモート", onsite: "出社" };
 
-/** 契約種別（jobs.contract_types）。client-jobs.sql と同じ。 */
-export const CONTRACT_TYPE_OPTIONS = ["SES", "紹介", "派遣"] as const;
+/** 契約種別（jobs.contract_types）。#425：業務委託の契約形態（準委任／派遣）で選ばせる。
+ *   従来は業態（SES／紹介／派遣）だったが、案件登録の「契約種別」としては契約形態が正しい。
+ *   値は text[] 保存でロジック分岐に使っていないため、選択肢の変更に伴う DB 移行は不要。 */
+export const CONTRACT_TYPE_OPTIONS = ["準委任", "派遣"] as const;
 
 /** 年代（candidates.age_band）。DX 人材一覧の表記に合わせる。 */
 export const AGE_BAND_OPTIONS = ["20代", "30代", "40代", "50代", "60代以上"] as const;
