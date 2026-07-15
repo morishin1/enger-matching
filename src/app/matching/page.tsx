@@ -195,7 +195,7 @@ async function attachCompanyContact(sb: any, items: any[], companyKey: "client_n
 async function loadTenantData(company: string, meetingDone: boolean = true) {
   const sb = engerClient();
   const J = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, work_location, start_date, is_published, owner_company, shared";
-  const C = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, avail, location, owner_company, shared";
+  const C = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, skills, salary_min, salary_max, remote_pref, status, exp, rate, avail, location, residence, owner_company, shared";
   const fetchJobs = async () => {
     const o: any = await sb.from("jobs").select(J).eq("owner_company", company).order("job_no", { ascending: false }).limit(500);
     const s: any = await sb.from("jobs").select(J).eq("shared", true).eq("is_published", true).order("job_no", { ascending: false }).limit(500);
@@ -358,7 +358,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       // 注意：flow_depth / accept_flow_depth は supabase/flow-depth.sql 適用後のみ存在。
       //   SELECTに含めると未マイグレ環境で全体が落ちるため、CAND_BASE/JOB_BASE には含めず、
       //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
-      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, source_mail_url, note, created_at";
+      const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, residence, source_mail_url, note, created_at";
       const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
