@@ -100,3 +100,69 @@ export async function insertClientJob(companyName: string, email: string | null,
     return { ok: true, job_no: assignedNo };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
+
+/** #430：企業が自社の登録済み案件を編集する。会社名でテナント制限し、編集したら再審査に戻す
+ *   （review_status='pending' / status='審査中' / is_published=false）。列未整備の環境では
+ *   その列だけ外して再試行する（fail-soft）。 */
+export async function updateClientJob(companyName: string, jobNo: number, raw: ClientJobInput): Promise<InsertJobResult> {
+  const input = sanitizeJobDraft(raw);
+  const detail = (input.detail ?? raw.description ?? "").toString().trim() || null;
+  if (!Number.isFinite(jobNo)) return { ok: false, error: "案件番号が不正です" };
+  if (!input.title?.trim()) return { ok: false, error: "案件名を入力してください" };
+
+  try {
+    const sb = engerAdmin();
+    // 本人（自社）の案件であることを会社名で確認してから更新する（テナント分離）。
+    const { data: owner, error: ownErr } = await sb
+      .from("jobs").select("job_no, client_name").eq("job_no", jobNo).maybeSingle();
+    if (ownErr) return { ok: false, error: jpJobDbError(String(ownErr.message ?? "")) };
+    if (!owner) return { ok: false, error: "対象の案件が見つかりません。" };
+    if (String((owner as any).client_name ?? "") !== companyName) {
+      return { ok: false, error: "この案件を編集する権限がありません。" };
+    }
+
+    // 編集で更新する列。job_no / client_name / posted_by_* は変更しない。
+    const patch: Record<string, any> = {
+      title: input.title.trim(),
+      role_label: input.role_label ?? null,
+      skills: input.skills ?? [],
+      salary_min: input.salary_min ?? null,
+      salary_max: input.salary_max ?? null,
+      remote_type: input.remote_type ?? null,
+      contract_types: input.contract_types ?? [],
+      work_location: input.work_location ?? null,
+      start_date: input.start_date ?? null,
+      detail,
+      description: detail,
+      // 編集内容は再審査のうえ掲載（承認フローに再度乗せる）。
+      review_status: "pending",
+      status: "審査中",
+      is_published: false,
+    };
+    let upd: any = await sb.from("jobs").update(patch).eq("job_no", jobNo).eq("client_name", companyName);
+    // 列未整備の環境では、エラーが指す任意列だけを外して再試行（insert と同じ方針）。
+    const PROTECTED = new Set(["title"]);
+    for (let i = 0; i < 14 && upd.error; i++) {
+      const msg = String(upd.error.message ?? "");
+      if (/column|schema cache|could not find/i.test(msg)) {
+        const m = msg.match(/'([a-z_0-9]+)' column|column "?([a-z_0-9]+)"?/i);
+        const col = m?.[1] || m?.[2];
+        if (!col || PROTECTED.has(col) || !(col in patch)) break;
+        delete patch[col];
+      } else break;
+      upd = await sb.from("jobs").update(patch).eq("job_no", jobNo).eq("client_name", companyName);
+    }
+    if (upd.error) return { ok: false, error: jpJobDbError(String(upd.error.message ?? "")) };
+
+    try {
+      await notifySlack({
+        text: `✏️ 案件の編集（再審査）：${companyName} / ${patch.title}（No.${jobNo}）`,
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: `*✏️ 企業が案件を編集しました（再審査）*\n• 企業: *${companyName}*\n• 案件: *${patch.title}* (No.${jobNo})` } },
+          { type: "context", elements: [{ type: "mrkdwn", text: `<${appUrl("/jobs")}|承認 (/jobs 企業掲載の承認待ち)>` }] },
+        ],
+      });
+    } catch { /* Slack 失敗は無視 */ }
+    return { ok: true, job_no: jobNo };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
