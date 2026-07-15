@@ -182,9 +182,15 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                     natLabel,
                     c.age_band,
                   ].filter(Boolean).join(" · ");
+                  // #431：人材側に「最寄り駅」「居住地」の入力があれば、単価/国籍/年代の下に追加表示する。
+                  const place = [
+                    c.location ? `最寄り駅: ${c.location}` : null,
+                    c.residence ? `居住地: ${c.residence}` : null,
+                  ].filter(Boolean).join(" · ");
                   return (
                     <>
                       <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub || "—"}</div>
+                      {place && <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{place}</div>}
                       {aiv && <div style={{ fontSize: 10.5, color: "var(--color-brand-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🤖 {aiv.reason}</div>}
                     </>
                   );
