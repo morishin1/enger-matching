@@ -60,7 +60,7 @@ export const JOB_FORM: BizField[] = [
   { key: "remote_type",    label: "リモート区分", type: "select", options: [...REMOTE_OPTIONS], optionLabels: REMOTE_LABELS },
   { key: "contract_types", label: "契約種別",     type: "multiselect", options: [...CONTRACT_TYPE_OPTIONS] },
   { key: "work_location",  label: "勤務地",       type: "text",   placeholder: "例：東京都渋谷区（週1出社）" },
-  { key: "start_date",     label: "開始希望",     type: "text",   placeholder: "例：即日 / 2026年8月〜" },
+  { key: "start_date",     label: "開始希望",     type: "text",   placeholder: "例：2026/08/01", hint: "YYYY/MM/DD 形式でご入力ください（例：2026/08/01）。" },
   { key: "detail",         label: "案件詳細",     type: "textarea", hint: "業務内容・体制・必須/歓迎要件など。国籍要件・年代条件があればここに記載（DX側で自動判定されます）" },
 ];
 
