@@ -330,12 +330,12 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
     toast("担当者（提案者）を選択してください", "error");
     return false;
   };
-  // #334①：進捗状況＋その更新日。進捗が変わったときだけ日付を「今日（保存時点）」に更新する。
+  // #334①／#424：進捗状況＋その更新日。保存（「編集を保存」やステージ更新）を押した時点で
+  //   常に日付を「今日（保存時点）」へ更新する。選択項目が変わっていなくても、保存＝その日に
+  //   進捗を確認・更新した、とみなして一覧のカッコ内の日付を当日で更新する（#424）。
   const progressFields = () => {
     const cur = progress || "未処理";
-    const prev = p.progress_status ?? "未処理";
-    const patch: Record<string, any> = { progress_status: cur };
-    if (cur !== prev) patch.progress_updated_at = new Date().toISOString();
+    const patch: Record<string, any> = { progress_status: cur, progress_updated_at: new Date().toISOString() };
     return patch;
   };
   const saveFields = () => { if (!requireProposer()) return; run("save", () => updateProposalFields(p.id, { caller_status: caller || null, proposer: proposer || null, partner: null, closer: closer || null, meeting_date: meetingDate || null, meeting_status: meetingStatus || null, ...progressFields(), ...contactFields() })); };
