@@ -170,16 +170,39 @@ export const CAND_FLOW_OPTIONS: { value: Exclude<CandFlowCategory, "unknown">; l
   { value: "vendor2plus", label: "二社下以降" },
 ];
 
+// #447②：文言変更（旧→新）。
+//   貴社正社員まで→貴社社員まで／貴社一社まで→貴社一社先まで／貴社一社正社員まで→貴社一社先社員まで／
+//   貴社二社まで→貴社二社先まで／貴社二社正社員まで→貴社二社先社員まで（貴社まで・商流不問は変更なし）。
+//   classifyJobFlow の完全一致は Object.keys(JOB_FLOW_LABEL) を見るため、ここを更新すれば新規保存時の
+//   自由文もそのまま新文言で正しく分類される。既存データ（旧文言の生テキスト）は完全一致こそ外れるが、
+//   同関数の語彙ベース・フォールバック（正社員/一社/二社等の正規表現）で従来どおり正しく分類される。
 export const JOB_FLOW_LABEL: Record<JobFlowCategory, string> = {
   jp_to_self: "貴社まで",
-  jp_to_self_seishain: "貴社正社員まで",
-  jp_to_1: "貴社一社まで",
-  jp_to_1_seishain: "貴社一社正社員まで",
-  jp_to_2: "貴社二社まで",
-  jp_to_2_seishain: "貴社二社正社員まで",
+  jp_to_self_seishain: "貴社社員まで",
+  jp_to_1: "貴社一社先まで",
+  jp_to_1_seishain: "貴社一社先社員まで",
+  jp_to_2: "貴社二社先まで",
+  jp_to_2_seishain: "貴社二社先社員まで",
   any: "商流不問",
   unknown: "不明",
 };
+// #447②：旧文言（DBに残っている生テキスト）→新文言の単純置換マップ。
+//   一覧・ドロワー等で「生の flow_note をそのまま表示」している箇所に使う。分類はせず完全一致のみ
+//   置換するため、CSV取込・メール抽出等の任意の自由文（旧5値に一致しないもの）は変更せずそのまま表示する
+//   （情報を失わないため）。
+export const JOB_FLOW_RAW_RENAME: Record<string, string> = {
+  "貴社正社員まで": "貴社社員まで",
+  "貴社一社まで": "貴社一社先まで",
+  "貴社一社正社員まで": "貴社一社先社員まで",
+  "貴社二社まで": "貴社二社先まで",
+  "貴社二社正社員まで": "貴社二社先社員まで",
+};
+/** 案件の商流（flow_note）表示用ラベル。旧文言の生テキストは新文言に置換し、それ以外はそのまま返す。 */
+export function displayFlowNote(raw?: string | null): string {
+  const t = (raw ?? "").trim();
+  if (!t) return "";
+  return JOB_FLOW_RAW_RENAME[t] ?? t;
+}
 export const CAND_FLOW_LABEL: Record<CandFlowCategory, string> = {
   self_emp: "エイト社員",
   self_bp: "弊社所属フリーランス",  // #261：旧表記「BP」から文言変更

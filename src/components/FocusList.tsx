@@ -7,6 +7,7 @@ import { FocusHeart } from "./FocusHeart";
 import { LineShareButton } from "./LineShareButton";
 import { jobLineTemplate, candidateLineTemplate } from "@/lib/line-templates";
 import type { LineworksTarget } from "@/lib/lineworks-targets";
+import { displayFlowNote } from "@/lib/flow";
 
 const dt = (d: string | null | undefined) => (d ? new Date(d).toLocaleString("ja-JP", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const remoteLabel = (r: string | null) => r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
@@ -34,7 +35,7 @@ export function FocusList({ kind, items, headerTitle, unit, emptyText, removeOnU
     : `${r.title ?? "—"} · ${candAff(r)} · ${r.rate ?? salaryLabel(r.salary_min, r.salary_max)}`;
 
   const fields = (r: any): [string, any][] => isJob
-    ? [["案件名", r.title], ["クライアント", r.client_name ?? "—"], ["職種", r.role_label ?? "—"], ["リモート", remoteLabel(r.remote_type)], ["単価", salaryLabel(r.salary_min, r.salary_max)], ["商流", r.flow_note ?? "—"], ["スキル", (r.skills ?? []).join(" / ") || "—"], ["詳細", r.detail ?? "—"]]
+    ? [["案件名", r.title], ["クライアント", r.client_name ?? "—"], ["職種", r.role_label ?? "—"], ["リモート", remoteLabel(r.remote_type)], ["単価", salaryLabel(r.salary_min, r.salary_max)], ["商流制限", displayFlowNote(r.flow_note) || "—"], ["スキル", (r.skills ?? []).join(" / ") || "—"], ["詳細", r.detail ?? "—"]]
     : [["氏名", r.name], ["職種", r.title ?? "—"], ["所属会社", r.source_company ?? r.company ?? "—"], ["区分", r.affiliation ?? "—"], ["年齢層", r.age_band ?? "—"], ["単価", r.rate ?? salaryLabel(r.salary_min, r.salary_max)], ["リモート", r.remote_pref ?? "—"], ["経験", r.exp ?? "—"], ["ステータス", r.status ?? "—"], ["スキル", (r.skills ?? []).join(" / ") || "—"]];
 
   const rows = (

@@ -16,6 +16,7 @@ import { MailButton } from "@/components/MailButton";
 import { toast } from "@/components/toast";
 import { buildJobMailContent, buildCandMailContent, BUTTON_PLACEHOLDER, NOTICE_TEXT } from "@/lib/proposal-mail";
 import { jobRemoteLabel, candRemoteLabel } from "@/lib/match";
+import { displayFlowNote } from "@/lib/flow";
 
 const salaryLabel = (lo?: number | null, hi?: number | null) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "—";
@@ -375,7 +376,8 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
             <RowKV label="リモート"     v={remoteLabel(p.job.remote_type)} />
             <RowKV label="勤務地"       v={p.job.work_location} />
             <RowKV label="開始希望"     v={p.job.start_date} />
-            <RowKV label="商流"         v={p.job.flow_note} />
+            {/* #447①：ラベルを「商流制限」に統一。表示は displayFlowNote で旧文言→新文言に変換。 */}
+            <RowKV label="商流制限"     v={displayFlowNote(p.job.flow_note)} />
             {/* #420④：商流の隣（直下）に「フリーランスの応募」（NG／空欄＝制限なし）を表示。 */}
             <RowKV label="フリーランスの応募" v={p.job.freelance_ng === "NG"
               ? <span style={{ color: "#b42318", fontWeight: 700 }}>NG</span>

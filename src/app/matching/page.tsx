@@ -12,7 +12,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { rankCandidates, rankJobs, jobOpenness, scoreMatch, JOB_STALE_DAYS, type Job, type MatchResult, type Verdict } from "@/lib/match";
 import { getHiddenPairsSet, hiddenPairKey } from "@/lib/hidden-pairs";
 import { relatedSearchLabels } from "@/lib/skills";
-import { FLOW_LABEL, FLOW_TONE } from "@/lib/flow";
+import { FLOW_LABEL, FLOW_TONE, displayFlowNote } from "@/lib/flow";
 import { getBouncedSet, type BounceRecord } from "@/lib/bounces";
 import { getLineOriginIds, getFreelanceCandidateIds } from "@/lib/line-origin";
 import { getViewerScope, maskJobs, maskCandidates } from "@/lib/tenant";
@@ -903,7 +903,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                         remoteLabel(j.remote_type),
                         j.work_location,
                         salaryLabel(j.salary_min, j.salary_max),
-                        (j.flow_note && String(j.flow_note).trim()) ? `商流 ${j.flow_note}` : null,
+                        (j.flow_note && String(j.flow_note).trim()) ? `商流制限 ${displayFlowNote(j.flow_note)}` : null,
                         `年代 ${classifyJobAge(j.detail, j.title).label}`,
                         `国籍 ${JOB_NAT_LABEL[classifyJobNationality(j.detail, j.title)]}`,
                       ].filter(Boolean).join(" / ")}</div>
@@ -1113,7 +1113,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 {job.role_label && <span className="tag">{job.role_label}</span>}
                 <span className="tag">{remoteLabel(job.remote_type)}</span>
                 {job.work_location && <span className="tag">{job.work_location}</span>}
-                {job.flow_note && job.flow_note !== "不明" && <span className="tag">{job.flow_note}</span>}
+                {job.flow_note && job.flow_note !== "不明" && <span className="tag">{displayFlowNote(job.flow_note)}</span>}
                 {job.start_date && <span className="tag">稼働 {job.start_date}</span>}
                 {/* 国籍要件・年齢制限は本文(detail+title)から判定。項目名は省き、他項目と同じ黒文字タグで表示。 */}
                 {(() => { const n = classifyJobNationality(job.detail, job.title); return <span className="tag">{JOB_NAT_LABEL[n]}</span>; })()}
@@ -1237,9 +1237,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                                 </div>
                               ) : <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>スキル評価データがありません</div>}
 
-                              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流・単価</div>
+                              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💰 商流制限・単価</div>
                               <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.9 }}>
-                                <div>商流：{job.flow_note && job.flow_note !== "不明" ? job.flow_note : "確認中"}</div>
+                                <div>商流制限：{job.flow_note && job.flow_note !== "不明" ? displayFlowNote(job.flow_note) : "確認中"}</div>
                                 <div>単価：案件 {salaryLabel(job.salary_min, job.salary_max)} / 人材希望 {c.rate ?? salaryLabel(c.salary_min, c.salary_max)}</div>
                               </div>
                             </div>
