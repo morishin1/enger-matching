@@ -351,3 +351,42 @@ export async function listLpPendingCandidates(): Promise<Account[]> {
     return accounts;
   } catch { return []; }
 }
+
+/** LP登録の受け口テーブル（public.coo_talent_entries）に溜まった未処理エントリー（status='new'）を
+ *   「新着の人材」として返す。COO だけでなく、同テーブルに source 付きで書く任意の LP を拾う
+ *   （＝dxの「新着」を全LP共通の承認ハブにするための読み取り）。
+ *   id は `entry:<uuid>` で、承認時は approveTalentEntry() が取込RPCを呼ぶ（app_users昇格ではない）。 */
+export async function listLpTalentEntries(): Promise<Account[]> {
+  if (!dbConfigured) return [];
+  try {
+    const pub = publicAdmin();
+    const r: any = await pub.from("coo_talent_entries")
+      .select("id, name, contact_email, region, skills, summary, source, status, created_at")
+      .eq("status", "new")
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (r.error || !r.data) return []; // テーブル未作成環境でも新着タブは壊さない
+    return (r.data as any[]).map((e) => {
+      const skills: string[] = Array.isArray(e.skills) ? e.skills : [];
+      const noteParts = [
+        e.region ? `📍 ${e.region}` : "",
+        skills.length ? `🛠 ${skills.slice(0, 6).join("・")}${skills.length > 6 ? " ほか" : ""}` : "",
+      ].filter(Boolean);
+      return {
+        id: `entry:${e.id}`,
+        email: String(e.contact_email ?? "").toLowerCase(),
+        name: e.name ?? null,
+        role: "candidate" as Role,
+        status: "pending" as AccountStatus,
+        company_name: null,
+        position: null,
+        functions: null,
+        note: noteParts.join(" / ") || null,
+        signup_source: e.source ?? "lp",
+        signup_method: null,
+        created_at: e.created_at ?? new Date().toISOString(),
+        approved_at: null,
+      } as Account;
+    });
+  } catch { return []; }
+}

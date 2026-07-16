@@ -8,21 +8,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Account } from "@/lib/accounts";
-import { approveAccount, deleteAccount, bulkDeleteAccounts } from "@/app/settings/account-actions";
+import { approveAccount, deleteAccount, bulkDeleteAccounts, approveTalentEntry, rejectTalentEntry } from "@/app/settings/account-actions";
+import { sourceMeta, sourceBgFor } from "@/lib/signup-sources";
 
 const isLpVirtual = (id: string) => id.startsWith("profile:") || id.startsWith("auth:");
-
-// LP由来（profile:/auth: の仮想行）の登録元ラベル。
-const LP_ORIGIN: Record<string, { label: string; color: string }> = {
-  dojo:  { label: "LP登録（無限道場）", color: "#d97706" },
-  enger: { label: "LP登録（enger.jp）", color: "#0095D9" },
-};
-function originLabel(a: Account): { label: string; color: string } | null {
-  if (!isLpVirtual(a.id)) return null;
-  if (a.role === "client" || a.role === "partner") return { label: "エンジャービジネス登録", color: "#0b5cab" };
-  const ss = (a as any).signup_source as string | null | undefined;
-  return ss && LP_ORIGIN[ss] ? LP_ORIGIN[ss] : { label: "LP登録", color: "#94a3b8" };
-}
+// entry: … LP登録テーブル(coo_talent_entries)の未処理エントリー。承認＝enger.candidatesへ取込。
+const isEntry = (id: string) => id.startsWith("entry:");
 
 const fmtDateTime = (s?: string | null) => { if (!s) return "—"; const d = new Date(s); return isNaN(d.getTime()) ? "—" : `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
@@ -43,6 +34,11 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
     });
   };
   const doApprove = (a: Account) => {
+    // LP登録エントリー（entry:）は取込RPCで enger.candidates へ（＝マッチング対象になる）。
+    if (isEntry(a.id)) {
+      run(a.id, () => approveTalentEntry(a.id), `${a.name || a.email} を取り込みました（マッチング対象に反映）`);
+      return;
+    }
     const fd = new FormData();
     fd.set("id", a.id);
     fd.set("role", a.role);
@@ -51,10 +47,13 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
     run(a.id, () => approveAccount(fd), `${a.name || a.email} を承認しました`);
   };
   const doDelete = (a: Account) => {
-    if (!confirm(`${a.email} の登録を削除しますか？この操作は取り消せません。`)) return;
-    run(a.id, () => (isLpVirtual(a.id)
-      ? bulkDeleteAccounts([{ id: a.id, email: a.email ?? null }]).then((r) => ({ ok: r.ok && (r.deleted ?? 0) > 0, error: r.ok ? r.errors?.[0]?.error : r.error }))
-      : deleteAccount(a.id)), "削除しました");
+    const verb = isEntry(a.id) ? "却下" : "削除";
+    if (!confirm(`${a.email} の登録を${verb}しますか？この操作は取り消せません。`)) return;
+    run(a.id, () => (isEntry(a.id)
+      ? rejectTalentEntry(a.id)
+      : isLpVirtual(a.id)
+        ? bulkDeleteAccounts([{ id: a.id, email: a.email ?? null }]).then((r) => ({ ok: r.ok && (r.deleted ?? 0) > 0, error: r.ok ? r.errors?.[0]?.error : r.error }))
+        : deleteAccount(a.id)), `${verb}しました`);
   };
 
   return (
@@ -74,23 +73,26 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {rows.map((a) => {
               const busy = busyId === a.id && pending;
-              const origin = originLabel(a);
+              // 登録元（どのLPから来たか）を一元レジストリでバッジ表示。新LPも自動で対応。
+              const sm = sourceMeta((a as any).signup_source);
+              const entry = isEntry(a.id);
               return (
                 <div key={a.id}
                   style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", borderRadius: 10,
                     background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
                   <span style={{ fontSize: 10.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, color: "#b45309", background: "#fff6e0", flexShrink: 0 }}>承認待ち</span>
+                  <span title={`登録元：${sm.label}`} style={{ fontSize: 9.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, color: sm.color, background: sourceBgFor(sm.color), border: `1px solid ${sourceBgFor(sm.color)}`, flexShrink: 0 }}>{sm.short}</span>
                   <b style={{ fontSize: 12.5 }}>{a.name || "（名前未設定）"}</b>
                   <span className="muted mono" style={{ fontSize: 11 }}>{a.email}</span>
                   {a.company_name && <span className="muted" style={{ fontSize: 11 }}>{a.company_name}</span>}
-                  {origin && <span style={{ fontSize: 9.5, fontWeight: 700, color: origin.color, flexShrink: 0 }}>{origin.label}</span>}
+                  {a.note && <span className="muted" style={{ fontSize: 10.5 }}>{a.note}</span>}
                   <span className="muted" style={{ fontSize: 10.5, marginLeft: "auto", flexShrink: 0 }} title={a.created_at}>{fmtDateTime(a.created_at)}</span>
-                  <button type="button" className="btn btn-xs" disabled={busy} onClick={() => doApprove(a)} title={`${noun}として承認します`}
+                  <button type="button" className="btn btn-xs" disabled={busy} onClick={() => doApprove(a)} title={entry ? `${noun}として取り込みます（マッチング対象になります）` : `${noun}として承認します`}
                     style={{ background: "#067647", borderColor: "#067647", color: "#fff", flexShrink: 0 }}>
-                    {busy ? "処理中…" : "承認"}
+                    {busy ? "処理中…" : entry ? "承認して取込" : "承認"}
                   </button>
-                  <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => doDelete(a)} title="登録を削除（スパム等）"
-                    style={{ color: "var(--color-danger)", flexShrink: 0 }}>削除</button>
+                  <button type="button" className="btn ghost btn-xs" disabled={busy} onClick={() => doDelete(a)} title={entry ? "却下（取り込まない）" : "登録を削除（スパム等）"}
+                    style={{ color: "var(--color-danger)", flexShrink: 0 }}>{entry ? "却下" : "削除"}</button>
                 </div>
               );
             })}

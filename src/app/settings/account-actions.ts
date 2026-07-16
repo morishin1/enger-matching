@@ -220,6 +220,52 @@ export async function approveAccount(formData: FormData): Promise<Result> {
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** LP登録エントリー（public.coo_talent_entries・任意LP）の承認取込。
+ *   dxを唯一の承認ハブにするための入口。取込RPC lp_import_talent_entry（service_role専用）で
+ *   enger.candidates に signup_source=source 付きで人材化する（＝即マッチング対象）。
+ *   id は "entry:<uuid>"（listLpTalentEntries が付与）。 */
+export async function approveTalentEntry(entryId: string): Promise<Result & { candidateId?: string }> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  const realId = entryId.startsWith("entry:") ? entryId.slice("entry:".length) : entryId;
+  if (!realId) return { ok: false, error: "id がありません" };
+  try {
+    const pub = publicAdmin();
+    const { data, error } = await pub.rpc("lp_import_talent_entry", { p_entry_id: realId, p_imported_by: actor.email });
+    if (error) {
+      const m = error.message || "";
+      if (/already processed/i.test(m)) return { ok: false, error: "このエントリーは処理済みです。" };
+      if (/could not find the function|schema cache|PGRST202|does not exist/i.test(m))
+        return { ok: false, error: "取込RPCが未適用です（Supabaseで supabase/migrations/20260716120000_lp_import_talent_entry.sql を実行してください）" };
+      return { ok: false, error: m };
+    }
+    const candidateId = (data as any)?.candidate_id as string | undefined;
+    await audit(realId, null, "talent_entry_import", candidateId ? `candidate=${candidateId}` : null, actor);
+    revalidateTag("sidebar-counts", "max");
+    revalidatePath("/newcomers"); revalidatePath("/people"); revalidatePath("/companies");
+    return { ok: true, candidateId };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/** LP登録エントリーを却下（status='rejected'）。service_role で直接更新（RPC不要）。 */
+export async function rejectTalentEntry(entryId: string): Promise<Result> {
+  const guard = await requireAdminOrAgent();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  const realId = entryId.startsWith("entry:") ? entryId.slice("entry:".length) : entryId;
+  if (!realId) return { ok: false, error: "id がありません" };
+  try {
+    const pub = publicAdmin();
+    const { error } = await pub.from("coo_talent_entries").update({ status: "rejected" }).eq("id", realId).eq("status", "new");
+    if (error) return { ok: false, error: error.message };
+    await audit(realId, null, "talent_entry_reject", null, actor);
+    revalidateTag("sidebar-counts", "max");
+    revalidatePath("/newcomers");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** 面談済みフラグ：詳細閲覧の解放/再制限。 */
 export async function setAccountMeetingDone(id: string, done: boolean): Promise<Result> {
   const guard = await requireAdminOrAgent();
