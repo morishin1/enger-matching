@@ -17,6 +17,7 @@ import { CompanyLink } from "./CompanyLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
 import { FreelanceNgSelect } from "./FreelanceNgSelect";
+import { displayFlowNote } from "@/lib/flow";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -138,7 +139,7 @@ const JOB_COLS: Col[] = [
     key: "outside_owner", label: "エンド担当", width: 124, defaultHidden: true, filterKey: "outside_owner", filterLabel: "エンド担当",
     render: (j, ctx) => <OutsideOwnerSelect jobNo={j.job_no} value={j.outside_owner ?? null} options={ctx.outsideOptions} />,
   },
-  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterKey: "flow", filterLabel: "商流制限", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
+  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterKey: "flow", filterLabel: "商流制限", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{displayFlowNote(j.flow_note) || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterKey: "rank", filterLabel: "ランク" },
   // 登録元（LINE登録 / 通常）。タイトル列に LINE マークは出るが、絞り込み用にフィルタを追加。
@@ -564,7 +565,7 @@ export function JobsTable({
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
                   [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />]],
                   // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
-                  [["勤務地", detail.work_location ?? "不明"], ["商流", detail.flow_note ?? "不明"], ["フリーランスの応募", <FreelanceNgSelect key={`fng-${detail.job_no}`} jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
+                  [["勤務地", detail.work_location ?? "不明"], ["商流制限", displayFlowNote(detail.flow_note) || "不明"], ["フリーランスの応募", <FreelanceNgSelect key={`fng-${detail.job_no}`} jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
                   [["窓口メール", detail.contact_email], ["担当者名", detail.contact_name]],
                 ];

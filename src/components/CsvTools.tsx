@@ -750,14 +750,15 @@ function NewEntryButton({ kind, defaultLine = false, buttonLabel }: { kind: "can
                     { value: "partial_remote", label: "一部リモート" },
                     { value: "onsite", label: "出社必須" },
                   ]} />
-                  <FormSelect label="商流" value={f.flow_note} onChange={set("flow_note")} options={[
+                  {/* #447①②：ラベル「商流制限」・選択肢の文言を人材一覧の編集フォームと統一。 */}
+                  <FormSelect label="商流制限" value={f.flow_note} onChange={set("flow_note")} options={[
                     { value: "", label: "未設定（不明）" },
                     { value: "貴社まで", label: "貴社まで" },
-                    { value: "貴社正社員まで", label: "貴社正社員まで" },
-                    { value: "貴社一社まで", label: "貴社一社まで" },
-                    { value: "貴社一社正社員まで", label: "貴社一社正社員まで" },
-                    { value: "貴社二社まで", label: "貴社二社まで" },
-                    { value: "貴社二社正社員まで", label: "貴社二社正社員まで" },
+                    { value: "貴社社員まで", label: "貴社社員まで" },
+                    { value: "貴社一社先まで", label: "貴社一社先まで" },
+                    { value: "貴社一社先社員まで", label: "貴社一社先社員まで" },
+                    { value: "貴社二社先まで", label: "貴社二社先まで" },
+                    { value: "貴社二社先社員まで", label: "貴社二社先社員まで" },
                     { value: "商流不問", label: "商流不問" },
                   ]} />
                   <FormField label="勤務地" value={f.work_location} onChange={set("work_location")} />

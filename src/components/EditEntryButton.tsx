@@ -8,6 +8,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateCandidateById, updateJobById } from "@/lib/actions";
 import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
+import { displayFlowNote } from "@/lib/flow";
 import { Icons } from "./icons";
 
 // LINE登録チェック。ON で signup_source='line' を保存（OFF で解除）。新規登録フォームと同UI。
@@ -332,7 +333,8 @@ export function EditJobButton({ job }: { job: any }) {
     salary_max: j.salary_max != null ? String(j.salary_max) : "",
     freelance_ng: j.freelance_ng === "NG" ? "NG" : "", // #368：フリーランスの応募（NG / 空欄）
     remote_type: j.remote_type ?? "",
-    flow_note: j.flow_note ?? "",
+    // #447②：旧文言の生テキストは編集フォームを開いた時点で新文言へ寄せる（プルダウンの選択状態を正しく合わせるため）。
+    flow_note: displayFlowNote(j.flow_note),
     accept_flow_depth: j.accept_flow_depth == null ? "" : String(j.accept_flow_depth),
     work_location: j.work_location ?? "",
     start_date: j.start_date ?? "",
@@ -379,7 +381,7 @@ export function EditJobButton({ job }: { job: any }) {
       // #389：DB列未整備で fail-soft が外した項目は「保存しました」にせず明示する（サイレント消失防止）。
       const skipped: string[] = (res as any).skipped ?? [];
       if (res.ok && skipped.length > 0) {
-        const JP: Record<string, string> = { detail_note: "案件詳細", freelance_ng: "フリーランスNG", nationality_requirement: "国籍制限", contact_name: "窓口担当者", contact_email: "窓口メール", source_mail_url: "元メールURL", accept_flow_depth: "商流（受入上限）", signup_source: "LINE登録" };
+        const JP: Record<string, string> = { detail_note: "案件詳細", freelance_ng: "フリーランスNG", nationality_requirement: "国籍制限", contact_name: "窓口担当者", contact_email: "窓口メール", source_mail_url: "元メールURL", accept_flow_depth: "商流制限", signup_source: "LINE登録" };
         setMsg({ ok: false, text: `一部の項目はデータベースの列が未整備のため保存できませんでした：${skipped.map((k) => JP[k] ?? k).join("・")}。中央 Supabase で supabase/ 配下の該当SQLを実行してください（他の項目は保存済み）` });
         router.refresh();
       }
@@ -411,15 +413,18 @@ export function EditJobButton({ job }: { job: any }) {
                 { value: "NG", label: "NG" },
               ]} />
               <Select label="リモート可否" value={f.remote_type} onChange={set("remote_type")} options={REMOTE_OPTS} />
-              <Select label="商流（受入上限）" value={f.flow_note} onChange={set("flow_note")} options={[
-                { value: "",                  label: "不明" },
-                { value: "貴社まで",            label: "貴社まで" },
-                { value: "貴社正社員まで",       label: "貴社正社員まで" },
-                { value: "貴社一社まで",         label: "貴社一社まで" },
-                { value: "貴社一社正社員まで",    label: "貴社一社正社員まで" },
-                { value: "貴社二社まで",         label: "貴社二社まで" },
-                { value: "貴社二社正社員まで",    label: "貴社二社正社員まで" },
-                { value: "商流不問",             label: "商流不問" },
+              {/* #447①②：ラベルを「商流制限」に変更し、選択肢の文言を更新。
+                  貴社正社員まで→貴社社員まで／貴社一社まで→貴社一社先まで／貴社一社正社員まで→貴社一社先社員まで／
+                  貴社二社まで→貴社二社先まで／貴社二社正社員まで→貴社二社先社員まで。 */}
+              <Select label="商流制限" value={f.flow_note} onChange={set("flow_note")} options={[
+                { value: "",                    label: "不明" },
+                { value: "貴社まで",              label: "貴社まで" },
+                { value: "貴社社員まで",           label: "貴社社員まで" },
+                { value: "貴社一社先まで",         label: "貴社一社先まで" },
+                { value: "貴社一社先社員まで",      label: "貴社一社先社員まで" },
+                { value: "貴社二社先まで",         label: "貴社二社先まで" },
+                { value: "貴社二社先社員まで",      label: "貴社二社先社員まで" },
+                { value: "商流不問",               label: "商流不問" },
               ]} />
               <Field label="勤務地" value={f.work_location} onChange={set("work_location")} />
               <DateField label="稼働開始希望日" value={f.start_date} onChange={set("start_date")} placeholder="例：2026/06/01（カレンダー選択可）" />

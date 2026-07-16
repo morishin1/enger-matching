@@ -10,6 +10,7 @@ import { OutsideOwnerSelect } from "./OutsideOwnerSelect";
 import { EditCandidateButton, EditJobButton } from "./EditEntryButton";
 import { DeleteEntityButton } from "./DeleteEntityButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
+import { displayFlowNote } from "@/lib/flow";
 import { FreelanceLiveProfile } from "./FreelanceLiveProfile";
 import { bulkSetFocus, bulkDeleteJobs, bulkDeleteCandidates } from "@/lib/actions";
 
@@ -121,7 +122,7 @@ const JOB_COLS: Col[] = [
   { key: "role", label: "職種", filterLabel: "職種", filter: (j) => j.role_label || "", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterLabel: "リモート", filter: (j) => remoteLabel(j.remote_type), render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   { key: "salary", label: "単価", width: 110, num: true, render: (j) => <span style={{ fontWeight: 600 }}>{salaryLabel(j.salary_min, j.salary_max)}</span> },
-  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterLabel: "商流制限", filter: (j) => j.flow_note || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{j.flow_note || "不明"}</span> },
+  { key: "flow", label: "商流制限", width: 110, defaultHidden: true, filterLabel: "商流制限", filter: (j) => displayFlowNote(j.flow_note) || "不明", render: (j) => <span style={{ fontSize: 11.5, color: "var(--color-ink-4)" }}>{displayFlowNote(j.flow_note) || "不明"}</span> },
   // ランクは一覧では非表示・フィルタのみ（単価帯）
   { key: "rank", label: "ランク", filterOnly: true, filterLabel: "ランク", filterFixed: RANK_OPTIONS, filter: (j) => salaryBand(j.salary_max ?? j.salary_min ?? null) },
 ];
@@ -569,7 +570,7 @@ export function EntityTable({ kind, rows, total, initialQuery, outsideOptions, p
                     ["単価", salaryLabel(detail.salary_min, detail.salary_max)],
                     ["リモート可否", remoteLabel(detail.remote_type)],
                     ["勤務地", detail.work_location ?? "不明"],
-                    ["商流", detail.flow_note],
+                    ["商流制限", displayFlowNote(detail.flow_note)],
                     ["開始希望", detail.start_date],
                     ["ステータス", detail.status],
                     ["窓口メール", detail.contact_email],

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { classifyJobNationality, JOB_NAT_LABEL, classifyJobAge } from "@/lib/nationality";
+import { displayFlowNote } from "@/lib/flow";
 
 function Stars({ score }: { score: number }) {
   const n = Math.max(0, Math.min(5, Math.round(score / 20)));
@@ -159,7 +160,7 @@ export function RankJobList({ personNo, tab, selJobNo, ranked, proposedJobIds, l
                     remoteLabel(j.remote_type),
                     JOB_NAT_LABEL[nat],
                     age.label,
-                    (j.flow_note && String(j.flow_note).trim()) ? j.flow_note : "不明",
+                    (j.flow_note && String(j.flow_note).trim()) ? displayFlowNote(j.flow_note) : "不明",
                   ].filter(Boolean);
                   return <div className="muted" style={{ fontSize: 10.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{parts.join(" · ")}</div>;
                 })()}

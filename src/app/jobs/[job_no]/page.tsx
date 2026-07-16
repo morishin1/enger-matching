@@ -17,6 +17,7 @@ import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JO
 import { attachLatestSourceMail } from "@/lib/source-mail";
 import { getMatchingRecordsFor } from "@/lib/matching-records";
 import { MatchingRecordsCard } from "@/components/MatchingRecordsCard";
+import { displayFlowNote } from "@/lib/flow";
 
 export const dynamic = "force-dynamic";
 
@@ -152,7 +153,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
           );
         })()}
         <Row label="勤務地" value={j.work_location ?? "不明"} />
-        <Row label="商流" value={j.flow_note} />
+        {/* #447①：ラベルを「商流制限」に統一。表示は displayFlowNote で旧文言→新文言に変換。 */}
+        <Row label="商流制限" value={displayFlowNote(j.flow_note)} />
         <Row label="開始希望" value={j.start_date} />
         <Row label="ステータス" value={j.status} />
         <Row label="窓口担当者" value={j.contact_name} />
