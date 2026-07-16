@@ -61,7 +61,7 @@ const ANALYSIS: NavItem[] = [];
 // その他（補助ツール）：PR・集客 と 設定（配下に メール取り込み / 日報）。
 const TOOLS: NavItem[] = [
   { href: "/pr", id: "pr", label: "PR・集客", desc: "発信・集客", icon: "bolt" },
-  { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "approvalsPending", children: [
+  { href: "/settings", id: "settings", label: "設定", desc: "アカウント・各種設定", icon: "settings", count: "agentApprovals", children: [
     { href: "/mail",    id: "mail",    label: "メール取り込み", desc: "Gmail取込・期間指定でダウンロード" },
     { href: "/reports", id: "reports", label: "日報",           desc: "気づき・改善の記録" },
     { href: "/settings/match-eval", id: "match-eval", label: "マッチング評価", desc: "成約/失注データでスコアを検証" },

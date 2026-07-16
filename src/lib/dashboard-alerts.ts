@@ -59,16 +59,18 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
       const pend: any = await sb.from("app_users").select("role").eq("status", "pending");
       const realRows: any[] = pend.data ?? [];
       let lpRows: any[] = [];
+      let entryRows: any[] = [];
       try {
-        const { listLpPendingCandidates } = await import("./accounts");
-        lpRows = await listLpPendingCandidates();
+        const { listLpPendingCandidates, listLpTalentEntries } = await import("./accounts");
+        [lpRows, entryRows] = await Promise.all([listLpPendingCandidates(), listLpTalentEntries()]);
       } catch { /* LP集計が落ちても続行 */ }
       const all = [...realRows, ...lpRows];
       const isClientRole = (r: any) => r.role === "client" || r.role === "partner";
       const isAgentRole = (r: any) => r.role === "admin" || r.role === "agent";
       const clients = all.filter(isClientRole).length;
       const agents = all.filter(isAgentRole).length;
-      const talent = all.length - clients - agents;
+      // 人材＝app_users/profiles由来の非企業・非社内 ＋ LP登録エントリー（coo_talent_entries）。
+      const talent = (all.length - clients - agents) + entryRows.length;
       if (clients > 0) alerts.push({
         id: "company_signup", kind: "user_signup", severity: "high",
         title: `企業の新規登録が ${clients} 件`,
@@ -78,7 +80,7 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
       if (talent > 0) alerts.push({
         id: "talent_signup", kind: "user_signup", severity: "high",
         title: `人材の新規登録が ${talent} 件`,
-        body: "エンジャーフリーランス経由の承認待ち",
+        body: "各LP（右腕COO・エンジャーフリーランス等）からの承認待ち",
         count: talent, href: "/newcomers", cta: "マッチング → 新着を開く",
       });
       if (agents > 0) alerts.push({
