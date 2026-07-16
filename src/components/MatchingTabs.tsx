@@ -20,6 +20,8 @@ const TABS = [
   { key: "jobs", href: "/jobs", label: "案件", icon: "work" },
   { key: "people", href: "/people", label: "人材", icon: "groups" },
   { key: "engineers", href: "/engineers", label: "フリーランス", icon: "badge" },
+  // 新着＝エンジャーフリーランス（enger.jp）から登録された人材の承認待ち（/newcomers）。
+  { key: "newcomers", href: "/newcomers", label: "新着", icon: "fiber_new" },
   { key: "line", href: "/line", label: "LINE", icon: "chat" },
 ] as const;
 
@@ -31,6 +33,7 @@ function resolveActiveTab(path: string, tabParam?: string | null): TabKey | null
   if (path.startsWith("/jobs")) return "jobs";
   if (path.startsWith("/people")) return "people";
   if (path.startsWith("/engineers")) return "engineers";
+  if (path.startsWith("/newcomers")) return "newcomers";
   if (path.startsWith("/line")) return "line";
   return null;
 }
@@ -84,6 +87,7 @@ function PeerTabsInternal({ counts, active, activeCount, compact = false }: { co
     jobs: counts?.jobs,
     people: counts?.people,
     engineers: counts?.engineers,
+    newcomers: counts?.newTalent,
     line: undefined,
   };
   const newOf: Record<TabKey, number | undefined> = {
@@ -92,6 +96,7 @@ function PeerTabsInternal({ counts, active, activeCount, compact = false }: { co
     jobs: counts?.newJobs,
     people: counts?.newPeople,
     engineers: counts?.newEngineers,
+    newcomers: counts?.newTalent,
     line: undefined,
   };
   const fmt = (n?: number) => (n == null ? null : n.toLocaleString("ja-JP"));

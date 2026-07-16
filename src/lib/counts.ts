@@ -6,6 +6,7 @@ export type SidebarCounts = Partial<Record<
   | "newJobs" | "newPeople" | "newEngineers" | "newLine" | "approvalsPending"
   | "proposalApprovals" /* 提案の承認待ち・差戻し件数（右上ベルの赤バッジ用・#235） */
   | "newClients" /* #419：新規登録の案件企業（法人・承認待ち）件数。サイドバー企業管理＋ベルの赤マーク用 */
+  | "newTalent" /* エンジャーフリーランス経由の人材新規登録（承認待ち）件数。サイドバー「マッチング」の New＋件数用 */
   | "chatUnread" /* 担当の未読チャット有無（ドット表示用・0/1） */, number>>;
 
 async function fetchCounts(): Promise<SidebarCounts> {
@@ -44,14 +45,18 @@ async function fetchCounts(): Promise<SidebarCounts> {
   };
   // 承認待ち合算（app_users pending ＋ LP仮想エントリ）と、その内の「案件企業（法人）」数（#419）。
   //   listLpPendingCandidates（auth 列挙を含む重い処理）は1回だけ呼び、両方をまとめて算出する。
-  const pendingBreakdown = async (): Promise<{ total?: number; clients?: number }> => {
+  const pendingBreakdown = async (): Promise<{ total?: number; clients?: number; talent?: number }> => {
     try {
       const real = await safeCount(() => sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending"));
       const realClients = await safeCount(() => sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending").in("role", ["client", "partner"]));
+      // 人材の新着＝エンジャーフリーランス（enger.jp）経由の承認待ち（candidate/freelance）。
+      const realTalent = await safeCount(() => sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending").in("role", ["candidate", "freelance"]));
       const { listLpPendingCandidates } = await import("./accounts");
       const lp = await listLpPendingCandidates();
-      const lpClients = lp.filter((a: any) => a.role === "client" || a.role === "partner").length;
-      return { total: (real ?? 0) + lp.length, clients: (realClients ?? 0) + lpClients };
+      const isClientRole = (a: any) => a.role === "client" || a.role === "partner";
+      const lpClients = lp.filter(isClientRole).length;
+      const lpTalent = lp.filter((a: any) => !isClientRole(a)).length;
+      return { total: (real ?? 0) + lp.length, clients: (realClients ?? 0) + lpClients, talent: (realTalent ?? 0) + lpTalent };
     } catch { return {}; }
   };
 
@@ -101,7 +106,7 @@ async function fetchCounts(): Promise<SidebarCounts> {
     lineCount(),
     lineCount(since7),
   ]);
-  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending: pendingBk.total, newClients: pendingBk.clients, proposalApprovals, line, newLine };
+  return { jobs, people, companies, proposals, progress: engagements, engineers, newJobs, newPeople, newEngineers, approvalsPending: pendingBk.total, newClients: pendingBk.clients, newTalent: pendingBk.talent, proposalApprovals, line, newLine };
 }
 
 // 30秒キャッシュ + タグ。書き込み時に revalidateTag("sidebar-counts") で即時更新。

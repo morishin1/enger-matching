@@ -10,11 +10,20 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { CompaniesTabs } from "@/components/CompaniesTabs";
 import { loadCompanyFunnels, loadCompanyContactFunnels, loadCompanyTopSkills } from "@/lib/company-funnel";
 import { engerClient, dbConfigured } from "@/lib/supabase";
-import { currentAccess } from "@/lib/accounts";
+import { currentAccess, listAccounts, listLpPendingCandidates } from "@/lib/accounts";
+import { NewRegistrationsList } from "@/components/NewRegistrationsList";
 
 export const dynamic = "force-dynamic";
 
-export default async function CompaniesPage() {
+export default async function CompaniesPage({ searchParams }: { searchParams?: Promise<{ tab?: string }> }) {
+  const sp = searchParams ? await searchParams : {};
+  // 新着タブ：エンジャービジネス（enger.jp 法人登録）経由の企業の新規登録（承認待ち）。
+  //   app_users（client/partner・pending）＋ LP 仮想行（business フラグ持ち）を合算。
+  const newCompanyRegs = await Promise.all([listAccounts(), listLpPendingCandidates()]).then(([real, lp]) =>
+    [...real.filter((a) => a.status === "pending"), ...lp]
+      .filter((a) => a.role === "client" || a.role === "partner")
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
+  ).catch(() => []);
   // 並列取得：企業概要・提案ファネル・担当者別ファネル・案件スキル分布
   const [companies, funnels, contactFunnels, topSkillsByCompany, companyRatings] = await Promise.all([
     getCompanyOverview().then((r) => r ?? []),
@@ -212,9 +221,12 @@ export default async function CompaniesPage() {
         </div>
       )}
 
-      {/* タブで分割してスクロールを削減（既定＝企業一覧） */}
+      {/* タブで分割してスクロールを削減（既定＝企業一覧。?tab=new で新着タブを直接開ける） */}
       <CompaniesTabs
         followCount={followups.length}
+        newCount={newCompanyRegs.length}
+        initialTab={sp.tab === "new" ? "new" : undefined}
+        newRegs={<NewRegistrationsList rows={newCompanyRegs} kind="company" />}
         list={!needSetup && <CompaniesView companies={companies} registered={registered} candidateCounts={candidateCounts} lineCompanies={lineCompanies} ratings={companyRatings} feedback={feedbackByCompany} />}
         target={
           <>

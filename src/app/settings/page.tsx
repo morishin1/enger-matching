@@ -17,7 +17,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { ApprovalsView } from "@/components/ApprovalsView";
 import { ActivityLogView } from "@/components/ActivityLogView";
 import { listActivityLogs } from "@/lib/activity-logs";
-import { currentAccess, listAccounts, listLpPendingCandidates } from "@/lib/accounts";
+import { currentAccess, listAccounts } from "@/lib/accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -70,13 +70,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const menuPerms = tab === "menus" ? await loadMenuPermissions() : null;
   const reportScopes = tab === "menus" ? await loadReportScopes() : null;
   const proposalOwnersData = tab === "menus" ? await Promise.all([loadProposalOwners(), getStaff()]).then(([po, staff]) => ({ initial: po ?? { proposers: staff.members, closers: staff.members }, suggestions: staff.members })) : null;
-  // ユーザー管理タブ。実アカウント＋LP（profiles）の昇格待ちを合算し、ApprovalsView で承認/削除/担当者割当を行う。
+  // ユーザー管理タブ。マッチングを行うエージェント（admin/agent）だけを表示する。
+  //   企業・フリーランスの新規登録は「企業管理 → 新着」「マッチング → 新着」タブへ移設した。
   const usersData = (tab === "users" && isAdmin)
-    ? await Promise.all([listAccounts(), listLpPendingCandidates(), getStaff()]).then(([real, lp, staff]) => ({
-        accounts: [...real, ...lp],
-        agentOptions: staff.rows
-          .filter((s: any) => s.active !== false && (s.email || s.name))
-          .map((s: any) => ({ email: s.email ?? null, name: s.name ?? null })),
+    ? await listAccounts().then((real) => ({
+        accounts: real.filter((a) => a.role === "admin" || a.role === "agent"),
       }))
     : null;
   const usersPending = usersData?.accounts.filter((a) => a.status === "pending").length ?? 0;
@@ -164,9 +162,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       {tab === "users" && usersData && (
         <div id="users" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div className="muted" style={{ fontSize: 12 }}>
-            登録ユーザーを <b>企業 / 人材 / 営業</b> 等のタブで切り分け、<b>承認待ち / 承認済み</b> を分けて表示。承認・削除・担当者割当・無効化などをまとめて行えます。
+            マッチングを行う<b>エージェント</b>のアカウント管理です。権限は <b>メンバー / マネージャー / 管理</b> の3段階。
+            企業・フリーランスの新規登録は <b>企業管理 → 新着</b>／<b>マッチング → 新着</b> タブで承認してください。
           </div>
-          <ApprovalsView accounts={usersData.accounts} agents={usersData.agentOptions} />
+          <ApprovalsView accounts={usersData.accounts} />
         </div>
       )}
 

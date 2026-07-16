@@ -6,7 +6,7 @@ import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { Icons } from "./icons";
 import type { SidebarCounts } from "@/lib/counts";
-import { type Role, hasSalesFunction } from "@/lib/roles";
+import { type Role } from "@/lib/roles";
 import { isMenuAllowed } from "@/lib/menu-permissions";
 import { ThemeToggle } from "./ThemeToggle";
 import { toast } from "./toast";
@@ -15,7 +15,7 @@ import type { AccountStatus } from "@/lib/roles";
 type NavChild = { href: string; id: string; label: string; desc?: string; count?: keyof SidebarCounts; newCount?: keyof SidebarCounts };
 // lock … 企業(client)メニューの承認ゲート（"full"=承認前は不可でロック表示／"partial"=承認前は一部のみ）。
 // option … 契約企業のみ表示するオプション機能（例: AI面接）。divider … 区切り線（見出し・遷移なし）。
-type NavItem = { href: string; id: string; label: string; desc?: string; icon?: keyof typeof Icons; count?: keyof SidebarCounts; dot?: keyof SidebarCounts; hot?: boolean; external?: boolean; children?: NavChild[]; lock?: "full" | "partial"; option?: boolean; divider?: boolean };
+type NavItem = { href: string; id: string; label: string; desc?: string; icon?: keyof typeof Icons; count?: keyof SidebarCounts; dot?: keyof SidebarCounts; newCount?: keyof SidebarCounts; hot?: boolean; external?: boolean; children?: NavChild[]; lock?: "full" | "partial"; option?: boolean; divider?: boolean };
 
 // 営業フローに沿った並び（ダッシュボード→取込→マスタ→マッチング→提案→稼働の順）。
 // ダッシュボードを起点として先頭に置き、次に業務の入口となる「メール取込」を並べる。
@@ -29,7 +29,8 @@ const NAV: NavItem[] = [
   { href: "/", id: "dashboard", label: "ダッシュボード", desc: "現在のKGI/KPIと新着", icon: "dashboard" },
   { href: "/kgi", id: "kgi", label: "KGI/KPI", desc: "目標の分解と達成状況（営業日ベース）", icon: "analytics" },
   // 「マッチング」クリックはマッチング画面(/matching)に着地（既定タブ＝マッチング）。子は案件→人材→フリーランス→LINE。
-  { href: "/matching", id: "matching", label: "マッチング", desc: "AIで最適な組み合わせを提案", icon: "matching", children: [
+  // 新着（エンジャーフリーランス経由の人材登録）があるときはチャットと同様に「New＋件数」を表示。
+  { href: "/matching", id: "matching", label: "マッチング", desc: "AIで最適な組み合わせを提案", icon: "matching", newCount: "newTalent", children: [
     { href: "/jobs",      id: "jobs",      label: "案件",       desc: "募集中の案件を管理",       count: "jobs",      newCount: "newJobs" },
     { href: "/people",    id: "people",    label: "人材",       desc: "登録人材を管理",           count: "people",    newCount: "newPeople" },
     { href: "/engineers", id: "engineers", label: "フリーランス", desc: "ENGERフリーランスの登録者", count: "engineers", newCount: "newEngineers" },
@@ -38,8 +39,8 @@ const NAV: NavItem[] = [
   { href: "/proposals", id: "proposals", label: "提案管理", desc: "提案状況・KPI・失注分析", icon: "proposals", count: "proposals" },
   { href: "/prospecting", id: "prospecting", label: "エンド開拓", desc: "リスト投入・接触・アポ獲得", icon: "bolt" },
   { href: "/meetings", id: "meetings", label: "打合せ記録", desc: "商談メモ・案件/人材情報の仕入れ", icon: "inbox" },
-  // #419：案件企業（法人）の新規登録があるとき赤い印（ドット）を出して気づけるようにする。
-  { href: "/companies", id: "companies", label: "企業管理", desc: "取引先・商談の管理", icon: "company", count: "companies", dot: "newClients" },
+  // #419改：エンジャービジネス経由の企業新規登録があるときはチャットと同様に「New＋件数」を表示。
+  { href: "/companies", id: "companies", label: "企業管理", desc: "取引先・商談の管理", icon: "company", count: "companies", newCount: "newClients" },
   { href: "/chat", id: "chat", label: "チャット", desc: "人材・企業とのやりとり", icon: "msg", count: "chatUnread", hot: true },
   // 稼働管理は当面使わないためサイドメニューから非表示（要望）。復活時は下のコメントを解除するだけ。
   //   ※ ページ自体（/progress・/documents）は URL では引き続きアクセス可能。
@@ -131,13 +132,12 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
   // AI面接（契約オプション）は未契約企業には出さない（§5）。区切り線などその他は維持。
   const clientNav = CLIENT_NAV.filter((n) => !(n.option && !aiInterviewEnabled));
 
-  // 営業（一般）のメニューは「職能」で出し分け（兼務は和集合）
+  // 登録済み（active）のエージェントは職能に関わらず全業務メニューを利用できる
+  //   （ユーザー管理の再設計：権限はメンバー/マネージャー/管理の3段階のみ。
+  //     旧・職能（営業/バックオフィス）での出し分けは廃止。個別の絞り込みは menuPerms で行う）。
   const SALES_HREFS = ["/kgi", "/prospecting", "/mail", "/matching", "/engineers", "/jobs", "/people", "/proposals", "/chat", "/line", "/progress", "/companies", "/meetings", "/pr", "/analytics", "/pipeline", "/kpi", "/funnel"];
-  // ダッシュボード・稼働・分析・書類・企業は全エージェント可（分析ページは金額系を admin 限定で隠す）。
-  //   企業は閲覧のみ（CSV書き出しは廃止）なので、職能に関わらずメンバーでも閲覧できるようにする。
   const allowed = new Set<string>(["/", "/progress", "/analytics", "/documents", "/companies"]);
-  if (hasSalesFunction(functions)) SALES_HREFS.forEach((h) => allowed.add(h));
-  if (functions.includes("バックオフィス")) { allowed.add("/progress"); allowed.add("/documents"); }
+  SALES_HREFS.forEach((h) => allowed.add(h));
 
   // エージェントは許可された項目・子のみ。親が不可でも許可された子があれば親ごと表示。
   const filterForAgent = (items: NavItem[]): NavItem[] => {
@@ -313,6 +313,15 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                       <span aria-label="新着あり" title="新着のチャットがあります"
                         style={{ flexShrink: 0, marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: ".02em", color: "#fff", background: "var(--color-danger,#dc2626)", padding: "1px 7px", borderRadius: 99 }}>New</span>
                     )}
+                    {/* 新着登録（newCount：企業管理＝ビジネス登録／マッチング＝フリーランス登録）。
+                        チャットの New マークと同じ見た目で「New＋件数」を表示する。 */}
+                    {(() => { const nn = n.newCount ? (counts?.[n.newCount] ?? 0) : 0; return nn > 0 ? (
+                      <span aria-label={`新着 ${nn} 件`} title={`未対応の新着登録が ${nn} 件あります`}
+                        style={{ flexShrink: 0, marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".02em", color: "#fff", background: "var(--color-danger,#dc2626)", padding: "1px 7px", borderRadius: 99 }}>New</span>
+                        <span className="badge hot">{fmt(nn)}</span>
+                      </span>
+                    ) : null; })()}
                     {badge != null && <span className={"badge " + (n.hot ? "hot" : "")} style={n.hot ? { marginLeft: 6 } : undefined}>{badge}</span>}
                     {partialLocked && (
                       <span className="material-symbols-outlined" aria-label="承認前は一部のみ"
