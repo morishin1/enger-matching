@@ -51,27 +51,40 @@ export const loadDashboardAlerts = cache(async (): Promise<DashboardAlert[]> => 
   const sb = engerClient();
   const alerts: DashboardAlert[] = [];
 
-  // ① ユーザー新規登録：app_users.status='pending' ＋ LP仮想エントリ（admin or 上長相当のみ）
+  // ① ユーザー新規登録：app_users.status='pending' ＋ LP仮想エントリ（admin or 上長相当のみ）。
+  //   承認導線の移設に合わせて宛先を分割：企業→企業管理の新着タブ／人材→マッチングの新着／
+  //   エージェント→設定のユーザー管理。
   if (isAdmin || isManager) {
     try {
-      const real = await sb.from("app_users").select("id", { count: "exact", head: true }).eq("status", "pending");
-      const realN = real.count ?? 0;
-      let lpN = 0;
+      const pend: any = await sb.from("app_users").select("role").eq("status", "pending");
+      const realRows: any[] = pend.data ?? [];
+      let lpRows: any[] = [];
       try {
         const { listLpPendingCandidates } = await import("./accounts");
-        const lp = await listLpPendingCandidates();
-        lpN = lp.length;
+        lpRows = await listLpPendingCandidates();
       } catch { /* LP集計が落ちても続行 */ }
-      const total = realN + lpN;
-      if (total > 0) alerts.push({
-        id: "user_signup",
-        kind: "user_signup",
-        severity: "high",
-        title: `新規ユーザーの承認待ちが ${total} 件`,
-        body: realN > 0 && lpN > 0 ? `アカウント申請 ${realN}件・LP登録 ${lpN}件` : null,
-        count: total,
-        href: "/settings?tab=users",
-        cta: "ユーザー管理を開く",
+      const all = [...realRows, ...lpRows];
+      const isClientRole = (r: any) => r.role === "client" || r.role === "partner";
+      const isAgentRole = (r: any) => r.role === "admin" || r.role === "agent";
+      const clients = all.filter(isClientRole).length;
+      const agents = all.filter(isAgentRole).length;
+      const talent = all.length - clients - agents;
+      if (clients > 0) alerts.push({
+        id: "company_signup", kind: "user_signup", severity: "high",
+        title: `企業の新規登録が ${clients} 件`,
+        body: "エンジャービジネス経由の承認待ち",
+        count: clients, href: "/companies?tab=new", cta: "企業管理 → 新着を開く",
+      });
+      if (talent > 0) alerts.push({
+        id: "talent_signup", kind: "user_signup", severity: "high",
+        title: `人材の新規登録が ${talent} 件`,
+        body: "エンジャーフリーランス経由の承認待ち",
+        count: talent, href: "/newcomers", cta: "マッチング → 新着を開く",
+      });
+      if (agents > 0) alerts.push({
+        id: "user_signup", kind: "user_signup", severity: "high",
+        title: `エージェントの承認待ちが ${agents} 件`,
+        count: agents, href: "/settings?tab=users", cta: "ユーザー管理を開く",
       });
     } catch { /* app_users 未整備は無視 */ }
   }

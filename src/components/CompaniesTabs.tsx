@@ -9,14 +9,18 @@
 
 import { useState, type ReactNode } from "react";
 
-type TabKey = "list" | "target" | "follow";
+type TabKey = "list" | "new" | "target" | "follow";
 
-export function CompaniesTabs({ list, target, follow, followCount = 0 }: {
-  list: ReactNode; target: ReactNode; follow: ReactNode; followCount?: number;
+export function CompaniesTabs({ list, target, follow, newRegs, followCount = 0, newCount = 0, initialTab }: {
+  list: ReactNode; target: ReactNode; follow: ReactNode;
+  /** 新着（エンジャービジネス経由の企業新規登録）タブの中身。 */
+  newRegs?: ReactNode; followCount?: number; newCount?: number; initialTab?: TabKey;
 }) {
-  const [tab, setTab] = useState<TabKey>("list");
-  const tabs: { key: TabKey; label: string; icon: string; badge?: number }[] = [
+  const [tab, setTab] = useState<TabKey>(initialTab ?? "list");
+  const tabs: { key: TabKey; label: string; icon: string; badge?: number; hot?: boolean }[] = [
     { key: "list",   label: "企業一覧",     icon: "domain" },
+    // 新着＝エンジャービジネス（enger.jp 法人登録）からの承認待ち企業。件数は赤バッジで表示。
+    { key: "new",    label: "新着",         icon: "fiber_new", badge: newCount || undefined, hot: true },
     { key: "target", label: "ターゲティング", icon: "target" },
     { key: "follow", label: "フォロー / 実績", icon: "history", badge: followCount || undefined },
   ];
@@ -36,12 +40,13 @@ export function CompaniesTabs({ list, target, follow, followCount = 0 }: {
               }}>
               <span className="material-symbols-outlined" aria-hidden style={{ fontSize: 18, lineHeight: 1 }}>{t.icon}</span>
               <span>{t.label}</span>
-              {t.badge ? <span className="badge" style={{ fontSize: 10, padding: "1px 7px" }}>{t.badge}</span> : null}
+              {t.badge ? <span className={"badge" + (t.hot ? " hot" : "")} style={{ fontSize: 10, padding: "1px 7px" }}>{t.badge}</span> : null}
             </button>
           );
         })}
       </div>
       <div style={{ display: tab === "list" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{list}</div>
+      <div style={{ display: tab === "new" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{newRegs}</div>
       <div style={{ display: tab === "target" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{target}</div>
       <div style={{ display: tab === "follow" ? "flex" : "none", flexDirection: "column", gap: 12 }}>{follow}</div>
     </div>

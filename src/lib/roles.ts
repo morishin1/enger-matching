@@ -28,6 +28,18 @@ export const TEAM_ROLE_LABEL: Record<TeamRole, string> = { manager: "マネー�
 /** マネージャー/リーダーは「自部署の日報を閲覧・返信」できる。 */
 export const canManageDept = (teamRole?: string | null) => teamRole === "manager" || teamRole === "leader";
 
+// ── ユーザー管理の権限3段階（メンバー / マネージャー / 管理） ─────────────────
+//   管理      … role=admin（全機能・設定・ユーザー管理）
+//   マネージャー … role=agent ＋ team_role=manager（旧 leader も同格に扱う）。提案の承認など。
+//   メンバー   … role=agent（マッチング〜提案管理まで利用可）
+export type PermissionLevel = "admin" | "manager" | "member";
+export const PERMISSION_LEVELS = ["member", "manager", "admin"] as const;
+export const PERMISSION_LABEL: Record<PermissionLevel, string> = { admin: "管理", manager: "マネージャー", member: "メンバー" };
+export function permissionOf(role: string | null | undefined, teamRole?: string | null): PermissionLevel {
+  if (role === "admin") return "admin";
+  return canManageDept(teamRole) ? "manager" : "member";
+}
+
 
 /** ロール別の初期表示パス。client も自社ポータル(=ダッシュボード"/")へ。 */
 export function roleHome(_role: Role): string {
@@ -60,11 +72,9 @@ const CANDIDATE_ALLOWED = ["/"];
  */
 // テナント隔離ロール(partner/freelance)が開けるルート。自分＋共有のみ・他社匿名。
 const TENANT_ALLOWED = ["/", "/jobs", "/people", "/matching"];
-/**
- * 営業系の職能を持つ人だけがアクセスできる業務ルート。
- * バックオフィス専任（営業系職能なし）には案件・人材・打合せ記録・パイプライン等を非表示にする。
- */
-export const SALES_ONLY_PREFIXES = ["/matching", "/engineers", "/jobs", "/people", "/proposals", "/prospecting", "/companies", "/meetings", "/pipeline"];
+// （ユーザー管理の再設計）権限は「メンバー / マネージャー / 管理」の3段階に単純化した。
+//   登録済み（active）のエージェントは職能に関わらずマッチング→提案管理まで利用できるため、
+//   旧・SALES_ONLY_PREFIXES（バックオフィス専任の営業業務ブロック）は廃止。
 
 /** マネージャー/リーダーにも開放する settings 配下の例外ルート。 */
 const MANAGER_SETTINGS_ALLOWED = ["/settings/team-kgi", "/settings/person-kgi"];
@@ -84,8 +94,7 @@ export function canAccess(role: Role, pathname: string, functions?: string[] | n
       if (canManageDept(teamRole) && hit(MANAGER_SETTINGS_ALLOWED)) return true;
       return false;
     }
-    if (!hasSalesFunction(functions) && hit(SALES_ONLY_PREFIXES)) return false; // バックオフィス専任は営業業務を非表示
-    return true;
+    return true; // 登録済みエージェントは職能に関わらずマッチング〜提案管理を利用できる
   }
   // candidate(人材): 自分のダッシュボードのみ。
   if (role === "candidate") return hit(CANDIDATE_ALLOWED);

@@ -152,13 +152,15 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
               クリックで提案管理（承認タブが自動で開く）へ。無いときは通常のお知らせへ。 */}
           {(() => {
             const approvals = counts?.proposalApprovals ?? 0;
-            // #419：案件企業（法人）の新規登録もベルの赤バッジに含め、気づけるようにする。
+            // #419：案件企業（法人）・人材の新規登録もベルの赤バッジに含め、気づけるようにする。
+            //   承認導線は「企業管理 → 新着」「マッチング → 新着（/newcomers）」へ移設済み。
             const newClients = counts?.newClients ?? 0;
-            const total = approvals + newClients;
+            const newTalent = counts?.newTalent ?? 0;
+            const total = approvals + newClients + newTalent;
             const has = total > 0;
-            const href = approvals > 0 ? "/proposals?tab=approval" : newClients > 0 ? "/settings/approvals" : "/notifications";
+            const href = approvals > 0 ? "/proposals?tab=approval" : newClients > 0 ? "/companies?tab=new" : newTalent > 0 ? "/newcomers" : "/notifications";
             const title = has
-              ? [approvals > 0 ? `提案の承認待ち ${approvals} 件` : "", newClients > 0 ? `新規の案件企業登録 ${newClients} 件` : ""].filter(Boolean).join(" ／ ") + "（クリックで確認）"
+              ? [approvals > 0 ? `提案の承認待ち ${approvals} 件` : "", newClients > 0 ? `新規の企業登録 ${newClients} 件` : "", newTalent > 0 ? `新規の人材登録 ${newTalent} 件` : ""].filter(Boolean).join(" ／ ") + "（クリックで確認）"
               : "お知らせ";
             return (
               <Link href={href} className="icon-btn"

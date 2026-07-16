@@ -413,6 +413,28 @@ export async function setAccountDepartment(id: string, department: string | null
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
+/** 権限3段階（メンバー / マネージャー / 管理）を管理者が設定。
+ *   管理      … role=admin
+ *   マネージャー … role=agent ＋ team_role=manager
+ *   メンバー   … role=agent ＋ team_role=member
+ *  ユーザー管理の再設計で、旧「区分＋部署＋役職＋職能」の組み合わせをこの1操作に集約した。 */
+export async function setAccountPermission(id: string, level: "admin" | "manager" | "member"): Promise<Result> {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard;
+  const actor = guard.actor!;
+  if (!id) return { ok: false, error: "id がありません" };
+  if (!["admin", "manager", "member"].includes(level)) return { ok: false, error: "不正な権限です" };
+  try {
+    const sb = engerAdmin();
+    const patch: Record<string, any> = level === "admin" ? { role: "admin" } : { role: "agent", team_role: level };
+    const { error } = await sb.from("app_users").update(patch).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+    await audit(id, null, "permission_change", `level=${level}`, actor);
+    bustMembers(); revalidatePath("/"); revalidatePath("/reports");
+    return { ok: true };
+  } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
 /** チーム役職（manager/leader/member）を管理者が設定。 */
 export async function setAccountTeamRole(id: string, teamRole: "manager" | "leader" | "member" | null): Promise<Result> {
   const guard = await requireAdmin();
