@@ -2203,8 +2203,80 @@ export async function deleteCompany(name: string) {
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const { error } = await admin.from("companies").delete().eq("name", name);
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/companies");
+  revalidatePath("/companies"); revalidateTag("company-overview", "max");
   return { ok: true };
+}
+
+/** #465①：企業マスタを複数一括削除。
+ *  注意：企業一覧は案件のクライアント名から動的集計されるため、案件・人材が紐づく企業は
+ *  マスタ行を消しても集計行として残ることがある（その場合は「統合」を使う）。 */
+export async function bulkDeleteCompanies(names: string[]) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const list = Array.from(new Set((names ?? []).map((n) => (n || "").trim()).filter(Boolean)));
+  if (list.length === 0) return { ok: false as const, error: "対象がありません" };
+  const { error, count } = await admin.from("companies").delete({ count: "exact" }).in("name", list);
+  if (error) return { ok: false as const, error: error.message };
+  revalidatePath("/companies"); revalidateTag("company-overview", "max"); bustCounts();
+  return { ok: true as const, deleted: count ?? 0 };
+}
+
+/** #465②：複数企業を統合先(target)に統合する。
+ *  統合元(sources)に紐づく案件(client_name)・人材(source_company/company/affiliation)・
+ *  提案(company/cand_company)・打合せ(company_name)の会社名を target 名へ一括で付け替え、
+ *  統合元の企業マスタ行は削除する（target のマスタ情報はそのまま残す）。
+ *  ※ 名前の付け替えは元に戻せないため、UI 側で対象件数を提示して確認したうえで実行する。 */
+export async function mergeCompanies(sourceNames: string[], targetName: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const target = (targetName || "").trim();
+  if (!target) return { ok: false as const, error: "統合先が未指定です" };
+  const sources = Array.from(new Set((sourceNames ?? []).map((n) => (n || "").trim()).filter((n) => n && n !== target)));
+  if (sources.length === 0) return { ok: false as const, error: "統合元がありません（統合先以外を1社以上選択してください）" };
+
+  const result = { jobs: 0, candidates: 0, proposals: 0, meetings: 0 };
+  const errors: string[] = [];
+  const upd = async (table: string, col: string, into: Record<string, any>) => {
+    const { error, count } = await admin.from(table).update(into, { count: "exact" }).in(col, sources);
+    if (error) { errors.push(`${table}.${col}: ${error.message}`); return 0; }
+    return count ?? 0;
+  };
+  // 案件（クライアント名）
+  result.jobs += await upd("jobs", "client_name", { client_name: target });
+  // 人材（所属・提供元。3列それぞれに入りうる）
+  for (const col of ["source_company", "company", "affiliation"] as const) {
+    result.candidates += await upd("candidates", col, { [col]: target });
+  }
+  // 提案（クライアント側・人材側の会社名）
+  result.proposals += await upd("proposals", "company", { company: target });
+  result.proposals += await upd("proposals", "cand_company", { cand_company: target });
+  // 打合せ
+  result.meetings += await upd("meetings", "company_name", { company_name: target });
+  // 統合元の企業マスタ行を削除（target は残す）
+  await admin.from("companies").delete().in("name", sources);
+
+  revalidatePath("/companies"); revalidateTag("company-overview", "max"); bustCounts();
+  if (errors.length) return { ok: false as const, error: errors.join(" / "), result };
+  return { ok: true as const, result };
+}
+
+/** #465②：統合前の影響件数プレビュー（案件/人材/提案/打合せ）。破壊的操作の前に件数を提示する。 */
+export async function previewMergeCompanies(sourceNames: string[]) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const sources = Array.from(new Set((sourceNames ?? []).map((n) => (n || "").trim()).filter(Boolean)));
+  if (sources.length === 0) return { ok: false as const, error: "対象がありません" };
+  const cnt = async (table: string, col: string) => {
+    const { count } = await admin.from(table).select("id", { count: "exact", head: true }).in(col, sources);
+    return count ?? 0;
+  };
+  const [jobs, candA, candB, candC, propA, propB, meetings] = await Promise.all([
+    cnt("jobs", "client_name"),
+    cnt("candidates", "source_company"), cnt("candidates", "company"), cnt("candidates", "affiliation"),
+    cnt("proposals", "company"), cnt("proposals", "cand_company"),
+    cnt("meetings", "company_name"),
+  ]);
+  return { ok: true as const, jobs, candidates: candA + candB + candC, proposals: propA + propB, meetings };
 }
 
 /** 企業マスタをCSVから一括登録/更新（name で upsert）。案件/人材が無くても企業として残る。
