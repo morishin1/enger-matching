@@ -174,6 +174,8 @@ type Aggregated = {
   companies: Array<{
     name: string;
     won: number; lost: number; total: number;
+    /** #464②：期間内のその会社の提案数（勝敗確定に限らない全提案）。 */
+    proposals: number;
     winRate: number;
     daysSinceLastContact: number | null;
     score: number;
@@ -194,6 +196,8 @@ type Aggregated = {
 
 function analyze(items: HItem[]): Aggregated {
   const phases: Record<string, number> = {};
+  // #464②：会社別の提案数（勝敗確定に限らない全提案数）。ヒートマップ右端の「提案数合計」用。
+  const proposalsByCompany: Record<string, number> = {};
   const phaseReasons: Record<string, Record<string, number>> = {}; // フェーズ → 失注理由 → 件数（積み上げグラフ用）
   const reasons: Record<string, number> = {};
   const companies: Record<string, any> = {};
@@ -206,6 +210,11 @@ function analyze(items: HItem[]): Aggregated {
   for (const p of items) {
     const isLost = LOST_STAGES.has(p.stage ?? "");
     const isWon = WON_STAGES.has(p.stage ?? "");
+    // #464②：勝敗確定に関わらず、会社別の提案数を数える（提案数合計の表示用）。
+    {
+      const c = (p.company ?? "（未入力）").trim() || "（未入力）";
+      proposalsByCompany[c] = (proposalsByCompany[c] || 0) + 1;
+    }
     if (!isLost && !isWon) continue;
     if (isLost) lost++;
     if (isWon) won++;
@@ -316,10 +325,11 @@ function analyze(items: HItem[]): Aggregated {
     const recency = daysSince == null ? 0 : 1 - Math.min(daysSince / 180, 1); // 180日で 0
     const score = winRate * 0.7 + recency * 0.3;
     const category: "重点" | "様子見" | "保留" = score >= 0.5 ? "重点" : score >= 0.2 ? "様子見" : "保留";
-    return { name: c.name, won: c.won, lost: c.lost, total, winRate, daysSinceLastContact: daysSince, score, category, reasons: c.reasons, phases: c.phases };
+    return { name: c.name, won: c.won, lost: c.lost, total, proposals: proposalsByCompany[c.name] || 0, winRate, daysSinceLastContact: daysSince, score, category, reasons: c.reasons, phases: c.phases };
   });
 
-  const topReasons = Object.entries(reasons).sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 8).map(([r]) => r);
+  // #464①：ヒートマップの列から「架電できていない」を除外する（失注理由ではなく未着手のため）。
+  const topReasons = Object.entries(reasons).filter(([r]) => r !== "架電できていない").sort((a, b) => (b[1] as number) - (a[1] as number)).slice(0, 8).map(([r]) => r);
   const topPhase = Object.entries(phases).sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0] ?? "—";
   // 失注の責任所在（自社 vs 外部）を集計。
   const byKind: Record<Attribution, number> = { self: 0, candidate: 0, job: 0, competitor: 0, other: 0 };
@@ -1315,7 +1325,13 @@ function Header({ title, hint }: { title: string; hint?: string }) {
 //   （案件名 × 人材名＋人材ID）の一覧をポップオーバー表示する（失注ログから同キーで引く）。
 function LostHeatmap({ companies, topReasons, lostRows }: { companies: Aggregated["companies"]; topReasons: string[]; lostRows: Aggregated["lostRows"] }) {
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const top = [...companies].sort((a, b) => b.lost - a.lost).slice(0, 10);
+  // #464③：会社名で検索・絞り込み。入力があるときは上位10社に限らず全社から一致を表示する。
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const filtered = query
+    ? [...companies].filter((c) => c.name.toLowerCase().includes(query)).sort((a, b) => b.lost - a.lost)
+    : [...companies].sort((a, b) => b.lost - a.lost).slice(0, 10);
+  const top = filtered;
   const max = Math.max(1, ...top.flatMap((c) => topReasons.map((r) => c.reasons[r] ?? 0)));
   // (会社, 理由) → 該当レコード。集計と同じ company / reason 値で失注ログをグルーピング。
   const cellRows = useMemo(() => {
@@ -1330,6 +1346,16 @@ function LostHeatmap({ companies, topReasons, lostRows }: { companies: Aggregate
   return (
     <div className="card" style={{ padding: 14, overflowX: "auto" }}>
       <Header title="🔍 会社 × 失注理由 ヒートマップ（上位）" hint="同じ会社で同じ失注理由が続くなら、その問題を回避する提案戦略に切替。数字にマウスをあてると該当の案件×人材を表示" />
+      {/* #464③：会社名で検索。入力すると全社から一致を表示（未入力時は上位10社）。 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0 10px", flexWrap: "wrap" }}>
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="会社名で検索（このヒートマップ内を絞り込み）"
+          style={{ flex: "1 1 260px", maxWidth: 360, fontSize: 12.5, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }} />
+        {query && <span className="muted" style={{ fontSize: 11.5 }}>{top.length} 社が一致</span>}
+        {query && <button type="button" className="btn ghost btn-xs" onClick={() => setQ("")}>クリア</button>}
+      </div>
+      {top.length === 0 ? (
+        <div className="muted" style={{ fontSize: 12.5, padding: "8px 2px" }}>該当する会社がありません。</div>
+      ) : (
       <table style={{ borderCollapse: "collapse", fontSize: 11.5, minWidth: 600 }}>
         <thead>
           <tr>
@@ -1337,6 +1363,8 @@ function LostHeatmap({ companies, topReasons, lostRows }: { companies: Aggregate
             {topReasons.map((r) => (
               <th key={r} style={{ padding: "4px 8px", borderBottom: "1px solid var(--color-border)", textAlign: "center", fontWeight: 600, color: "var(--color-ink-3)" }} title={r}>{r.length > 16 ? r.slice(0, 16) + "…" : r}</th>
             ))}
+            {/* #464②：右端に期間内の提案数合計。 */}
+            <th style={{ padding: "4px 8px", borderBottom: "1px solid var(--color-border)", textAlign: "center", fontWeight: 700, color: "var(--color-ink-2)", borderLeft: "2px solid var(--color-border)" }}>提案数合計</th>
           </tr>
         </thead>
         <tbody>
@@ -1372,10 +1400,13 @@ function LostHeatmap({ companies, topReasons, lostRows }: { companies: Aggregate
                   </td>
                 );
               })}
+              {/* #464②：提案数合計セル。 */}
+              <td style={{ padding: "4px 8px", textAlign: "center", borderBottom: "1px dashed var(--color-border)", borderLeft: "2px solid var(--color-border)", fontWeight: 700, color: "var(--color-ink)" }}>{c.proposals}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      )}
     </div>
   );
 }
