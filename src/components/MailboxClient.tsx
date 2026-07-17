@@ -90,6 +90,15 @@ function dedupJaccard(a: Set<string>, b: Set<string>): number {
   for (const x of a) if (b.has(x)) inter++;
   return inter / (a.size + b.size - inter);
 }
+// #461：自社ドメイン（案件・人材データを含まない自社アドレス）。重複除去ON時に併せて除外する。
+const OWN_DOMAINS = ["8grp.co.jp"];
+function isOwnDomainMail(r: InboxExportRow): boolean {
+  const em = String((r as any).from_email ?? "").toLowerCase();
+  const m = em.match(/@([a-z0-9.-]+)/);
+  const dom = m ? m[1] : "";
+  return OWN_DOMAINS.some((d) => dom === d || dom.endsWith("." + d));
+}
+
 function dedupeExportRows(rows: InboxExportRow[]): { kept: InboxExportRow[]; removed: number } {
   // 受信日時の新しい順に見て、先に採用した方（＝最新）を残す。
   const sorted = [...rows].sort((a, b) => String((b as any).received_at ?? "").localeCompare(String((a as any).received_at ?? "")));
@@ -270,15 +279,24 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
         if (!res.ok) { setDlMsg(`ダウンロード失敗: ${res.error}`); return; }
         const rowsAll = res.rows ?? [];
         if (rowsAll.length === 0) { setDlMsg("該当期間のメールが0通でした。まず「Gmail 同期」で取り込んでください。"); return; }
+        // #461：重複除去ONのときは自社ドメイン(@8grp.co.jp)＝案件・人材データを含まないメールも除外する。
+        let base = rowsAll;
+        let ownRemoved = 0;
+        if (dlDedup) {
+          const before = base.length;
+          base = base.filter((r) => !isOwnDomainMail(r));
+          ownRemoved = before - base.length;
+        }
         // #435：重複除去（本文ハッシュ完全一致＋同ドメイン準一致は最新のみ残す）。
-        const { kept: rows, removed } = dlDedup ? dedupeExportRows(rowsAll) : { kept: rowsAll, removed: 0 };
+        const { kept: rows, removed } = dlDedup ? dedupeExportRows(base) : { kept: base, removed: 0 };
         const ext = dlFormat === "csv" ? "csv" : "jsonl";
         const tag = (s: string) => (s || "all").replace("T", "_").replace(":", "");
         const filename = `inbox_${tag(dlFrom)}_${tag(dlTo)}.${ext}`;
         const text = dlFormat === "csv" ? rowsToCsv(rows) : rowsToJsonl(rows);
         const mime = dlFormat === "csv" ? "text/csv;charset=utf-8" : "application/x-ndjson;charset=utf-8";
         downloadText(filename, text, mime);
-        setDlMsg(`✓ ${rows.length}通をダウンロードしました${removed > 0 ? `（重複 ${removed}通を除外）` : ""}（${filename}）${res.capped ? "。上限に達したため一部のみ。期間を狭めてください。" : ""}`);
+        const exclParts = [removed > 0 ? `重複 ${removed}通` : "", ownRemoved > 0 ? `自社ドメイン ${ownRemoved}通` : ""].filter(Boolean).join("・");
+        setDlMsg(`✓ ${rows.length}通をダウンロードしました${exclParts ? `（${exclParts}を除外）` : ""}（${filename}）${res.capped ? "。上限に達したため一部のみ。期間を狭めてください。" : ""}`);
       } catch (e) {
         setDlMsg(`ダウンロード失敗: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
@@ -403,10 +421,11 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
           <input type="checkbox" checked={dlInclArchived} onChange={(e) => setDlInclArchived(e.target.checked)} />
           アーカイブも含む
         </label>
-        {/* #435：本文ハッシュ照合＋同ドメイン準一致（担当者違いの同一紹介文）で最新のみ残す。 */}
-        <label title="本文がほぼ同一のメール（同じ案件・人材の紹介が複数届いたもの）は、最新の1通だけを残して書き出します" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
+        {/* #435：本文ハッシュ照合＋同ドメイン準一致（担当者違いの同一紹介文）で最新のみ残す。
+            #461：あわせて自社ドメイン(@8grp.co.jp)＝案件・人材データを含まないメールも除外する。 */}
+        <label title="本文がほぼ同一のメール（同じ案件・人材の紹介が複数届いたもの）は最新の1通だけを残し、あわせて自社ドメイン(@8grp.co.jp)のメールを除外して書き出します" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
           <input type="checkbox" checked={dlDedup} onChange={(e) => setDlDedup(e.target.checked)} />
-          重複メールを除く（最新のみ）
+          重複＋自社ドメインを除く（最新のみ）
         </label>
         <button type="button" className="btn brand" disabled={dlBusy} onClick={downloadRange}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>download</span>

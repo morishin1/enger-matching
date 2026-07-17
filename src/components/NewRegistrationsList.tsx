@@ -80,6 +80,8 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
                 <div key={a.id}
                   style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 12px", borderRadius: 10,
                     background: "var(--color-surface)", border: "1px solid var(--color-border)" }}>
+                  {/* #463：サイドバーと同じ「New」を各行にも表示。承認/却下でこの行が消える＝Newが消える。 */}
+                  <span aria-label="新着" style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".02em", padding: "2px 8px", borderRadius: 99, color: "#fff", background: "var(--color-danger, #dc2626)", flexShrink: 0 }}>New</span>
                   <span style={{ fontSize: 10.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, color: "#b45309", background: "#fff6e0", flexShrink: 0 }}>承認待ち</span>
                   <span title={`登録元：${sm.label}`} style={{ fontSize: 9.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, color: sm.color, background: sourceBgFor(sm.color), border: `1px solid ${sourceBgFor(sm.color)}`, flexShrink: 0 }}>{sm.short}</span>
                   <b style={{ fontSize: 12.5 }}>{a.name || "（名前未設定）"}</b>
