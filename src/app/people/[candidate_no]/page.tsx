@@ -7,6 +7,7 @@ import { EditCandidateButton } from "@/components/EditEntryButton";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { CandidateNoteEditor } from "@/components/CandidateNoteEditor";
+import { CandidateAgeBandEditor } from "@/components/CandidateAgeBandEditor";
 import { CandidateSkillsToolsEditor } from "@/components/CandidateSkillsToolsEditor";
 import { IntroLinkButton } from "@/components/IntroLinkButton";
 import { engerClient, engerAdmin, publicAdmin, dbConfigured } from "@/lib/supabase";
@@ -225,7 +226,7 @@ export default async function SkillSheetPage({ params }: { params: Promise<{ can
             : (c.affiliation ?? "");
           const rows: [string, React.ReactNode][][] = [
             [["ステータス", c.status ?? ""], ["ランク", c.rank ?? ""], ["希望単価", c.rate ?? (c.salary_min || c.salary_max ? `${c.salary_min ?? ""}〜${c.salary_max ?? ""}万円` : "")]],
-            [["年齢（年代）", c.age_band ?? ""], ["国籍", c.nationality ? <NatBadge value={c.nationality} /> : ""]],
+            [["年齢（年代）", <CandidateAgeBandEditor candidateNo={c.candidate_no} initial={c.age_band ?? ""} />], ["国籍", c.nationality ? <NatBadge value={c.nationality} /> : ""]],
             [["稼働開始予定日", c.avail ?? ""], ["リモート希望", c.remote_pref ?? ""], ["経験", expVal]],
             // #446①：location は最寄り駅を保存している欄のため、表示名を「勤務地」→「最寄り駅」に変更。
             [["最寄り駅", c.location ?? ""], ["居住地", c.residence ?? ""]],

@@ -267,6 +267,10 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
             const hasChildren = (n.children?.length ?? 0) > 0;
             const childOnPath = n.children?.some((c) => pathname === c.href || pathname.startsWith(c.href + "/")) ?? false;
             const parentActive = isActive(n.href) || childOnPath;
+            // #463：新着（newCount）があるメニューは、クリック時に該当の「新着」タブへ直接飛ばす。
+            //   企業管理→/companies?tab=new。これで「Newを押したのに新着が見つからない」を解消する。
+            const newN2 = n.newCount ? (counts?.[n.newCount] ?? 0) : 0;
+            const linkHref = (n.id === "companies" && newN2 > 0) ? "/companies?tab=new" : n.href;
             const isOpen = hasChildren && (expanded[n.id] ?? childOnPath);
             // 外部リンク（例: enger-lp のチャット）は Next Link ではなく素の <a> で別タブ遷移。
             //   dx の force-dynamic 先読み対象外・アクティブ判定対象外にする。
@@ -296,7 +300,7 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                       RSC を先読みし、各 force-dynamic ページ(認証+DBクエリ)を一斉実行してしまう。
                       これが「どのページを開いても約20本の重い関数が同時実行→混雑して /proposals が
                       遅い」主因＆認証/DBリクエスト過多の原因。実クリック時のみ取得する。 */}
-                  <Link href={n.href} prefetch={false} className={"nav-item " + (parentActive ? "active" : "")}
+                  <Link href={linkHref} prefetch={false} className={"nav-item " + (parentActive ? "active" : "")}
                     style={{ flex: 1, minWidth: 0, paddingRight: hasChildren ? 6 : undefined }}>
                     <span className="ico">{Ico && <Ico />}</span>
                     <span className="nav-text">
