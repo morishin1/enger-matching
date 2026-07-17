@@ -12,9 +12,13 @@ export type MatchingRecord = {
   stage: string | null;
   progress_status: string | null;
   created_at: string | null;
+  // #470：提案日＋案件先/人材先の応答（話を進める=緑/見送り=赤/未回答）を詳細ページにも表示する。
+  proposed_at?: string | null;
+  job_action_type?: string | null;
+  cand_action_type?: string | null;
 };
 
-const COLS = "id, job_id, candidate_id, job_title, candidate_name, stage, progress_status, created_at";
+const COLS = "id, job_id, candidate_id, job_title, candidate_name, stage, progress_status, proposed_at, job_action_type, cand_action_type, created_at";
 const COLS_FALLBACK = "id, job_id, candidate_id, job_title, candidate_name, stage, created_at";
 
 /** candidate_id または job_id に紐づくマッチングレコードを新しい順で返す。

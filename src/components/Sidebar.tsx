@@ -318,15 +318,13 @@ export function Sidebar({ counts, role = "admin", open = false, functions = [], 
                         style={{ flexShrink: 0, marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: ".02em", color: "#fff", background: "var(--color-danger,#dc2626)", padding: "1px 7px", borderRadius: 99 }}>New</span>
                     )}
                     {/* 新着登録（newCount：企業管理＝ビジネス登録／マッチング＝フリーランス登録）。
-                        チャットの New マークと同じ見た目で「New＋件数」を表示する。 */}
+                        #467：項目名を隠さないよう「New」だけを右寄せで表示（件数は出さない）。 */}
                     {(() => { const nn = n.newCount ? (counts?.[n.newCount] ?? 0) : 0; return nn > 0 ? (
                       <span aria-label={`新着 ${nn} 件`} title={`未対応の新着登録が ${nn} 件あります`}
-                        style={{ flexShrink: 0, marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".02em", color: "#fff", background: "var(--color-danger,#dc2626)", padding: "1px 7px", borderRadius: 99 }}>New</span>
-                        <span className="badge hot">{fmt(nn)}</span>
-                      </span>
+                        style={{ flexShrink: 0, marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: ".02em", color: "#fff", background: "var(--color-danger,#dc2626)", padding: "1px 7px", borderRadius: 99 }}>New</span>
                     ) : null; })()}
-                    {badge != null && <span className={"badge " + (n.hot ? "hot" : "")} style={n.hot ? { marginLeft: 6 } : undefined}>{badge}</span>}
+                    {/* #467：hot（チャット等）は「New」だけ表示し、隣の数字は出さない（項目名を隠さない）。 */}
+                    {badge != null && !n.hot && <span className="badge">{badge}</span>}
                     {partialLocked && (
                       <span className="material-symbols-outlined" aria-label="承認前は一部のみ"
                         title="承認前は匿名情報のみ。承認後にフル機能が使えます。"
