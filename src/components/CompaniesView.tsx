@@ -7,7 +7,7 @@ import { Icons } from "./icons";
 import { targetScore, prospectAction, companyIdLabel, type CompanyRow, type ProspectAction } from "@/lib/companies";
 import { StarsView } from "./Stars";
 import type { CompanyRating } from "@/lib/company-ratings";
-import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, diagnoseCompanyMeetingDone, summarizeCompanyReputation, type CompanyDiagnosis } from "@/lib/actions";
+import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, bulkDeleteCompanies, mergeCompanies, previewMergeCompanies, diagnoseCompanyMeetingDone, summarizeCompanyReputation, type CompanyDiagnosis } from "@/lib/actions";
 import { ReferralPortalSection } from "./ReferralPortalSection";
 
 type Registered = {
@@ -119,6 +119,52 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
       setBulkBusy(false);
       setTimeout(() => setBulkMsg(null), 5000);
     }
+  };
+
+  // #465①：選択企業を一括削除（確認モーダル）。
+  const [delOpen, setDelOpen] = useState(false);
+  const doBulkDelete = async () => {
+    const names = [...selected];
+    if (names.length === 0) { setDelOpen(false); return; }
+    setBulkBusy(true); setBulkMsg(null);
+    try {
+      const res = await bulkDeleteCompanies(names);
+      if (res.ok) { setBulkMsg({ ok: true, text: `${res.deleted} 社の企業情報を削除しました` }); clearSel(); router.refresh(); }
+      else setBulkMsg({ ok: false, text: res.error ?? "削除に失敗しました" });
+    } catch (e) {
+      setBulkMsg({ ok: false, text: e instanceof Error ? e.message : "削除に失敗しました" });
+    } finally { setBulkBusy(false); setDelOpen(false); setTimeout(() => setBulkMsg(null), 6000); }
+  };
+
+  // #465②：選択企業のデータ統合（統合先を選ぶ → 影響件数を確認 → 実行）。
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState<string>("");
+  const [mergePreview, setMergePreview] = useState<{ jobs: number; candidates: number; proposals: number; meetings: number } | null>(null);
+  const openMerge = async () => {
+    const names = [...selected];
+    if (names.length < 2) { setBulkMsg({ ok: false, text: "統合には2社以上を選択してください" }); setTimeout(() => setBulkMsg(null), 4000); return; }
+    setMergeTarget(names[0]);
+    setMergeOpen(true);
+    setMergePreview(null);
+    try {
+      const res = await previewMergeCompanies(names);
+      if (res.ok) setMergePreview({ jobs: res.jobs, candidates: res.candidates, proposals: res.proposals, meetings: res.meetings });
+    } catch { /* プレビュー失敗は無視（件数非表示のまま実行可） */ }
+  };
+  const doMerge = async () => {
+    const names = [...selected];
+    const sources = names.filter((n) => n !== mergeTarget);
+    if (!mergeTarget || sources.length === 0) { setBulkMsg({ ok: false, text: "統合先と統合元を確認してください" }); return; }
+    setBulkBusy(true); setBulkMsg(null);
+    try {
+      const res = await mergeCompanies(sources, mergeTarget);
+      if (res.ok) {
+        setBulkMsg({ ok: true, text: `「${mergeTarget}」に統合しました（案件${res.result.jobs}・人材${res.result.candidates}・提案${res.result.proposals}・打合せ${res.result.meetings}件を付け替え）` });
+        clearSel(); router.refresh();
+      } else setBulkMsg({ ok: false, text: res.error ?? "統合に失敗しました" });
+    } catch (e) {
+      setBulkMsg({ ok: false, text: e instanceof Error ? e.message : "統合に失敗しました" });
+    } finally { setBulkBusy(false); setMergeOpen(false); setTimeout(() => setBulkMsg(null), 8000); }
   };
 
   // 企業名の突合キー。書き込み側(setCompanyMeetingDone等)は trim した名前で保存するため、
@@ -565,7 +611,72 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
               {bulkBusy ? " 保存中…" : " 打合せ完了にする"}
             </button>
             <button type="button" className="btn ghost" onClick={() => doBulkMeetingDone(false)} disabled={bulkBusy}>打合せ完了を解除</button>
+            {/* #465②：データ統合（2社以上選択時）。 */}
+            <button type="button" className="btn ghost" onClick={openMerge} disabled={bulkBusy || selected.size < 2}
+              title="選択した企業を1社に統合し、案件・人材のクライアント名を統合先に付け替えます">
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>merge</span> データを統合
+            </button>
+            {/* #465①：一括削除。 */}
+            <button type="button" className="btn ghost" onClick={() => setDelOpen(true)} disabled={bulkBusy}
+              style={{ color: "#fecaca", borderColor: "#7f1d1d" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "-3px" }}>delete</span> 削除
+            </button>
             <button type="button" className="btn ghost" onClick={clearSel} disabled={bulkBusy}>選択解除</button>
+          </div>
+        </div>
+      )}
+
+      {/* #465①：一括削除の確認モーダル */}
+      {delOpen && (
+        <div onClick={() => !bulkBusy && setDelOpen(false)} role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "grid", placeItems: "center", zIndex: 600, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 480, padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{selected.size} 社の企業情報を削除します</h3>
+            <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+              企業マスタの登録情報（連絡先・メモ・取引注意など）を削除します。この操作は取り消せません。
+              <br />
+              <b>注意：</b>案件・人材が紐づく企業は、一覧が案件のクライアント名から集計されるため、削除後も集計行として残ることがあります（その場合は「データを統合」をご利用ください）。
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setDelOpen(false)} disabled={bulkBusy}>キャンセル</button>
+              <button type="button" className="btn btn-xs" onClick={doBulkDelete} disabled={bulkBusy} style={{ background: "var(--color-danger, #b42318)", borderColor: "var(--color-danger, #b42318)", color: "#fff" }}>
+                {bulkBusy ? "削除中…" : "削除する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* #465②：データ統合モーダル（統合先の選択＋影響件数の確認） */}
+      {mergeOpen && (
+        <div onClick={() => !bulkBusy && setMergeOpen(false)} role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "grid", placeItems: "center", zIndex: 600, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 540, padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>企業データの統合</h3>
+            <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.7 }}>
+              統合先の1社を選んでください。<b>他の選択企業</b>に紐づく案件・人材・提案・打合せの会社名が、統合先の名前に付け替わります（統合先のデータはそのまま残ります）。
+            </div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+              <span className="muted">統合先（この会社に集約）</span>
+              <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)}
+                style={{ fontFamily: "inherit", fontSize: 13, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+                {[...selected].map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            <div style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
+              統合元（{[...selected].filter((n) => n !== mergeTarget).length} 社）：{[...selected].filter((n) => n !== mergeTarget).join("、") || "—"}
+            </div>
+            <div style={{ background: "var(--color-surface-soft)", border: "1px solid var(--color-border)", borderRadius: 10, padding: "10px 12px", fontSize: 12.5 }}>
+              {mergePreview
+                ? <>付け替え対象：案件 <b>{mergePreview.jobs}</b> 件 ／ 人材 <b>{mergePreview.candidates}</b> 件 ／ 提案 <b>{mergePreview.proposals}</b> 件 ／ 打合せ <b>{mergePreview.meetings}</b> 件</>
+                : <span className="muted">影響件数を集計中…</span>}
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--color-danger)" }}>※ 名前の付け替えは元に戻せません。統合元の企業マスタ行は削除されます。</div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn ghost btn-xs" onClick={() => setMergeOpen(false)} disabled={bulkBusy}>キャンセル</button>
+              <button type="button" className="btn btn-xs" onClick={doMerge} disabled={bulkBusy || [...selected].filter((n) => n !== mergeTarget).length === 0}
+                style={{ background: "var(--color-brand-600)", borderColor: "var(--color-brand-600)", color: "#fff" }}>
+                {bulkBusy ? "統合中…" : "この内容で統合する"}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -131,7 +131,8 @@ async function fetchCompanies(): Promise<CompanyRow[] | null> {
 }
 
 // 案件集計は重いので 5 分キャッシュ
-export const getCompanyOverview = unstable_cache(fetchCompanies, ["company-overview"], { revalidate: 300 });
+// tags で明示無効化できるようにする（#465：企業の削除・統合の直後に一覧へ反映するため）。
+export const getCompanyOverview = unstable_cache(fetchCompanies, ["company-overview"], { revalidate: 300, tags: ["company-overview"] });
 
 // ===== 取引構造（エンド/SI＝案件元 × パートナーSES＝人材元）=====
 
