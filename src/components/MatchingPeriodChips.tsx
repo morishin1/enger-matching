@@ -6,12 +6,14 @@
 //   これにより matching/page.tsx 側のフィルタ計算（mPeriod/mCustom・inClientPeriod/inCustomRange）
 //   は一切変更不要（from/to があれば custom 扱いという既存ロジックをそのまま使い回す）。
 //   コンポーネント名・呼び出し方（<MatchingPeriodChips />）は既存のまま維持し、見た目のみ刷新する。
+import { useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { YearMonthPeriodBar } from "./YearMonthPeriodBar";
 import { hasCustomRange, monthToRange, resolveMonthBarDisplay } from "@/lib/period";
 
 export function MatchingPeriodChips() {
   const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const sp = useSearchParams();
   const period = sp?.get("period") ?? "";
   const from = sp?.get("from") ?? "";
@@ -29,7 +31,9 @@ export function MatchingPeriodChips() {
   const bareVisit = !period && !custom;
   if (bareVisit) { year = now.getFullYear(); activeMonth = now.getMonth() + 1; }
 
-  const push = (params: URLSearchParams) => router.push(`/matching?${params.toString()}`);
+  // #462②：期間切替を transition でラップする。これにより route の loading.tsx（全画面スピナー）に
+  //   置き換わらず、現在の一覧を表示したまま裏で更新でき、切替の体感が軽くなる。
+  const push = (params: URLSearchParams) => startTransition(() => router.push(`/matching?${params.toString()}`));
   const withBase = () => new URLSearchParams(sp?.toString() ?? "");
 
   const selectMonth = (y: number, m: number) => {
@@ -58,22 +62,26 @@ export function MatchingPeriodChips() {
   // 「全期間」は明示選択（?period=all）のときだけアクティブ。初回（bareVisit）は当月選択なので非アクティブ。
   const isAll = !custom && period === "all";
   return (
-    <YearMonthPeriodBar
-      year={year}
-      activeMonth={activeMonth}
-      onSelectMonth={selectMonth}
-      onShiftYear={shiftYear}
-      calendarMode="range"
-      range={custom && !activeMonth ? { from, to } : null}
-      onSelectRange={selectRange}
-      onClearRange={clearRange}
-      shortcuts={[
-        { key: "today", label: "今日", active: !custom && period === "today", onClick: () => setPreset("today") },
-        // #345②：今日と今週の間に「3日以内」を追加。
-        { key: "3days", label: "3日以内", active: !custom && period === "3days", onClick: () => setPreset("3days") },
-        { key: "week", label: "今週", active: !custom && period === "week", onClick: () => setPreset("week") },
-        { key: "all", label: "全期間", active: isAll, onClick: () => setPreset("all") },
-      ]}
-    />
+    // 更新中は薄く表示して「切替が効いている」ことを示しつつ、一覧はそのまま操作可能に保つ。
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: pending ? 0.6 : 1, transition: "opacity .12s" }}>
+      <YearMonthPeriodBar
+        year={year}
+        activeMonth={activeMonth}
+        onSelectMonth={selectMonth}
+        onShiftYear={shiftYear}
+        calendarMode="range"
+        range={custom && !activeMonth ? { from, to } : null}
+        onSelectRange={selectRange}
+        onClearRange={clearRange}
+        shortcuts={[
+          { key: "today", label: "今日", active: !custom && period === "today", onClick: () => setPreset("today") },
+          // #345②：今日と今週の間に「3日以内」を追加。
+          { key: "3days", label: "3日以内", active: !custom && period === "3days", onClick: () => setPreset("3days") },
+          { key: "week", label: "今週", active: !custom && period === "week", onClick: () => setPreset("week") },
+          { key: "all", label: "全期間", active: isAll, onClick: () => setPreset("all") },
+        ]}
+      />
+      {pending && <span className="muted" style={{ fontSize: 11 }} aria-live="polite">更新中…</span>}
+    </span>
   );
 }
