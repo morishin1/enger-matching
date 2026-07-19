@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { authServerClient, publicOrigin } from "@/lib/supabase-auth";
 import { resolveAccess, createPendingAccount } from "@/lib/accounts";
 import { isDxBlockedRole, DX_BLOCKED_MESSAGE } from "@/lib/roles";
 import { hasFreelanceProfile, markBusinessAuthApp } from "@/lib/auth-apps";
 import { isDisposableEmail } from "@/lib/signup-security";
+import { OAUTH_NEXT_COOKIE, safeNext, clearOAuthNext } from "@/lib/oauth-next";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +14,17 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const origin = publicOrigin(req);
   const code = url.searchParams.get("code");
-  const nextRaw = url.searchParams.get("next");
-  // オープンリダイレクト防止：自サイト内の相対パスのみ許可
-  const next = nextRaw && nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/";
+  // 遷移先(next)は redirectTo のクエリではなく短命Cookieで運ぶ（Supabase 許可リスト対策・
+  //   詳細は lib/oauth-next.ts）。後方互換で ?next= が付いていればそちらを優先。
+  const store = await cookies();
+  const next = safeNext(url.searchParams.get("next") ?? store.get(OAUTH_NEXT_COOKIE)?.value);
   const errParam = url.searchParams.get("error_description") || url.searchParams.get("error");
-  if (errParam) return NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(errParam)}`);
-  if (!code) return NextResponse.redirect(`${origin}/login?err=missing_code`);
+  if (errParam) return clearOAuthNext(NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(errParam)}`));
+  if (!code) return clearOAuthNext(NextResponse.redirect(`${origin}/login?err=missing_code`));
 
   const supabase = await authServerClient();
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) return NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(error.message)}`);
+  if (error) return clearOAuthNext(NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(error.message)}`));
 
   // 入室不可時はセッションを必ず破棄してから /login へ。
   //   ※ signOut は await しないと Cookie 削除が応答の Set-Cookie に乗らず、直前の
@@ -29,7 +32,7 @@ export async function GET(req: Request) {
   //     scope:'local' で GoTrue への往復なしに Cookie だけ確実に削除する。
   const deny = async (msg: string) => {
     try { await supabase.auth.signOut({ scope: "local" }); } catch { /* Cookie 削除はベストエフォート */ }
-    return NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(msg)}`);
+    return clearOAuthNext(NextResponse.redirect(`${origin}/login?err=${encodeURIComponent(msg)}`));
   };
 
   // role/status チェック
@@ -64,5 +67,5 @@ export async function GET(req: Request) {
   if (access.status === "pending") return await deny("メールアドレスの確認が完了しました。管理者の承認後にログインできます（承認まで今しばらくお待ちください）。");
   if (access.status === "disabled") return await deny("このアカウントは無効化されています。管理者にお問い合わせください。");
 
-  return NextResponse.redirect(`${origin}${next}`);
+  return clearOAuthNext(NextResponse.redirect(`${origin}${next}`));
 }
