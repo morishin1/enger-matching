@@ -34,15 +34,25 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
         ]);
         engTotal = e.count ?? 0;
         jobsPub = j.count ?? 0;
-        // 匿名の注目案件（高単価順・企業名は出さない）
+        // 匿名の注目案件（高単価順・企業名は出さない）。
+        //   ★単価データに桁崩れ（raw円やゼロ埋め）が混在し「¥111〜100000000万」のような
+        //     崩れた投稿文が出ていたため、月額が万単位で妥当な帯(20〜300万)の案件だけを採用する。
         const s = await sb.from("jobs").select("role_label, skills, salary_min, salary_max, remote_type")
-          .eq("is_published", true).not("salary_max", "is", null).order("salary_max", { ascending: false }).limit(3);
-        sample = ((s.data ?? []) as any[]).map((r) => ({
-          role: r.role_label || "エンジニア",
-          skills: (r.skills ?? []).slice(0, 3),
-          rate: rateLabel(r.salary_min, r.salary_max),
-          remote: remoteLabel(r.remote_type),
-        }));
+          .eq("is_published", true).not("salary_max", "is", null).order("salary_max", { ascending: false }).limit(50);
+        const saneRate = (lo: number, hi: number) => {
+          const okHi = Number.isFinite(hi) && hi >= 20 && hi <= 300;
+          const okLo = !lo || (Number.isFinite(lo) && lo >= 10 && lo <= hi);
+          return okHi && okLo;
+        };
+        sample = ((s.data ?? []) as any[])
+          .filter((r) => saneRate(Number(r.salary_min), Number(r.salary_max)))
+          .slice(0, 2)
+          .map((r) => ({
+            role: r.role_label || "エンジニア",
+            skills: (r.skills ?? []).slice(0, 3),
+            rate: rateLabel(r.salary_min, r.salary_max),
+            remote: remoteLabel(r.remote_type),
+          }));
       } else if (tab === "inflow") {
         // X集客PR経由（signup_source='x'）の 登録→面談→成約 ファネル。人材ID(engineer_id)で突合。
         const pub = publicAdmin();
