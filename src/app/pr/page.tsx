@@ -10,7 +10,7 @@ const remoteLabel = (r?: string | null) => (r === "full_remote" ? "フルリモ�
 const rateLabel = (lo?: number | null, hi?: number | null) => (lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `¥${hi}万〜` : lo ? `¥${lo}万〜` : "");
 
 // PrComposer のテンプレID → 表示名（pr_posts.kind と一致させる。src/components/PrComposer.tsx 参照）。
-const KIND_LABEL: Record<string, string> = { count: "登録数アピール", jobs: "今週の新着案件", value: "市場価値診断" };
+const KIND_LABEL: Record<string, string> = { count: "登録数アピール", jobs: "今週の新着案件", value: "市場価値診断", job: "案件カード" };
 
 type PrPost = { operator: string | null; kind: string | null; created_at: string };
 
@@ -20,6 +20,7 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
 
   let engTotal = 0, jobsPub = 0;
   let sample: { skills: string[]; rate: string; remote: string; role: string }[] = [];
+  let jobsList: { no: string; role: string; title: string; skills: string[]; rate: string; remote: string }[] = [];
   let posts: PrPost[] = [];
   let inflow = { registered: 0, met: 0, closed: 0 };
 
@@ -50,6 +51,20 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
           .map((r) => ({
             role: r.role_label || "エンジニア",
             skills: (r.skills ?? []).slice(0, 3),
+            rate: rateLabel(r.salary_min, r.salary_max),
+            remote: remoteLabel(r.remote_type),
+          }));
+        // 案件カード投稿用：公開中で単価が妥当な案件を新着順に取得（/job/<No> の動的OGPカードが付く）。
+        const jl = await sb.from("jobs").select("job_no, role_label, title, skills, salary_min, salary_max, remote_type")
+          .eq("is_published", true).not("job_no", "is", null).order("created_at", { ascending: false }).limit(60);
+        jobsList = ((jl.data ?? []) as any[])
+          .filter((r) => r.job_no != null && saneRate(Number(r.salary_min), Number(r.salary_max)))
+          .slice(0, 24)
+          .map((r) => ({
+            no: String(r.job_no),
+            role: r.role_label || "エンジニア",
+            title: String(r.title ?? ""),
+            skills: (r.skills ?? []).map((s: any) => String(s)).slice(0, 4),
             rate: rateLabel(r.salary_min, r.salary_max),
             remote: remoteLabel(r.remote_type),
           }));
@@ -102,7 +117,7 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
       />
 
       {tab === "compose"
-        ? <PrComposer engTotal={engTotal} jobsPub={jobsPub} sample={sample} />
+        ? <PrComposer engTotal={engTotal} jobsPub={jobsPub} sample={sample} jobs={jobsList} />
         : tab === "inflow"
           ? <XInflowView inflow={inflow} />
           : <PrHistoryView posts={postsInPeriod} />}
