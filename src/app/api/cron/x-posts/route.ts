@@ -1,6 +1,7 @@
 // X集客PRの投稿文を時間帯ごとに自動生成し、Slack に「ワンクリックで投稿できる形」で流す定期ジョブ。
 //   運用: GitHub Actions（.github/workflows/x-posts.yml）から時間帯ごとに ?slot= を付けて叩く。
-//   保護: Authorization: Bearer ${CRON_SECRET}（auto-ingest と同じ）。
+//   保護（任意）: CRON_SECRET を設定していれば Authorization: Bearer ${CRON_SECRET} を要求する。
+//     未設定でも動作する（副作用は自社Slackへの投稿下書き通知のみ・データ露出/実投稿なし）。
 //   ※ 実投稿はしない（X API 不要）。Slack に貼られた「▶ Xに投稿」リンクを担当が押すと、
 //      X の投稿画面が本文＋案件リンク付きで開く（リンク先 /job/<No> の案件カードが自動添付）。
 //
@@ -137,9 +138,11 @@ function inferSlot(): Slot {
 }
 
 async function handle(req: Request) {
+  // 保護は任意。CRON_SECRET を設定していれば Bearer 一致を要求する（推奨）。
+  //   未設定でも動作する：このエンドポイントの副作用は「自社Slackに投稿下書きを流す」だけで、
+  //   データ露出や外部への実投稿（X等）は一切ないため。まず手軽に動かしたい場合は未設定でよい。
   const secret = process.env.CRON_SECRET;
-  if (!secret) return Response.json({ ok: false, error: "CRON_SECRET 未設定" }, { status: 503 });
-  if ((req.headers.get("authorization") ?? "") !== `Bearer ${secret}`)
+  if (secret && (req.headers.get("authorization") ?? "") !== `Bearer ${secret}`)
     return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
