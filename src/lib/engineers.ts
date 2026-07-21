@@ -88,6 +88,7 @@ const LP_LABEL: Record<string, { label: string; color: EngineerSource["color"] }
   enger_lp:   { label: "ENGERフリーランス", color: "brand" },
   dojo:       { label: "無限道場LP", color: "warn" },
   mugen_dojo: { label: "無限道場LP", color: "warn" },
+  x:          { label: "X（集客PR）", color: "accent" },  // X集客PR経由（utm_source=x → signup_source='x'）
 };
 const METHOD_LABEL: Record<string, string> = {
   github: "GitHub",
