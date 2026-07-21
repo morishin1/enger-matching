@@ -5,9 +5,16 @@ import { logPrPost } from "@/app/pr/actions";
 
 type Sample = { skills: string[]; rate: string; remote: string; role: string };
 
-const SIGNUP = "https://enger.jp/signup";
-const TOP = "https://enger.jp";
-const JOBS = "https://enger.jp/jobs";
+// X（Twitter）流入計測のUTM。LP(enger.jp)側は utm_source=x を見て signup_source='x' を記録し、
+//   dx の「X流入レポート」で 登録→面談→成約 まで突合できるようにする。
+//   utm_content で「どの投稿（登録数/案件/市場価値）」が効いたかを判別する。
+function withUtm(base: string, content: string) {
+  const q = new URLSearchParams({ utm_source: "x", utm_medium: "social", utm_campaign: "pr", utm_content: content });
+  return `${base}${base.includes("?") ? "&" : "?"}${q.toString()}`;
+}
+const SIGNUP = withUtm("https://enger.jp/signup", "count");
+const TOP = withUtm("https://enger.jp", "value");
+const JOBS = withUtm("https://enger.jp/jobs", "jobs");
 
 function xIntent(text: string, url: string) {
   const u = new URLSearchParams({ text, url });
