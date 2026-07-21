@@ -6,6 +6,7 @@ import { engerAdmin, authAdmin, publicAdmin } from "@/lib/supabase";
 import { authServerClient, authConfigured } from "@/lib/supabase-auth";
 import { resolveAccess } from "@/lib/accounts";
 import { markBusinessAuthApp } from "@/lib/auth-apps";
+import { prepareCandidateFromFreelancer, registerCandidateFromFreelancer, setEngineerMeetingDone } from "@/app/engineers/actions";
 
 type Result = { ok: boolean; error?: string };
 
@@ -264,6 +265,69 @@ export async function rejectTalentEntry(entryId: string): Promise<Result> {
     revalidatePath("/newcomers");
     return { ok: true };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
+}
+
+/**
+ * 新着一覧の「面談」チェック＝新規登録者を1アクションで本登録＋全機能解放する。
+ *   ① 承認（app_users を active／LP登録エントリーは取込RPC）
+ *   ② フリーランス（profile/auth 由来）は enger.candidates へ登録＝マッチング対象化
+ *   ③ 面談済（engineer_actions "面談済"）を付与＝人材ダッシュボードの全機能を解放
+ * 既存のテスト済みアクション（approveAccount / approveTalentEntry /
+ * prepareCandidateFromFreelancer / registerCandidateFromFreelancer /
+ * setEngineerMeetingDone）を組み合わせるだけで、新しい判定ロジックは足さない。
+ */
+export async function approveNewcomerAsMeeting(input: {
+  id: string; email: string; name?: string | null; role: string; company_name?: string | null;
+}): Promise<Result> {
+  const { id, email } = input;
+  const name = input.name ?? null;
+  // LP登録エントリー（COO 等）は取込RPCで candidates 化（＝マッチング対象）。面談済の概念は取込側で扱う。
+  if (id.startsWith("entry:")) {
+    return await approveTalentEntry(id);
+  }
+
+  // 1) 承認（app_users を active / role 確定）。LP仮想行は email/name を添える。
+  const fd = new FormData();
+  fd.set("id", id);
+  fd.set("role", input.role || "candidate");
+  if (input.company_name) fd.set("company_name", input.company_name);
+  if (id.startsWith("profile:") || id.startsWith("auth:")) {
+    fd.set("email", email); if (name) fd.set("name", name);
+  }
+  const appr = await approveAccount(fd);
+  if (!appr.ok) return appr;
+
+  // profile:/auth: 以外（実 app_users id）はフリーランス登録の対象外。承認のみで完了。
+  const engineerId = id.startsWith("profile:") ? id.slice("profile:".length)
+    : id.startsWith("auth:") ? id.slice("auth:".length) : "";
+  if (!engineerId) return { ok: true };
+
+  // 2) フリーランス → enger.candidates へ登録（マッチング対象化）。best-effort。
+  try {
+    const prep = await prepareCandidateFromFreelancer(engineerId);
+    if (prep.ok && prep.data && !prep.data.already_no) {
+      await registerCandidateFromFreelancer({
+        engineer_id: engineerId,
+        name: prep.data.name || name || (email.split("@")[0] ?? "候補者"),
+        title: prep.data.title || null,
+        affiliation: prep.data.affiliation || null,
+        skills: prep.data.skills, tools: prep.data.tools,
+        rate: prep.data.rate || null, rate_num: prep.data.rate_num,
+        location: prep.data.location || null, residence: prep.data.residence || null,
+        remote_pref: prep.data.remote_pref || null, age_band: prep.data.age_band || null,
+        nationality: prep.data.nationality || null, email: prep.data.email || email,
+        industries: prep.data.industries || null, pr_text: prep.data.pr_text || null,
+        skill_sheets: prep.data.skill_sheets,
+      });
+    }
+  } catch (e) { console.error("[approveNewcomerAsMeeting] candidate register failed", e); }
+
+  // 3) 面談済（全機能解放）。
+  try { await setEngineerMeetingDone({ engineer_id: engineerId, engineer_name: name, done: true }); }
+  catch (e) { console.error("[approveNewcomerAsMeeting] meeting-done failed", e); }
+
+  revalidatePath("/matching"); revalidatePath("/people"); revalidateTag("sidebar-counts", "max");
+  return { ok: true };
 }
 
 /** 面談済みフラグ：詳細閲覧の解放/再制限。 */
