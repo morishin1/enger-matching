@@ -8,9 +8,10 @@
 //   スロット（JST）:
 //     morning   08:00  高単価・新着案件
 //     noon      12:15  フルリモート・柔軟な案件
-//     afternoon 15:00  本日の新着案件まとめ
+//     afternoon 15:00  本日の新着案件
 //     night     21:00  注目案件＋無料登録の案内
-//   slot 未指定時は現在時刻(JST)から最も近いスロットを推定。slot=all で4本まとめて送る。
+//   各スロットは候補カードを複数（既定3件）Slackに出し、担当が1つ選んで投稿する。
+//   slot 未指定時は現在時刻(JST)から最も近いスロットを推定。slot=all で4スロット送る。
 //   ?dry=1 で Slack 送信せず生成結果を JSON で返す（確認用）。
 import { engerAdmin } from "@/lib/supabase";
 import { notifySlack } from "@/lib/slack";
@@ -81,51 +82,60 @@ function jstTodayStartIso(): string {
 
 type Post = { slot: Slot; label: string; tweet: string; url: string; no: string | null };
 
-async function buildPost(admin: ReturnType<typeof engerAdmin>, slot: Slot): Promise<Post | null> {
-  const label = SLOT_LABEL[slot];
-  const head = (j: J) => [j.remote, j.role].filter(Boolean).join("・");
-  const skillHash = (j: J) => (j.skills[0] && tagize(j.skills[0]) ? ` #${tagize(j.skills[0])}案件` : "");
+const CANDIDATES = 3; // 各時間帯で提示する候補カード数（担当が1つ選んで投稿）。
 
-  if (slot === "morning") {
-    const j = (await queryJobs(admin, { bySalary: true, limit: 20 }))[0];
-    if (!j) return null;
-    const tweet = `🔥高単価の新着案件\n【${head(j)}】${j.rate}\n${j.skills.slice(0, 3).join("・")}\nあなたのスキルでこの単価、狙えます。マッチ度を30秒で診断👇\n#フリーランス #高単価案件${skillHash(j)}`;
-    return { slot, label, tweet, url: jobUrl(j.no, slot), no: j.no };
-  }
-  if (slot === "noon") {
-    const j = (await queryJobs(admin, { fullRemote: true, limit: 20 }))[0]
-      ?? (await queryJobs(admin, { limit: 20 }))[0];
-    if (!j) return null;
-    const tweet = `🏠フルリモート・柔軟に働ける案件\n【${head(j)}】${j.rate}\n${j.skills.slice(0, 3).join("・")}\n通勤なし、自分のペースで。まずは30秒でマッチ度診断👇\n#フリーランス #リモート案件${skillHash(j)}`;
-    return { slot, label, tweet, url: jobUrl(j.no, slot), no: j.no };
-  }
-  if (slot === "afternoon") {
-    let todays = await queryJobs(admin, { sinceIso: jstTodayStartIso(), limit: 20 });
-    if (todays.length === 0) todays = await queryJobs(admin, { limit: 6 }); // 本日分が無ければ直近から
-    const lead = todays[0];
-    if (!lead) return null;
-    const lines = todays.slice(0, 3).map((j) => `・${[j.remote, j.role, j.rate].filter(Boolean).join(" / ")}`);
-    const tweet = `📋本日の新着案件まとめ（${todays.length}件）\n${lines.join("\n")}\nあなたに合う案件をマッチ度順で。30秒診断👇\n#フリーランス #エンジニア案件`;
-    return { slot, label, tweet, url: jobUrl(lead.no, slot), no: lead.no };
-  }
-  // night
-  const j = (await queryJobs(admin, { bySalary: true, limit: 20 }))[0];
-  if (!j) return null;
-  const tweet = `✨注目のフリーランス案件\n【${head(j)}】${j.rate}\n${j.skills.slice(0, 3).join("・")}\n登録無料・カード不要。あなたに合うか30秒で診断できます👇\n#フリーランス #エンジニア案件${skillHash(j)}`;
-  return { slot, label, tweet, url: jobUrl(j.no, slot), no: j.no };
+const head = (j: J) => [j.remote, j.role].filter(Boolean).join("・");
+const skillHash = (j: J) => (j.skills[0] && tagize(j.skills[0]) ? ` #${tagize(j.skills[0])}案件` : "");
+
+/** スロットのテーマに沿った投稿文を、対象案件から生成する。 */
+function tweetFor(slot: Slot, j: J): string {
+  const s3 = j.skills.slice(0, 3).join("・");
+  if (slot === "morning")
+    return `🔥高単価の新着案件\n【${head(j)}】${j.rate}\n${s3}\nあなたのスキルでこの単価、狙えます。マッチ度を30秒で診断👇\n#フリーランス #高単価案件${skillHash(j)}`;
+  if (slot === "noon")
+    return `🏠フルリモート・柔軟に働ける案件\n【${head(j)}】${j.rate}\n${s3}\n通勤なし、自分のペースで。まずは30秒でマッチ度診断👇\n#フリーランス #リモート案件${skillHash(j)}`;
+  if (slot === "afternoon")
+    return `📋本日の新着案件\n【${head(j)}】${j.rate}\n${s3}\nあなたに合うか、30秒でマッチ度診断👇\n#フリーランス #エンジニア案件${skillHash(j)}`;
+  return `✨注目のフリーランス案件\n【${head(j)}】${j.rate}\n${s3}\n登録無料・カード不要。あなたに合うか30秒で診断できます👇\n#フリーランス #エンジニア案件${skillHash(j)}`;
 }
 
-function slackBlocks(p: Post) {
-  const links = [
-    `<${intent(p.tweet, p.url)}|▶ Xに投稿（ワンクリック）>`,
-    p.no ? `<${cardPng(p.no)}|カード画像を確認>` : "",
-    `<${p.url}|案件ページ>`,
-  ].filter(Boolean).join("　・　");
-  return [
-    { type: "header", text: { type: "plain_text", text: `𝕏 ${p.label}`, emoji: true } },
-    { type: "section", text: { type: "mrkdwn", text: "```\n" + p.tweet + "\n```" } },
-    { type: "context", elements: [{ type: "mrkdwn", text: links }] },
+/** スロットのテーマで案件プールを取得（担当が選べるよう候補を複数返す）。 */
+async function slotPool(admin: ReturnType<typeof engerAdmin>, slot: Slot): Promise<J[]> {
+  if (slot === "noon") {
+    const r = await queryJobs(admin, { fullRemote: true, limit: 20 });
+    return r.length ? r : await queryJobs(admin, { limit: 20 });
+  }
+  if (slot === "afternoon") {
+    const todays = await queryJobs(admin, { sinceIso: jstTodayStartIso(), limit: 20 });
+    return todays.length ? todays : await queryJobs(admin, { limit: 20 });
+  }
+  return await queryJobs(admin, { bySalary: true, limit: 20 }); // morning / night
+}
+
+/** スロットの候補投稿（最大 CANDIDATES 件）。担当は Slack で1つ選んで投稿する。 */
+async function buildPosts(admin: ReturnType<typeof engerAdmin>, slot: Slot): Promise<Post[]> {
+  const label = SLOT_LABEL[slot];
+  const pool = await slotPool(admin, slot);
+  return pool.slice(0, CANDIDATES).map((j) => ({ slot, label, tweet: tweetFor(slot, j), url: jobUrl(j.no, slot), no: j.no }));
+}
+
+/** 1スロット分の Slack メッセージ（候補を並べ、各候補にワンクリック投稿リンクを付ける）。 */
+function slackBlocks(label: string, posts: Post[]) {
+  const blocks: any[] = [
+    { type: "header", text: { type: "plain_text", text: `𝕏 ${label}`, emoji: true } },
+    { type: "context", elements: [{ type: "mrkdwn", text: `下の${posts.length}件から1つ選んで「▶ Xに投稿」を押してください（文面は投稿画面で編集可）。` }] },
   ];
+  posts.forEach((p, i) => {
+    const links = [
+      `<${intent(p.tweet, p.url)}|▶ Xに投稿（ワンクリック）>`,
+      p.no ? `<${cardPng(p.no)}|カード画像>` : "",
+      `<${p.url}|案件ページ>`,
+    ].filter(Boolean).join("　・　");
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*候補${i + 1}${p.no ? `（No.${p.no}）` : ""}*\n` + "```\n" + p.tweet + "\n```" } });
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: links }] });
+  });
+  return blocks;
 }
 
 /** 現在時刻(JST)から最も近いスロットを推定（slot 未指定時のフォールバック）。 */
@@ -159,16 +169,17 @@ async function handle(req: Request) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return Response.json({ ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }, { status: 503 }); }
 
-  const results: { slot: Slot; ok: boolean; no: string | null; skipped?: boolean; error?: string }[] = [];
+  const results: { slot: Slot; ok: boolean; candidates: number; nos: string[]; skipped?: boolean; error?: string }[] = [];
   const built: Post[] = [];
   for (const slot of slots) {
-    let post: Post | null = null;
-    try { post = await buildPost(admin, slot); } catch (e: any) { results.push({ slot, ok: false, no: null, error: String(e?.message ?? e) }); continue; }
-    if (!post) { results.push({ slot, ok: false, no: null, error: "該当案件が見つかりません" }); continue; }
-    built.push(post);
-    if (dry) { results.push({ slot, ok: true, no: post.no }); continue; }
-    const r = await notifySlack({ text: `𝕏 ${post.label}`, blocks: slackBlocks(post) });
-    results.push({ slot, ok: r.ok, no: post.no, skipped: r.skipped, error: r.error });
+    let posts: Post[] = [];
+    try { posts = await buildPosts(admin, slot); } catch (e: any) { results.push({ slot, ok: false, candidates: 0, nos: [], error: String(e?.message ?? e) }); continue; }
+    if (posts.length === 0) { results.push({ slot, ok: false, candidates: 0, nos: [], error: "該当案件が見つかりません" }); continue; }
+    built.push(...posts);
+    const nos = posts.map((p) => p.no).filter(Boolean) as string[];
+    if (dry) { results.push({ slot, ok: true, candidates: posts.length, nos }); continue; }
+    const r = await notifySlack({ text: `𝕏 ${SLOT_LABEL[slot]}（候補${posts.length}件）`, blocks: slackBlocks(SLOT_LABEL[slot], posts) });
+    results.push({ slot, ok: r.ok, candidates: posts.length, nos, skipped: r.skipped, error: r.error });
   }
   return Response.json({ ok: results.every((r) => r.ok), dry, results, posts: dry ? built : undefined });
 }
