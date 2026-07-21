@@ -138,10 +138,12 @@ function inferSlot(): Slot {
 }
 
 async function handle(req: Request) {
-  // 保護は任意。CRON_SECRET を設定していれば Bearer 一致を要求する（推奨）。
+  // 保護は任意。専用の X_POSTS_SECRET を設定していれば Bearer 一致を要求する（推奨）。
+  //   ※ auto-ingest 用の CRON_SECRET とは分離している（Vercel に CRON_SECRET があっても
+  //     x-posts はそれに縛られず、X_POSTS_SECRET 未設定なら素通しで動く）。
   //   未設定でも動作する：このエンドポイントの副作用は「自社Slackに投稿下書きを流す」だけで、
   //   データ露出や外部への実投稿（X等）は一切ないため。まず手軽に動かしたい場合は未設定でよい。
-  const secret = process.env.CRON_SECRET;
+  const secret = process.env.X_POSTS_SECRET;
   if (secret && (req.headers.get("authorization") ?? "") !== `Bearer ${secret}`)
     return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 

@@ -3,10 +3,10 @@
 #   実投稿はしない（X API 不要）。Slack の「▶ Xに投稿」リンクを担当が押すと X 投稿画面が開く。
 #
 # 必要な GitHub Secrets（Settings → Secrets and variables → Actions）:
-#   X_POSTS_URL : https://<本番ドメイン>/api/cron/x-posts   ← 必須
-#   CRON_SECRET : Vercel に設定したものと同じ値              ← 任意（Vercel側も未設定なら不要）
-#     ※ CRON_SECRET を使わない運用も可。その場合このシークレットは未登録でよく、
-#       下の Authorization ヘッダは空 "Bearer " となるがエンドポイント側が素通しする。
+#   X_POSTS_URL    : https://<本番ドメイン>/api/cron/x-posts   ← 必須
+#   X_POSTS_SECRET : Vercel の X_POSTS_SECRET と同じ値          ← 任意（両方未設定なら不要）
+#     ※ auto-ingest 用の CRON_SECRET とは別物。x-posts は X_POSTS_SECRET 未設定なら
+#       素通しで動く（下の Authorization は空 "Bearer " になるがエンドポイントが許可）。
 #
 # 注意: スケジュール実行はデフォルトブランチ（main）に置かれている時だけ動く。
 #       cron は UTC 指定（JST-9h）。
@@ -48,7 +48,7 @@ jobs:
       - name: Trigger x-posts endpoint
         run: |
           code=$(curl -sS -o /tmp/out.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Authorization: Bearer ${{ secrets.X_POSTS_SECRET }}" \
             "${{ secrets.X_POSTS_URL }}?slot=${{ steps.slot.outputs.slot }}")
           echo "HTTP $code"
           cat /tmp/out.json || true
