@@ -3,8 +3,10 @@
 #   実投稿はしない（X API 不要）。Slack の「▶ Xに投稿」リンクを担当が押すと X 投稿画面が開く。
 #
 # 必要な GitHub Secrets（Settings → Secrets and variables → Actions）:
-#   X_POSTS_URL : https://<本番ドメイン>/api/cron/x-posts
-#   CRON_SECRET : Vercel に設定したものと同じ値
+#   X_POSTS_URL : https://<本番ドメイン>/api/cron/x-posts   ← 必須
+#   CRON_SECRET : Vercel に設定したものと同じ値              ← 任意（Vercel側も未設定なら不要）
+#     ※ CRON_SECRET を使わない運用も可。その場合このシークレットは未登録でよく、
+#       下の Authorization ヘッダは空 "Bearer " となるがエンドポイント側が素通しする。
 #
 # 注意: スケジュール実行はデフォルトブランチ（main）に置かれている時だけ動く。
 #       cron は UTC 指定（JST-9h）。
