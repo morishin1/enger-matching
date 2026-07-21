@@ -1,0 +1,57 @@
+# X集客PR：時間帯ごとの投稿文を自動生成し Slack に流す（ワンクリック投稿用）。
+#   Vercel Hobby は cron が1日1回のため、GitHub Actions（無料枠）から時間帯ごとに叩く。
+#   実投稿はしない（X API 不要）。Slack の「▶ Xに投稿」リンクを担当が押すと X 投稿画面が開く。
+#
+# 必要な GitHub Secrets（Settings → Secrets and variables → Actions）:
+#   X_POSTS_URL : https://<本番ドメイン>/api/cron/x-posts
+#   CRON_SECRET : Vercel に設定したものと同じ値
+#
+# 注意: スケジュール実行はデフォルトブランチ（main）に置かれている時だけ動く。
+#       cron は UTC 指定（JST-9h）。
+name: x-posts
+
+on:
+  schedule:
+    - cron: "0 23 * * *"  # 08:00 JST 高単価・新着案件
+    - cron: "15 3 * * *"  # 12:15 JST フルリモート・柔軟な案件
+    - cron: "0 6 * * *"   # 15:00 JST 本日の新着案件まとめ
+    - cron: "0 12 * * *"  # 21:00 JST 注目案件＋無料登録の案内
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "slot: morning / noon / afternoon / night / all"
+        default: "all"
+
+concurrency:
+  group: x-posts
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve slot from schedule
+        id: slot
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 23 * * *") SLOT=morning ;;
+            "15 3 * * *") SLOT=noon ;;
+            "0 6 * * *")  SLOT=afternoon ;;
+            "0 12 * * *") SLOT=night ;;
+            *) SLOT="${{ github.event.inputs.slot }}"; SLOT="${SLOT:-all}" ;;
+          esac
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "resolved slot=$SLOT"
+      - name: Trigger x-posts endpoint
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.X_POSTS_URL }}?slot=${{ steps.slot.outputs.slot }}")
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "x-posts failed (HTTP $code)" >&2
+            exit 1
+          fi
