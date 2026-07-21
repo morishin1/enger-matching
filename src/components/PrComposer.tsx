@@ -125,6 +125,17 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
           </div>
           {selectedJob && (
             <>
+              {/* 投稿前に、Xへ自動表示される案件カードの実画像をプレビュー（選択で切り替わる） */}
+              <div style={{ marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>この画像がX投稿に自動表示されます（選び直すと切り替わります）</div>
+                <img
+                  key={selectedJob.no}
+                  src={`https://enger.jp/og/job/${selectedJob.no}.png`}
+                  alt={`案件カード No.${selectedJob.no}`}
+                  loading="lazy"
+                  style={{ width: "100%", maxWidth: 520, aspectRatio: "1200 / 630", objectFit: "contain", borderRadius: 10, border: "1px solid var(--color-border)", display: "block", background: "#0b2a52" }}
+                />
+              </div>
               <textarea
                 value={jobText}
                 onChange={(e) => setJobDrafts((d) => ({ ...d, [selectedJob.no]: e.target.value }))}
