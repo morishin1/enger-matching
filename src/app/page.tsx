@@ -5,6 +5,8 @@ import { PartnerHome } from "@/components/PartnerHome";
 import { FreelanceHome } from "@/components/FreelanceHome";
 import { DashboardNews } from "@/components/DashboardNews";
 import { KgiBoard } from "@/components/KgiBoard";
+import { TrendBoard } from "@/components/TrendBoard";
+import { getDashboardTrends } from "@/lib/trends";
 import { currentAccess } from "@/lib/accounts";
 import { hasSalesFunction } from "@/lib/roles";
 import { loadDashboardAlerts } from "@/lib/dashboard-alerts";
@@ -42,9 +44,10 @@ export default async function DashboardPage() {
 
   // ── 営業・管理者：ダッシュボードは「① お知らせ・やること → ② KGI/KPI（当月・/kgi と連動）」──
   //   旧「KGI達成率（チーム別）— 選択した日」の KpiDashboardClient は非表示（要望）。
-  const [alerts, notifications] = await Promise.all([
+  const [alerts, notifications, trends] = await Promise.all([
     loadDashboardAlerts(),
     listNotifications(access?.name ?? null),
+    getDashboardTrends(),   // 登録数・KPIの推移（1時間キャッシュ・fail-soft）
   ]);
   const now = new Date();
   const mk = `${now.getFullYear()}-${two(now.getMonth() + 1)}-01`;
@@ -61,6 +64,8 @@ export default async function DashboardPage() {
         <a href="/kgi" style={{ marginLeft: "auto", textDecoration: "none" }} className="btn ghost btn-xs">詳細・目標設定 →</a>
       </div>
       <KgiBoard month={mk} sections={["summary", "season", "monthly", "weekly"]} />
+      {/* ③ 登録数・KPIの推移（週次12週／月次12ヶ月・SVGラインチャート） */}
+      {trends && <TrendBoard data={trends} />}
     </div>
   );
 }
