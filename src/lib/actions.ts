@@ -2521,6 +2521,7 @@ export type JobInput = {
   contact_email?: string | null;  // 案件窓口＝元メールの送信元（返信先）
   nationality_requirement?: string | null; // #310：国籍制限（日本国籍のみ/国籍不問/不明）
   freelance_ng?: string | null;    // #368：フリーランスの応募（"NG" / 空欄）
+  age_limit?: string | null;       // 0722①：年齢制限（自由記述。CSV「希望年齢層」由来）
   source_mail_url?: string | null; // 元メール(Gmail)へのURL
   source_mail_at?: string | null;  // 元メール受信日時（最新メールを元メールに残すための比較用）
   operator?: string | null;        // 登録担当（KPI集計用）
@@ -2551,6 +2552,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
       start_date: r.start_date || null,
       detail: r.detail?.trim() || null,
       detail_note: r.detail_note?.trim() || null, // #344：CSVの「案件詳細」列（メール原文=detailとは別）
+      age_limit: r.age_limit?.trim() || null, // 0722①：CSV「希望年齢層」→ 年齢制限
       // #389：CSVの「フリーランスNG」列。"NG"（大文字小文字不問）→ "NG"、空欄 → null（そのまま反映）。
       //   CSV に列自体が無い場合は undefined のまま（JSON化で落ちる）＝既存値に触れない。
       freelance_ng: r.freelance_ng === undefined ? undefined : ((r.freelance_ng ?? "").toString().trim().toUpperCase() === "NG" ? "NG" : null),
@@ -2574,7 +2576,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
   //   「取り込んだのに反映されない」をサイレントにしない（案件詳細/フリーランスNGが消えた事故の再発防止）。
   const skippedCols = new Set<string>();
   // fail-soft の除外対象（任意列）。バッチ内にこれらの値があるときだけ「保存されなかった列」として報告する。
-  const OPTIONAL_JOB_COLS = ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note", "freelance_ng"] as const;
+  const OPTIONAL_JOB_COLS = ["contact_email", "contact_name", "source_mail_url", "operator", "detail_note", "freelance_ng", "age_limit"] as const;
   const OPTIONAL_SET = new Set<string>(OPTIONAL_JOB_COLS as readonly string[]);
   // #398：DB列未整備でエラーになったとき、エラーが指す「その列だけ」を外して再試行する。
   //   従来は任意列をまとめて外していたため、実在する contact_email / source_mail_url / operator まで
@@ -2617,7 +2619,7 @@ export async function importJobs(records: JobInput[], sourceLabel: string, opera
     } catch { /* 取得失敗時は通常のINSERTパスへ */ }
 
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
-    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "detail_note", "freelance_ng", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
+    const FILL = ["role_label", "salary_min", "salary_max", "remote_type", "flow_note", "work_location", "start_date", "detail", "detail_note", "freelance_ng", "age_limit", "status", "contact_name", "contact_email", "source_mail_url", "operator"];
     const mergedRows: any[] = [];
     for (const r of rows) {
       const k = tk(r.title, r.client_name);
@@ -3223,6 +3225,7 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
   if ((fields as any).nationality_requirement !== undefined) row.nationality_requirement = trim((fields as any).nationality_requirement);
   // #368：フリーランスの応募（"NG" or null）。空欄は null に倒す。
   if ((fields as any).freelance_ng !== undefined) { const v = trim((fields as any).freelance_ng); row.freelance_ng = v === "NG" ? "NG" : null; }
+  if ((fields as any).age_limit !== undefined) row.age_limit = trim((fields as any).age_limit); // 0722①：年齢制限
   if ((fields as any).source_mail_url !== undefined) row.source_mail_url = trim((fields as any).source_mail_url);
   if ((fields as any).is_published !== undefined) row.is_published = (fields as any).is_published;
   if ((fields as any).accept_flow_depth !== undefined) {
@@ -3230,7 +3233,7 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
     row.accept_flow_depth = (v === null || v === "" || v === undefined) ? null : Number(v);
   }
   if (fields.signup_source !== undefined) row.signup_source = trim(fields.signup_source);
-  const OPTIONAL_COLS = ["contact_name", "contact_email", "nationality_requirement", "freelance_ng", "source_mail_url", "accept_flow_depth", "signup_source", "detail_note"];
+  const OPTIONAL_COLS = ["contact_name", "contact_email", "nationality_requirement", "freelance_ng", "source_mail_url", "accept_flow_depth", "signup_source", "detail_note", "age_limit"];
   const stripped = (o: Record<string, any>) => { const c = { ...o }; for (const k of OPTIONAL_COLS) delete c[k]; return c; };
   const withoutUpdatedAt = (o: Record<string, any>) => { const c = { ...o }; delete c.updated_at; return c; };
   let r: any = await admin.from("jobs").update(row).eq("job_no", jobNo);
@@ -3242,7 +3245,7 @@ export async function updateJobById(jobNo: number, fields: Partial<JobInput>) {
   // #389：外した列は skipped として返し、呼び出し元が「保存されなかった」と明示できるようにする
   //   （「案件詳細を保存」が成功トーストなのに実際は保存されない事故の再発防止）。
   let skipped: string[] = [];
-  if (r.error && /nationality_requirement|freelance_ng|contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|detail_note|column/i.test(r.error.message)) {
+  if (r.error && /nationality_requirement|freelance_ng|contact_email|contact_name|source_mail_url|accept_flow_depth|signup_source|detail_note|age_limit|column/i.test(r.error.message)) {
     skipped = OPTIONAL_COLS.filter((k) => k in row);
     r = await admin.from("jobs").update(stripped(withoutUpdatedAt(row))).eq("job_no", jobNo);
   }
@@ -3273,6 +3276,19 @@ export async function addProposalMemo(proposalId: string, category: string, body
   // 注意：revalidatePath("/proposals") は呼ばない。提案ボードはメモをサーバ側で読まず
   //   （モーダルが /api/proposals/[id]/memos で個別取得する）、重いボード再レンダリングを
   //   保存のたびに待たされて「保存中…」が固まる原因になっていた。メモはクライアントで再取得する。
+  return { ok: true as const, memo: r.data };
+}
+
+// 0722④②：メモ履歴の編集（削除→再作成ではなく本文をその場で更新できるように）。
+export async function updateProposalMemo(memoId: string, body: string) {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false as const, error: "サーバ設定エラー" }; }
+  if (!memoId) return { ok: false as const, error: "メモIDが必要です" };
+  const text = (body || "").trim();
+  if (!text) return { ok: false as const, error: "本文を入力してください（削除する場合は削除ボタンを使ってください）" };
+  const r: any = await admin.from("proposal_memos").update({ body: text }).eq("id", memoId).select("*").single();
+  if (r.error) return { ok: false as const, error: r.error.message };
+  // revalidatePath は呼ばない（addProposalMemo と同じ理由・クライアントで再取得）。
   return { ok: true as const, memo: r.data };
 }
 

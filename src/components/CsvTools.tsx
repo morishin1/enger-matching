@@ -76,6 +76,8 @@ const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "
   "案件詳細": "detail_note", "メール原文": "detail",
   // #389：CSVの「フリーランスNG」列（NG／空欄）。ドロワーの項目名「フリーランスの応募」でも受け付ける。
   "フリーランスNG": "freelance_ng", "フリーランスの応募": "freelance_ng",
+  // 0722①：JOB_cleaned.csv の「希望年齢層」（11列目）は「年齢制限」として取り込む（ヘッダ名で対応付け・列位置に依存しない）。
+  "希望年齢層": "age_limit", "年齢制限": "age_limit", "希望年齢": "age_limit", "年齢層": "age_limit",
   // メール連携：窓口担当者 / 送信元(=返信先) / 元メールへの直リンク（URL or GASのメッセージID）
   "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "contact_name": "contact_name",
   "送信元": "contact_email", "送信元メール": "contact_email", "送信元メールアドレス": "contact_email", "送信元アドレス": "contact_email", "差出人": "contact_email", "差出人メール": "contact_email", "sender_email": "contact_email", "from": "contact_email", "From": "contact_email", "窓口メール": "contact_email",
@@ -97,7 +99,7 @@ function criticalMissing(kind: "candidates" | "jobs", rec: any): string[] {
   }
   return m;
 }
-const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "勤務地", "稼働開始希望日", "ステータス", "案件詳細", "フリーランスNG", "メール原文"];
+const JOB_TEMPLATE = ["案件名", "クライアント名", "募集職種", "必要スキル", "単価下限", "単価上限", "リモート可否", "年齢制限", "勤務地", "稼働開始希望日", "ステータス", "案件詳細", "フリーランスNG", "メール原文"];
 
 type ValRow = { rowNo: number; rec: any; label: string; errors: string[]; warnings: string[] };
 
@@ -313,7 +315,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                   {/* #389：DB列未整備でfail-softが外した列の警告（案件詳細/フリーランスNGが黙って消える事故の防止） */}
                   {(doneInfo.skippedCols ?? []).length > 0 && (
                     <div style={{ fontSize: 12, color: "#b42318", fontWeight: 600 }}>
-                      ⚠ 次の列はデータベース側の列が未整備のため保存されませんでした：{(doneInfo.skippedCols ?? []).map((c) => ({ detail_note: "案件詳細", freelance_ng: "フリーランスNG", contact_email: "窓口メール", contact_name: "窓口担当者", source_mail_url: "元メールURL", operator: "登録担当" } as Record<string, string>)[c] ?? c).join("・")}。
+                      ⚠ 次の列はデータベース側の列が未整備のため保存されませんでした：{(doneInfo.skippedCols ?? []).map((c) => ({ detail_note: "案件詳細", freelance_ng: "フリーランスNG", age_limit: "年齢制限", contact_email: "窓口メール", contact_name: "窓口担当者", source_mail_url: "元メールURL", operator: "登録担当" } as Record<string, string>)[c] ?? c).join("・")}。
                       中央 Supabase の SQL Editor で supabase/ 配下の該当SQL（jobs-detail-note.sql / jobs-freelance-ng.sql 等）を実行後、再取込してください。
                     </div>
                   )}

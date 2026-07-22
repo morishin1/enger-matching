@@ -710,6 +710,32 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
     // おすすめ TOP50：案件 or 人材が期間内のペアを残す
     autoTop = { ...autoTop, rows: autoTop.rows.filter((r: any) => inMPeriod(r?.job?.created_at) || inMPeriod(r?.cand?.created_at)) };
   }
+  // 0722②③：おすすめ TOP50 の最終防衛線。5分キャッシュの残り時間や期間切替に左右されず、
+  //   「このペアを表示させない」済みペア・クローズ済/削除済みの案件・人材が絶対に出ないよう、
+  //   表示直前に最新のDB状態で再フィルタする（build段の除外＋キャッシュ無効化に加えた三重の保険）。
+  if (dbConfigured && autoTop.rows.length > 0) {
+    try {
+      const hiddenNow = await getHiddenPairsSet();
+      if (hiddenNow.size > 0) {
+        autoTop = { ...autoTop, rows: autoTop.rows.filter((r: any) => !hiddenNow.has(hiddenPairKey(r?.job?.job_no, r?.cand?.candidate_no))) };
+      }
+      const sbGuard = engerClient();
+      const jobIds = Array.from(new Set(autoTop.rows.map((r: any) => r?.job?.id).filter(Boolean)));
+      const candIds = Array.from(new Set(autoTop.rows.map((r: any) => r?.cand?.id).filter(Boolean)));
+      const closedJob = new Set<string>(); const closedCand = new Set<string>();
+      if (jobIds.length > 0) {
+        const r: any = await sbGuard.from("jobs").select("id").in("id", jobIds).or("is_closed.eq.true,deleted_at.not.is.null");
+        if (!r.error) for (const x of (r.data ?? []) as any[]) closedJob.add(String(x.id));
+      }
+      if (candIds.length > 0) {
+        const r: any = await sbGuard.from("candidates").select("id").in("id", candIds).or("is_closed.eq.true,deleted_at.not.is.null");
+        if (!r.error) for (const x of (r.data ?? []) as any[]) closedCand.add(String(x.id));
+      }
+      if (closedJob.size > 0 || closedCand.size > 0) {
+        autoTop = { ...autoTop, rows: autoTop.rows.filter((r: any) => !closedJob.has(String(r?.job?.id ?? "")) && !closedCand.has(String(r?.cand?.id ?? ""))) };
+      }
+    } catch { /* 最終フィルタ失敗時は従来表示（build段の除外は効いている） */ }
+  }
   // おすすめは点数順で上位50件に確定し、順位を振り直す（期間フィルタ後でも1〜50位が連番になる）。
   autoTop = { ...autoTop, rows: autoTop.rows.slice(0, 50).map((r: any, i: number) => ({ ...r, rank: i + 1 })) };
 

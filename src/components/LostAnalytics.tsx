@@ -1434,6 +1434,8 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
   const [idFilter, setIdFilter] = useState("");
   // #429②：フリーワード検索（案件名・人材名・会社名の部分一致。空白区切りは AND）。
   const [nameFilter, setNameFilter] = useState("");
+  // 0722④①：失注理由の部分一致検索（理由本文＋補足メモを対象。セレクタの完全一致と併用可）。
+  const [reasonQuery, setReasonQuery] = useState("");
   const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(1);
   const proposers = useMemo(() => Array.from(new Set(rows.map((r) => r.proposer).filter((v) => v && v !== "—"))).sort(), [rows]);
@@ -1446,6 +1448,9 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
     if (proposerFilter) r = r.filter((x) => x.proposer === proposerFilter);
     if (closerFilter) r = r.filter((x) => x.closer === closerFilter);
     if (reasonFilter) r = r.filter((x) => x.reason === reasonFilter);
+    // 0722④①：失注理由の部分一致（空白区切りAND・理由＋補足メモを対象）。
+    const rq = reasonQuery.toLowerCase().split(/[\s　]+/).filter(Boolean);
+    if (rq.length > 0) r = r.filter((x) => { const hay = `${x.reason ?? ""} ${x.note ?? ""}`.toLowerCase(); return rq.every((w) => hay.includes(w)); });
     const idDigits = idFilter.replace(/\D/g, "");
     if (idDigits) r = r.filter((x: any) => String(x.job_no ?? "").includes(idDigits) || String(x.candidate_no ?? "").includes(idDigits));
     // #429②：フリーワード（案件名・人材名・会社名の部分一致・大文字小文字/全半角スペース無視・AND）。
@@ -1457,10 +1462,10 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
       });
     }
     return [...r].sort((a, b) => (b.lost_at || 0) - (a.lost_at || 0));
-  }, [rows, proposerFilter, closerFilter, reasonFilter, idFilter, nameFilter]);
+  }, [rows, proposerFilter, closerFilter, reasonFilter, idFilter, nameFilter, reasonQuery]);
 
   // フィルタ・表示件数が変わったら1ページ目へ戻す。
-  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, idFilter, nameFilter, pageSize]);
+  useEffect(() => { setPage(1); }, [proposerFilter, closerFilter, reasonFilter, idFilter, nameFilter, reasonQuery, pageSize]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -1504,11 +1509,17 @@ function LostRowsTable({ rows }: { rows: Aggregated["lostRows"] }) {
           </select>
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
-          理由
+          失注理由
           <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value)} style={sel}>
             <option value="">すべて</option>
             {reasons.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
+        </label>
+        {/* 0722④①：失注理由の部分一致検索（補足メモも対象・空白区切りAND）。 */}
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>
+          失注理由検索
+          <input type="text" value={reasonQuery} onChange={(e) => setReasonQuery(e.target.value)} placeholder="理由・補足メモの部分一致"
+            style={{ ...sel, width: 170 }} />
         </label>
         {/* #267②：案件ID / 人材ID で検索（数字部分一致。P-17352 / #45509 等の記号は無視して照合）。 */}
         <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--color-ink-3)" }}>

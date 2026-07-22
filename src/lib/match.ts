@@ -645,7 +645,8 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 // 案件テキストから年齢上限を抽出（"45歳まで/以下/以内" や "20〜45歳" → ageCap、
 //   "40代まで/以下" や "30〜40代" → decadeCap）。"以上/以降" などの下限指定は無視。
 export function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number | null } {
-  const text = [job.title, (job as any).role_label, (job as any).flow_note, (job as any).detail].filter(Boolean).join(" ");
+  // age_limit＝手入力の「年齢制限」列（0722①・CSV「希望年齢層」由来の自由記述）を最優先で解釈する。
+  const text = [(job as any).age_limit, job.title, (job as any).role_label, (job as any).flow_note, (job as any).detail].filter(Boolean).join(" ");
   let ageCap: number | null = null;
   let decadeCap: number | null = null;
   // 具体年齢の上限： "45歳まで/以下/以内/迄"
