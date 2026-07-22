@@ -13,7 +13,9 @@ const BUCKET = "pr-cards";
 const SITE = "https://dx.enger.jp";
 
 // 遷移先（登録導線）。UTMを付けてX経由を計測できるようにする。
+// 既定は skill-sheet（人材のスキルシート登録＝Xからの主要導線）。
 const TARGETS: Record<string, string> = {
+  skillsheet: "https://enger.jp/skill-sheet",
   jobs: "https://enger.jp/jobs",
   signup: "https://enger.jp/signup",
   top: "https://enger.jp",
@@ -41,8 +43,8 @@ export async function uploadPrCard(form: FormData): Promise<UploadResult> {
     return { ok: false, error: "画像は8MBまでにしてください。" };
   }
 
-  const targetKey = String(form.get("target") || "jobs");
-  const target = TARGETS[targetKey] ?? TARGETS.jobs;
+  const targetKey = String(form.get("target") || "skillsheet");
+  const target = TARGETS[targetKey] ?? TARGETS.skillsheet;
   const title =
     String(form.get("title") || "").trim() || "ENGERで、あなたに合う案件が見つかる";
   const description =

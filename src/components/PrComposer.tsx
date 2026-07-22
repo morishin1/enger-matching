@@ -6,7 +6,7 @@ import { uploadPrCard } from "@/app/pr/card-actions";
 
 type Sample = { skills: string[]; rate: string; remote: string; role: string };
 
-const SIGNUP = "https://enger.jp/signup";
+const SIGNUP = "https://enger.jp/skill-sheet"; // 登録導線はスキルシート登録に統一
 const TOP = "https://enger.jp";
 const JOBS = "https://enger.jp/jobs";
 
@@ -104,7 +104,8 @@ export function PrComposer({ engTotal, jobsPub, sample }: { engTotal: number; jo
             <input type="file" name="image" accept="image/*" required style={{ fontSize: 13 }} />
             <label style={{ fontSize: 12, color: "var(--color-ink-2)" }}>
               遷移先：
-              <select name="target" defaultValue="jobs" style={{ ...fieldStyle, marginLeft: 6 }}>
+              <select name="target" defaultValue="skillsheet" style={{ ...fieldStyle, marginLeft: 6 }}>
+                <option value="skillsheet">スキルシート登録（enger.jp/skill-sheet）</option>
                 <option value="jobs">案件一覧（enger.jp/jobs）</option>
                 <option value="signup">無料登録（enger.jp/signup）</option>
                 <option value="top">トップ（enger.jp）</option>

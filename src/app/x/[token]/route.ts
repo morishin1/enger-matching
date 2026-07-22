@@ -8,7 +8,7 @@ import { engerAdmin } from "@/lib/supabase";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FALLBACK = "https://enger.jp/jobs";
+const FALLBACK = "https://enger.jp/skill-sheet";
 
 function esc(s: string): string {
   return String(s ?? "")
