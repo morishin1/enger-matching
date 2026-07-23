@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "@/components/AppLink";
 import { toast } from "@/components/toast";
 import { useRouter } from "next/navigation";
-import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions, suggestLostReason } from "@/lib/actions";
+import { updateProposalStage, convertToEngagement, updateProposalFields, deleteProposalMemo, addProposalMemo, updateProposalMemo, requestProposalDeletion, approveProposalDeletion, rejectProposalDeletion, getProposalDeletePermissions, suggestLostReason } from "@/lib/actions";
 import { gmailMessageUrl } from "@/lib/gmail";
 import { ClosedBadge } from "./ClosedBadge";
 import { StarsInput } from "./Stars";
@@ -170,7 +170,7 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const proposerOpts = (proposers && proposers.length > 0) ? proposers : PROPOSERS;
   const closerOpts = (closers && closers.length > 0) ? closers : CLOSERS;
   const router = useRouter();
-  const [, start] = useTransition();
+  const [pending, start] = useTransition();
   // どの操作が実行中か（null=なし）。ボタンごとに独立してスピナー/無効化するために使う
   //   （以前は共通の pending で全ボタンが一斉にくるくるしていた）。
   const [busy, setBusy] = useState<string | null>(null);
@@ -277,6 +277,20 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
   const onDeleteMemo = (mid: string) => {
     if (!confirm("このメモを削除しますか？")) return;
     start(async () => { const r = await deleteProposalMemo(mid); if (r.ok) loadMemos(); else toast(r.error || "削除に失敗しました", "error"); });
+  };
+  // 0722④②：メモ履歴の編集（削除ではなく本文をその場で修正→保存）。
+  const [editingMemoId, setEditingMemoId] = useState<string | null>(null);
+  const [editingMemoBody, setEditingMemoBody] = useState("");
+  const startEditMemo = (m: { id: string; body: string | null }) => { setEditingMemoId(m.id); setEditingMemoBody(m.body ?? ""); };
+  const cancelEditMemo = () => { setEditingMemoId(null); setEditingMemoBody(""); };
+  const saveEditMemo = () => {
+    const mid = editingMemoId; const body = editingMemoBody;
+    if (!mid) return;
+    start(async () => {
+      const r = await updateProposalMemo(mid, body);
+      if (r.ok) { toast("メモを更新しました", "success"); cancelEditMemo(); loadMemos(); }
+      else toast(("error" in r ? r.error : null) || "更新に失敗しました", "error");
+    });
   };
 
   // コンタクト履歴（連絡手段＋連絡日時＋メモ）。proposal_memos(category="連絡記録") を再利用。
@@ -718,9 +732,22 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                         <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg }}>{normalizeMemoCategory(m.category)}</span>
                         {author && <span className="muted" style={{ fontSize: 11 }}>{author}</span>}
-                        <button type="button" onClick={() => onDeleteMemo(m.id)} className="btn ghost btn-xs" title="メモを削除" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>削除</button>
+                        {/* 0722④②：削除だけでなく編集→保存できるように */}
+                        <button type="button" onClick={() => startEditMemo(m)} className="btn ghost btn-xs" title="メモを編集" style={{ marginLeft: "auto" }}>編集</button>
+                        <button type="button" onClick={() => onDeleteMemo(m.id)} className="btn ghost btn-xs" title="メモを削除" style={{ color: "var(--color-danger)" }}>削除</button>
                       </div>
-                      <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink)" }}>{m.body}</div>
+                      {editingMemoId === m.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <textarea value={editingMemoBody} onChange={(e) => setEditingMemoBody(e.target.value)} rows={4}
+                            style={{ width: "100%", fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.7, padding: 8, border: "1px solid var(--color-border-strong)", borderRadius: 8, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)", color: "var(--color-ink)" }} />
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button type="button" className="btn brand btn-xs" onClick={saveEditMemo} disabled={pending || !editingMemoBody.trim()}>保存</button>
+                            <button type="button" className="btn ghost btn-xs" onClick={cancelEditMemo} disabled={pending}>キャンセル</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink)" }}>{m.body}</div>
+                      )}
                       <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>{dtStr}</div>
                     </div>
                   );

@@ -352,10 +352,11 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
           {p.candExtraSkills.length > 0 && <SkillRow label="➕ 人材の追加スキル" tone="gray" items={p.candExtraSkills.slice(0, 30)} more={Math.max(0, p.candExtraSkills.length - 30)} />}
         </div>
 
-        {/* 案件・人材 横並び（880px以下は duo-grid で縦積みに切替＝レスポンシブ対応） */}
-        <div className="duo-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        {/* 案件・人材 横並び（880px以下は duo-grid で縦積みに切替＝レスポンシブ対応）。
+            0722②：minmax(0,1fr) で長文・URL があっても列が押し広げられず、案件と人材が常に均等幅になる。 */}
+        <div className="duo-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 14 }}>
           {/* 案件 */}
-          <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8, minWidth: 0, overflowWrap: "anywhere" }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
               <div>
                 <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "#0b5cab", fontWeight: 700 }}>📋 JOB · 案件</div>
@@ -401,7 +402,7 @@ function ComparisonDrawer({ p, drawerIn, onClose }: { p: RankedPair; drawerIn: b
           </div>
 
           {/* 人材 */}
-          <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8, minWidth: 0, overflowWrap: "anywhere" }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
               <div>
                 <div className="meta" style={{ fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase", color: "#5b21b6", fontWeight: 700 }}>👤 PERSON · 人材</div>

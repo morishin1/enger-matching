@@ -112,11 +112,39 @@ async function slotPool(admin: ReturnType<typeof engerAdmin>, slot: Slot): Promi
   return await queryJobs(admin, { bySalary: true, limit: 20 }); // morning / night
 }
 
-/** スロットの候補投稿（最大 CANDIDATES 件）。担当は Slack で1つ選んで投稿する。 */
-async function buildPosts(admin: ReturnType<typeof engerAdmin>, slot: Slot): Promise<Post[]> {
+// ── 重複配信の抑止（ローテーション）────────────────────────────────────────
+//   直近 ROTATION_DAYS 日以内に Slack へ提示した案件（enger.pr_featured_jobs）は候補から外す。
+//   morning/night は高単価順のため、これが無いと毎日同じ案件が出続ける。
+//   フレッシュな候補が足りない時だけ、既出案件で埋める（空配信にはしない）。
+//   テーブル未作成（supabase/pr-featured-jobs.sql 未適用）なら空集合＝従来動作（fail-soft）。
+const ROTATION_DAYS = 7;
+
+async function recentlyFeatured(admin: ReturnType<typeof engerAdmin>): Promise<Set<string>> {
+  try {
+    const since = new Date(Date.now() - ROTATION_DAYS * 86400000).toISOString();
+    const { data, error } = await admin.from("pr_featured_jobs")
+      .select("job_no").gte("featured_at", since).limit(2000);
+    if (error) return new Set();
+    return new Set(((data ?? []) as any[]).map((r) => String(r.job_no)));
+  } catch { return new Set(); }
+}
+
+async function markFeatured(admin: ReturnType<typeof engerAdmin>, slot: Slot, nos: string[]) {
+  if (nos.length === 0) return;
+  try {
+    await admin.from("pr_featured_jobs").insert(nos.map((no) => ({ job_no: Number(no), slot })));
+  } catch { /* テーブル未作成でも配信は成功扱い */ }
+}
+
+/** スロットの候補投稿（最大 CANDIDATES 件）。担当は Slack で1つ選んで投稿する。
+ *  直近提示済み（featured）の案件は後ろに回し、フレッシュな案件を優先する。 */
+async function buildPosts(admin: ReturnType<typeof engerAdmin>, slot: Slot, featured: Set<string>): Promise<Post[]> {
   const label = SLOT_LABEL[slot];
   const pool = await slotPool(admin, slot);
-  return pool.slice(0, CANDIDATES).map((j) => ({ slot, label, tweet: tweetFor(slot, j), url: jobUrl(j.no, slot), no: j.no }));
+  const fresh = pool.filter((j) => !featured.has(j.no));
+  const reused = pool.filter((j) => featured.has(j.no));
+  return [...fresh, ...reused].slice(0, CANDIDATES)
+    .map((j) => ({ slot, label, tweet: tweetFor(slot, j), url: jobUrl(j.no, slot), no: j.no }));
 }
 
 /** 1スロット分の Slack メッセージ（候補を並べ、各候補にワンクリック投稿リンクを付ける）。 */
@@ -169,17 +197,25 @@ async function handle(req: Request) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return Response.json({ ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }, { status: 503 }); }
 
-  const results: { slot: Slot; ok: boolean; candidates: number; nos: string[]; skipped?: boolean; error?: string }[] = [];
+  // 直近提示済みの案件（ローテーション用）。slot=all の同一実行内でも重複しないよう随時追加する。
+  const featured = await recentlyFeatured(admin);
+
+  const results: { slot: Slot; ok: boolean; candidates: number; nos: string[]; reused?: number; skipped?: boolean; error?: string }[] = [];
   const built: Post[] = [];
   for (const slot of slots) {
     let posts: Post[] = [];
-    try { posts = await buildPosts(admin, slot); } catch (e: any) { results.push({ slot, ok: false, candidates: 0, nos: [], error: String(e?.message ?? e) }); continue; }
+    try { posts = await buildPosts(admin, slot, featured); } catch (e: any) { results.push({ slot, ok: false, candidates: 0, nos: [], error: String(e?.message ?? e) }); continue; }
     if (posts.length === 0) { results.push({ slot, ok: false, candidates: 0, nos: [], error: "該当案件が見つかりません" }); continue; }
     built.push(...posts);
     const nos = posts.map((p) => p.no).filter(Boolean) as string[];
-    if (dry) { results.push({ slot, ok: true, candidates: posts.length, nos }); continue; }
+    const reused = nos.filter((n) => featured.has(n)).length;
+    if (dry) { results.push({ slot, ok: true, candidates: posts.length, nos, reused }); continue; }
     const r = await notifySlack({ text: `𝕏 ${SLOT_LABEL[slot]}（候補${posts.length}件）`, blocks: slackBlocks(SLOT_LABEL[slot], posts) });
-    results.push({ slot, ok: r.ok, candidates: posts.length, nos, skipped: r.skipped, error: r.error });
+    if (r.ok && !r.skipped) {
+      await markFeatured(admin, slot, nos);          // 提示履歴を記録（次回から候補除外）
+      nos.forEach((n) => featured.add(n));           // 同一実行内（slot=all）の重複も防ぐ
+    }
+    results.push({ slot, ok: r.ok, candidates: posts.length, nos, reused, skipped: r.skipped, error: r.error });
   }
   return Response.json({ ok: results.every((r) => r.ok), dry, results, posts: dry ? built : undefined });
 }

@@ -118,7 +118,7 @@ function normalizeAssignee(f: AssigneeFilter): AssigneeFilter {
 
 const JOB_COLS_BASE = "id, job_no, title, client_name, skills, salary_min, salary_max, remote_type, rank, is_focus, detail, flow_note, role_label, work_location, start_date, created_at";
 // detail_note＝手入力の案件詳細（#344）／source_mail_url＝元メールボタン（#345③）。未整備環境は BASE にフォールバック。
-const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note, source_mail_url, freelance_ng`;
+const JOB_COLS_RICH = `${JOB_COLS_BASE}, accept_flow_depth, detail_note, source_mail_url, freelance_ng, age_limit`;
 const CAND_COLS_BASE = "id, candidate_no, name, initials, title, skills, rate, salary_min, salary_max, remote_pref, affiliation, source_company, company, age_band, nationality, exp, avail, location, note, created_at";
 // detail_note＝人材詳細（#347）／source_mail_url＝元メールボタン（#345③）／residence＝居住地（#376⑤）。未整備環境は BASE にフォールバック。
 const CAND_COLS_RICH = `${CAND_COLS_BASE}, flow_depth, skill_sheet_url, detail_note, source_mail_url, residence`;
@@ -228,7 +228,8 @@ const SEISHAIN_JOB_CATS: ReadonlySet<JobFlowCategory> = new Set(["jp_to_self_sei
 
 /** 定義書#6 の下限（"30代以上" / "35歳以上" 等）。上限は match.ts の parseJobAgeLimit（#328準拠）。 */
 function parseJobAgeFloor(j: any): { ageFloor: number | null; decadeFloor: number | null } {
-  const text = [j.title, j.role_label, j.flow_note, j.detail].filter(Boolean).join(" ");
+  // age_limit＝手入力の「年齢制限」列（0722①）。CSV「希望年齢層」由来の自由記述も対象に含める。
+  const text = [j.age_limit, j.title, j.role_label, j.flow_note, j.detail].filter(Boolean).join(" ");
   let ageFloor: number | null = null;
   let decadeFloor: number | null = null;
   const a = text.match(/([1-9][0-9])\s*[歳才]\s*(?:以上|以降)/);
@@ -289,8 +290,10 @@ function pairAllowed(jg: JobInfo, cg: CandInfo): boolean {
     if (jg.ageFloor != null && ar.decade < Math.floor(jg.ageFloor / 10) * 10) return false;
     if (jg.decadeFloor != null && ar.decade < jg.decadeFloor) return false;
   }
-  // 単価の逆ざや（人材の希望下限が案件上限を超える＝赤字）は全ランク除外。7万円未満は要確認（表示可）。
-  if (jg.jMax != null && cg.cMin != null && cg.cMin > jg.jMax) return false;
+  // 単価（両方判明している場合）：案件上限 − 人材下限 ≧ 7万円 を満たさないペアは全ランク除外
+  //   （0722報告③：逆ざやだけでなくマージン7万円未満も「表示させない」に格上げ。
+  //     どちらか不明のペアは除外できないため、従来どおり要確認（concernsOf）に回す）。
+  if (jg.jMax != null && cg.cMin != null && jg.jMax - cg.cMin < RATE_MARGIN_MIN) return false;
   return true;
 }
 
@@ -302,8 +305,8 @@ function concernsOf(jg: JobInfo, cg: CandInfo, matrix: ReturnType<typeof flowMat
   if (cg.cat === "unknown") c.push("所属要確認（人材の所属区分が不明）");
   if (jg.cat === "unknown" || matrix === "unknown") c.push("商流要確認（案件の受入商流が不明）");
   if (!cg.hasSkillSheet) c.push("スキルシート未登録");
+  // 単価：両方判明かつマージン7万円未満のペアは pairAllowed で除外済み（0722③）。ここでは不明のみ要確認。
   if (jg.jMax == null || cg.cMin == null) c.push("単価要確認（案件上限か人材下限が不明）");
-  else if (jg.jMax - cg.cMin < RATE_MARGIN_MIN) c.push(`単価マージン薄（差 ${jg.jMax - cg.cMin}万円 < 7万円）`);
   return c;
 }
 
@@ -340,20 +343,29 @@ type ScoredHit = {
  *   ・ペア集合   … 定義書の追加条件によりランキングから除外する（既存）。
  *   ・提案件数   … #446②：提案が2件以上ある案件/人材はおすすめTOP50から除外する
  *                 （一人の人材・1つの案件への大量提案メール送信を防ぐ。期間・ステージ不問）。 */
-type ProposedInfo = { pairs: Set<string>; jobCounts: Map<string, number>; candCounts: Map<string, number> };
+type ProposedInfo = { pairs: Set<string>; namePairs: Set<string>; jobCounts: Map<string, number>; candCounts: Map<string, number> };
+// 提案レコードの照合キー（0722③②）：ID が欠けた提案（案件名・人材名だけで記録された行）でも
+//   除外できるよう、正規化した「案件名|人材名」のキーも持つ。
+const normTitleKey = (s?: string | null): string => String(s ?? "").toLowerCase().replace(/[\s　]/g, "");
 async function fetchProposedPairs(sb: ReturnType<typeof engerClient>): Promise<ProposedInfo> {
   const pairs = new Set<string>();
+  const namePairs = new Set<string>();
   const jobCounts = new Map<string, number>();
   const candCounts = new Map<string, number>();
   try {
-    const { data } = await sb.from("proposals").select("job_id, candidate_id").limit(20000);
-    for (const p of (data ?? []) as any[]) {
+    let r: any = await sb.from("proposals").select("job_id, candidate_id, job_title, candidate_name").limit(20000);
+    if (r.error) r = await sb.from("proposals").select("job_id, candidate_id").limit(20000);
+    for (const p of (r.data ?? []) as any[]) {
       if (p.job_id) jobCounts.set(String(p.job_id), (jobCounts.get(String(p.job_id)) ?? 0) + 1);
       if (p.candidate_id) candCounts.set(String(p.candidate_id), (candCounts.get(String(p.candidate_id)) ?? 0) + 1);
       if (p.job_id && p.candidate_id) pairs.add(`${p.job_id}|${p.candidate_id}`);
+      // 提案ボード・失注ログの記録には job_id / candidate_id が欠けた行がある（手起票・LP経由等）。
+      //   その場合も「同じ案件名 × 同じ人材名」のペアはランキングに再表示しない（0722③②）。
+      const tk = normTitleKey(p.job_title); const nk = normPersonName(p.candidate_name);
+      if (tk && nk) namePairs.add(`${tk}|${nk}`);
     }
   } catch { /* proposals 未整備でも続行 */ }
-  return { pairs, jobCounts, candCounts };
+  return { pairs, namePairs, jobCounts, candCounts };
 }
 
 // #345①：非表示ペアの読み取りは @/lib/hidden-pairs の getHiddenPairsSet に集約
@@ -395,6 +407,8 @@ async function buildRankedHits(filter: AssigneeFilter): Promise<{ hits: ScoredHi
     const need = jskills.length;
     for (const { c, g: cg, set } of cands) {
       if (j.id && c.id && proposedPairs.has(`${j.id}|${c.id}`)) continue;    // 提案済み → 除外
+      // 0722③②：ID欠損の提案記録（提案ボード・失注ログ）も「案件名×人材名」で照合して除外。
+      if (proposed.namePairs.has(`${normTitleKey(j.title)}|${normPersonName(c.name)}`)) continue;
       if (j.job_no != null && c.candidate_no != null && hiddenPairs.has(`${j.job_no}|${c.candidate_no}`)) continue; // #345①：手動非表示 → 除外
       if (!pairAllowed(jg, cg)) continue;                                    // 年齢制限・逆ざや → 除外
       // #420③：出社必須・一部リモートの案件は、通勤圏（東京/神奈川/埼玉/千葉）在住か

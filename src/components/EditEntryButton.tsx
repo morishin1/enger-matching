@@ -332,6 +332,7 @@ export function EditJobButton({ job }: { job: any }) {
     salary_min: j.salary_min != null ? String(j.salary_min) : "",
     salary_max: j.salary_max != null ? String(j.salary_max) : "",
     freelance_ng: j.freelance_ng === "NG" ? "NG" : "", // #368：フリーランスの応募（NG / 空欄）
+    age_limit: j.age_limit ?? "", // 0722①：年齢制限（自由記述）
     remote_type: j.remote_type ?? "",
     // #447②：旧文言の生テキストは編集フォームを開いた時点で新文言へ寄せる（プルダウンの選択状態を正しく合わせるため）。
     flow_note: displayFlowNote(j.flow_note),
@@ -365,6 +366,7 @@ export function EditJobButton({ job }: { job: any }) {
         salary_min: numOf(f.salary_min),
         salary_max: numOf(f.salary_max),
         freelance_ng: f.freelance_ng === "NG" ? "NG" : null, // #368
+        age_limit: f.age_limit, // 0722①
         remote_type: f.remote_type,
         flow_note: f.flow_note,
         accept_flow_depth: f.accept_flow_depth === "" ? null : Number(f.accept_flow_depth),
@@ -381,7 +383,7 @@ export function EditJobButton({ job }: { job: any }) {
       // #389：DB列未整備で fail-soft が外した項目は「保存しました」にせず明示する（サイレント消失防止）。
       const skipped: string[] = (res as any).skipped ?? [];
       if (res.ok && skipped.length > 0) {
-        const JP: Record<string, string> = { detail_note: "案件詳細", freelance_ng: "フリーランスNG", nationality_requirement: "国籍制限", contact_name: "窓口担当者", contact_email: "窓口メール", source_mail_url: "元メールURL", accept_flow_depth: "商流制限", signup_source: "LINE登録" };
+        const JP: Record<string, string> = { detail_note: "案件詳細", freelance_ng: "フリーランスNG", age_limit: "年齢制限", nationality_requirement: "国籍制限", contact_name: "窓口担当者", contact_email: "窓口メール", source_mail_url: "元メールURL", accept_flow_depth: "商流制限", signup_source: "LINE登録" };
         setMsg({ ok: false, text: `一部の項目はデータベースの列が未整備のため保存できませんでした：${skipped.map((k) => JP[k] ?? k).join("・")}。中央 Supabase で supabase/ 配下の該当SQLを実行してください（他の項目は保存済み）` });
         router.refresh();
       }
@@ -413,6 +415,8 @@ export function EditJobButton({ job }: { job: any }) {
                 { value: "NG", label: "NG" },
               ]} />
               <Select label="リモート可否" value={f.remote_type} onChange={set("remote_type")} options={REMOTE_OPTS} />
+              {/* 0722①：年齢制限（自由記述）。マッチングの年齢除外にも使われる。 */}
+              <Field label="年齢制限" value={f.age_limit} onChange={set("age_limit")} placeholder="例：30〜55歳まで / 45歳以下" />
               {/* #447①②：ラベルを「商流制限」に変更し、選択肢の文言を更新。
                   貴社正社員まで→貴社社員まで／貴社一社まで→貴社一社先まで／貴社一社正社員まで→貴社一社先社員まで／
                   貴社二社まで→貴社二社先まで／貴社二社正社員まで→貴社二社先社員まで。 */}
