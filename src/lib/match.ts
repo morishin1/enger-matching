@@ -645,10 +645,26 @@ export function scoreMatch(job: Job, c: Candidate): MatchResult {
 // 案件テキストから年齢上限を抽出（"45歳まで/以下/以内" や "20〜45歳" → ageCap、
 //   "40代まで/以下" や "30〜40代" → decadeCap）。"以上/以降" などの下限指定は無視。
 export function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: number | null } {
-  // age_limit＝手入力の「年齢制限」列（0722①・CSV「希望年齢層」由来の自由記述）を最優先で解釈する。
-  const text = [(job as any).age_limit, job.title, (job as any).role_label, (job as any).flow_note, (job as any).detail].filter(Boolean).join(" ");
+  // 手入力の「年齢制限」列（0722①・CSV「希望年齢層」由来）は“人が制限として書いた欄”なので、
+  //   まで/以下 が無くても「40代前半」「40代」だけで上限とみなす（liberal）。
+  //   本文・件名・商流などの自由記述側は誤検知を避けるため従来どおり「まで/以下/範囲」限定（strict）。
+  const explicit = String((job as any).age_limit ?? "").trim();
+  const broad = [job.title, (job as any).role_label, (job as any).flow_note, (job as any).detail].filter(Boolean).join(" ");
+
+  const e = extractAgeCaps(explicit, true);
+  const b = extractAgeCaps(broad, false);
+  // 最も厳しい（小さい）上限を採用（両方に指定があれば min）。
+  const pickMin = (x: number | null, y: number | null) =>
+    x == null ? y : y == null ? x : Math.min(x, y);
+  return { ageCap: pickMin(e.ageCap, b.ageCap), decadeCap: pickMin(e.decadeCap, b.decadeCap) };
+}
+
+/** テキストから年齢上限（ageCap）・年代上限（decadeCap）を抽出。
+ *  liberal=true のときは「40代前半 / 40代後半 / 40代半ば」や単独の「40代」も上限として解釈する。 */
+function extractAgeCaps(text: string, liberal: boolean): { ageCap: number | null; decadeCap: number | null } {
   let ageCap: number | null = null;
   let decadeCap: number | null = null;
+  if (!text) return { ageCap, decadeCap };
   // 具体年齢の上限： "45歳まで/以下/以内/迄"
   const up = text.match(/([1-9][0-9])\s*[歳才]\s*(?:まで|以下|以内|迄)/);
   if (up) ageCap = Number(up[1]);
@@ -663,6 +679,15 @@ export function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: 
     const lead = text.match(/(?:〜|～|~)\s*([1-9][0-9])\s*[歳才]/);
     if (lead) ageCap = Number(lead[1]);
   }
+  // 年代＋前半/後半/半ば（"40代前半"=〜44 / "40代後半"=〜49 / "40代半ば"=〜45）。
+  //   0723②：明示の年齢制限欄で最頻出の書き方。まで/以下 無しでも上限とみなす（liberal のみ）。
+  if (liberal && ageCap == null) {
+    const half = text.match(/([1-9]0)\s*代\s*(前半|後半|半ば|なかば|中盤|中頃|中ごろ)/);
+    if (half) {
+      const dec = Number(half[1]);
+      ageCap = half[2] === "前半" ? dec + 4 : half[2] === "後半" ? dec + 9 : dec + 5;
+    }
+  }
   // 年代の上限： "40代まで/以下/以内/迄"
   const dUp = text.match(/([1-9]0)\s*代\s*(?:まで|以下|以内|迄)/);
   if (dUp) decadeCap = Number(dUp[1]);
@@ -675,6 +700,13 @@ export function parseJobAgeLimit(job: Job): { ageCap: number | null; decadeCap: 
   if (decadeCap == null) {
     const dLead = text.match(/(?:〜|～|~)\s*([1-9]0)\s*代/);
     if (dLead) decadeCap = Number(dLead[1]);
+  }
+  // 単独の年代（"40代" / "40代のみ" / "40代中心"）も上限として解釈（liberal のみ・上限未確定時）。
+  //   下限（以上/以降）指定のときは上限にしない。
+  if (liberal && ageCap == null && decadeCap == null) {
+    const solo = text.match(/([1-9]0)\s*代/);
+    const isFloor = /代\s*(?:以上|以降|～|〜|~)/.test(text) || /代\s*から/.test(text);
+    if (solo && !isFloor) decadeCap = Number(solo[1]);
   }
   return { ageCap, decadeCap };
 }

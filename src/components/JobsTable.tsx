@@ -19,7 +19,7 @@ import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
 import { FreelanceNgSelect } from "./FreelanceNgSelect";
 import { AgeLimitInput } from "./AgeLimitInput";
 import { displayFlowNote } from "@/lib/flow";
-import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
+import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -564,8 +564,8 @@ export function JobsTable({
                   [["募集職種", detail.role_label]],
                   [["必要スキル", (detail.skills ?? []).join(" / ") || null]],
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
-                  // 0722①：年齢制限（自由記述・その場で編集可）。自動推定バッジ（年代制限）の隣に置く。
-                  [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />], ["年齢制限", <AgeLimitInput key={`agel-${detail.job_no}`} jobNo={detail.job_no} initial={detail.age_limit} compact />]],
+                  // 0723③：自動推定の「年代制限」バッジは廃止（年齢制限フィールドで代替）。国籍要件と年齢制限を1行に並べる。
+                  [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年齢制限", <AgeLimitInput key={`agel-${detail.job_no}`} jobNo={detail.job_no} initial={detail.age_limit} compact />]],
                   // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
                   [["勤務地", detail.work_location ?? "不明"], ["商流制限", displayFlowNote(detail.flow_note) || "不明"], ["フリーランスの応募", <FreelanceNgSelect key={`fng-${detail.job_no}`} jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
@@ -648,14 +648,3 @@ function JobNatBadge({ detail, title }: { detail?: string | null; title?: string
   );
 }
 
-// 案件本文から判定した年代（年齢）制限バッジ（詳細ドロワー用）。
-function JobAgeBadge({ detail, title }: { detail?: string | null; title?: string | null }) {
-  const { cat, label } = classifyJobAge(detail, title);
-  const tone = JOB_AGE_TONE[cat];
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{label}</span>
-      {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
-    </span>
-  );
-}
