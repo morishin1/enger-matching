@@ -5,17 +5,38 @@ import { logPrPost } from "@/app/pr/actions";
 import { uploadPrCard } from "@/app/pr/card-actions";
 
 type Sample = { skills: string[]; rate: string; remote: string; role: string };
+type Job = { no: string; role: string; title: string; skills: string[]; rate: string; remote: string };
 
-const SIGNUP = "https://enger.jp/skill-sheet"; // 登録導線はスキルシート登録に統一
-const TOP = "https://enger.jp";
-const JOBS = "https://enger.jp/jobs";
+// X（Twitter）流入計測のUTM。LP(enger.jp)側は utm_source=x を見て signup_source='x' を記録し、
+//   dx の「X流入レポート」で 登録→面談→成約 まで突合できるようにする。
+//   utm_content で「どの投稿（登録数/案件/市場価値）」が効いたかを判別する。
+function withUtm(base: string, content: string) {
+  const q = new URLSearchParams({ utm_source: "x", utm_medium: "social", utm_campaign: "pr", utm_content: content });
+  return `${base}${base.includes("?") ? "&" : "?"}${q.toString()}`;
+}
+// 登録導線はスキルシート登録に統一（Xからの主要導線）。utmは #702 のX流入計測に合わせて維持。
+const SIGNUP = withUtm("https://enger.jp/skill-sheet", "count");
+const TOP = withUtm("https://enger.jp", "value");
+const JOBS = withUtm("https://enger.jp/jobs", "jobs");
 
 function xIntent(text: string, url: string) {
   const u = new URLSearchParams({ text, url });
   return `https://twitter.com/intent/tweet?${u.toString()}`;
 }
 
-export function PrComposer({ engTotal, jobsPub, sample }: { engTotal: number; jobsPub: number; sample: Sample[] }) {
+// 案件カード投稿：個別案件ページ /job/<No> を投稿する（そのページの動的OGP＝案件カードが自動添付される）。
+const jobUrl = (no: string) => withUtm(`https://enger.jp/job/${no}`, "job");
+// ハッシュタグ用にスキル名を英数字化（例「Spring Boot」→「SpringBoot」）。空なら除外。
+const tagize = (s: string) => s.replace(/[^0-9A-Za-zぁ-んァ-ヶ一-龠]/g, "");
+function jobPostText(j: Job): string {
+  const head = [j.remote, j.role].filter(Boolean).join("・") || "フリーランスエンジニア案件";
+  const skillLine = j.skills.length ? `${j.skills.slice(0, 3).join("・")} をお使いの方へ。` : "";
+  const rateLine = j.rate ? `想定単価 ${j.rate}。` : "";
+  const tags = ["#フリーランス", "#エンジニア案件", ...(j.skills[0] && tagize(j.skills[0]) ? [`#${tagize(j.skills[0])}案件`] : [])];
+  return `【案件】${head}\n${[skillLine, rateLine].filter(Boolean).join("")}\nあなたとのマッチ度を30秒で確認👇\n${tags.join(" ")}`;
+}
+
+export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: number; jobsPub: number; sample: Sample[]; jobs: Job[] }) {
   // 注目案件（匿名）の一文
   const sampleLine = useMemo(() => {
     if (!sample.length) return "フルリモート・高単価のエンジニア案件を多数掲載中。";
@@ -45,6 +66,12 @@ export function PrComposer({ engTotal, jobsPub, sample }: { engTotal: number; jo
 
   const [drafts, setDrafts] = useState<Record<string, string>>(Object.fromEntries(templates.map((t) => [t.id, t.text])));
   const [msg, setMsg] = useState<string | null>(null);
+
+  // 案件カード投稿：選択中の案件と、その編集中の本文。
+  const [jobNo, setJobNo] = useState<string>(jobs[0]?.no ?? "");
+  const selectedJob = useMemo(() => jobs.find((j) => j.no === jobNo) ?? null, [jobs, jobNo]);
+  const [jobDrafts, setJobDrafts] = useState<Record<string, string>>({});
+  const jobText = selectedJob ? (jobDrafts[selectedJob.no] ?? jobPostText(selectedJob)) : "";
 
   const copy = async (text: string) => {
     try { await navigator.clipboard.writeText(text); setMsg("投稿文をコピーしました"); } catch { setMsg("コピーに失敗しました"); }
@@ -180,6 +207,53 @@ export function PrComposer({ engTotal, jobsPub, sample }: { engTotal: number; jo
           );
         })}
       </div>
+
+      {jobs.length > 0 && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>案件カード投稿</h3>
+            <span className="muted" style={{ fontSize: 11 }}>案件ごとの画像カードが自動で付きます（リンク先 /job/&lt;No&gt; のOGP）</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+            <select value={jobNo} onChange={(e) => setJobNo(e.target.value)}
+              style={{ fontSize: 13, padding: "8px 10px", border: "1px solid var(--color-border-strong)", borderRadius: 8, background: "var(--color-surface)", color: "var(--color-ink)", maxWidth: "100%" }}>
+              {jobs.map((j) => (
+                <option key={j.no} value={j.no}>No.{j.no}｜{[j.remote, j.role, j.rate].filter(Boolean).join(" / ")}</option>
+              ))}
+            </select>
+            {selectedJob && <span className="muted" style={{ fontSize: 11, wordBreak: "break-all" }}>リンク先：{jobUrl(selectedJob.no)}</span>}
+          </div>
+          {selectedJob && (
+            <>
+              {/* 投稿前に、Xへ自動表示される案件カードの実画像をプレビュー（選択で切り替わる） */}
+              <div style={{ marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>この画像がX投稿に自動表示されます（選び直すと切り替わります）</div>
+                <img
+                  key={selectedJob.no}
+                  src={`https://enger.jp/og/job/${selectedJob.no}.png`}
+                  alt={`案件カード No.${selectedJob.no}`}
+                  loading="lazy"
+                  style={{ width: "100%", maxWidth: 520, aspectRatio: "1200 / 630", objectFit: "contain", borderRadius: 10, border: "1px solid var(--color-border)", display: "block", background: "#0b2a52" }}
+                />
+              </div>
+              <textarea
+                value={jobText}
+                onChange={(e) => setJobDrafts((d) => ({ ...d, [selectedJob.no]: e.target.value }))}
+                rows={5}
+                style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)" }}
+              />
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <a className="btn brand" href={xIntent(jobText, jobUrl(selectedJob.no))} target="_blank" rel="noopener"
+                  onClick={() => { logPrPost("job"); setMsg("案件カード投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
+                  style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
+                <button type="button" className="btn ghost" onClick={() => copy(jobText)}>本文をコピー</button>
+                <a className="btn ghost" href={`https://enger.jp/og/job/${selectedJob.no}.png`} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>カード画像を確認</a>
+                <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>{jobText.length} 文字</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ marginTop: 16, fontSize: 12, color: "var(--color-ink-3)", lineHeight: 1.8 }}>
         <b>運用のコツ</b>：①週2〜3回、登録数の節目・新着案件・市場価値ネタを使い分け。②エンジニア本人の「市場価値カード」シェア（enger.jp/dashboard・/card）が最も拡散します。③ハッシュタグは案件領域に合わせて調整。
