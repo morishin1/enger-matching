@@ -10,7 +10,7 @@ const remoteLabel = (r?: string | null) => (r === "full_remote" ? "フルリモ�
 const rateLabel = (lo?: number | null, hi?: number | null) => (lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `¥${hi}万〜` : lo ? `¥${lo}万〜` : "");
 
 // PrComposer のテンプレID → 表示名（pr_posts.kind と一致させる。src/components/PrComposer.tsx 参照）。
-const KIND_LABEL: Record<string, string> = { count: "登録数アピール", jobs: "今週の新着案件", value: "市場価値診断", job: "案件カード", custom: "オリジナル投稿" };
+const KIND_LABEL: Record<string, string> = { count: "登録数アピール", jobs: "今週の新着案件", value: "市場価値診断", job: "案件カード", custom: "オリジナル投稿", card: "カード投稿（画像）" };
 
 type PrPost = { operator: string | null; kind: string | null; created_at: string };
 

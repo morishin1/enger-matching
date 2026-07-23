@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent, type CSSProperties } from "react";
 import { logPrPost } from "@/app/pr/actions";
+import { uploadPrCard } from "@/app/pr/card-actions";
 
 type Sample = { skills: string[]; rate: string; remote: string; role: string };
 type Job = { no: string; role: string; title: string; skills: string[]; rate: string; remote: string };
@@ -13,7 +14,8 @@ function withUtm(base: string, content: string) {
   const q = new URLSearchParams({ utm_source: "x", utm_medium: "social", utm_campaign: "pr", utm_content: content });
   return `${base}${base.includes("?") ? "&" : "?"}${q.toString()}`;
 }
-const SIGNUP = withUtm("https://enger.jp/signup", "count");
+// 登録導線はスキルシート登録に統一（Xからの主要導線）。utmは #702 のX流入計測に合わせて維持。
+const SIGNUP = withUtm("https://enger.jp/skill-sheet", "count");
 const TOP = withUtm("https://enger.jp", "value");
 const JOBS = withUtm("https://enger.jp/jobs", "jobs");
 
@@ -131,12 +133,110 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
     setTimeout(() => setMsg(null), 2000);
   };
 
+  // ---- カードで投稿（画像アップロード）----
+  const [cardBusy, setCardBusy] = useState(false);
+  const [cardErr, setCardErr] = useState<string | null>(null);
+  const [card, setCard] = useState<{ shareUrl: string; imageUrl: string } | null>(null);
+  const [cardText, setCardText] = useState(
+    "フリーランスエンジニア向けの案件を毎日更新中🔥\n高単価×リモートの案件多数。あなたに合う案件をAIがマッチング。\n登録無料・面談/参画までサポート。\n#エンジニア #フリーランスエンジニア #案件",
+  );
+
+  async function submitCard(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    setCardErr(null);
+    setCardBusy(true);
+    try {
+      const res = await uploadPrCard(fd);
+      if (res.ok) setCard({ shareUrl: res.shareUrl, imageUrl: res.imageUrl });
+      else setCardErr(res.error);
+    } catch {
+      setCardErr("アップロードに失敗しました。ネットワークを確認して再度お試しください。");
+    } finally {
+      setCardBusy(false);
+    }
+  }
+
+  const fieldStyle: CSSProperties = {
+    fontSize: 13,
+    padding: "9px 11px",
+    border: "1px solid var(--color-border-strong)",
+    borderRadius: 8,
+    background: "var(--color-surface)",
+    color: "var(--color-ink)",
+  };
+
   return (
     <>
       <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-100)", fontSize: 12.5, lineHeight: 1.8, marginBottom: 16 }}>
         💡 使い方：文面を編集 → <b>「Xに投稿」</b>でX投稿画面が開きます（画像はリンク先(enger.jp)のOGPカードが自動添付）。担当者・運営の発信で、エンジニア登録の母数を増やしましょう。
       </div>
       {msg && <div style={{ fontSize: 12.5, color: "#067647", marginBottom: 10 }}>{msg}</div>}
+
+      {/* ---- カードで投稿（画像アップロード）---- */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800 }}>カードで投稿（画像アップロード）</h3>
+          <span className="muted" style={{ fontSize: 11 }}>
+            Canva等で作ったカード → 共有URL発行 → Xにカードが表示され、タップで登録ページへ
+          </span>
+        </div>
+        {!card ? (
+          <form onSubmit={submitCard} style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+            <input type="file" name="image" accept="image/*" required style={{ fontSize: 13 }} />
+            <label style={{ fontSize: 12, color: "var(--color-ink-2)" }}>
+              遷移先：
+              <select name="target" defaultValue="skillsheet" style={{ ...fieldStyle, marginLeft: 6 }}>
+                <option value="skillsheet">スキルシート登録（enger.jp/skill-sheet）</option>
+                <option value="jobs">案件一覧（enger.jp/jobs）</option>
+                <option value="signup">無料登録（enger.jp/signup）</option>
+                <option value="top">トップ（enger.jp）</option>
+              </select>
+            </label>
+            <input type="text" name="title" placeholder="カードのタイトル（任意・OGP見出し）" style={fieldStyle} />
+            <input type="text" name="description" placeholder="説明文（任意・OGP説明）" style={fieldStyle} />
+            <div>
+              <button type="submit" className="btn brand" disabled={cardBusy}>
+                {cardBusy ? "アップロード中…" : "アップロードして共有URLを発行"}
+              </button>
+            </div>
+            {cardErr && <div style={{ fontSize: 12, color: "#b42318", lineHeight: 1.7 }}>{cardErr}</div>}
+          </form>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+            <div style={{ fontSize: 12, color: "#067647" }}>
+              ✓ 共有URLを発行しました。下の本文で「Xに投稿」すると、このカードが表示されます。
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={card.imageUrl}
+              alt="アップロードしたカード"
+              style={{ maxWidth: 320, width: "100%", borderRadius: 10, border: "1px solid var(--color-border)" }}
+            />
+            <div style={{ fontSize: 11, color: "var(--color-ink-3)", wordBreak: "break-all" }}>共有URL：{card.shareUrl}</div>
+            <textarea
+              value={cardText}
+              onChange={(e) => setCardText(e.target.value)}
+              rows={4}
+              style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)" }}
+            />
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <a
+                className="btn brand"
+                href={xIntent(cardText, card.shareUrl)}
+                target="_blank"
+                rel="noopener"
+                onClick={() => { logPrPost("card"); setMsg("PR投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
+                style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                𝕏 このカードでXに投稿
+              </a>
+              <button type="button" className="btn ghost" onClick={() => copy(card.shareUrl)}>共有URLをコピー</button>
+              <button type="button" className="btn ghost" onClick={() => { setCard(null); setCardErr(null); }}>別のカードをアップロード</button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {templates.map((t) => {
