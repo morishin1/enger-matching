@@ -120,9 +120,10 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         const fetchJobs = async () => {
           if (!jobIds.length) return [];
           // #383：案件名(title)も取得し、提案レコードの案件名を「案件詳細の現在値」へ自動追随させる。
-          let r: any = await sb.from("jobs").select("id, job_no, title, source_mail_url, source_mail_at, contact_email, is_closed, signup_source").in("id", jobIds).limit(2000);
-          if (r.error) r = await sb.from("jobs").select("id, job_no, title, source_mail_url, is_closed, signup_source").in("id", jobIds).limit(2000);
-          if (r.error) r = await sb.from("jobs").select("id, job_no, title, source_mail_url, is_closed").in("id", jobIds).limit(2000);
+          //   0724：クライアント名(client_name)も取得し、提案レコードの「クライアント名」を案件詳細の現在値へ追随させる。
+          let r: any = await sb.from("jobs").select("id, job_no, title, client_name, source_mail_url, source_mail_at, contact_email, is_closed, signup_source").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, title, client_name, source_mail_url, is_closed, signup_source").in("id", jobIds).limit(2000);
+          if (r.error) r = await sb.from("jobs").select("id, job_no, title, client_name, source_mail_url, is_closed").in("id", jobIds).limit(2000);
           if (r.error) r = await sb.from("jobs").select("id, job_no, source_mail_url").in("id", jobIds).limit(2000);
           return r.error ? [] : nq(r.data);
         };
@@ -207,8 +208,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         };
 
         try {
-          const mJ: Record<string, { job_no: number; title: string | null; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
-          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, title: (j.title ?? null), url: j.source_mail_url ?? null, detail: j.detail ?? null, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
+          const mJ: Record<string, { job_no: number; title: string | null; client_name: string | null; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
+          for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, title: (j.title ?? null), client_name: (j.client_name ?? null), url: j.source_mail_url ?? null, detail: j.detail ?? null, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
           const mC: Record<string, { candidate_no: number; name: string | null; initials: string | null; url: string | null; detail: string | null; closed: boolean; line: boolean }> = {};
           for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, name: (c.name ?? null), initials: (c.initials ?? null), url: c.source_mail_url ?? null, detail: c.note ?? c.exp ?? null, closed: !!c.is_closed, line: String(c.signup_source ?? "") === "line" };
           const ownerByTitle: Record<string, string> = {};
@@ -260,6 +261,10 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
               // #383：案件名を案件詳細の現在値へ自動追随（案件が存在する限り最新のタイトルで表示）。
               const t = (mJ[p.job_id].title ?? "").trim();
               if (t) p.job_title = t;
+              // 0724：クライアント名を案件詳細の現在値へ自動追随（案件名と同じ方針）。
+              //   これ以降の company_owner / rank / approved / contact / star 等の派生も新名で解決される。
+              const cn = (mJ[p.job_id].client_name ?? "").trim();
+              if (cn) p.company = cn;
             }
             if (p.candidate_id && mC[p.candidate_id]) {
               p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_source_mail_url = mC[p.candidate_id].url; p.cand_detail = mC[p.candidate_id].detail; p.cand_closed = mC[p.candidate_id].closed;
@@ -283,8 +288,9 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
               p.cand_line = cLine || (src && !jLine);
             }
             p.company_owner = ownerByTitle[p.job_title] ?? ownerByCompany[p.company] ?? null;
-            // 人材側 会社名（保存値 → 人材所属会社の順で自動表示）。
-            const candCompany = p.cand_company ?? (p.candidate_id ? candCompanyById[p.candidate_id] : null) ?? null;
+            // 人材側 会社名。0724：人材プロフィールの現在の所属会社（source_company）へ自動追随。
+            //   人材に所属会社が入っていればそれを最優先し、未設定のときだけ提案の保存値を使う。
+            const candCompany = (p.candidate_id ? candCompanyById[p.candidate_id] : null) ?? p.cand_company ?? null;
             p.cand_company = candCompany;
             // 承認済（＝企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら承認済扱い。
             p.company_approved = !!(meetingDoneByCompany[p.company] || (candCompany && meetingDoneByCompany[candCompany]));
