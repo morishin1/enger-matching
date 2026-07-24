@@ -11,6 +11,11 @@ create table if not exists enger.pr_posts (
   created_at timestamptz not null default now()
 );
 
+-- 投稿本文・リンク（「履歴」タブで実際に投稿した内容を表示する）。
+--   後方互換のため nullable。列が無い環境でも logPrPost はフォールバックで記録できる。
+alter table enger.pr_posts add column if not exists text text;   -- 投稿本文（Xに流し込んだ文面）
+alter table enger.pr_posts add column if not exists url  text;   -- 投稿リンク（案件カード/シェア等の遷移先）
+
 create index if not exists pr_posts_operator_idx on enger.pr_posts (operator, created_at desc);
 create index if not exists pr_posts_created_idx  on enger.pr_posts (created_at desc);
 
