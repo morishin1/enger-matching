@@ -186,6 +186,17 @@ export function isExcludedProfile(p: any): boolean {
 }
 
 /** LP(enger.jp)で登録したエンジニア一覧（public.profiles・service role閲覧）。 */
+// LP のスキルシート保存パス `<uid>/<ts>-<base64url(元ファイル名)><.ext>` から表示名を復元する。
+//   （enger-lp/src/lib/skillsheets.ts の encodeName と対（つい）。復号失敗時は既定名。）
+function decodeSheetNameFromObject(objName: string): string {
+  const extM = objName.match(/\.[A-Za-z0-9]+$/);
+  const stem = extM ? objName.slice(0, -extM[0].length) : objName;
+  const dash = stem.indexOf("-");
+  if (dash < 0) return objName;
+  try { return Buffer.from(stem.slice(dash + 1), "base64url").toString("utf8") || "スキルシート"; }
+  catch { return "スキルシート"; }
+}
+
 export async function listEngineers(): Promise<{ rows: Engineer[]; available: boolean }> {
   if (!dbConfigured) return { rows: [], available: false };
   try {
@@ -302,6 +313,39 @@ export async function listEngineers(): Promise<{ rows: Engineer[]; available: bo
       login_suspended_at: r.login_suspended_at ?? null,
       source: classifySource(r),
     })) as Engineer[];
+
+    // スキルシート表示のフォールバック（dx-skillsheet-display-spec.md の方式B）。
+    //   LP は「Storage を唯一の真実の源」とし、profiles.skill_sheets(jsonb) への反映はベストエフォート。
+    //   万一 DB 反映に失敗した人でも、アップロード済みファイルが dx 一覧に表示されるよう storage を直接引く。
+    //   効率化：まずバケット直下を1回だけ list して「フォルダ(=uid)を持つ＝アップロード済み」の人を特定し、
+    //   skill_sheets が空 かつ アップロード済み の人だけ個別に list する（通常は該当者ほぼ0件）。全て fail-soft。
+    try {
+      const need = rows.filter((r) => (r.skill_sheets?.length ?? 0) === 0);
+      if (need.length > 0) {
+        const uploadedUids = new Set<string>();
+        try {
+          const root: any = await sb.storage.from("skillsheets").list("", { limit: 1000 });
+          for (const o of (root?.data ?? [])) { if (o && o.name && o.id == null) uploadedUids.add(String(o.name)); }
+        } catch { /* バケット未整備でも一覧は継続 */ }
+        const targets = need.filter((r) => uploadedUids.has(String(r.id))).slice(0, 80);
+        await Promise.all(targets.map(async (r) => {
+          try {
+            const lr: any = await sb.storage.from("skillsheets").list(String(r.id), { limit: 100 });
+            const sheets: SkillSheet[] = (lr?.data ?? [])
+              .filter((o: any) => o && o.name && o.id)
+              .slice(0, 3)
+              .map((o: any) => {
+                const path = `${r.id}/${o.name}`;
+                const pub: any = sb.storage.from("skillsheets").getPublicUrl(path);
+                return { url: pub?.data?.publicUrl ?? "", name: decodeSheetNameFromObject(o.name), path, uploaded_at: o.created_at ?? null } as SkillSheet;
+              })
+              .filter((s: SkillSheet) => !!s.url);
+            if (sheets.length > 0) (r as any).skill_sheets = sheets;
+          } catch { /* この人のみスキップ */ }
+        }));
+      }
+    } catch { /* フォールバック全体が失敗しても一覧は返す */ }
+
     return { rows, available: true };
   } catch { return { rows: [], available: false }; }
 }
