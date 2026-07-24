@@ -9,7 +9,7 @@ import { canSeeMargin } from "./engagement-access";
 import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
 import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
-import { gmailMessageUrl } from "./gmail";
+import { gmailMessageUrl, isReplyOrForwardSubject } from "./gmail";
 import { logActivity, logProposalActivity } from "./activity-logs";
 import {
   bustCounts, bustRankingCaches, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
@@ -3355,7 +3355,7 @@ async function persistInboxAttachments(messageId: string, atts: Array<{ filename
   return out;
 }
 
-export async function syncInboxFromGmail(opts?: { query?: string; max?: number; fetchCap?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; found?: number; remaining?: number; account?: string | null; error?: string }> {
+export async function syncInboxFromGmail(opts?: { query?: string; max?: number; fetchCap?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; skippedReply?: number; found?: number; remaining?: number; account?: string | null; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const { gmailConfigured, listMessageIds, fetchMessage, getGmailProfile } = await import("./gmail-api");
@@ -3388,6 +3388,7 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
 
   let synced = 0;
   let skippedBounce = 0;
+  let skippedReply = 0;
   // 同時8本で取得（最大500件の初回取込を短縮。Gmail API は概ね 250 quota/秒・messages.get=5units なので余裕）。
   //   ※ 取込は1通ずつ insert するため、途中でタイムアウトしても取得済み分は保存され、次回同期で残りを取得（重複排除あり）。
   const POOL = 8; let idx = 0;
@@ -3406,6 +3407,11 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
           messageId: m.id, receivedAt: m.receivedAt,
         });
       }
+      return;
+    }
+    // m_fujimoto バグ報告：返信文・転送メール（件名が Re:/Fwd:/Fw: 始まり。"Re: Re: …" の繰り返しも含む）は取り込まない。
+    if (isReplyOrForwardSubject(m.subject)) {
+      skippedReply++;
       return;
     }
     // #292：添付（スキルシート等）を、取込画面に表示される前（＝insert する前）に Storage へ保存し、
@@ -3463,7 +3469,7 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
   } catch { /* is_archived / bounce_records 未整備でも続行 */ }
 
   revalidatePath("/inbox"); revalidatePath("/mail");
-  return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, remaining, account };
+  return { ok: true, synced, skipped: seen.size + skippedBounce + skippedReply, skippedReply, found: list.ids.length, remaining, account };
 }
 
 // 受信メールを期間指定でエクスポート（ローカル整形用のダウンロード）。
@@ -3500,7 +3506,7 @@ function inboxRangeIso(v: string | undefined, side: "from" | "to"): string | nul
   return null;
 }
 
-export async function exportInboxEmails(opts: { from?: string; to?: string; includeArchived?: boolean }): Promise<{ ok: boolean; rows?: InboxExportRow[]; count?: number; capped?: boolean; error?: string }> {
+export async function exportInboxEmails(opts: { from?: string; to?: string; includeArchived?: boolean; excludeReplyForward?: boolean }): Promise<{ ok: boolean; rows?: InboxExportRow[]; count?: number; capped?: boolean; excludedReplyForward?: number; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const fromIso = inboxRangeIso(opts.from, "from");
@@ -3521,6 +3527,13 @@ export async function exportInboxEmails(opts: { from?: string; to?: string; incl
     const batch: InboxExportRow[] = r.data ?? [];
     rows.push(...batch);
     if (batch.length < INBOX_EXPORT_BATCH) break; // 期間内を取り切った
+  }
+  // m_fujimoto バグ報告のフォールバック：既に取り込み済みの返信文・転送メール（件名 Re:/Fwd:/Fw: 始まり）を
+  //   ダウンロードデータから除外する。取り込み段階で除去できない既存データ向けの設定。
+  if (opts.excludeReplyForward) {
+    const before = rows.length;
+    const kept = rows.filter((r) => !isReplyOrForwardSubject(r.subject));
+    return { ok: true, rows: kept, count: kept.length, capped: before >= INBOX_EXPORT_MAX, excludedReplyForward: before - kept.length };
   }
   return { ok: true, rows, count: rows.length, capped: rows.length >= INBOX_EXPORT_MAX };
 }

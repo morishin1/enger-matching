@@ -265,6 +265,9 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
   const [dlInclArchived, setDlInclArchived] = useState(false);
   // #435：重複メール（本文がほぼ同一・同ドメイン）は最新の1通だけ残してダウンロード（既定ON）。
   const [dlDedup, setDlDedup] = useState(true);
+  // m_fujimoto バグ報告：返信文・転送メール（件名 Re:/Fwd:/Fw: 始まり）をダウンロードから除外（既定ON）。
+  //   取り込み段階でも除外済みだが、過去に取り込んだ既存データ向けのフォールバック設定。
+  const [dlExclReply, setDlExclReply] = useState(true);
   const [dlMsg, setDlMsg] = useState<string | null>(null);
   const [dlBusy, setDlBusy] = useState(false);
 
@@ -275,9 +278,10 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
     setDlMsg("メールを収集中…");
     (async () => {
       try {
-        const res = await exportInboxEmails({ from: dlFrom || undefined, to: dlTo || undefined, includeArchived: dlInclArchived });
+        const res = await exportInboxEmails({ from: dlFrom || undefined, to: dlTo || undefined, includeArchived: dlInclArchived, excludeReplyForward: dlExclReply });
         if (!res.ok) { setDlMsg(`ダウンロード失敗: ${res.error}`); return; }
         const rowsAll = res.rows ?? [];
+        const replyRemoved = res.excludedReplyForward ?? 0;
         if (rowsAll.length === 0) { setDlMsg("該当期間のメールが0通でした。まず「Gmail 同期」で取り込んでください。"); return; }
         // #461：重複除去ONのときは自社ドメイン(@8grp.co.jp)＝案件・人材データを含まないメールも除外する。
         let base = rowsAll;
@@ -295,7 +299,7 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
         const text = dlFormat === "csv" ? rowsToCsv(rows) : rowsToJsonl(rows);
         const mime = dlFormat === "csv" ? "text/csv;charset=utf-8" : "application/x-ndjson;charset=utf-8";
         downloadText(filename, text, mime);
-        const exclParts = [removed > 0 ? `重複 ${removed}通` : "", ownRemoved > 0 ? `自社ドメイン ${ownRemoved}通` : ""].filter(Boolean).join("・");
+        const exclParts = [replyRemoved > 0 ? `返信・転送 ${replyRemoved}通` : "", removed > 0 ? `重複 ${removed}通` : "", ownRemoved > 0 ? `自社ドメイン ${ownRemoved}通` : ""].filter(Boolean).join("・");
         setDlMsg(`✓ ${rows.length}通をダウンロードしました${exclParts ? `（${exclParts}を除外）` : ""}（${filename}）${res.capped ? "。上限に達したため一部のみ。期間を狭めてください。" : ""}`);
       } catch (e) {
         setDlMsg(`ダウンロード失敗: ${e instanceof Error ? e.message : String(e)}`);
@@ -321,7 +325,8 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
         const tail = remaining > 0
           ? ` ／ 未取得 ${remaining}通（もう一度「Gmail 同期」で続きを取込）`
           : "（7日以内は全件取込済み）";
-        setSyncMsg(`${acc}7日以内 ${r.found}通 ／ 新規取込 ${r.synced ?? 0}通 ／ 既存 ${r.skipped ?? 0}通${tail}`);
+        const replyNote = (r.skippedReply ?? 0) > 0 ? ` ／ 返信・転送除外 ${r.skippedReply}通` : "";
+        setSyncMsg(`${acc}7日以内 ${r.found}通 ／ 新規取込 ${r.synced ?? 0}通 ／ 既存 ${r.skipped ?? 0}通${replyNote}${tail}`);
       }
       router.refresh();
       setTimeout(() => setSyncMsg(null), 20000);
@@ -426,6 +431,12 @@ export function MailboxClient({ rows, filter, gmailReady, page = 1, total = 0, p
         <label title="本文がほぼ同一のメール（同じ案件・人材の紹介が複数届いたもの）は最新の1通だけを残し、あわせて自社ドメイン(@8grp.co.jp)のメールを除外して書き出します" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
           <input type="checkbox" checked={dlDedup} onChange={(e) => setDlDedup(e.target.checked)} />
           重複＋自社ドメインを除く（最新のみ）
+        </label>
+        {/* m_fujimoto バグ報告：件名が Re:/Fwd:/Fw: 始まりの返信文・転送メールを除外する。
+            取込段階でも除外済みだが、過去に取り込んだ既存データはこの設定でダウンロードから除ける。 */}
+        <label title="件名が「Re:」「Fwd:」「Fw:」（繰り返し含む）で始まる返信文・転送メールをダウンロードデータから除外します" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--color-ink-3)" }}>
+          <input type="checkbox" checked={dlExclReply} onChange={(e) => setDlExclReply(e.target.checked)} />
+          返信・転送メールを除く（Re:/Fwd:）
         </label>
         <button type="button" className="btn brand" disabled={dlBusy} onClick={downloadRange}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 4, verticalAlign: "-3px" }}>download</span>

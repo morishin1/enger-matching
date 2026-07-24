@@ -21,6 +21,17 @@ export function gmailComposeUrl(opts: { to?: string | null; subject: string; bod
 
 export const reSubject = (s: string) => (/^re:/i.test(s.trim()) ? s.trim() : `Re: ${s.trim()}`);
 
+/**
+ * 件名が「返信」「転送」を示す接頭辞で始まるか判定する。
+ *   例: "Re:", "RE:", "Re: Re:", "Fwd:", "Fw:", "FW:", 全角コロン「：」も許容。
+ *   これらは取り込み・ダウンロード対象から除外するために使う（m_fujimoto バグ報告）。
+ *   注: "Review:" や "Regarding" のようにコロンが直後に続かない語は誤除外しない。
+ */
+export function isReplyOrForwardSubject(subject?: string | null): boolean {
+  if (!subject) return false;
+  return /^\s*(re|fwd?|fw)\s*[:：]/i.test(String(subject));
+}
+
 /** Gmail を検索クエリで開く（元メールに飛ぶ用途）。受信アカウント(authuser)で開く。 */
 export function gmailSearchUrl(query: string) {
   const a = authParam();
