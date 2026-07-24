@@ -14,6 +14,7 @@ import { saveKpiTargets } from "@/lib/actions";
 import { STAGE_TEAM_METRICS } from "@/lib/stage-metrics";
 import { toast } from "@/components/toast";
 import { ProposalBoardSwitcher } from "./ProposalBoardSwitcher";
+import { FocusList } from "./FocusList";
 import { ProposalHistory } from "./ProposalHistory";
 import { LostAnalytics } from "./LostAnalytics";
 import { ApprovalQueue } from "./ApprovalQueue";
@@ -45,10 +46,13 @@ function isAwaitingApproval(p: any): boolean {
 }
 
 export function ProposalsWorkspace({
-  proposals, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, stageTeamWeekly, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, reportsView,
+  proposals, focusJobs, focusCands, history, analyticsRows, members, proposers, closers, fallbackBanner, currentUserName, privileged, kpiProps, teamActivity, teamFunnel, stageTargets, stageTeamWeekly, kgiByMember, roleByMember, kpiMembers, kpiMemberSuggestions, funnelRates, meetingEvents, procurementEvents, meetingReachedEvents, proposalReachedEvents, reportsView,
 }: {
   // proposals: 進行中（見送り/失注/稼働を除く）
   proposals: any[];
+  // 注力（♥is_focus）の案件・人材。提案ボードの前に「注力中」カードとして表示する（要望）。
+  focusJobs?: any[];
+  focusCands?: any[];
   // KPI推移タブ用（KpiDashboardClient の props）／メンバー別アクティビティ／日報タブ用。
   kpiProps?: any;
   teamActivity?: any;
@@ -507,13 +511,33 @@ export function ProposalsWorkspace({
         )
       )}
       {tab === "board" && (
-        boardRows.length === 0 ? (
-          fallbackBanner ?? <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
-            この期間に進行中の提案はありません。
-          </div>
-        ) : (
-          <ProposalBoardSwitcher proposals={boardRows} members={members} proposers={proposers} closers={closers} periodLabel={PERIOD_LABEL[period]} />
-        )
+        <>
+          {/* 注力中（♥）の案件・人材：提案の前に一目で分かるよう、ボードの直前に表示（要望）。
+              いずれかに注力登録があるときだけ表示する。件数バッジ付きカード（マッチング画面の注力タブと同じ表示）。 */}
+          {((focusJobs?.length ?? 0) > 0 || (focusCands?.length ?? 0) > 0) && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <span style={{ color: "#e0567f" }}>♥</span> 注力中の案件・人材
+                <span className="muted" style={{ fontSize: 11, fontWeight: 500 }}>（提案の前に、優先して動くべき案件・人材を確認できます）</span>
+              </div>
+              <div className="duo-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "start" }}>
+                <FocusList kind="jobs" items={focusJobs ?? []} removeOnUnheart
+                  headerTitle={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>💼 注力案件</span>} unit="件"
+                  emptyText="注力（♥）に登録された案件はありません。" />
+                <FocusList kind="people" items={focusCands ?? []} removeOnUnheart
+                  headerTitle={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>👤 注力人材</span>} unit="名"
+                  emptyText="注力（♥）に登録された人材はありません。" />
+              </div>
+            </div>
+          )}
+          {boardRows.length === 0 ? (
+            fallbackBanner ?? <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 40 }}>
+              この期間に進行中の提案はありません。
+            </div>
+          ) : (
+            <ProposalBoardSwitcher proposals={boardRows} members={members} proposers={proposers} closers={closers} periodLabel={PERIOD_LABEL[period]} />
+          )}
+        </>
       )}
       {tab === "history" && (
         historyLoading && !historyLoaded ? (

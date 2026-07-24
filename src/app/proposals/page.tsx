@@ -21,6 +21,9 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
   let needSetup = false;
   // 提案開始件数（created_at 基準）。ステージ移動の影響を受けず一貫してカウントする。
   let startStats = { today: 0, week: 0, month: 0, thirty: 0 };
+  // 注力（♥is_focus）の案件・人材。提案ボードの前に「注力中」カードとして表示する（要望）。
+  let focusJobs: any[] = [];
+  let focusCands: any[] = [];
 
   const [staff, proposalOwners, access, kpiMembers] = await Promise.all([getStaff(), loadProposalOwners(), currentAccess(), loadKpiMembers()]);
   // KPI推移タブ・日報タブの埋め込みデータ（/kpi・/reports と同等の集計を再利用）。
@@ -332,6 +335,26 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
     } catch (e) {
       dbError = e instanceof Error ? e.message : String(e);
     }
+
+    // 注力（♥is_focus）の案件・人材を取得（fail-soft：失敗しても提案管理本体は表示する）。
+    //   focused_at（注力登録日）の新しい順。未マイグレ環境では focused_at を外して created_at 順にフォールバック。
+    try {
+      const sb2 = engerClient();
+      const JCOLS = "job_no, title, client_name, role_label, remote_type, salary_min, salary_max, flow_note, skills, detail, is_focus, focused_at, created_at";
+      const CCOLS = "candidate_no, name, initials, title, affiliation, source_company, company, age_band, remote_pref, exp, status, rate, salary_min, salary_max, skills, is_focus, focused_at, created_at";
+      const loadFocus = async (table: "jobs" | "candidates", cols: string) => {
+        const order = cols.includes("focused_at") ? "focused_at" : "created_at";
+        let r: any = await sb2.from(table).select(cols).eq("is_focus", true).is("deleted_at", null).eq("is_closed", false).order(order, { ascending: false }).limit(30);
+        if (r.error) r = await sb2.from(table).select(cols).eq("is_focus", true).is("deleted_at", null).order(order, { ascending: false }).limit(30);
+        if (r.error && /focused_at|column/i.test(r.error.message ?? "")) {
+          const base = cols.replace(", focused_at", "");
+          r = await sb2.from(table).select(base).eq("is_focus", true).order("created_at", { ascending: false }).limit(30);
+        }
+        if (r.error) r = await sb2.from(table).select(cols.replace(", focused_at", "")).eq("is_focus", true).limit(30);
+        return r.error ? [] : (r.data ?? []);
+      };
+      [focusJobs, focusCands] = await Promise.all([loadFocus("jobs", JCOLS), loadFocus("candidates", CCOLS)]);
+    } catch { /* 注力の取得失敗はセクション非表示で続行 */ }
   } else {
     dbError = "Supabase の環境変数が未設定です";
   }
@@ -359,6 +382,8 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
         <>
           <ProposalsWorkspace
             proposals={proposals}
+            focusJobs={focusJobs}
+            focusCands={focusCands}
             history={history}
             analyticsRows={analyticsRows}
             members={staff.members}
