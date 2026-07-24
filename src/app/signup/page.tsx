@@ -53,7 +53,7 @@ export default function SignupPage() {
             </div>
           ) : state?.ok ? (
             /* #309①：登録直後 → メールに届く確認コード（数字）を入力する画面（袋小路の解消）。
-               コードではなくメール内のリンクを開いても確認できるよう、両方の導線を示す。 */
+               確認メールはコードのみ（ボタン無し・全サービス統一方針）のため、導線はコード入力に一本化。 */
             <div style={{ background: "rgba(255,255,255,.97)", borderRadius: 18, padding: 30, boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 40, marginBottom: 8 }}>📨</div>
@@ -62,14 +62,14 @@ export default function SignupPage() {
               </div>
               <form action={vAction} style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
                 <input type="hidden" name="email" value={state.email ?? ""} />
-                <input name="code" inputMode="numeric" autoComplete="one-time-code" required maxLength={12}
+                <input name="code" inputMode="numeric" autoComplete="one-time-code" required maxLength={8}
                   placeholder="例：12345678"
                   style={{ ...input, textAlign: "center", letterSpacing: "0.3em", fontSize: 20, fontWeight: 700 }} />
                 {vState?.error && <div style={{ fontSize: 12.5, color: "#d23f57", background: "#fdecef", border: "1px solid #f6c9d2", borderRadius: 8, padding: "9px 11px" }}>{vState.error}</div>}
                 <button type="submit" disabled={vPending} style={{ background: "linear-gradient(135deg, #0095D9, #007DB3)", color: "#fff", border: 0, borderRadius: 10, padding: "13px", fontSize: 14.5, fontWeight: 700, cursor: "pointer", opacity: vPending ? 0.6 : 1 }}>{vPending ? "確認中…" : "コードを確認する"}</button>
               </form>
               <div style={{ marginTop: 14, fontSize: 11.5, color: "#6b7280", lineHeight: 1.8, background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 10, padding: "9px 11px" }}>
-                ※ メールに<b>「メールアドレスを登録する」リンク</b>が記載されている場合は、そちらを開いても確認できます。<br />
+                ※ メールが届かない場合は、迷惑メールフォルダをご確認ください（差出人：no-reply@enger.jp）。<br />
                 確認後、<b>管理者の承認</b>をもってログインできるようになります。
               </div>
               <div style={{ textAlign: "center" }}>

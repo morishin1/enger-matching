@@ -122,7 +122,8 @@ export async function verifySignupCode(_prev: VerifyState, formData: FormData): 
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const code = String(formData.get("code") ?? "").replace(/\D/g, "");
   if (!isValidEmail(email)) return { error: "メールアドレスが不正です。登録画面からやり直してください。" };
-  if (code.length < 6) return { error: "メールに届いた確認コード（数字）を入力してください。" };
+  // 確認コードは6〜8桁（共有Supabaseの設定に依存。全サービスで同じ受付幅に統一）
+  if (!/^\d{6,8}$/.test(code)) return { error: "メールに届いた確認コード（数字）を入力してください。" };
 
   const supabase = await authServerClient();
   const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "signup" });
