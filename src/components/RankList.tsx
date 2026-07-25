@@ -167,6 +167,11 @@ export function RankList({ jobAbbr, jobNo, tab, selCandNo, ranked, proposedCandI
                   {proposed && (
                     <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0", lineHeight: 1.5, flexShrink: 0 }}>✓ 提案済み</span>
                   )}
+                  {/* 0725改善：スキルシート（登録内容 or ファイル）を持つ候補にバッジ。
+                      候補カードを開けば画面を離れず職務経歴を確認できることを一覧段階で示す。 */}
+                  {(((c as any).skill_sheet_data) || c.skill_sheet_url) && (
+                    <span title="スキルシートあり（候補を選ぶとカード内で閲覧できます）" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#e6fffb", color: "#0f766e", border: "1px solid #99f6e4", lineHeight: 1.5, flexShrink: 0 }}>シート</span>
+                  )}
                   {r.flow?.compat === "ng" && (
                     <span title="案件の受入商流の上限を超えています。提案前に確認してください。" style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 99, background: "#fdecef", color: "#b42318", border: "1px solid #f7c5cf", lineHeight: 1.5, flexShrink: 0 }}>商流NG</span>
                   )}
