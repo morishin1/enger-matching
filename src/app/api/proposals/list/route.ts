@@ -36,7 +36,8 @@ export async function GET(req: Request) {
     // signup_source（LINE登録判定）も取得。未マイグレ環境では列無しでも落ちないようフォールバック。
     const fetchJn = async () => {
       if (!jobIds.length) return [];
-      let r: any = await sb.from("jobs").select("id, job_no, is_closed, signup_source").in("id", jobIds).limit(2000);
+      let r: any = await sb.from("jobs").select("id, job_no, client_name, is_closed, signup_source").in("id", jobIds).limit(2000);
+      if (r.error) r = await sb.from("jobs").select("id, job_no, client_name, is_closed").in("id", jobIds).limit(2000);
       if (r.error) r = await sb.from("jobs").select("id, job_no, is_closed").in("id", jobIds).limit(2000);
       return r.error ? [] : (r.data ?? []);
     };
@@ -47,12 +48,15 @@ export async function GET(req: Request) {
       return r.error ? [] : (r.data ?? []);
     };
     const [jn, cn] = await Promise.all([fetchJn(), fetchCn()]);
-    const mJ: Record<string, { job_no: number; closed: boolean; line: boolean }> = {};
-    for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
+    const mJ: Record<string, { job_no: number; client_name: string | null; closed: boolean; line: boolean }> = {};
+    for (const j of jn as any[]) if (j?.id != null) mJ[j.id] = { job_no: j.job_no, client_name: (j.client_name ?? null), closed: !!j.is_closed, line: String(j.signup_source ?? "") === "line" };
     const mC: Record<string, { candidate_no: number; closed: boolean; cand_company: string | null; line: boolean }> = {};
     for (const c of cn as any[]) if (c?.id != null) mC[c.id] = { candidate_no: c.candidate_no, closed: !!c.is_closed, cand_company: c.source_company ?? c.company ?? null, line: String(c.signup_source ?? "") === "line" };
-    // 案件 or 人材の会社が「打ち合わせ済」(meeting_done) かどうか（＝承認済企業の判定）。
-    const compNames = Array.from(new Set(all.flatMap((p) => [p.company, p.cand_company ?? (p.candidate_id ? mC[p.candidate_id]?.cand_company : null)]).filter(Boolean))) as string[];
+    // 0724：クライアント名／人材会社名を「案件詳細／人材プロフィールの現在値」へ自動追随させる（提案の保存値より優先）。
+    const liveCompanyOf = (p: any): string | null => (p.job_id ? mJ[p.job_id]?.client_name : null) || p.company || null;
+    const liveCandCompanyOf = (p: any): string | null => (p.candidate_id ? mC[p.candidate_id]?.cand_company : null) ?? p.cand_company ?? null;
+    // 案件 or 人材の会社が「打ち合わせ済」(meeting_done) かどうか（＝承認済企業の判定）。現在値ベースで集計。
+    const compNames = Array.from(new Set(all.flatMap((p) => [liveCompanyOf(p), liveCandCompanyOf(p)]).filter(Boolean))) as string[];
     const meetingDoneByCompany: Record<string, boolean> = {};
     if (compNames.length) {
       const cr: any = await sb.from("companies").select("name, meeting_done").in("name", compNames).limit(5000);
@@ -60,7 +64,10 @@ export async function GET(req: Request) {
     }
     for (const p of all) {
       if (p.job_id && mJ[p.job_id])       { p.job_no = mJ[p.job_id].job_no; p.job_closed = mJ[p.job_id].closed; }
-      if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_closed = mC[p.candidate_id].closed; p.cand_company = p.cand_company ?? mC[p.candidate_id].cand_company; }
+      if (p.candidate_id && mC[p.candidate_id]) { p.candidate_no = mC[p.candidate_id].candidate_no; p.cand_closed = mC[p.candidate_id].closed; }
+      // 0724：クライアント名／人材会社名を案件詳細・人材プロフィールの現在値へ追随。
+      p.company = liveCompanyOf(p);
+      p.cand_company = liveCandCompanyOf(p);
       // LINE経由（案件 or 人材のどちらかが LINE登録、または提案自体が source='line'）。
       p.line_origin = String(p.source ?? "") === "line" || !!(p.job_id && mJ[p.job_id]?.line) || !!(p.candidate_id && mC[p.candidate_id]?.line);
       // 承認済（企業マスタ「打ち合わせ済」ON）。案件 or 人材いずれかの会社が打合せ済なら承認済扱い。
