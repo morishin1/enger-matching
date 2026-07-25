@@ -18,6 +18,7 @@ import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
 import { FreelanceNgSelect } from "./FreelanceNgSelect";
 import { AgeLimitInput } from "./AgeLimitInput";
+import { JobNatSelect } from "./JobNatSelect";
 import { displayFlowNote } from "@/lib/flow";
 import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE } from "@/lib/nationality";
 
@@ -125,11 +126,14 @@ const JOB_COLS: Col[] = [
   {
     key: "nationality", label: "国籍要件", width: 116, filterKey: "nationality", filterLabel: "国籍要件",
     render: (j) => {
-      const cat = classifyJobNationality(j.detail, j.title);
+      // 0724：保存済みの国籍要件(nationality_requirement)があればそれを表示。未設定のときだけ本文から自動判定。
+      const SAVED_TO_CAT: Record<string, "jp_only" | "open" | "unknown"> = { "日本国籍のみ": "jp_only", "国籍不問": "open", "不明": "unknown" };
+      const saved = String(j.nationality_requirement ?? "").trim();
+      const cat = SAVED_TO_CAT[saved] ?? classifyJobNationality(j.detail, j.title);
       const tone = JOB_NAT_TONE[cat];
       return (
         <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}
-          title={cat === "jp_only" ? "外国籍NG（日本国籍のみ）の可能性。提案前に必ず確認。" : cat === "open" ? "国籍不問の可能性。" : "本文に国籍の記載が見当たりません。"}>
+          title={saved ? `国籍要件（保存済み）：${saved}` : cat === "jp_only" ? "外国籍NG（日本国籍のみ）の可能性。提案前に必ず確認。" : cat === "open" ? "国籍不問の可能性。" : "本文に国籍の記載が見当たりません。"}>
           {JOB_NAT_LABEL[cat]}
         </span>
       );
@@ -565,7 +569,7 @@ export function JobsTable({
                   [["必要スキル", (detail.skills ?? []).join(" / ") || null]],
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
                   // 0723③：自動推定の「年代制限」バッジは廃止（年齢制限フィールドで代替）。国籍要件と年齢制限を1行に並べる。
-                  [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年齢制限", <AgeLimitInput key={`agel-${detail.job_no}`} jobNo={detail.job_no} initial={detail.age_limit} compact />]],
+                  [["国籍要件", <JobNatSelect key={`nat-${detail.job_no}`} jobNo={detail.job_no} initial={detail.nationality_requirement} detail={detail.detail} title={detail.title} compact />], ["年齢制限", <AgeLimitInput key={`agel-${detail.job_no}`} jobNo={detail.job_no} initial={detail.age_limit} compact />]],
                   // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
                   [["勤務地", detail.work_location ?? "不明"], ["商流制限", displayFlowNote(detail.flow_note) || "不明"], ["フリーランスの応募", <FreelanceNgSelect key={`fng-${detail.job_no}`} jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
@@ -635,16 +639,4 @@ export function JobsTable({
   );
 }
 
-// 案件本文から判定した国籍要件バッジ（詳細ドロワー用）。
-function JobNatBadge({ detail, title }: { detail?: string | null; title?: string | null }) {
-  const cat = classifyJobNationality(detail, title);
-  const tone = JOB_NAT_TONE[cat];
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{JOB_NAT_LABEL[cat]}</span>
-      {cat === "jp_only" && <span style={{ fontSize: 11, color: "#b42318" }}>外国籍NGの可能性。提案前に確認。</span>}
-      {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
-    </span>
-  );
-}
 
