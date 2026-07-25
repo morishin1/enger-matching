@@ -1226,7 +1226,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                         提案判断に必要な職務経歴を、画面を離れずその場で確認できるようにする。 */}
                     {(hasSkillSheetData((c as any).skill_sheet_data) || c.skill_sheet_url) && (
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                        {hasSkillSheetData((c as any).skill_sheet_data) && <SkillSheetDataButton data={(c as any).skill_sheet_data} label="登録スキルシート" />}
+                        {hasSkillSheetData((c as any).skill_sheet_data) && <SkillSheetDataButton data={(c as any).skill_sheet_data} candidateNo={c.candidate_no} label="登録スキルシート" />}
                         {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
                       </div>
                     )}

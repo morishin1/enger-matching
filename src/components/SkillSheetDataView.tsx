@@ -45,14 +45,27 @@ export function hasSkillSheetData(data: any): boolean {
 const CELL: React.CSSProperties = { padding: "7px 9px", borderBottom: "1px solid var(--color-border)", fontSize: 12.5, verticalAlign: "top", whiteSpace: "pre-wrap", wordBreak: "break-word" };
 const HEAD: React.CSSProperties = { ...CELL, background: "var(--color-surface-2, #f3f6fa)", fontWeight: 700, fontSize: 11.5, whiteSpace: "nowrap" };
 
-export function SkillSheetDataButton({ data, label, compact }: { data: any; label?: string; compact?: boolean }) {
+const VIEWED_KEY = (no: number) => `dx_sheet_viewed:P${no}`;
+
+export function SkillSheetDataButton({ data, label, compact, candidateNo }: { data: any; label?: string; compact?: boolean; candidateNo?: number | null }) {
   const [open, setOpen] = useState(false);
+  // 0725改善：エージェントの「どの候補のシートを確認済みか」を端末内に記録し、
+  //   ボタンに ✓ を出す（TOP10 を順に確認していくときの既読管理）。
+  const [viewed, setViewed] = useState(false);
+  useEffect(() => {
+    if (!candidateNo) return;
+    try { setViewed(!!localStorage.getItem(VIEWED_KEY(candidateNo))); } catch { /* noop */ }
+  }, [candidateNo]);
   useEffect(() => {
     if (!open) return;
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [open]);
+  const openSheet = () => {
+    setOpen(true);
+    if (candidateNo) { try { localStorage.setItem(VIEWED_KEY(candidateNo), String(Date.now())); } catch { /* noop */ } setViewed(true); }
+  };
   if (!hasSkillSheetData(data)) return null;
 
   const d: any = data ?? {};
@@ -75,14 +88,15 @@ export function SkillSheetDataButton({ data, label, compact }: { data: any; labe
   return (
     <>
       {compact ? (
-        <button type="button" className="btn btn-xs" onClick={() => setOpen(true)} title="登録スキルシート（入力内容）を表示" aria-label="登録スキルシート"
-          style={{ background: "#0f766e", borderColor: "#0f766e", color: "#fff" }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>contact_page</span>
+        <button type="button" className="btn btn-xs" onClick={openSheet}
+          title={viewed ? "登録スキルシート（確認済み・再表示）" : "登録スキルシート（入力内容）を表示"} aria-label="登録スキルシート"
+          style={{ background: viewed ? "#5eead4" : "#0f766e", borderColor: viewed ? "#5eead4" : "#0f766e", color: viewed ? "#134e4a" : "#fff" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>{viewed ? "task_alt" : "contact_page"}</span>
         </button>
       ) : (
-        <button type="button" className="btn ghost" onClick={() => setOpen(true)}>
-          <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1 }}>contact_page</span>
-          <span>{label ?? "登録スキルシート"}</span>
+        <button type="button" className="btn ghost" onClick={openSheet}>
+          <span className="material-symbols-outlined" style={{ fontSize: 17, lineHeight: 1, color: viewed ? "#0f766e" : undefined }}>{viewed ? "task_alt" : "contact_page"}</span>
+          <span>{label ?? "登録スキルシート"}{viewed ? "（確認済）" : ""}</span>
         </button>
       )}
 
