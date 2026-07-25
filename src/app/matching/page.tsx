@@ -1,6 +1,7 @@
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
+import { SkillSheetDataButton, hasSkillSheetData } from "@/components/SkillSheetDataView";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { MatchChecklist } from "@/components/MatchChecklist";
 import { RankList } from "@/components/RankList";
@@ -359,7 +360,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       //   SELECTに含めると未マイグレ環境で全体が落ちるため、CAND_BASE/JOB_BASE には含めず、
       //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, residence, source_mail_url, note, created_at";
-      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
+      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, skill_sheet_data, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
       // #436②：freelance_ng（フリーランスNG案件のFL系除外）も rich 側で取得（列未整備は BASE へフォールバック）。
@@ -1220,6 +1221,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                       <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} row={c} /></div>
                     </div>
+
+                    {/* 0725：登録スキルシート（LP/cooの入力内容）とアップロード済みシートへの導線。
+                        提案判断に必要な職務経歴を、画面を離れずその場で確認できるようにする。 */}
+                    {(hasSkillSheetData((c as any).skill_sheet_data) || c.skill_sheet_url) && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                        {hasSkillSheetData((c as any).skill_sheet_data) && <SkillSheetDataButton data={(c as any).skill_sheet_data} label="登録スキルシート" />}
+                        {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
+                      </div>
+                    )}
 
                     {/* 提案前チェック（確認ポイント）。決定論的 notes ＋ 任意でAIアドバイス。 */}
                     <MatchChecklist

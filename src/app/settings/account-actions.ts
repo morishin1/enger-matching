@@ -225,7 +225,7 @@ export async function approveAccount(formData: FormData): Promise<Result> {
  *   dxを唯一の承認ハブにするための入口。取込RPC lp_import_talent_entry（service_role専用）で
  *   enger.candidates に signup_source=source 付きで人材化する（＝即マッチング対象）。
  *   id は "entry:<uuid>"（listLpTalentEntries が付与）。 */
-export async function approveTalentEntry(entryId: string): Promise<Result & { candidateId?: string }> {
+export async function approveTalentEntry(entryId: string): Promise<Result & { candidateId?: string; candidate_no?: number }> {
   const guard = await requireAdminOrAgent();
   if (!guard.ok) return guard;
   const actor = guard.actor!;
@@ -242,10 +242,25 @@ export async function approveTalentEntry(entryId: string): Promise<Result & { ca
       return { ok: false, error: m };
     }
     const candidateId = (data as any)?.candidate_id as string | undefined;
+    // 0725：スキルシート全文（entries.payload）を candidates.skill_sheet_data へ写像し、
+    //   人材一覧・マッチング画面のビューアで閲覧できるようにする（取込RPCの版に依存しない保険）。
+    //   併せて candidate_no を解決し、承認直後に「マッチングへ」導線を出せるようにする。
+    let candidateNo: number | undefined;
+    if (candidateId) {
+      try {
+        const admin = engerAdmin();
+        const er: any = await pub.from("coo_talent_entries").select("payload").eq("id", realId).maybeSingle();
+        if (er?.data?.payload) {
+          await admin.from("candidates").update({ skill_sheet_data: er.data.payload }).eq("id", candidateId);
+        }
+        const cr: any = await admin.from("candidates").select("candidate_no").eq("id", candidateId).maybeSingle();
+        candidateNo = cr?.data?.candidate_no ?? undefined;
+      } catch { /* 列未整備・取得失敗でも取込自体は成功扱い */ }
+    }
     await audit(realId, null, "talent_entry_import", candidateId ? `candidate=${candidateId}` : null, actor);
     revalidateTag("sidebar-counts", "max");
     revalidatePath("/newcomers"); revalidatePath("/people"); revalidatePath("/companies");
-    return { ok: true, candidateId };
+    return { ok: true, candidateId, candidate_no: candidateNo };
   } catch (e: any) { return { ok: false, error: String(e?.message ?? e) }; }
 }
 
@@ -278,7 +293,7 @@ export async function rejectTalentEntry(entryId: string): Promise<Result> {
  */
 export async function approveNewcomerAsMeeting(input: {
   id: string; email: string; name?: string | null; role: string; company_name?: string | null;
-}): Promise<Result> {
+}): Promise<Result & { candidate_no?: number }> {
   const { id, email } = input;
   const name = input.name ?? null;
   // LP登録エントリー（COO 等）は取込RPCで candidates 化（＝マッチング対象）。面談済の概念は取込側で扱う。
@@ -303,10 +318,13 @@ export async function approveNewcomerAsMeeting(input: {
   if (!engineerId) return { ok: true };
 
   // 2) フリーランス → enger.candidates へ登録（マッチング対象化）。best-effort。
+  //    0725：登録された P 番号を返し、新着タブから「マッチングへ」直行できるようにする。
+  let candidateNo: number | undefined;
   try {
     const prep = await prepareCandidateFromFreelancer(engineerId);
+    if (prep.ok && prep.data?.already_no) candidateNo = prep.data.already_no;
     if (prep.ok && prep.data && !prep.data.already_no) {
-      await registerCandidateFromFreelancer({
+      const reg = await registerCandidateFromFreelancer({
         engineer_id: engineerId,
         name: prep.data.name || name || (email.split("@")[0] ?? "候補者"),
         title: prep.data.title || null,
@@ -319,6 +337,7 @@ export async function approveNewcomerAsMeeting(input: {
         industries: prep.data.industries || null, pr_text: prep.data.pr_text || null,
         skill_sheets: prep.data.skill_sheets,
       });
+      if (reg.ok && reg.candidate_no) candidateNo = reg.candidate_no;
     }
   } catch (e) { console.error("[approveNewcomerAsMeeting] candidate register failed", e); }
 
@@ -327,7 +346,7 @@ export async function approveNewcomerAsMeeting(input: {
   catch (e) { console.error("[approveNewcomerAsMeeting] meeting-done failed", e); }
 
   revalidatePath("/matching"); revalidatePath("/people"); revalidateTag("sidebar-counts", "max");
-  return { ok: true };
+  return { ok: true, candidate_no: candidateNo };
 }
 
 /** 面談済みフラグ：詳細閲覧の解放/再制限。 */

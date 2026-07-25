@@ -834,11 +834,47 @@ export async function syncLpRegistrantsToCandidates(opts?: { limit?: number }): 
       });
     }
     if (opts?.limit && toInsert.length > opts.limit) toInsert.length = opts.limit;
+
+    // 0725：構造化スキルシート（profiles.skill_sheet_data）を人材へ反映する。
+    //   ① 今回 insert する行に email 突合で付与（新規登録が即・一覧のビューアで見える）
+    //   ② 既存 candidates で未設定のものにも email 突合でバックフィル（1回の同期で最大50件）
+    //   列未整備（profiles / candidates どちら側でも）は握りつぶして従来どおり動く。
+    const sheetByEmail = new Map<string, any>();
+    try {
+      const pub2 = publicAdmin();
+      const sr: any = await pub2.from("profiles").select("email, skill_sheet_data")
+        .not("skill_sheet_data", "is", null).not("email", "is", null)
+        .order("updated_at", { ascending: false }).limit(300);
+      if (!sr.error) for (const r of (sr.data ?? []) as any[]) {
+        const em = String(r.email ?? "").toLowerCase().trim();
+        if (em && r.skill_sheet_data && !sheetByEmail.has(em)) sheetByEmail.set(em, r.skill_sheet_data);
+      }
+    } catch { /* profiles.skill_sheet_data 列が無い環境では付与なし */ }
+    if (sheetByEmail.size > 0) {
+      for (const row of toInsert) {
+        const em = String(row.email ?? "").toLowerCase().trim();
+        if (em && sheetByEmail.has(em)) row.skill_sheet_data = sheetByEmail.get(em);
+      }
+      // ② 既存人材へのバックフィル（未設定のみ・少量ずつ＝同期のたびに前進する）
+      try {
+        const emails = Array.from(sheetByEmail.keys());
+        const cr: any = await admin.from("candidates").select("id, email")
+          .is("skill_sheet_data", null).not("email", "is", null)
+          .in("email", emails).limit(50);
+        if (!cr.error) {
+          for (const c of (cr.data ?? []) as any[]) {
+            const sheet = sheetByEmail.get(String(c.email ?? "").toLowerCase().trim());
+            if (sheet) await admin.from("candidates").update({ skill_sheet_data: sheet }).eq("id", c.id);
+          }
+        }
+      } catch { /* candidates.skill_sheet_data 未整備ならスキップ */ }
+    }
+
     if (toInsert.length === 0) return { ok: true, created: 0, skipped: rows.length };
 
-    const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.skill_sheet_url; return c; };
+    const stripped = (o: Record<string, any>) => { const c = { ...o }; delete c.email; delete c.skill_sheet_url; delete c.skill_sheet_data; return c; };
     let ins: any = await admin.from("candidates").insert(toInsert);
-    if (ins.error && /skill_sheet_url|email|column/i.test(ins.error.message)) {
+    if (ins.error && /skill_sheet_data|skill_sheet_url|email|column/i.test(ins.error.message)) {
       ins = await admin.from("candidates").insert(toInsert.map(stripped));
     }
     if (ins.error) return { ok: false, error: ins.error.message };
@@ -998,6 +1034,14 @@ export async function registerCandidateFromFreelancer(input: {
   const now = new Date().toISOString();
   const operator = access?.name || access?.email || null;
   const sheets = (input.skill_sheets ?? []).filter((s) => s && s.url).slice(0, 3);
+  // 0725：構造化スキルシート（profiles.skill_sheet_data）も人材へ持ち回る。
+  //   フォーム経由で渡さずサーバ側で直接読む（列未整備・未入力は null のまま）。
+  let sheetData: any = null;
+  try {
+    const pub = publicAdmin();
+    const sr: any = await pub.from("profiles").select("skill_sheet_data").eq("id", engId).maybeSingle();
+    if (!sr.error && sr.data?.skill_sheet_data) sheetData = sr.data.skill_sheet_data;
+  } catch { /* profiles.skill_sheet_data 未整備でも登録は続行 */ }
   const row: Record<string, any> = {
     name,
     initials: name,                                      // イニシャルそのものを氏名/イニシャルに使う
@@ -1023,6 +1067,7 @@ export async function registerCandidateFromFreelancer(input: {
     detail_note: input.pr_text?.trim() || null,     // #388④：自己PR → 人材詳細（新規作成のため追記考慮不要）
     skill_sheet_url: sheets[0]?.url || null,
     skill_sheets: sheets.length ? sheets : null,
+    skill_sheet_data: sheetData,                    // 0725：構造化シート（列未整備は下の再試行で自動除去）
     status: "提案可",
     score: 0,
     source_csv: "freelance",
