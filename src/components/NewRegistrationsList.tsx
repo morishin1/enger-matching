@@ -7,6 +7,7 @@
 //   をまとめて表示し、その場で「面談」チェック（＝承認＋本登録＋全機能解放）・削除できる。
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "@/components/AppLink";
 import type { Account } from "@/lib/accounts";
 import { deleteAccount, bulkDeleteAccounts, rejectTalentEntry, approveNewcomerAsMeeting } from "@/app/settings/account-actions";
 import { prepareCandidateFromFreelancer, type FreelancePrefill } from "@/app/engineers/actions";
@@ -24,7 +25,7 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
   const router = useRouter();
   const [pending, start] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string; candidateNo?: number } | null>(null);
   // ① スキルシート・モーダル
   const [sheetFor, setSheetFor] = useState<Account | null>(null);
   const [sheet, setSheet] = useState<FreelancePrefill | null>(null);
@@ -32,12 +33,14 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
   const [sheetErr, setSheetErr] = useState<string | null>(null);
 
   const noun = kind === "company" ? "企業" : "人材";
-  const run = (id: string, fn: () => Promise<{ ok: boolean; error?: string }>, okText: string) => {
+  const run = (id: string, fn: () => Promise<{ ok: boolean; error?: string; candidate_no?: number }>, okText: string) => {
     setBusyId(id); setMsg(null);
     start(async () => {
       const res = await fn();
       setBusyId(null);
-      if (res.ok) { setMsg({ ok: true, text: okText }); router.refresh(); }
+      // 0725：本登録で P 番号が確定したら、成功メッセージに「マッチングへ」直行リンクを出す
+      //   （登録 → 面談チェック → その場でマッチング実行、の一連の流れを画面遷移1回に短縮）。
+      if (res.ok) { setMsg({ ok: true, text: okText, candidateNo: res.candidate_no }); router.refresh(); }
       else setMsg({ ok: false, text: res.error || "操作に失敗しました" });
     });
   };
@@ -81,7 +84,17 @@ export function NewRegistrationsList({ rows, kind }: { rows: Account[]; kind: "c
           ? <>エンジャービジネス（enger.jp 法人登録）から届いた<b>企業の新規登録</b>です。承認すると自社ポータル（案件掲載・おすすめ人材・選考）を利用できるようになります。</>
           : <>エンジャーフリーランス（enger.jp）から届いた<b>人材の新規登録</b>です。<b>「面談」にチェック</b>すると、承認・人材マスタ登録（マッチング対象化）・全機能解放までまとめて行われます。「スキルシート」で登録内容を確認できます。</>}
       </div>
-      {msg && <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)" }}>{msg.text}</div>}
+      {msg && (
+        <div style={{ fontSize: 12.5, color: msg.ok ? "var(--color-success)" : "var(--color-danger)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span>{msg.text}</span>
+          {msg.ok && msg.candidateNo && (
+            <Link href={`/matching?person=${msg.candidateNo}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 15, lineHeight: 1 }}>auto_awesome</span>
+              この人材でマッチングを実行（P-{String(msg.candidateNo).padStart(5, "0")}）
+            </Link>
+          )}
+        </div>
+      )}
       {rows.length === 0 ? (
         <div className="card" style={{ textAlign: "center", color: "var(--color-ink-4)", padding: 30, fontSize: 13 }}>
           未対応の新着{noun}はありません。
