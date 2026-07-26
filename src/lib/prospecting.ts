@@ -102,17 +102,21 @@ export function todayAttackProspects(prospects: Prospect[]): Prospect[] {
 //        → 貼り付けて取込（社名・ドメインで重複スキップ）。Routine から API 追記も同じ経路。
 // ============================================================
 
-export type DailyTheme = { key: string; weekday: string; label: string; detail: string };
+export type DailyTheme = {
+  key: string; weekday: string; label: string; detail: string;
+  /** テーマ側で地域を決めている日（true なら切り口で地域をずらさない。「東京のJava」×「大阪の企業」の矛盾を防ぐ） */
+  regionFixed?: boolean;
+};
 
 // 曜日テーマ（index = JST の getDay：0=日）。スキル × 地域 × シグナルの掛け算でローテーションする。
 export const DAILY_THEMES: DailyTheme[] = [
   { key: "sun", weekday: "日", label: "設備系IT（POS・サイネージ・ネットワーク工事）", detail: "POS・デジタルサイネージ・ネットワーク工事などの設備系IT企業（協力会社募集を含む）。全国。" },
-  { key: "mon", weekday: "月", label: "Java／Spring × 東京", detail: "Java・Spring 系のエンジニアを募集している企業。東京。" },
-  { key: "tue", weekday: "火", label: "インフラ・クラウド（AWS/Azure）× 東京", detail: "インフラ・クラウド（AWS／Azure）系のエンジニアを募集している企業。東京。" },
+  { key: "mon", weekday: "月", label: "Java／Spring × 東京", detail: "Java・Spring 系のエンジニアを募集している企業。東京。", regionFixed: true },
+  { key: "tue", weekday: "火", label: "インフラ・クラウド（AWS/Azure）× 東京", detail: "インフラ・クラウド（AWS／Azure）系のエンジニアを募集している企業。東京。", regionFixed: true },
   { key: "wed", weekday: "水", label: "SES／ビジネスパートナー募集ページのある企業（全国）", detail: "「SESパートナー募集」「ビジネスパートナー募集」ページを公開している企業。全国。" },
-  { key: "thu", weekday: "木", label: "フロントエンド（React/TypeScript）× 東京・リモート可", detail: "React／TypeScript のフロントエンド人材を募集している企業。東京・リモート可。" },
+  { key: "thu", weekday: "木", label: "フロントエンド（React/TypeScript）× 東京・リモート可", detail: "React／TypeScript のフロントエンド人材を募集している企業。東京・リモート可。", regionFixed: true },
   { key: "fri", weekday: "金", label: "直近3ヶ月に資金調達・新規事業を発表 × エンジニア採用中", detail: "PR TIMES 等で直近3ヶ月に資金調達・新規事業を発表し、エンジニアを採用中の企業。" },
-  { key: "sat", weekday: "土", label: "PHP／モバイル（iOS・Android）× 大阪・名古屋", detail: "PHP・モバイル（iOS／Android）系のエンジニアを募集している企業。大阪・名古屋など地方都市。" },
+  { key: "sat", weekday: "土", label: "PHP／モバイル（iOS・Android）× 大阪・名古屋", detail: "PHP・モバイル（iOS／Android）系のエンジニアを募集している企業。大阪・名古屋など地方都市。", regionFixed: true },
 ];
 
 /** JST の "YYYY-MM-DD"。サーバーが UTC でも日本時間の日付で数えるために使う。 */
@@ -129,21 +133,32 @@ export function dailyTheme(at: Date = new Date()): DailyTheme {
 
 // 1時間ごとに自動で回す（Routine）場合、同じテーマだけだと同じ企業ばかり出て重複スキップになる。
 //   時間帯で「切り口」をずらして、探索範囲を毎回変える。
-export const HOURLY_ANGLES: string[] = [
+//   地域を決めていない全国テーマの日は地域で、地域が決まっている日は企業の性質でずらす。
+export const REGION_ANGLES: string[] = [
   "東京23区の中小・成長企業（従業員10〜300名）",
   "首都圏（横浜・川崎・さいたま・千葉）の企業",
   "大阪・京都・神戸の企業",
   "名古屋・中部の企業",
   "福岡・九州／札幌・仙台の企業",
-  "フルリモート可・地方在住可を掲げる企業",
+];
+export const STYLE_ANGLES: string[] = [
+  "従業員10〜300名の中小・成長企業",
+  "エンジニア求人を3職種以上出している企業",
   "直近3ヶ月に増員・採用強化・新拠点を発表した企業",
   "自社サービス／一次請けを持つ企業（多重下請けでない）",
+  "フルリモート可・地方在住可を掲げる企業",
 ];
+
+/** 自動実行の稼働開始時刻（JST）。ここを起点に切り口を1時間ずつ送る。 */
+const ANGLE_START_HOUR = 9;
 
 /** この回（JSTの時刻）の切り口。毎時実行しても探索範囲が重ならないようにするためのもの。 */
 export function hourlyAngle(at: Date = new Date()): string {
-  const hour = Number((at instanceof Date ? at : new Date(at)).toLocaleString("sv-SE", { timeZone: "Asia/Tokyo" }).slice(11, 13));
-  return HOURLY_ANGLES[(Number.isFinite(hour) ? hour : 0) % HOURLY_ANGLES.length];
+  const d = at instanceof Date ? at : new Date(at);
+  const hour = Number(d.toLocaleString("sv-SE", { timeZone: "Asia/Tokyo" }).slice(11, 13));
+  const list = dailyTheme(d).regionFixed ? STYLE_ANGLES : REGION_ANGLES;
+  const slot = (Number.isFinite(hour) ? hour : ANGLE_START_HOUR) - ANGLE_START_HOUR;
+  return list[((slot % list.length) + list.length) % list.length];
 }
 
 /** 手元の Claude（Web検索あり）に貼るための調査プロンプト。返ってきたCSVはそのまま取込できる。 */
