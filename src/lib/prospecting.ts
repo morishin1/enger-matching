@@ -267,8 +267,24 @@ function splitLine(line: string, delimiter: string): string[] {
  *   daily : 企業名,採用ページURL,企業URL,業種,所在地,ランク,シグナル,発見元,メモ（毎日の調査結果）
  *   legacy: 会社名,業界,URL,フォームURL,電話,担当者,優先度,自社担当,出所,メモ（従来の手元リスト）
  */
+/**
+ * Claude の回答をまるごと貼っても取り込めるように、CSV の部分だけを抜き出す。
+ *   ・``` のコードブロックがあれば、そのうち行数が最も多いものを使う
+ *   ・無ければ「企業名/会社名」で始まるヘッダ行以降を使う（前置きの文章を捨てる）
+ *   ・区切り文字を含まない行（説明文・末尾の補足）は落とす
+ * 素のCSVを貼った場合は何も変わらない。
+ */
+export function extractCsvBlock(raw: string): string {
+  const text = raw.replace(/\r\n?/g, "\n");
+  const fenced = [...text.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const candidates = (fenced.length ? fenced : [text]).map((c) => c.split("\n").filter((l) => l.trim()));
+  const picked = candidates.sort((a, b) => b.length - a.length)[0] ?? [];
+  const headIdx = picked.findIndex((l) => /^\s*"?(企業名|会社名)"?\s*[,\t]/.test(l));
+  return (headIdx >= 0 ? picked.slice(headIdx) : picked).filter((l) => /[,\t]/.test(l)).join("\n");
+}
+
 export function parseProspectCsv(text: string, forced?: CsvFormat): { rows: ParsedProspectRow[]; format: CsvFormat } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const lines = extractCsvBlock(text).split("\n").filter((l) => l.trim());
   if (lines.length === 0) return { rows: [], format: forced ?? "daily" };
   const delimiter = (lines[0].match(/\t/g)?.length ?? 0) > (lines[0].match(/,/g)?.length ?? 0) ? "\t" : ",";
   const table = lines.map((l) => splitLine(l, delimiter)).filter((cols) => cols.some(Boolean));
