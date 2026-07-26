@@ -1,0 +1,114 @@
+# エンドリスト｜毎日アタック企業を追記する運用
+
+対象画面：<https://dx.enger.jp/prospecting>（エンド開拓 → リスト管理 → **今日の追記**）
+
+エンドリストは「入れた分だけアポが出る」入口なので、**毎日必ず足す**運用にする。
+手でやる方法（①）と、Claude の Routine で自動化する方法（②）の2通り。どちらも取込先・重複判定は同じ。
+
+---
+
+## 0. 最初に一度だけ（DBの準備）
+
+Supabase SQL Editor で次を実行する（何度実行しても安全）。
+
+1. `supabase/prospecting.sql`（未実行の場合）
+2. `supabase/prospecting-daily.sql` … 採用ページURL・所在地・ランク・シグナル・発見元の列を追加
+
+未実行でも取込自体は動くが、上記5項目は保存されず画面に警告が出る。
+
+---
+
+## ① 手で毎日追記する（APIキー不要・1日3分）
+
+1. `/prospecting` → **リスト管理** タブ →「今日の追記」
+2. 「調査プロンプトをコピー」を押し、手元の **Claude**（claude.ai／Claude アプリ／Claude Code）に貼る
+   - 曜日ごとのテーマ（月＝Java／火＝インフラ／水＝パートナー募集／木＝フロント／金＝資金調達／土＝PHP・モバイル・地方／日＝設備系IT）が自動で入る
+3. Claude が Web 検索で調べ、CSV を返す
+4. その CSV を「返ってきた CSV を貼って取り込む」に貼り付け →「リストに追記」
+5. **追加◯社／スキップ◯社**（内訳つき）がその場に出る。直近7日の棒グラフで積み上がりを確認する
+
+### CSV の形式
+
+```
+企業名,採用ページURL,企業URL,業種,所在地,ランク,シグナル,発見元,メモ
+株式会社サンプル,https://example.com/recruit,https://example.com,SaaS,東京都渋谷区,A,資金調達;複数職種募集,PR TIMES,シリーズB調達直後・エンジニア募集
+```
+
+- **ランク**：A＝今週送る／B＝来週以降／C＝対象外 → 優先度（A85／B55／C25）に反映される
+- **シグナル**：`資金調達 / 新規事業 / 新拠点・増員 / DX・AI導入 / 複数職種募集 / 技術発信` のみ（`;` 区切り・他の語は落とす）
+- 従来形式（`会社名,業界,URL,フォームURL,電話,担当者,優先度,自社担当,出所,メモ`）や、Excel からのタブ区切り貼り付けも自動判別する
+
+### 重複はスキップされる
+
+社名（`株式会社` などの法人格・空白を無視）と URL ドメインで、**既存リスト／企業マスタ／同じCSV内**の重複を除いてから登録する。
+既存行を上書きすることはない（追記のみ）。だから同じテーマを何度流しても壊れない。
+
+---
+
+## ② Claude の Routine で自動追記する（毎時◯社）
+
+`/api/prospecting/ingest` に投げれば、画面を開かずに追記できる。
+
+### 準備
+
+1. **Vercel** の環境変数に `PROSPECTING_INGEST_TOKEN`（十分長いランダム文字列）を設定してデプロイ
+2. **Claude Code の環境**（Routine を動かす側）にも同じ値を環境変数として設定する
+   - トークンを Routine のプロンプト本文やリポジトリに直接書かないこと
+
+### エンドポイント
+
+| メソッド | 内容 |
+|---|---|
+| `GET /api/prospecting/ingest` | 今日のテーマ・**この回の切り口**（時間帯で変わる）・目標件数・本日の追記数・直近150社の社名を返す |
+| `POST /api/prospecting/ingest` | 調べた企業を追記する。`{"rows":[…]}` か `{"csv":"…"}`。`?dry=1` で登録せず件数だけ確認 |
+
+いずれも `Authorization: Bearer $PROSPECTING_INGEST_TOKEN` が必要。
+
+```bash
+# 今日のテーマとこの回の切り口を取得
+curl -s https://dx.enger.jp/api/prospecting/ingest \
+  -H "Authorization: Bearer $PROSPECTING_INGEST_TOKEN"
+
+# 追記（英語キー・日本語キーどちらでも可）
+curl -s -X POST https://dx.enger.jp/api/prospecting/ingest \
+  -H "Authorization: Bearer $PROSPECTING_INGEST_TOKEN" -H "Content-Type: application/json" \
+  -d '{"rows":[{"企業名":"株式会社サンプル","企業URL":"https://example.com",
+       "採用ページURL":"https://example.com/recruit","業種":"SaaS","所在地":"東京都渋谷区",
+       "ランク":"B","シグナル":"資金調達;複数職種募集","発見元":"PR TIMES","メモ":"シリーズB調達直後"}]}'
+```
+
+戻り値：`{ added, skipped, skippedExisting, skippedCompany, skippedInBatch, addedNames, ... }`
+
+### Routine のプロンプト（そのまま登録する）
+
+```text
+ENGER エンドリストへの自動追記です。次の手順で実行してください。
+
+1. GET https://dx.enger.jp/api/prospecting/ingest を
+   Authorization: Bearer $PROSPECTING_INGEST_TOKEN で叩き、
+   theme（今日のテーマ）・angle（この回の切り口）・target（目標件数）・recentCompanies（既存社名）を取得する。
+2. Web検索で、theme × angle に合う日本国内の企業を target 社ぶん調べる。
+   - 実在確認できた企業だけ（URLは実際にアクセスできたものだけ。推測でURLを作らない）
+   - 「営業お断り」の記載を見つけた企業は除外する
+   - 求人媒体（Green・Wantedly等）は発見にだけ使い、企業の公式サイト・採用ページURLを載せる
+   - recentCompanies にある企業は出さない
+   - 個人名・個人の連絡先は一切扱わない
+3. POST 同 URL に {"rows":[{企業名,採用ページURL,企業URL,業種,所在地,ランク,シグナル,発見元,メモ}, ...]} を送る。
+4. レスポンスの added / skipped を1行で報告する。added が 0 の回が続く場合は、その旨も書く。
+```
+
+- 実行間隔は毎時でも動くが、**同じ日は1テーマ**なので切り口（`angle`）が8種類で一巡する。
+  1日中回すより、**営業時間帯（例：平日9〜19時）に毎時**のほうが重複が少なく費用も抑えられる。
+- 1回の POST 上限は既定50社（`PROSPECTING_INGEST_MAX`）。目標件数は `PROSPECTING_HOURLY_TARGET`（既定10）。
+- 自動追記された企業も**状態は「未接触」**で入る。営業可否・「営業お断り」表記の最終確認は担当者が画面で行う。
+
+---
+
+## 品質・法務（変更しないこと）
+
+- 「営業お断り」の表記がある企業はリストに入れない
+- 求人媒体の応募フォームは営業に使わない（発見のみ）。各サイトの利用規約・robots.txt を尊重し、CAPTCHA は回避しない
+- 個人名・個人の連絡先は、プロンプトにも出力にも入れない
+- 送信可否は必ず担当者が確認する。リスト収集は「候補出し」まで
+
+KPI の目安：有効企業の追加 **週100件**（1日20社×5営業日）。返信率が5%を切ったらテーマを見直す。
