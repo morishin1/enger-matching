@@ -283,6 +283,17 @@ export function extractCsvBlock(raw: string): string {
   return (headIdx >= 0 ? picked.slice(headIdx) : picked).filter((l) => /[,\t]/.test(l)).join("\n");
 }
 
+/**
+ * 調査プロンプトに載せている「書式の見本」行かどうか。
+ *   プロンプトをそのままコピーして貼ってしまうと、見本の 株式会社サンプル／example.com が
+ *   実在企業として登録されてしまうため、取込時に落とす。
+ */
+export function isTemplateProspectRow(row: { company_name?: string | null; website?: string | null; career_url?: string | null }): boolean {
+  const name = (row.company_name ?? "").replace(/\s|株式会社|（株）|\(株\)/g, "");
+  if (/^(サンプル|見本|例|テスト|会社名|企業名)$/.test(name)) return true;
+  return [row.website, row.career_url].some((u) => /(^|\/\/|\.)(example)\.(com|org|net)(\/|$)/i.test(String(u ?? "")));
+}
+
 export function parseProspectCsv(text: string, forced?: CsvFormat): { rows: ParsedProspectRow[]; format: CsvFormat } {
   const lines = extractCsvBlock(text).split("\n").filter((l) => l.trim());
   if (lines.length === 0) return { rows: [], format: forced ?? "daily" };

@@ -6,18 +6,9 @@
 //   人材一覧のアクション列・詳細ドロワー・マッチング画面から開く。
 //   フィールドはすべて任意（旧データ・部分入力に耐える）。
 import { useEffect, useState } from "react";
+// 判定ヘルパはサーバーからも呼ぶため lib 側に置いている（ここに戻さないこと）。
+import { arr, hasSkillSheetData, projectsOf, s, type SheetProject } from "@/lib/skill-sheet-data";
 
-type SheetProject = {
-  name?: string; periodStart?: string; periodEnd?: string;
-  industry?: string; jobtype?: string;
-  tasks?: string; result?: string;
-  role?: string; scale?: string; workstyle?: string;
-  languages?: string; serverOs?: string; tools?: string;
-  phases?: string[];
-};
-
-const s = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
-const arr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : []);
 
 function month(v?: string): string {
   const m = String(v ?? "").match(/^(\d{4})-(\d{2})/);
@@ -27,19 +18,6 @@ function period(p: SheetProject): string {
   const a = month(p.periodStart);
   const b = s(p.periodEnd) ? month(p.periodEnd) : (a ? "現在" : "");
   return a || b ? `${a}${a || b ? " 〜 " : ""}${b}` : "";
-}
-
-/** JSON からプロジェクト配列を取り出す（無い・壊れている場合は空）。 */
-function projectsOf(data: any): SheetProject[] {
-  const raw = Array.isArray(data?.projects) ? data.projects : [];
-  return raw.filter((p: any) => p && typeof p === "object")
-    .filter((p: any) => s(p.name) || s(p.tasks) || s(p.result) || s(p.languages) || s(p.tools));
-}
-
-/** 表示できる中身があるか（ボタンの出し分けに使う）。 */
-export function hasSkillSheetData(data: any): boolean {
-  if (!data || typeof data !== "object") return false;
-  return projectsOf(data).length > 0 || arr(data.skills).length > 0 || !!s(data.careerSummary);
 }
 
 const CELL: React.CSSProperties = { padding: "7px 9px", borderBottom: "1px solid var(--color-border)", fontSize: 12.5, verticalAlign: "top", whiteSpace: "pre-wrap", wordBreak: "break-word" };

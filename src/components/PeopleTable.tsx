@@ -19,7 +19,8 @@ import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
 import { isEngerFreelance, isCooTalent } from "@/lib/candidate-source";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
-import { SkillSheetDataButton, hasSkillSheetData } from "./SkillSheetDataView";
+import { SkillSheetDataButton } from "./SkillSheetDataView";
+import { hasSkillSheetData } from "@/lib/skill-sheet-data";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
