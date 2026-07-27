@@ -1,7 +1,9 @@
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
-import { SkillSheetDataButton, hasSkillSheetData } from "@/components/SkillSheetDataView";
+import { SkillSheetDataButton } from "@/components/SkillSheetDataView";
+// 判定はサーバー安全な lib 側から呼ぶ（"use client" のモジュールの関数はサーバーから呼べない）。
+import { hasSkillSheetData } from "@/lib/skill-sheet-data";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { MatchChecklist } from "@/components/MatchChecklist";
 import { PanelErrorBoundary } from "@/components/PanelErrorBoundary";

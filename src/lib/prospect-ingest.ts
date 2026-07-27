@@ -5,7 +5,7 @@
 //     ・DB 側も normalized_name の一意制約で二重登録を止める（ON CONFLICT DO NOTHING）
 //   サーバー専用（service role キーを使う）。
 import { engerAdmin } from "@/lib/supabase";
-import { normalizedCompanyKey, urlDomainKey, type ParsedProspectRow } from "@/lib/prospecting";
+import { isTemplateProspectRow, normalizedCompanyKey, urlDomainKey, type ParsedProspectRow } from "@/lib/prospecting";
 
 export type SkipReason = "既存リスト" | "既存企業" | "重複行";
 
@@ -38,6 +38,18 @@ export async function ingestProspectRows(
 ): Promise<IngestOutcome> {
   const out = empty();
   if (rows.length === 0) return { ...out, ok: false, error: "取り込める行がありません" };
+
+  // 調査プロンプトを丸ごと貼ってしまったケース：中に書いてある書式の見本
+  //   （株式会社サンプル／example.com）を実在企業として登録しない。
+  const templateCount = rows.filter(isTemplateProspectRow).length;
+  rows = rows.filter((r) => !isTemplateProspectRow(r));
+  if (rows.length === 0) {
+    return {
+      ...out, ok: false,
+      error: "書式の見本（株式会社サンプル）しか見つかりませんでした。コピーしたのは調査プロンプトのようです。Claude の「回答」の方をコピーして貼り付けてください。",
+    };
+  }
+  if (templateCount > 0) out.warning = `書式の見本（株式会社サンプル）の${templateCount}行は取り込みませんでした。`;
 
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ...out, ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
@@ -126,7 +138,8 @@ export async function ingestProspectRows(
     if (res.error && !stripDaily && isMissingColumn(res.error.message)) {
       // 日次カラム未適用の環境：基本項目だけで登録し、SQLの実行を促す。
       stripDaily = true;
-      out.warning = "採用ページURL・所在地・ランク・シグナル・発見元は保存できませんでした。Supabase SQL Editor で supabase/prospecting-daily.sql を実行してください。";
+      const note = "採用ページURL・所在地・ランク・シグナル・発見元は保存できませんでした。Supabase SQL Editor で supabase/prospecting-daily.sql を実行してください。";
+      out.warning = out.warning ? `${out.warning} ${note}` : note;
       res = await insertChunk(chunk, true);
     }
     if (res.error) return { ...out, ok: false, error: res.error.message };
