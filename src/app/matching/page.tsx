@@ -4,6 +4,7 @@ import { FocusHeart } from "@/components/FocusHeart";
 import { SkillSheetDataButton, hasSkillSheetData } from "@/components/SkillSheetDataView";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { MatchChecklist } from "@/components/MatchChecklist";
+import { PanelErrorBoundary } from "@/components/PanelErrorBoundary";
 import { RankList } from "@/components/RankList";
 import { RankJobList } from "@/components/RankJobList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
@@ -1138,13 +1139,17 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             )}
             {job && (
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-          {/* 左: ランキングリスト（AI再ランキング対応） */}
-          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
-            jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
+          {/* 左: ランキングリスト（AI再ランキング対応）。
+              1件でも表示できないデータがあった時に画面全体が落ちないよう、カード単位で切り離す。 */}
+          <PanelErrorBoundary label="候補人材のランキング">
+            <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
+              jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
+          </PanelErrorBoundary>
 
           {/* 右: 詳細パネル */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
             {/* 対象案件 サマリ（スコア集計は団子になり情報量が無いので撤去。代わりに案件情報を厚く） */}
+            <PanelErrorBoundary label="案件サマリ">
             <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", padding: "12px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                 <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
@@ -1178,6 +1183,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               {/* #260①：メール本文（detail）のプレビューは非表示（必須スキルの下に生の本文が出て見づらいため）。
                   本文は「元メールを開く」から確認できる。 */}
             </div>
+            </PanelErrorBoundary>
 
             {/* #364：?cand= 指定なのに該当人材が見つからない場合の明示メッセージ（別人材は出さない）。 */}
             {sp.cand && !sel && (
@@ -1194,6 +1200,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               const rank = ranked.findIndex((r) => r.candidate.candidate_no === c.candidate_no) + 1;
               const skillPct = job.skills?.length ? Math.round((sel.matchedSkills.length / job.skills.length) * 100) : 0;
               return (
+                <PanelErrorBoundary label="候補人材の詳細（提案フォーム）">
                 <div className="card flush">
                   <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（必須スキル {skillPct}%）</div>
@@ -1310,6 +1317,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     })()}
                   </div>
                 </div>
+                </PanelErrorBoundary>
               );
             })()}
           </div>
