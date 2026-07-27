@@ -361,6 +361,11 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, residence, source_mail_url, note, created_at";
       const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, skill_sheet_data, flow_depth, deleted_at`;
+      // 一覧（候補200件）用は skill_sheet_data（登録スキルシート全文の JSON）を含めない。
+      //   全文は選択中の1名しか使わないのに200件ぶん取ると応答が肥大化し、
+      //   案件→人材マッチングだけがタイムアウト／メモリ超過で 500 になる。
+      //   全文はランキング確定後（上位10名）にまとめて後付けする（attachSkillSheets）。
+      const CAND_LIST = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
       // #436②：freelance_ng（フリーランスNG案件のFL系除外）も rich 側で取得（列未整備は BASE へフォールバック）。
@@ -579,7 +584,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
             return q.order("candidate_no", { ascending: false }).limit(200);
           };
-          let cr: any = await buildC(CAND_RICH);
+          let cr: any = await buildC(CAND_LIST);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
@@ -632,6 +637,22 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               const entry = single.length ? single[0] : ({ candidate: tgt, ...scoreMatch(job as Job, tgt) } as any);
               ranked = [entry, ...ranked.filter((r: any) => r.candidate.candidate_no !== reqCandNo2)];
             }
+          }
+          // 登録スキルシート（JSON全文）は表示に出す上位10名ぶんだけ後付けする。
+          //   一覧クエリ（200件）から外した分をここで補うので、画面の表示内容は従来どおり。
+          const sheetNos = ranked.map((r: any) => r?.candidate?.candidate_no).filter((n: any) => n != null);
+          if (sheetNos.length > 0) {
+            try {
+              const sr: any = await sb.from("candidates").select("candidate_no, skill_sheet_data").in("candidate_no", sheetNos);
+              if (!sr.error) {
+                const byNo = new Map<number, any>();
+                for (const row of (sr.data ?? []) as any[]) if (row?.skill_sheet_data) byNo.set(Number(row.candidate_no), row.skill_sheet_data);
+                for (const r of ranked) {
+                  const d = byNo.get(Number(r?.candidate?.candidate_no));
+                  if (d) r.candidate.skill_sheet_data = d;
+                }
+              }
+            } catch { /* skill_sheet_data 未整備でもスキルシート以外は表示する */ }
           }
         }
         // 元メールリンクを直近受信メールへ更新（同案件／同人材／同送信元の最新メールに飛ぶ）。
@@ -1197,7 +1218,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   </div>
                   <div style={{ padding: 20 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                      <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
+                      {/* 氏名が空の人材（LINE取込などで名前未設定）でも画面全体を落とさない。 */}
+                      <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || (c.name ?? "").slice(0, 2) || "—"}</div>
                       <div>
                         {/* #260②：人材IDの隣に登録元アイコン（LINE経由=LINEマーク／ENGERフリーランス=Eマーク）。 */}
                         <div style={{ fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
