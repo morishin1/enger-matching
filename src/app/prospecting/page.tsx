@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { addProspect, recordProspectActivity, promoteProspectToCompany, updateProspectStatus } from "./actions";
-import { dailyAddedCounts, dailyResearchPrompt, dailyTheme, jstDateKey, loadProspectingData, prospectingMetrics, todayAttackProspects, PROSPECT_RANKS, PROSPECT_STATUSES, type DailyTheme, type Prospect } from "@/lib/prospecting";
+import { dailyAddedCounts, dailyResearchPrompt, dailyTheme, hourlyAngle, jstDateKey, loadProspectingData, prospectingMetrics, todayAttackProspects, PROSPECT_RANKS, PROSPECT_STATUSES, type DailyTheme, type Prospect } from "@/lib/prospecting";
 import { ProspectDailyAppend } from "@/components/ProspectDailyAppend";
 import { PillTabs } from "@/components/PillTabs";
 import { SimpleRangeYearMonthBar } from "@/components/SimpleRangeYearMonthBar";
@@ -40,6 +40,12 @@ export default async function ProspectingPage({ searchParams }: { searchParams: 
   const theme = dailyTheme();
   const counts = dailyAddedCounts(data.prospects, 7);
   const todayCount = counts[counts.length - 1]?.count ?? 0;
+  // 調査プロンプトに載せる「既にリストにある企業」（新しい順）。同じ会社を何度も調べさせない。
+  const recentNames = data.prospects
+    .slice()
+    .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))
+    .map((p) => p.company_name)
+    .filter(Boolean);
 
   return (
     <div style={{ minHeight: "calc(100vh - 80px)", margin: "-24px -24px 0", padding: "28px 24px 56px", background: `linear-gradient(160deg, ${NAVY} 0%, #0a1830 36%, #f6f8fb 36%)` }}>
@@ -77,7 +83,13 @@ export default async function ProspectingPage({ searchParams }: { searchParams: 
         </div>
 
         {tab === "today" ? <TodayTab prospects={today} duplicateNames={duplicateNames} todayCount={todayCount} theme={theme} />
-          : tab === "list" ? <ListTab prospects={prospects} daily={{ theme, date: today0, prompt: dailyResearchPrompt(theme, { date: today0 }), counts, todayCount }} />
+          : tab === "list" ? <ListTab prospects={prospects} daily={{
+              theme, date: today0, counts, todayCount,
+              // 既にリストにある企業は調査段階で除外させる（重複スキップで実収穫が減るのを防ぐ）。
+              //   コピー用は最大120社、URL起動用は文字数上限があるので25社に絞る。
+              prompt: dailyResearchPrompt(theme, { date: today0, angle: hourlyAngle(), avoid: recentNames.slice(0, 120) }),
+              promptForUrl: dailyResearchPrompt(theme, { date: today0, angle: hourlyAngle(), avoid: recentNames.slice(0, 25) }),
+            }} />
           : <ResultsTab metrics={periodMetrics} />}
       </div>
     </div>
@@ -125,7 +137,7 @@ function CopyBox({ title, text, url }: { title: string; text: string; url: strin
 function QuickAction({ id, result }: { id: string; result: string }) { return <form action={recordProspectActivityFormAction}><input type="hidden" name="prospect_id" value={id} /><input type="hidden" name="activity_type" value="架電" /><input type="hidden" name="result" value={result} /><button style={{ ...btn, background: result === "アポ" ? "#047857" : result === "NG" ? "#b42318" : "#0b5cab" }}>{result}</button></form>; }
 function Status({ status }: { status: string }) { return <span style={{ padding: "3px 9px", borderRadius: 999, background: "#eaf4fd", color: "#0b5cab", fontSize: 11, fontWeight: 900 }}>{status}</span>; }
 
-function ListTab({ prospects, daily }: { prospects: Prospect[]; daily: { theme: DailyTheme; date: string; prompt: string; counts: { date: string; label: string; count: number }[]; todayCount: number } }) {
+function ListTab({ prospects, daily }: { prospects: Prospect[]; daily: { theme: DailyTheme; date: string; prompt: string; promptForUrl: string; counts: { date: string; label: string; count: number }[]; todayCount: number } }) {
   return <div style={{ display: "grid", gap: 14 }}>
     <ProspectDailyAppend {...daily} defaultSource={`日次リスト（${daily.theme.label}）`} />
     <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 380px) 1fr", gap: 14, alignItems: "start" }}>
