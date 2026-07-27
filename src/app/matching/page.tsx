@@ -1056,6 +1056,29 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   }
 
   // ============ 案件 → 人材モードの描画 ============
+  // 画面の一部（カード）を作る処理を包んで、失敗してもそのカードだけをエラー表示に差し替える。
+  //   JSX の中の式（.map() や String() など）はページ関数の実行中に評価されるため、
+  //   クライアント側のエラーバウンダリ（PanelErrorBoundary）では捕まえられない。
+  //   ここで捕まえることで「画面が丸ごと落ちる」のを防ぎ、かつ原因の本文を画面に出す
+  //   （本番でも本文が消えないのがエラーIDとの違い。社内ロールにはスタックも出す）。
+  const safeBlock = (label: string, build: () => React.ReactNode): React.ReactNode => {
+    try {
+      return build();
+    } catch (e) {
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      const stack = scope.isInternal && e instanceof Error && e.stack
+        ? e.stack.split("\n").slice(1, 6).map((l) => l.trim()).join("\n")
+        : "";
+      console.error(`[matching] ${label} の描画に失敗:`, e);
+      return (
+        <div className="card" style={{ padding: 14, marginBottom: 12, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e" }}>
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>⚠ {label}を表示できませんでした</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>この部分だけ表示を止めています。画面の他の部分はそのまま使えます。下の内容をそのまま管理者にお知らせください。</div>
+          <pre className="mono" style={{ marginTop: 8, fontSize: 11.5, whiteSpace: "pre-wrap", wordBreak: "break-all", background: "#fff", border: "1px solid #fde9b0", borderRadius: 8, padding: "8px 10px", margin: "8px 0 0" }}>{msg}{stack ? `\n${stack}` : ""}</pre>
+        </div>
+      );
+    }
+  };
   const selIdx = sp.cand ? ranked.findIndex((r) => String(r.candidate.candidate_no) === sp.cand) : 0;
   // #364：?cand= が明示指定されているのに見つからない場合は、別人材(ranked[0])へフォールバックしない。
   //   （フォールバックすると別人のスキルシートでメールが作られる事故になるため、sel は undefined にして
@@ -1064,7 +1087,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const jobAbbr = (job?.title ?? "").slice(0, 3);
   const linkFor = (cand?: number) => `/matching?tab=${tab}&job=${job?.job_no ?? ""}${cand != null ? `&cand=${cand}` : ""}`;
 
-  return (
+  // 最後の砦：ページ全体の組み立てもここで捕まえ、白画面ではなく原因の本文を出す。
+  const jobModeTree = safeBlock("マッチング結果画面", () => (
     <div className="page">
       {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。 */}
       <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
@@ -1128,7 +1152,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         if (showAutoTop) return null;
         return (
           <>
-            {selectedJobWarning(job)}
+            {safeBlock("案件の状態", () => selectedJobWarning(job))}
             {/* スキル未登録の案件はマッチング（スキル一致での人材ランキング）ができないため、0件の理由を明示する。 */}
             {job && !(job.skills?.length) && (
               <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "12px 16px", marginBottom: 12, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e", fontSize: 13 }}>
@@ -1141,14 +1165,17 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
           {/* 左: ランキングリスト（AI再ランキング対応）。
               1件でも表示できないデータがあった時に画面全体が落ちないよう、カード単位で切り離す。 */}
-          <PanelErrorBoundary label="候補人材のランキング">
-            <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
-              jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
-          </PanelErrorBoundary>
+          {safeBlock("候補人材のランキング", () => (
+            <PanelErrorBoundary label="候補人材のランキング">
+              <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
+                jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
+            </PanelErrorBoundary>
+          ))}
 
           {/* 右: 詳細パネル */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
             {/* 対象案件 サマリ（スコア集計は団子になり情報量が無いので撤去。代わりに案件情報を厚く） */}
+            {safeBlock("案件サマリ", () => (
             <PanelErrorBoundary label="案件サマリ">
             <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", padding: "12px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
@@ -1184,6 +1211,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   本文は「元メールを開く」から確認できる。 */}
             </div>
             </PanelErrorBoundary>
+            ))}
 
             {/* #364：?cand= 指定なのに該当人材が見つからない場合の明示メッセージ（別人材は出さない）。 */}
             {sp.cand && !sel && (
@@ -1195,7 +1223,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             )}
 
             {/* 選択候補 詳細 */}
-            {sel && (() => {
+            {sel && safeBlock("候補人材の詳細（提案フォーム）", () => {
               const c = sel.candidate;
               const rank = ranked.findIndex((r) => r.candidate.candidate_no === c.candidate_no) + 1;
               const skillPct = job.skills?.length ? Math.round((sel.matchedSkills.length / job.skills.length) * 100) : 0;
@@ -1319,7 +1347,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                 </div>
                 </PanelErrorBoundary>
               );
-            })()}
+            })}
           </div>
         </div>
       )}
@@ -1327,5 +1355,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         );
       })()}
     </div>
-  );
+  ));
+  return <>{jobModeTree}</>;
 }
