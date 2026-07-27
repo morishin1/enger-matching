@@ -44,6 +44,11 @@ export function ProspectDailyAppend({ theme, date, prompt, promptForUrl, counts,
     try {
       const text = await navigator.clipboard.readText();
       if (!text.trim()) { setClipError("クリップボードが空です。Claude の回答をコピーしてからもう一度押してください。"); return; }
+      // よくある取り違え：調査プロンプトの方をコピーしている。送信前にその場で気づけるようにする。
+      if (/IT人材営業|CSVのコードブロック|# ルール/.test(text) && !/\n[^,\n]+,[^,\n]*,/.test(text.replace(/^.*企業名,.*$/m, ""))) {
+        setClipError(`コピーされているのは調査プロンプトのようです。Claude の回答にある CSV（コードブロック右上のコピーボタン）をコピーしてから押してください。先頭：${text.replace(/\s+/g, " ").slice(0, 50)}…`);
+        return;
+      }
       if (textRef.current) textRef.current.value = text;
       setClipError(null);
       formRef.current?.requestSubmit();
@@ -104,7 +109,10 @@ export function ProspectDailyAppend({ theme, date, prompt, promptForUrl, counts,
         <form ref={formRef} action={action} style={{ background: "#f8fafc", border: "1px solid #eaecf0", borderRadius: 14, padding: 13, display: "grid", gap: 8 }}>
           <div style={stepLabel}><Num n={2} />Claude の回答をコピーして、ボタンひとつで取り込む</div>
           <p style={{ margin: 0, fontSize: 11.5, color: "#667085", lineHeight: 1.7 }}>
-            <b>回答をまるごとコピーして大丈夫です</b>（前後の説明文は自動で捨て、表の部分だけ取り込みます）。重複は社名・URLで自動スキップ。
+            Claude の回答に出る <b>CSV のコードブロック右上のコピーボタン</b>を押す（回答をまるごとコピーでも可）。
+            そのままこのボタンを押すと取り込めます。重複は社名・URLで自動スキップ。
+            <br />
+            <span style={{ color: "#b42318" }}>※ コピーするのは「回答」です。手順1のプロンプトをコピーしたままだと取り込めません。</span>
           </p>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <button type="button" onClick={pasteAndImport} disabled={pending}

@@ -55,7 +55,18 @@ export async function importProspectsCsv(_prev: ImportState, formData: FormData)
   const text = String(formData.get("csv") ?? "").trim();
   if (!text) return { ...emptyOutcome(), ok: false, error: "CSVを貼り付けてください" };
   const { rows, format } = parseProspectCsv(text);
-  if (rows.length === 0) return { ...emptyOutcome(), ok: false, error: "取り込める行がありません（1行目のヘッダと列の並びを確認してください）" };
+  if (rows.length === 0) {
+    // 何を貼ったのかで案内を変える（「取り込める行がありません」だけでは次の行動が分からないため）。
+    const looksLikePrompt = /IT人材営業|# ルール|# 出力|CSVのコードブロック|# テーマ/.test(text);
+    const headerOnly = /企業名\s*,|会社名\s*,/.test(text);
+    const head = text.replace(/\s+/g, " ").slice(0, 60);
+    const error = looksLikePrompt
+      ? `コピーされているのは調査プロンプトです。Claude が返した「回答」の CSV（コードブロック右上のコピーボタン）をコピーしてから、もう一度押してください。（貼り付けた内容の先頭：${head}…）`
+      : headerOnly
+        ? `見出し行だけで、企業のデータ行がありません。Claude の回答に企業が並んでいるか確認してください。（貼り付けた内容の先頭：${head}…）`
+        : `取り込める行が見つかりませんでした。1行目のヘッダ（企業名,採用ページURL,企業URL,…）と列の並びをご確認ください。（貼り付けた内容の先頭：${head}…）`;
+    return { ...emptyOutcome(), ok: false, error };
+  }
   const actor = await actorName();
   const outcome = await ingestProspectRows(rows, {
     actor,
