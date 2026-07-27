@@ -5,7 +5,7 @@ import Link from "@/components/AppLink";
 import { useRouter } from "next/navigation";
 import { parseCsv, rowsToCsv, downloadCsv } from "@/lib/csv";
 import { gmailMessageUrl } from "@/lib/gmail";
-import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, bulkPreviewFromGmail, bulkRegisterFromGmail, parseEntityText, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate, type BulkPreviewItem } from "@/lib/actions";
+import { importCandidates, importJobs, upsertCandidateManual, upsertJobManual, findSimilarJobs, findSimilarCandidates, bulkPreviewFromGmail, bulkRegisterFromGmail, parseEntityText, previewCandidateDuplicates, type CandidateInput, type JobInput, type SimilarJob, type SimilarCandidate, type BulkPreviewItem, type DupeMatch } from "@/lib/actions";
 import { normalizeSkills } from "@/lib/skills";
 import { Icons } from "./icons";
 
@@ -64,6 +64,10 @@ const CAND_COL: Record<string, keyof CandidateInput | "_rate_min" | "_rate_max" 
   // #398：CSV出力側の列名「元メールリンク」を「元メールURL」相当として認識できるよう別名を追加。
   "元メールURL": "source_mail_url", "元メール": "source_mail_url", "メールURL": "source_mail_url", "元メールリンク": "source_mail_url", "元メールリンク（URL）": "source_mail_url", "メールリンク": "source_mail_url", "source_mail_url": "source_mail_url",
   "メールID": "_mail_id", "message_id": "_mail_id", "gmail_id": "_mail_id", "source_mail_id": "_mail_id",
+  // 0725 §8.1：受信日時（メールの鮮度判断・元メール更新の比較用）。ISO化はサーバ側で行う。
+  "受信日時": "source_mail_at", "受信日": "source_mail_at", "受信時刻": "source_mail_at", "source_mail_at": "source_mail_at",
+  // 窓口担当者（jobs と対称。人材CSVにも「担当者」列が来るケースに対応）
+  "担当者": "contact_name", "担当者名": "contact_name", "窓口担当": "contact_name", "窓口担当者": "contact_name", "contact_name": "contact_name",
 };
 const JOB_COL: Record<string, keyof JobInput | "_salary_min" | "_salary_max" | "_mail_id"> = {
   "案件名": "title", "クライアント名": "client_name", "クライアント": "client_name",
@@ -174,6 +178,59 @@ function validate(kind: "candidates" | "jobs", grid: string[][]) {
   return { rows, mapped, unmapped, header };
 }
 
+// ── 0725：人材CSV取込の重複一覧（指示書§6）で使う詳細カード ─────────────────
+/** 詳細カード用の8項目（CSV側）。 */
+const csvCardItems = (rec: any): Array<[string, string]> => ([
+  ["氏名", rec.name || ""], ["所属会社", rec.company || ""], ["年代", rec.age_band || ""], ["最寄駅", rec.location || ""],
+  ["居住地", rec.residence || ""], ["単価", rec.rate || ""], ["連絡先", rec.contact_email || rec.email || ""], ["スキルシート", rec.skill_sheet_url || ""],
+]);
+/** 詳細カード用の8項目（既存側＝DupeMatch.existing）。 */
+const dbCardItems = (ex: DupeMatch["existing"]): Array<[string, string]> => ([
+  ["氏名", ex.name], ["所属会社", ex.company], ["年代", ex.age_band], ["最寄駅", ex.location],
+  ["居住地", ex.residence], ["単価", ex.rate], ["連絡先", ex.contact], ["スキルシート", ex.sheet],
+]);
+/** 補完対象ラベル（fills）と8項目カードの項目名の対応（既存側カードの色付け用）。 */
+const FILL_LABEL_BY_CARD: Record<string, string[]> = {
+  "所属会社": ["所属会社"], "年代": ["年代"], "最寄駅": ["最寄駅"], "居住地": ["居住地"],
+  "単価": ["単価", "単価（数値）"], "連絡先": ["連絡先（窓口）", "本人メール"], "スキルシート": ["スキルシート"],
+};
+
+/** 重複一覧の人材セル。hover（PC）／タップ（タブレット）で8項目の詳細カードを表示する。
+ *  既存側（fillLabels あり）は、メインボタンで補完される項目を色付き＋「不明→補完」で示す。 */
+function DupePartyCell({ id, open, setOpen, title, titleHref, sub, items, fillLabels }: {
+  id: string; open: string | null; setOpen: (v: string | null) => void;
+  title: string; titleHref?: string; sub?: string;
+  items: Array<[string, string]>; fillLabels?: string[];
+}) {
+  const isOpen = open === id;
+  const isFilled = (label: string) => !!fillLabels && (FILL_LABEL_BY_CARD[label] ?? [label]).some((l) => fillLabels.includes(l));
+  return (
+    <span style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setOpen(id)} onMouseLeave={() => setOpen(null)}
+      onClick={(e) => { e.stopPropagation(); setOpen(isOpen ? null : id); }}>
+      {/* 人材ID（P番号）は必ず別タブで開く（プレビューを閉じないため・指示書§6） */}
+      {titleHref
+        ? <a href={titleHref} target="_blank" rel="noopener noreferrer" className="mono" style={{ fontWeight: 700, color: "var(--color-brand-700,#0b5cab)" }} title="人材詳細を別タブで開く">{title}</a>
+        : <span style={{ fontWeight: 600, borderBottom: "1px dotted var(--color-ink-4)", cursor: "default" }}>{title}</span>}
+      {sub && <span className="muted" style={{ fontSize: 10.5, marginLeft: 6 }}>{sub}</span>}
+      {isOpen && (
+        <span style={{ position: "absolute", top: "100%", left: 0, zIndex: 60, marginTop: 4, width: 280, background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", borderRadius: 10, boxShadow: "0 8px 24px rgba(15,23,42,.18)", padding: "10px 12px", display: "block" }}>
+          {items.map(([label, value]) => {
+            const filled = isFilled(label);
+            return (
+              <span key={label} style={{ display: "flex", gap: 6, fontSize: 11, lineHeight: 1.9, alignItems: "baseline", background: filled ? "#fff6e0" : undefined, borderRadius: 4, padding: "0 4px" }}>
+                <span style={{ color: "var(--color-ink-4)", flexShrink: 0, width: 70 }}>{label}</span>
+                <span style={{ fontWeight: 600, minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: value ? undefined : "var(--color-ink-4)" }}>{value || "（空欄）"}</span>
+                {filled && <span style={{ color: "#b45309", flexShrink: 0, fontSize: 10, fontWeight: 700 }}>不明→補完</span>}
+              </span>
+            );
+          })}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -182,29 +239,67 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   const [fileName, setFileName] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [prog, setProg] = useState<{ done: number; total: number; phase?: string } | null>(null);
-  // 同姓同名の既存と統合（空欄補完）するか。人材取込のみ有効。
+  // 同姓同名の既存と統合（空欄補完）するか。案件取込のみ有効（人材は 0725 の6条件判定に置き換え）。
   const [mergeByName, setMergeByName] = useState(false);
   // 統合時に CSV の値で既存を「上書き」するか（精度の高いデータで更新する用）。
   const [overwrite, setOverwrite] = useState(false);
   // 取込完了後、結果を残したまま「閉じる」ボタンで明示的に閉じる
-  const [doneInfo, setDoneInfo] = useState<{ inserted: number; merged: number; skipped: number; skippedCols?: string[] } | null>(null);
+  const [doneInfo, setDoneInfo] = useState<{ inserted: number; merged: number; skipped: number; skippedCols?: string[]; dedupe?: "fill" | "skip" | "none" } | null>(null);
   // 問題行プレビューの「行クリックでハイライト」
   const [focusedRow, setFocusedRow] = useState<number | null>(null);
+  // ── 0725：人材の重複判定プレビュー（6条件・指示書§3）。rowNo → 一致情報。null=未判定（読込中/失敗） ──
+  const [dupes, setDupes] = useState<Map<number, DupeMatch> | null>(null);
+  const [dupeLoading, setDupeLoading] = useState(false);
+  const [dupeError, setDupeError] = useState<string | null>(null);
+  const [showDupList, setShowDupList] = useState(false);   // 開閉式：重複一覧
+  const [showConds, setShowConds] = useState(false);       // 開閉式：判定条件の説明
+  const [showOthers, setShowOthers] = useState(false);     // 開閉式：その他の取込方法
+  const [openCard, setOpenCard] = useState<string | null>(null); // 重複一覧の詳細カード（hover/タップ）
 
   const onFile = async (file: File) => {
     setMsg(null);
     setDoneInfo(null);
     setFocusedRow(null);
+    setDupes(null); setDupeError(null); setShowDupList(false); setShowConds(false); setShowOthers(false); setOpenCard(null);
     const grid = parseCsv(await file.text());
     if (grid.length < 2) { setMsg({ ok: false, text: "データ行がありません" }); return; }
     setFileName(file.name);
-    setPreview(validate(kind, grid));
+    const v = validate(kind, grid);
+    setPreview(v);
+    if (kind !== "candidates") return;
+    // 人材：取込可能行（✗以外）を既存DBと6条件で照合し、「新しい人材／登録済み」を数える。
+    const probes = v.rows.filter((r) => r.errors.length === 0).map((r) => ({
+      idx: r.rowNo,
+      name: r.rec.name, company: r.rec.company, age_band: r.rec.age_band,
+      location: r.rec.location, residence: r.rec.residence,
+      rate: r.rec.rate, rate_num: r.rec.rate_num,
+      contact_email: r.rec.contact_email, email: r.rec.email,
+      skill_sheet_url: r.rec.skill_sheet_url,
+      title: r.rec.title, affiliation: r.rec.affiliation, avail: r.rec.avail,
+      exp: r.rec.exp, remote_pref: r.rec.remote_pref, nationality: r.rec.nationality, rank: r.rec.rank,
+      skills: r.rec.skills,
+    }));
+    if (probes.length === 0) { setDupes(new Map()); return; }
+    setDupeLoading(true);
+    try {
+      // 大量CSVはチャンクで照合（1リクエストのボディ上限対策）。
+      const all = new Map<number, DupeMatch>();
+      const C = 400;
+      for (let i = 0; i < probes.length; i += C) {
+        const res = await previewCandidateDuplicates(probes.slice(i, i + C));
+        if (!res.ok) { setDupeError(res.error || "重複判定に失敗しました"); return; }
+        for (const m of res.matches ?? []) all.set(m.idx, m);
+      }
+      setDupes(all);
+    } catch (e) {
+      setDupeError(e instanceof Error ? e.message : "重複判定に失敗しました");
+    } finally { setDupeLoading(false); }
   };
 
-  const doImport = (mode: "all" | "clean" | "strict") => {
+  const doImport = (mode: "all" | "clean" | "strict", dedupe?: "fill" | "skip" | "none") => {
     if (!preview) return;
     const recs = preview.rows.filter((r) => {
-      if (r.errors.length > 0) return false;
+      if (r.errors.length > 0) return false; // ✗（取込不可）は常に除外（指示書§4）
       if (mode === "clean") return r.warnings.length === 0;
       if (mode === "strict") return criticalMissing(kind, r.rec).length === 0;
       return true; // all（取込可能）
@@ -227,7 +322,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
       let aborted = false;
       let errMsg: string | null = null;
       const totalRows = recs.length;
-      const phase = mergeByName ? "既存データと突合中…" : "サーバへ送信中…";
+      const phase = (dedupe === "fill" || dedupe === "skip" || mergeByName) ? "既存データと突合中…" : "サーバへ送信中…";
 
       const worker = async () => {
         while (!aborted) {
@@ -237,7 +332,7 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
           const slice = recs.slice(i, i + CHUNK);
           try {
             const res = kind === "candidates"
-              ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), { mergeByName, overwrite: mergeByName && overwrite })
+              ? await importCandidates(slice as CandidateInput[], fileName, getOperator(), dedupe ? { dedupe } : { mergeByName, overwrite: mergeByName && overwrite })
               : await importJobs(slice as JobInput[], fileName, getOperator(), { mergeExisting: mergeByName, overwrite: mergeByName && overwrite });
             if (!res.ok) { aborted = true; errMsg = res.error || "取込に失敗しました"; return; }
             inserted += res.inserted ?? 0;
@@ -257,8 +352,12 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
         await Promise.all(Array.from({ length: workerCount }, () => worker()));
         if (aborted) { setProg(null); setMsg({ ok: false, text: `${errMsg ?? "取込に失敗しました"}（${inserted}件まで取込済み）` }); return; }
         setProg(null);
-        setDoneInfo({ inserted, merged, skipped, skippedCols: Array.from(skippedColSet) });
-        setMsg({ ok: true, text: `${inserted} 件を取り込みました${merged ? `（既存 ${merged} 件を${overwrite ? "上書き更新" : "統合"}）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
+        setDoneInfo({ inserted, merged, skipped, skippedCols: Array.from(skippedColSet), dedupe });
+        setMsg({ ok: true, text:
+          dedupe === "fill" ? `新しい人材 ${inserted} 件を登録しました${skipped ? `（登録済み ${skipped} 件は新規登録せず、うち ${merged} 件の空欄・「不明」を補完）` : ""}`
+          : dedupe === "skip" ? `新しい人材 ${inserted} 件を登録しました${skipped ? `（登録済み ${skipped} 件には触れていません）` : ""}`
+          : dedupe === "none" ? `${inserted} 件をすべて登録しました（重複チェックなし）`
+          : `${inserted} 件を取り込みました${merged ? `（既存 ${merged} 件を${overwrite ? "上書き更新" : "統合"}）` : ""}${skipped ? `（重複 ${skipped} 件はスキップ）` : ""}` });
         router.refresh();
       } catch (e) {
         setProg(null);
@@ -285,6 +384,14 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
   };
   const strictCount = importable.filter((r) => criticalMissing(kind, r.rec).length === 0).length;
 
+  // 0725：人材の重複判定サマリ（取込可能行のうち、既存と6条件で一致した行＝登録済み）。
+  const dupList = (kind === "candidates" && dupes)
+    ? importable.filter((r) => dupes.has(r.rowNo)).map((r) => ({ row: r, m: dupes.get(r.rowNo)! }))
+    : [];
+  const dupCount = dupList.length;
+  const newCount = importable.length - dupCount;
+  const fillCount = dupList.filter((d) => d.m.fills.length > 0).length;
+
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { if (e.target.files?.[0]) onFile(e.target.files[0]); e.target.value = ""; }} />
@@ -310,7 +417,10 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                 <div style={{ background: "#e7f3ea", border: "1px solid #1aa260", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#067647" }}>✓ 取り込み完了</div>
                   <div style={{ fontSize: 12 }}>
-                    新規 <b>{doneInfo.inserted}</b> 件{doneInfo.merged ? `／既存${overwrite ? "上書き更新" : "統合"} ${doneInfo.merged} 件` : ""}{doneInfo.skipped ? `／重複スキップ ${doneInfo.skipped} 件` : ""} を登録しました。
+                    {doneInfo.dedupe === "fill" ? <>新しい人材 <b>{doneInfo.inserted}</b> 件を登録しました。{doneInfo.skipped ? <>すでに登録済みの {doneInfo.skipped} 件は新規登録せず、うち <b>{doneInfo.merged}</b> 件の空欄・「不明」をCSVの値で補完しました。</> : null}</>
+                      : doneInfo.dedupe === "skip" ? <>新しい人材 <b>{doneInfo.inserted}</b> 件を登録しました。{doneInfo.skipped ? <>すでに登録済みの {doneInfo.skipped} 件には一切触れていません。</> : null}</>
+                      : doneInfo.dedupe === "none" ? <><b>{doneInfo.inserted}</b> 件をすべて登録しました（重複チェックなし）。</>
+                      : <>新規 <b>{doneInfo.inserted}</b> 件{doneInfo.merged ? `／既存${overwrite ? "上書き更新" : "統合"} ${doneInfo.merged} 件` : ""}{doneInfo.skipped ? `／重複スキップ ${doneInfo.skipped} 件` : ""} を登録しました。</>}
                   </div>
                   {/* #389：DB列未整備でfail-softが外した列の警告（案件詳細/フリーランスNGが黙って消える事故の防止） */}
                   {(doneInfo.skippedCols ?? []).length > 0 && (
@@ -391,30 +501,118 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                 </div>
               ) : <div style={{ fontSize: 12.5, color: "var(--color-success)" }}>問題は検出されませんでした。</div>}
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8 }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
-                  <input type="checkbox" checked={mergeByName} onChange={(e) => { setMergeByName(e.target.checked); if (!e.target.checked) setOverwrite(false); }} disabled={pending} />
-                  {kind === "candidates"
-                    ? <span>☑ 同姓同名は既存と統合する（新規登録せず既存を更新）</span>
-                    : <span>☑ 既存案件（案件名×クライアント一致）は更新する（再公開）</span>}
-                </label>
-                {/* 統合時の更新方法：空欄補完 ⇄ CSVで上書き */}
-                {mergeByName && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 26, fontSize: 12, color: "#9a7b12" }}>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                      <input type="radio" name="merge-mode" checked={!overwrite} onChange={() => setOverwrite(false)} disabled={pending} />
-                      <span>空欄のみ補完（既存の入力値は変更しない）</span>
+              {kind === "jobs" ? (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 12px", border: "1px solid #fde9b0", background: "#fff6e0", borderRadius: 8 }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#9a7b12", fontWeight: 600, cursor: "pointer" }}>
+                      <input type="checkbox" checked={mergeByName} onChange={(e) => { setMergeByName(e.target.checked); if (!e.target.checked) setOverwrite(false); }} disabled={pending} />
+                      <span>☑ 既存案件（案件名×クライアント一致）は更新する（再公開）</span>
                     </label>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 700, color: "#b45309" }}>
-                      <input type="radio" name="merge-mode" checked={overwrite} onChange={() => setOverwrite(true)} disabled={pending} />
-                      <span>CSVの値で上書き更新（精度の高いデータで既存を修正）</span>
-                    </label>
-                    {overwrite && <span style={{ fontSize: 10.5, color: "#b42318" }}>※ CSVに値がある項目だけ上書きします（CSVが空の項目は既存を維持）。スキルは既存に追加します。</span>}
+                    {/* 統合時の更新方法：空欄補完 ⇄ CSVで上書き */}
+                    {mergeByName && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 26, fontSize: 12, color: "#9a7b12" }}>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                          <input type="radio" name="merge-mode" checked={!overwrite} onChange={() => setOverwrite(false)} disabled={pending} />
+                          <span>空欄のみ補完（既存の入力値は変更しない）</span>
+                        </label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 700, color: "#b45309" }}>
+                          <input type="radio" name="merge-mode" checked={overwrite} onChange={() => setOverwrite(true)} disabled={pending} />
+                          <span>CSVの値で上書き更新（精度の高いデータで既存を修正）</span>
+                        </label>
+                        {overwrite && <span style={{ fontSize: 10.5, color: "#b42318" }}>※ CSVに値がある項目だけ上書きします（CSVが空の項目は既存を維持）。スキルは既存に追加します。</span>}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                  <div className="muted" style={{ fontSize: 10.5 }}>※「取込不可（✗）」は常に除外。<b>重要データ完備</b>＝スキル・単価・クライアントが揃った行のみ。質を担保するなら「完備のみ」を推奨します。</div>
+                </>
+              ) : (
+                <>
+                  {/* ── 0725：登録済みとの照合結果（6条件・指示書§6） ── */}
+                  {dupeLoading ? (
+                    <div className="muted" style={{ fontSize: 12 }}>⏳ 登録済みの人材と照合中…（氏名に加えて会社・連絡先・単価などの6条件で判定します）</div>
+                  ) : dupeError ? (
+                    <div style={{ fontSize: 12, color: "#b45309", background: "#fff6e0", border: "1px solid #fde9b0", borderRadius: 8, padding: "8px 12px" }}>
+                      ⚠ 重複判定のプレビューに失敗しました（{dupeError}）。取込時にサーバ側で改めて判定するため、このまま取込できます。
+                    </div>
+                  ) : dupes ? (
+                    <>
+                      {/* サマリーカード（2枚・実数） */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div style={{ border: "1px solid #b7e0c3", background: "#f2fbf5", borderRadius: 10, padding: "10px 12px" }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: "#067647", lineHeight: 1.2 }}>{newCount}<span style={{ fontSize: 12, fontWeight: 600, marginLeft: 3 }}>件</span></div>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#067647" }}>新しい人材</div>
+                          <div className="muted" style={{ fontSize: 10.5 }}>今回のCSVで新しく登録されます</div>
+                        </div>
+                        <div style={{ border: "1px solid var(--color-border)", background: "var(--color-surface-soft)", borderRadius: 10, padding: "10px 12px" }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}>{dupCount}<span style={{ fontSize: 12, fontWeight: 600, marginLeft: 3 }}>件</span></div>
+                          <div style={{ fontSize: 12.5, fontWeight: 700 }}>すでに登録済み</div>
+                          <div className="muted" style={{ fontSize: 10.5 }}>{dupCount > 0 ? `新規登録せず、空欄と「不明」だけ補完します（補完あり ${fillCount} 件）` : "重複はありませんでした"}</div>
+                        </div>
+                      </div>
 
-              <div className="muted" style={{ fontSize: 10.5 }}>※「取込不可（✗）」は常に除外。<b>重要データ完備</b>＝スキル・単価{kind === "jobs" ? "・クライアント" : ""}が揃った行のみ。質を担保するなら「完備のみ」を推奨します。{mergeByName && kind === "candidates" && importable.length > 1000 && <span style={{ color: "#b45309" }}>（{importable.length}件＋既存統合ONの大量取込は数分かかる場合があります。プログレスバーが0%のまま見えても処理中です）</span>}</div>
+                      {/* 開閉式：重複一覧 */}
+                      {dupCount > 0 && (
+                        <div style={{ border: "1px solid var(--color-border)", borderRadius: 10, overflow: "visible" }}>
+                          <button type="button" onClick={() => setShowDupList(!showDupList)}
+                            style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-2)", textAlign: "left" }}>
+                            <span style={{ fontSize: 10 }}>{showDupList ? "▼" : "▶"}</span>「すでに登録済み」と判定された {dupCount} 件を確認する
+                          </button>
+                          {showDupList && (
+                            <div style={{ maxHeight: 320, overflowY: "auto", borderTop: "1px solid var(--color-border)" }}>
+                              <table className="tbl">
+                                <thead><tr><th style={{ width: 44 }}>行</th><th>CSVの人材</th><th style={{ width: 20 }}></th><th>登録済みの人材</th><th style={{ width: 64 }}>条件</th></tr></thead>
+                                <tbody>
+                                  {dupList.map(({ row, m }) => (
+                                    <tr key={row.rowNo}>
+                                      <td className="mono muted">{row.rowNo}</td>
+                                      <td><DupePartyCell id={`csv-${row.rowNo}`} open={openCard} setOpen={setOpenCard} title={row.rec.name || "(無名)"} sub={row.rec.company || undefined} items={csvCardItems(row.rec)} /></td>
+                                      <td style={{ color: "var(--color-ink-4)" }}>→</td>
+                                      <td>
+                                        <DupePartyCell id={`db-${row.rowNo}`} open={openCard} setOpen={setOpenCard}
+                                          title={`P-${String(m.candidate_no).padStart(5, "0")}`} titleHref={`/people/${m.candidate_no}`}
+                                          sub={m.existing.name} items={dbCardItems(m.existing)} fillLabels={m.fills} />
+                                        {m.fills.length > 0
+                                          ? <div style={{ fontSize: 10.5, color: "#b45309" }}>補完：{m.fills.join("・")}</div>
+                                          : <div className="muted" style={{ fontSize: 10.5 }}>補完される項目はありません</div>}
+                                      </td>
+                                      <td className="mono" style={{ fontSize: 11 }} title="成立した判定条件の番号（下の「判定条件」参照）">{m.conditions.join(", ")}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              <div className="muted" style={{ padding: "6px 12px", fontSize: 10.5 }}>※ 氏名／P番号にカーソルを合わせる（タップする）と8項目の詳細カードが出ます。P番号は別タブで開きます。</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 開閉式：判定条件の説明 */}
+                      <div style={{ border: "1px solid var(--color-border)", borderRadius: 10 }}>
+                        <button type="button" onClick={() => setShowConds(!showConds)}
+                          style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 700, color: "var(--color-ink-2)", textAlign: "left" }}>
+                          <span style={{ fontSize: 10 }}>{showConds ? "▼" : "▶"}</span>「すでに登録済み」の判定条件（6パターン）
+                        </button>
+                        {showConds && (
+                          <div style={{ borderTop: "1px solid var(--color-border)", padding: "10px 12px", fontSize: 11.5, lineHeight: 1.8, color: "var(--color-ink-2)" }}>
+                            <div>氏名が一致し、さらに次のいずれかが<b>すべて</b>一致したとき「すでに登録済み」と判定します。</div>
+                            <ol style={{ margin: "4px 0 6px", paddingLeft: 22 }}>
+                              <li>所属会社 ＋ 年代 ＋ 単価</li>
+                              <li>所属会社 ＋ 最寄駅</li>
+                              <li>連絡先ドメイン ＋ 年代 ＋ 単価</li>
+                              <li>連絡先ドメイン ＋ 最寄駅</li>
+                              <li>スキルシートのリンク</li>
+                              <li>年代 ＋ 居住地 ＋ 単価（別会社経由で届いた同一人物も検出）</li>
+                            </ol>
+                            <div className="muted" style={{ fontSize: 10.5 }}>※ 連絡先は＠より後ろだけで比較します（例：aaa@gf-design.jp と bbb@gf-design.jp は同じ会社として一致）。</div>
+                            <div className="muted" style={{ fontSize: 10.5 }}>※ 条件に使う項目がどちらか一方でも空欄・「不明」のときは、その条件では判定しません（空欄同士を「一致」とはみなしません）。判定できない場合は別人として登録します。</div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+                  <div className="muted" style={{ fontSize: 10.5 }}>※「取込不可（✗）」の行は常に除外されます。補完は空欄と「不明」の項目だけで、入力済みの値は変更しません（CSV側が空欄の項目は何もしません）。</div>
+                </>
+              )}
             </div>
 
             {/* スティッキー：プログレス＋アクションボタン（常に視界に入る） */}
@@ -434,9 +632,46 @@ function CsvImport({ kind }: { kind: "candidates" | "jobs" }) {
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                   <button className="btn brand" onClick={() => { setPreview(null); setDoneInfo(null); }}>閉じる</button>
                 </div>
+              ) : kind === "candidates" ? (
+                /* 0725：メインボタンは1つ（指示書§4）。その他の取込方法は開閉式に格納。 */
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <button className="btn brand" disabled={pending || dupeLoading || importable.length === 0}
+                      onClick={() => doImport("all", "fill")}
+                      title="✗（取込不可）の行を除いた全行が対象です。登録済みと判定された行は新規登録せず、空欄と「不明」だけ補完します">
+                      {pending ? "送信中…"
+                        : dupeLoading ? "登録済みと照合中…"
+                        : !dupes ? "新しい人材を登録する"
+                        : (newCount === 0 && dupCount > 0) ? `登録済み ${dupCount} 件の空欄・「不明」を補完する`
+                        : `新しい人材 ${newCount} 件を登録する`}
+                    </button>
+                    <button className="btn ghost" onClick={() => setPreview(null)} disabled={pending}>キャンセル</button>
+                  </div>
+                  {dupes && dupCount > 0 && newCount > 0 && (
+                    <div className="muted" style={{ fontSize: 10.5 }}>すでに登録済みの {dupCount} 件は新規登録せず、空欄と「不明」の項目だけCSVの値で補完します（入力済みの値は変更しません）。</div>
+                  )}
+                  <div>
+                    <button type="button" onClick={() => setShowOthers(!showOthers)}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: 0, background: "none", border: "none", cursor: "pointer", fontSize: 11.5, color: "var(--color-ink-3)" }}>
+                      <span style={{ fontSize: 9 }}>{showOthers ? "▼" : "▶"}</span>その他の取込方法
+                    </button>
+                    {showOthers && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8, paddingLeft: 2 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <button className="btn" disabled={pending || dupeLoading || importable.length === 0} onClick={() => doImport("all", "skip")}>登録済みには一切触れずに登録する</button>
+                          <span className="muted" style={{ fontSize: 10.5 }}>新しい人材{dupes ? ` ${newCount} 件` : ""}だけを登録し、登録済み{dupes ? ` ${dupCount} 件` : ""}は補完もしません。</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <button className="btn" disabled={pending || importable.length === 0} onClick={() => doImport("all", "none")}>重複を無視して {importable.length} 件すべて登録する</button>
+                          <span style={{ fontSize: 10.5, color: "#b42318", fontWeight: 600 }}>※ 同じ人材が二重に登録されます。通常は使いません。</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価（案件はクライアントも）が揃った行だけ取り込みます">{pending ? "送信中…" : `重要データ完備の ${strictCount} 件のみ取込（推奨）`}</button>
+                  <button className="btn brand" disabled={pending || strictCount === 0} onClick={() => doImport("strict")} title="スキル・単価・クライアントが揃った行だけ取り込みます">{pending ? "送信中…" : `重要データ完備の ${strictCount} 件のみ取込（推奨）`}</button>
                   <button className="btn" disabled={pending} onClick={() => doImport("all")}>{pending ? "送信中…" : `取込可能な ${preview.rows.length - errCount} 件を取込`}</button>
                   <button className="btn ghost" disabled={pending || okCount === 0} onClick={() => doImport("clean")}>{pending ? "送信中…" : `正常 ${okCount} 件のみ`}</button>
                   <button className="btn ghost" onClick={() => setPreview(null)} disabled={pending}>キャンセル</button>

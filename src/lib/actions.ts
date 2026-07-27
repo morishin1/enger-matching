@@ -10,6 +10,7 @@ import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
 import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
 import { gmailMessageUrl, isReplyOrForwardSubject } from "./gmail";
+import { sideFromCsv, sideFromDb, matchConditions, isBlankish, FILLABLE_FIELDS, fillableLabels } from "./candidate-dedupe";
 import { logActivity, logProposalActivity } from "./activity-logs";
 import {
   bustCounts, bustRankingCaches, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
@@ -54,8 +55,114 @@ export type CandidateInput = {
   signup_source?: string | null;   // 登録経路（"line" 等）。LINE登録チェックON時に "line"。
 };
 
+/** 0725：取込プレビュー用の重複判定（6条件）。取り込む前に「どの行が登録済みか」を返す。
+ *  probes は CSV の取込可能行。既存 candidates を氏名で絞って照合し、
+ *  行ごとの一致（P番号・成立条件・既存側の表示用8項目・補完される項目）を返す。 */
+export type DupeProbe = {
+  idx: number;                    // プレビュー行の識別子（rowNo）
+  name?: string | null; company?: string | null; age_band?: string | null;
+  location?: string | null; residence?: string | null;
+  rate?: string | null; rate_num?: number | null;
+  contact_email?: string | null; email?: string | null;
+  skill_sheet_url?: string | null;
+  // 補完プレビュー用（8項目カード以外のフィールドも含む）
+  title?: string | null; affiliation?: string | null; avail?: string | null;
+  exp?: string | null; remote_pref?: string | null; nationality?: string | null; rank?: string | null;
+  skills?: string[];
+};
+export type DupeMatch = {
+  idx: number;
+  candidate_no: number;
+  conditions: number[];           // 成立した条件番号（複数可）
+  fills: string[];                // メインボタンで補完される項目（日本語ラベル）
+  existing: {                     // 既存側の表示用8項目（空欄・「不明」もそのまま返す）
+    name: string; company: string; age_band: string; location: string;
+    residence: string; rate: string; contact: string; sheet: string;
+  };
+};
+export async function previewCandidateDuplicates(probes: DupeProbe[]): Promise<{ ok: boolean; matches?: DupeMatch[]; error?: string }> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+  const names = Array.from(new Set(probes.map((r) => (r.name ?? "").trim()).filter(Boolean)));
+  if (names.length === 0) return { ok: true, matches: [] };
+
+  const COLS = "id, candidate_no, name, company, source_company, age_band, location, residence, rate, rate_num, salary_min, salary_max, contact_email, email, skill_sheet_url, title, affiliation, avail, exp, remote_pref, nationality, rank, skills, contact_name, source_mail_url";
+  const rows: any[] = [];
+  const CHUNK = 300;
+  for (let i = 0; i < names.length; i += CHUNK) {
+    const slice = names.slice(i, i + CHUNK);
+    // 削除済みは照合対象外（未マイグレ環境はフィルタ無しで再試行）。
+    let r: any = await admin.from("candidates").select(COLS).in("name", slice).is("deleted_at", null).limit(5000);
+    if (r.error) r = await admin.from("candidates").select(COLS).in("name", slice).limit(5000);
+    if (r.error) return { ok: false, error: r.error.message };
+    rows.push(...((r.data ?? []) as any[]));
+  }
+  const byName = new Map<string, any[]>();
+  for (const row of rows) {
+    const k = String(row.name ?? "").trim();
+    if (!k) continue;
+    const arr = byName.get(k) ?? [];
+    arr.push(row);
+    byName.set(k, arr);
+  }
+
+  const matches: DupeMatch[] = [];
+  for (const probe of probes) {
+    const cands = byName.get(String(probe.name ?? "").trim()) ?? [];
+    if (cands.length === 0) continue;
+    const a = sideFromCsv(probe);
+    // 同名の既存すべてと照合し、成立したもののうち「条件が多い→新しいP番号」を採用して1件返す。
+    let best: { row: any; conds: number[] } | null = null;
+    for (const row of cands) {
+      const conds = matchConditions(a, sideFromDb(row));
+      if (conds.length === 0) continue;
+      if (!best || conds.length > best.conds.length ||
+          (conds.length === best.conds.length && Number(row.candidate_no ?? 0) > Number(best.row.candidate_no ?? 0))) {
+        best = { row, conds };
+      }
+    }
+    if (!best) continue;
+    const ex = best.row;
+    const show = (v: unknown) => (v == null ? "" : String(v));
+    matches.push({
+      idx: probe.idx,
+      candidate_no: Number(ex.candidate_no ?? 0),
+      conditions: best.conds,
+      fills: fillableLabels(ex, probe as Record<string, any>),
+      existing: {
+        name: show(ex.name), company: show(ex.source_company || ex.company), age_band: show(ex.age_band),
+        location: show(ex.location), residence: show(ex.residence),
+        rate: show(ex.rate ?? (ex.salary_min || ex.salary_max ? `${ex.salary_min ?? ""}〜${ex.salary_max ?? ""}万` : "")),
+        contact: show(ex.contact_email || ex.email), sheet: show(ex.skill_sheet_url),
+      },
+    });
+  }
+  return { ok: true, matches };
+}
+
+/** 0725 §8.1：CSVの「受信日時」（"2026/07/25 9:12" / "2026-07-25 09:12:34" 等）を ISO 文字列へ。
+ *  解釈できない値は null（列ごと落とすのではなく、その行だけ受信日時なしで取り込む）。 */
+function parseCsvDateTime(v?: string | null): string | null {
+  const s = (v ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?(?:[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0));
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /** 人材CSVの取り込み (service role)。バッチで insert。 */
-export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null, opts?: { mergeByName?: boolean; overwrite?: boolean }) {
+export async function importCandidates(
+  records: CandidateInput[], sourceLabel: string, operator?: string | null,
+  opts?: {
+    mergeByName?: boolean; overwrite?: boolean;   // 旧オプション（後方互換。UIからは送らない）
+    /** 0725：6条件の重複判定モード。
+     *   "fill" … 判定を行い、登録済みは空欄・「不明」だけCSVで補完（メインボタン）
+     *   "skip" … 判定を行い、登録済みには一切触れない
+     *   "none" … 判定を行わず全件を新規登録（重複を許す・通常は使わない） */
+    dedupe?: "fill" | "skip" | "none";
+  },
+) {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
@@ -91,7 +198,10 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       skill_sheet_url: r.skill_sheet_url?.trim() || null,
       email: r.email?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
+      contact_name: r.contact_name?.trim() || null,
       source_mail_url: r.source_mail_url?.trim() || null,
+      // 0725 §8.1：受信日時（人材の鮮度判断用）。"2026/07/25 9:12" 等を ISO に正規化。
+      source_mail_at: parseCsvDateTime(r.source_mail_at),
       operator: operator?.trim() || null,
       score: 0,
       source_csv: sourceLabel,
@@ -132,9 +242,76 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     }
   } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
 
-  // 同姓同名統合：既存に氏名一致がある行は、空欄補完で既存を更新（一括 upsert）
+  // ── 0725：6条件の重複判定（指示書 §3）。氏名のみの統合で別人が消えていた問題への対応 ──
+  //   "fill"/"skip" は既存DB（同名のみ取得）と照合。成立した行は新規登録せず、
+  //   fill のときだけ既存の空欄・「不明」をCSVで補完する。"none" は判定せず全件登録。
   let mergedCount = 0;
-  if (opts?.mergeByName) {
+  let dupSkipped = 0;
+  if (opts?.dedupe === "fill" || opts?.dedupe === "skip") {
+    const batchNames = Array.from(new Set(rows.map((r) => r.name).filter(Boolean) as string[]));
+    const byNameAll = new Map<string, any[]>();
+    try {
+      const CHUNK = 300;
+      for (let i = 0; i < batchNames.length; i += CHUNK) {
+        const slice = batchNames.slice(i, i + CHUNK);
+        // 補完のため行全体(*)を取得。削除済みは照合対象外（未マイグレ環境は無フィルタ再試行）。
+        let r: any = await admin.from("candidates").select("*").in("name", slice).is("deleted_at", null);
+        if (r.error) r = await admin.from("candidates").select("*").in("name", slice);
+        if (r.error || !r.data) continue;
+        for (const row of r.data as any[]) {
+          const k = String(row.name ?? "").trim();
+          if (!k) continue;
+          const arr = byNameAll.get(k) ?? [];
+          arr.push(row);
+          byNameAll.set(k, arr);
+        }
+      }
+    } catch { /* 取得失敗時は照合スキップ＝全件新規（重複を許す側に倒す・§1） */ }
+
+    const stillFresh: typeof rows = [];
+    for (const r of rows) {
+      const cands = byNameAll.get(String(r.name ?? "").trim()) ?? [];
+      const a = sideFromCsv(r);
+      let matched: any = null;
+      let bestConds = 0;
+      for (const row of cands) {
+        const conds = matchConditions(a, sideFromDb(row));
+        if (conds.length > bestConds) { matched = row; bestConds = conds.length; }
+      }
+      if (!matched) { stillFresh.push(r); continue; }
+      dupSkipped++;
+      if (opts.dedupe !== "fill") continue; // "skip"：登録済みには一切触れない
+      // fill：既存の空欄・「不明」だけをCSVの値で埋める（既に値がある項目は変更しない。§5）。
+      const changes: Record<string, any> = {};
+      for (const { key } of FILLABLE_FIELDS) {
+        const cur = (matched as any)[key];
+        const nv = (r as any)[key];
+        if (isBlankish(cur) && !isBlankish(nv)) changes[key] = nv;
+      }
+      const curSkills: string[] = Array.isArray(matched.skills) ? matched.skills : [];
+      const newSkills: string[] = Array.isArray(r.skills) ? r.skills : [];
+      if (curSkills.length === 0 && newSkills.length > 0) changes.skills = newSkills;
+      if (Object.keys(changes).length === 0) continue;
+      try {
+        let u: any = await admin.from("candidates").update(changes).eq("id", matched.id);
+        // 未整備列がある環境は、その列を外して再試行（最大6回・動的除去）。
+        for (let i = 0; i < 6 && u.error; i++) {
+          const m = String(u.error.message ?? "").match(/Could not find the '([a-z_0-9]+)' column|column "?([a-z_0-9]+)"? of relation/i);
+          const col = m?.[1] || m?.[2];
+          if (!col || !(col in changes)) break;
+          delete changes[col];
+          if (Object.keys(changes).length === 0) break;
+          u = await admin.from("candidates").update(changes).eq("id", matched.id);
+        }
+        if (!u.error) mergedCount++;
+      } catch { /* 補完失敗は取込全体を止めない */ }
+    }
+    (rows as any).length = 0;
+    for (const r of stillFresh) (rows as any).push(r);
+  }
+
+  // 旧：同姓同名統合（氏名のみ判定）。後方互換のため残すが、UI からは使わない。
+  if (opts?.mergeByName && !opts?.dedupe) {
     const stillFresh: typeof rows = [];
     // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
     const mergedRows: any[] = [];
@@ -182,13 +359,14 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
   }
 
   const seen = new Set<string>();
-  const fresh = rows.filter((r) => {
+  // dedupe="none"：判定を行わず全件を新規登録（完全一致ガードもかけない・指示書 §4.2）。
+  const fresh = opts?.dedupe === "none" ? rows : rows.filter((r) => {
     const k = dkey(r.name, r.company, r.source_mail_url);
     if (existing.has(k) || seen.has(k)) return false;
     seen.add(k); return true;
   });
-  const skipped = rows.length - fresh.length;
-  if (fresh.length === 0) { revalidatePath("/people"); bustCounts(); return { ok: true, inserted: 0, skipped }; }
+  const skipped = rows.length - fresh.length + dupSkipped;
+  if (fresh.length === 0) { revalidatePath("/people"); bustCounts(); return { ok: true, inserted: 0, skipped, merged: mergedCount }; }
 
   let inserted = 0;
   const BATCH = 500;
@@ -196,8 +374,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
     // 追加列（skill_sheet_url/email/remote_pref/age_band/operator 等）が未整備でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|detail_note|residence|operator|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "operator"]) delete o[k]; return o; });
+    if (error && /skill_sheet_url|email|source_mail_url|source_mail_at|contact_name|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|detail_note|residence|operator|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "contact_name", "source_mail_url", "source_mail_at", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "operator"]) delete o[k]; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
