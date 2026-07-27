@@ -14,10 +14,12 @@ const input = { fontFamily: "inherit", fontSize: 13, padding: "10px 12px", borde
 const btn = { fontFamily: "inherit", fontSize: 12, fontWeight: 800, padding: "9px 14px", borderRadius: 10, border: 0, background: "#0b5cab", color: "#fff", cursor: "pointer" } as const;
 const stepLabel = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 900, color: "#0F2440" } as const;
 
-export function ProspectDailyAppend({ theme, date, prompt, counts, todayCount, defaultSource }: {
+export function ProspectDailyAppend({ theme, date, prompt, promptForUrl, counts, todayCount, defaultSource }: {
   theme: DailyTheme;
   date: string;
   prompt: string;
+  /** claude.ai をURLで開く用（URL長の上限があるため除外リストを短くした版）。 */
+  promptForUrl?: string;
   counts: { date: string; label: string; count: number }[];
   todayCount: number;
   defaultSource: string;
@@ -27,7 +29,7 @@ export function ProspectDailyAppend({ theme, date, prompt, counts, todayCount, d
 
   // ① クリック1回で Claude を開く（プロンプトは入力済みの状態で新規チャットが開く）。
   //    日本語はURLエンコードで約9倍に膨らむため、8KB（一般的なサーバのURL上限）を超えたらコピー運用に倒す。
-  const claudeUrl = `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
+  const claudeUrl = `https://claude.ai/new?q=${encodeURIComponent(promptForUrl ?? prompt)}`;
   const claudeUrlUsable = claudeUrl.length <= 8000;
 
   // ② クリック1回で取込（クリップボードの中身をそのまま解析して送信）。

@@ -32,6 +32,11 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      # "use client" のファイルからコンポーネント以外の関数を export していないか。
+      #   （サーバーから呼ぶと実行時に必ず落ちるが、型検査もビルドも通ってしまうため）
+      - name: Client/Server boundary check
+        run: node scripts/check-client-exports.mjs
+
       - name: Build
         # Supabase 等の実値は CI では不要だが、ビルド時に参照されると失敗するので
         # 占位値を設定してビルドを通す（ランタイムでは dbConfigured で分岐）。

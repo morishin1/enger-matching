@@ -12,6 +12,7 @@ const CATEGORY_TONE: Record<string, { fg: string; bg: string }> = {
   "当社→人材側":   { fg: "#7c3aed", bg: "#ede9fe" },
   "人材側→当社":   { fg: "#067647", bg: "#e7f7ee" },
 };
+/** @client-only ブラウザ側でのみ使う（サーバーコンポーネントからは呼ばない）。 */
 export const memoCategoryTone = (c: string) => CATEGORY_TONE[normalizeMemoCategory(c)] ?? { fg: "#6b7280", bg: "#f3f4f6" };
 
 export function ProposalMemoModal({ proposalId, onClose, onAdded }: { proposalId: string; onClose: () => void; onAdded?: () => void }) {
