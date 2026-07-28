@@ -7,6 +7,7 @@ import { Icons } from "./icons";
 import { targetScore, prospectAction, companyIdLabel, type CompanyRow, type ProspectAction } from "@/lib/companies";
 import { StarsView } from "./Stars";
 import type { CompanyRating } from "@/lib/company-ratings";
+import { EndClientBadge } from "./EndClientBadge";
 import { saveCompany, deleteCompany, setCompanyMeetingDone, bulkSetCompaniesMeetingDone, bulkDeleteCompanies, mergeCompanies, previewMergeCompanies, diagnoseCompanyMeetingDone, summarizeCompanyReputation, type CompanyDiagnosis } from "@/lib/actions";
 import { ReferralPortalSection } from "./ReferralPortalSection";
 
@@ -19,6 +20,8 @@ type Registered = {
   // 対応特性タグ（属人知の資産化）＋取引注意（既存 caution 列を編集・表示）
   contact_pref?: string | null; response_speed?: string | null; decision_speed?: string | null;
   caution?: boolean | null; caution_reason?: string | null; caution_at?: string | null;
+  // #491：受託開発・エンド（SESの商流を挟まない直取引先）
+  is_end_client?: boolean | null; end_client_at?: string | null;
   // WEB評判のAI要約（参考情報・要確認）
   web_reputation?: string | null; web_reputation_source?: string | null; web_reputation_at?: string | null;
 };
@@ -69,6 +72,8 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
   const [kind, setKind] = useState<"ALL" | "job" | "cand" | "both">("ALL");
   // LINE 絞り込み：ON で LINE 経由のやり取りがある企業のみ表示
   const [lineOnly, setLineOnly] = useState(false);
+  // #491：受託開発・エンド 絞り込み。ON でチェックの入っている企業のみ表示
+  const [endOnly, setEndOnly] = useState(false);
   // 一括選択（チェックボックス）。下部のフローティングメニューから「打合せ完了/解除」を一括適用。
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -247,6 +252,8 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
       })())
       // LINE 絞り込み：ON のとき LINE でやり取りしている企業のみ表示
       && (!lineOnly || isLineCompany(c.name))
+      // #491：受託開発・エンド 絞り込み。企業マスタのチェックが正（未登録企業は対象外）
+      && (!endOnly || c.reg?.is_end_client === true)
       // 企業名・業種・窓口担当者・企業ID でも検索できるように（#297②：企業IDの部分一致も対象）。
       //   企業IDは "C-00001" 表記でも数字だけ "1"/"00001" でも部分一致する（記号・接頭辞を無視して照合）。
       && (!needle || c.name.toLowerCase().includes(needle)
@@ -256,7 +263,7 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
         || (companyIdLabel(c.reg?.company_no ?? null) ?? "").toLowerCase().includes(needle)
         || (c.reg?.company_no != null && needleDigits !== "" && String(c.reg.company_no).includes(needleDigits))));
     return [...rows].sort((a, b) => sort === "last_job_at" ? (b.last_job_at ?? "").localeCompare(a.last_job_at ?? "") : ((b as any)[sort] ?? 0) - ((a as any)[sort] ?? 0));
-  }, [merged, tier, act, search, sort, mtg, regF, kind, lineOnly]);
+  }, [merged, tier, act, search, sort, mtg, regF, kind, lineOnly, endOnly]);
   const top = useMemo(() => [...merged].sort((a, b) => b.score - a.score).slice(0, 5), [merged]);
 
   const PAGE = 20;
@@ -384,6 +391,23 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
             </button>
           );
         })()}
+        {/* #491：受託開発・エンド 絞り込み。企業詳細のチェックが入っている企業だけに絞る。 */}
+        {(() => {
+          const endN = merged.filter((c) => c.reg?.is_end_client === true).length;
+          return (
+            <button onClick={() => { setEndOnly((v) => !v); setShowAll(false); }}
+              title="受託開発・エンド（SESの商流を挟まない直取引先）だけに絞り込む"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 99,
+                border: `1px solid ${endOnly ? "#4338ca" : "var(--color-border-strong)"}`,
+                background: endOnly ? "#4338ca" : "var(--color-surface)",
+                color: endOnly ? "#fff" : "#4338ca", fontSize: 12, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+              }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>apartment</span>
+              受託開発・エンド <span className="tnum" style={{ fontFamily: "var(--font-mono)", fontWeight: 500, opacity: 0.9 }}>{endN}</span>
+            </button>
+          );
+        })()}
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={{ fontFamily: "inherit", fontSize: 12, padding: "6px 12px", borderRadius: 99, border: "1px solid var(--color-border-strong)", background: "var(--color-surface)", color: "var(--color-ink)" }}>
             <option value="target">狙い目スコア</option><option value="active_jobs">進行中案件</option><option value="job_count">案件数</option><option value="candidate_count">人材数</option><option value="avg_rate">平均単価</option><option value="last_job_at">最終更新</option>
@@ -485,6 +509,9 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
                               <Icons.line size={15} />
                             </span>
                           )}
+                          {/* #491：受託開発・エンド。フィルタを掛けていなくても一覧で判別できるようにする。
+                              企業名の折り返しを避けるため短縮表示（ツールチップで正式名称を出す）。 */}
+                          {c.reg?.is_end_client === true && <EndClientBadge size="xs" compact />}
                           {(() => { const rt = ratingOf(c.name); return rt ? <span title={`企業評価（失注時の案件★平均）${rt.avg} / ${rt.count}件`} style={{ flexShrink: 0 }}><StarsView value={rt.avg} size={12} showNumber count={rt.count} /></span> : null; })()}
                         </div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
@@ -543,6 +570,7 @@ export function CompaniesView({ companies, registered = [], candidateCounts = {}
                           <Icons.line size={15} />
                         </span>
                       )}
+                      {c.reg?.is_end_client === true && <EndClientBadge size="xs" compact />}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: statusColor(c.status), fontWeight: 600 }}>● {c.status}</span>
@@ -702,6 +730,8 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
   const isNew = !data;
   // 取引注意（既存 caution 列。ON にするなら理由必須）。
   const [caution, setCaution] = useState<boolean>(reg?.caution === true);
+  // #491：受託開発・エンド。理由入力は不要（事実の区分であって注意喚起ではないため）。
+  const [endClient, setEndClient] = useState<boolean>(reg?.is_end_client === true);
   // WEB評判AI要約（実行状態・結果）。
   const [repBusy, setRepBusy] = useState(false);
   const [repMsg, setRepMsg] = useState<string | null>(null);
@@ -761,9 +791,13 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
     if (!f.name.trim()) { setMsg("企業名を入力してください"); return; }
     if (caution && !f.caution_reason.trim()) { setMsg("取引注意にする場合は理由を入力してください"); return; }
     setSaving(true); setMsg(null);
-    const res = await saveCompany({ ...f, caution });
+    const res = await saveCompany({ ...f, caution, is_end_client: endClient });
     setSaving(false);
-    if (res.ok) { router.refresh(); onClose(); } else setMsg(res.error || "保存に失敗しました");
+    // 列が未整備で一部が保存できなかった場合は warn が返る。黙って閉じると
+    // 「チェックしたのに反映されない」事故になるので、閉じずに理由を出す。
+    if (res.ok && !res.warn) { router.refresh(); onClose(); }
+    else if (res.ok) { router.refresh(); setMsg(res.warn ?? null); }
+    else setMsg(res.error || "保存に失敗しました");
   };
   const del = async () => {
     if (!data || !confirm(`「${data.name}」の登録情報を削除しますか？（案件由来の集計は残ります）`)) return;
@@ -887,6 +921,23 @@ function CompanyModal({ data, onClose }: { data: Merged | null; onClose: () => v
           <div><L c="レス速度" /><select style={inp as any} value={f.response_speed} onChange={(e) => set("response_speed", e.target.value)}><option value="">未設定</option><option>速い</option><option>普通</option><option>遅い</option></select></div>
           <div><L c="決裁速度" /><select style={inp as any} value={f.decision_speed} onChange={(e) => set("decision_speed", e.target.value)}><option value="">未設定</option><option>速い</option><option>普通</option><option>遅い</option></select></div>
           <div style={{ gridColumn: "1 / -1" }}><L c="メモ" /><textarea style={{ ...inp, resize: "vertical" }} rows={3} value={f.note} onChange={(e) => set("note", e.target.value)} /></div>
+        </div>
+
+        {/* #491：受託開発・エンド。商流を挟まない直取引先の区分。
+             企業管理のフィルタと案件一覧のマークがこのチェックだけで連動する。 */}
+        <div style={{ border: `1px solid ${endClient ? "#c7d2fe" : "var(--color-border)"}`, borderRadius: 10, padding: "10px 12px", background: endClient ? "#eef2ff" : "var(--color-surface)" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, fontWeight: 700, color: endClient ? "#4338ca" : "var(--color-ink-2)" }}>
+            <input type="checkbox" checked={endClient} onChange={(e) => setEndClient(e.target.checked)} style={{ width: 16, height: 16 }} />
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>apartment</span>
+            受託開発・エンド
+            <span className="muted" style={{ fontSize: 10.5, fontWeight: 500, marginLeft: "auto" }}>
+              {reg?.end_client_at ? `最終更新 ${dateLabel(reg.end_client_at)}` : "SESの商流を挟まない直取引先"}
+            </span>
+          </label>
+          <div className="muted" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.6 }}>
+            チェックすると、企業一覧の「受託開発・エンド」フィルタで絞り込めるようになり、
+            <b>案件一覧のクライアント名の横にマークが出ます</b>。
+          </div>
         </div>
 
         {/* 取引注意（属人知の資産化）：ON にすると理由必須。攻め先スコアが下がり、一覧に⚠が出る。 */}

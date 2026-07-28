@@ -11,6 +11,7 @@ import { getViewerScope, maskJobs } from "@/lib/tenant";
 import { JOB_NAT_SQL_KEYS } from "@/lib/nationality";
 import { JOB_FLOW_OPTIONS } from "@/lib/flow";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
+import { getEndClientCompanySet, isEndClient } from "@/lib/end-client";
 import { attachLatestSourceMail } from "@/lib/source-mail";
 
 export const dynamic = "force-dynamic";
@@ -374,6 +375,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         const approvedSet = await getApprovedCompanySet();
         for (const j of jobs) (j as any).client_approved = isCompanyApproved(approvedSet, j.client_name);
       } catch { /* 承認集合の取得失敗は無視（バッジ非表示） */ }
+
+      // #491：受託開発・エンドのマーク用に、各行へ client_name の該当有無を付与。
+      //   突合は承認バッジと同じ方針（完全一致＋担当者/部署バリアント）。
+      try {
+        const endClients = await getEndClientCompanySet();
+        for (const j of jobs) (j as any).client_is_end = isEndClient(endClients, j.client_name);
+      } catch { /* 列未整備・取得失敗はマーク非表示で続行 */ }
 
       // 「提案あり」タグ用：この案件に紐づく提案が1件でもあるかを付与（誤削除防止の目印）。
       try {

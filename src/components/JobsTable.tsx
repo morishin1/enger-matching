@@ -13,6 +13,7 @@ import { CloseToggleButton } from "./CloseToggleButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
+import { EndClientBadge } from "./EndClientBadge";
 import { CompanyLink } from "./CompanyLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
@@ -119,7 +120,13 @@ const JOB_COLS: Col[] = [
     ),
   },
   { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
-  { key: "client", label: "クライアント名", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
+  // #491：受託開発・エンド企業はクライアント名の横にマークを出す（商流の深さを一目で判別）。
+  { key: "client", label: "クライアント名", render: (j) => (
+      <span style={{ fontSize: 12, color: "var(--color-ink-3)", display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+        <span>{j.client_name ?? "—"}</span>
+        {j.client_is_end && <EndClientBadge size="xs" />}
+      </span>
+    ) },
   { key: "approved", label: "承認", width: 96, filterKey: "approved", filterLabel: "承認状況", render: (j) => <CompanyApprovalBadge approved={!!j.client_approved} size="xs" /> },
   { key: "role", label: "職種", filterKey: "role", filterLabel: "職種", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterKey: "remote", filterLabel: "リモート", render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
@@ -519,6 +526,7 @@ export function JobsTable({
                   {detail.signup_source === "line" && <span title="LINE経由で登録" style={{ display: "inline-flex", alignItems: "center", lineHeight: 0 }}><Icons.line size={14} /></span>}
                   {detail.is_closed && <ClosedBadge size="xs" />}
                   {!partner && detail.client_name && <CompanyApprovalBadge approved={!!detail.client_approved} size="xs" />}
+                  {!partner && detail.client_is_end && <EndClientBadge size="xs" />}
                 </h3>
                 <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
                   {[detail.client_name, detail.role_label, remoteLabel(detail.remote_type), salaryLabel(detail.salary_min, detail.salary_max)].filter(Boolean).join(" · ") || "—"}

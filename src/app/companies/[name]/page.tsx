@@ -7,6 +7,7 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getViewerScope } from "@/lib/tenant";
 import { getApprovedCompanySet, isCompanyApproved } from "@/lib/company-approval";
 import { companyIdLabel } from "@/lib/companies";
+import { EndClientBadge } from "@/components/EndClientBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,9 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
     try {
       const sb = engerClient();
       // 企業マスタ（登録情報）。#293：企業ID（company_no）も取得（未マイグレ環境はフォールバックで外す）。
-      let rr: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done, company_no").eq("name", name).maybeSingle();
+      // #491：受託開発・エンド（is_end_client）も取得。未マイグレ環境はフォールバックで外す。
+      let rr: any = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done, company_no, is_end_client").eq("name", name).maybeSingle();
+      if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done, company_no").eq("name", name).maybeSingle();
       if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, company_no").eq("name", name).maybeSingle();
       if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note, meeting_done").eq("name", name).maybeSingle();
       if (rr.error) rr = await sb.from("companies").select("name, industry, tier, status, owner_staff, contact_name, contact_email, phone, website, address, note").eq("name", name).maybeSingle();
@@ -80,6 +83,7 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
           <h1 style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span>{name}</span>
             <CompanyApprovalBadge approved={approved} />
+            {reg?.is_end_client && <EndClientBadge />}
           </h1>
           <div className="sub">{[reg?.industry, tierLabel, reg?.status].filter(Boolean).join(" · ") || "案件・人材データから集約した企業"}</div>
         </div>
@@ -101,6 +105,8 @@ export default async function CompanyDetailPage({ params }: { params: Promise<{ 
         <div className="card">
           <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 6 }}>企業情報</div>
           <Row label="企業ID" value={companyIdLabel(reg.company_no)} />
+          {/* #491：受託開発・エンド。チェックの変更は企業管理の編集モーダルから行う。 */}
+          <Row label="区分" value={reg.is_end_client ? <EndClientBadge size="xs" /> : null} />
           <Row label="業種" value={reg.industry} />
           <Row label="ティア" value={reg.tier} />
           <Row label="ステータス" value={reg.status} />
