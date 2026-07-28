@@ -1942,6 +1942,8 @@ export type CompanyInput = {
   contact_pref?: string; response_speed?: string; decision_speed?: string;
   // 取引注意（既存の caution 列を企業モーダルから編集可能に。true のときは理由必須）
   caution?: boolean; caution_reason?: string;
+  // #491：受託開発・エンド企業フラグ（企業管理のフィルタ／案件一覧のマークに使用）
+  is_end_client?: boolean;
 };
 
 /** 企業を新規登録/更新 (name で upsert)。 */
@@ -1954,6 +1956,19 @@ export async function saveCompany(input: CompanyInput) {
   for (const k of ["industry", "tier", "status", "owner_staff", "contact_name", "contact_email", "phone", "website", "address", "note", "contact_pref", "response_speed", "decision_speed"] as const) {
     const v = (input as any)[k];
     if (v !== undefined) row[k] = typeof v === "string" ? (v.trim() || null) : v;
+  }
+  // #491：受託開発・エンド。誰がいつ付けたかを残す（caution / ng と同じ方針）。
+  //   ・OFF に戻したときは日時・設定者を消す（「立っていた形跡」を残すと誤解のもとになる）
+  if (typeof input.is_end_client === "boolean") {
+    row.is_end_client = input.is_end_client;
+    if (input.is_end_client) {
+      const access = await currentAccess();
+      row.end_client_at = new Date().toISOString();
+      row.end_client_by = access?.name ?? access?.email ?? null;
+    } else {
+      row.end_client_at = null;
+      row.end_client_by = null;
+    }
   }
   // 取引注意：ON にするなら理由必須（属人的な「合わない/電話つながらない」を根拠つきで全員に共有する）。
   if (typeof input.caution === "boolean") {
@@ -1972,9 +1987,21 @@ export async function saveCompany(input: CompanyInput) {
   // 未整備の列を段階的に外して再試行（fail-soft）。まず新規の対応特性タグだけ外し、
   //   既存の取引注意(caution)列はできる限り残す（caution は close-reason-caution.sql で既出＝本番に存在するため、
   //   タグ列が無いだけで caution フラグの保存が落ちないようにする）。
-  if (error && /contact_pref|response_speed|decision_speed|caution|column/i.test(error.message)) {
+  if (error && /contact_pref|response_speed|decision_speed|caution|is_end_client|end_client|column/i.test(error.message)) {
     let attempt = dropKeys(row, ["contact_pref", "response_speed", "decision_speed"]);
     ({ error } = await admin.from("companies").upsert(attempt, { onConflict: "name" }));
+    // #491：受託開発・エンド列が未整備（companies-end-client.sql 未実行）なら外して再試行。
+    //   ここで黙って外すと「チェックしたのに保存されない」事故になるので、戻り値で警告する。
+    let endClientDropped = false;
+    if (error && /is_end_client|end_client|column/i.test(error.message)) {
+      attempt = dropKeys(attempt, ["is_end_client", "end_client_at", "end_client_by"]);
+      endClientDropped = true;
+      ({ error } = await admin.from("companies").upsert(attempt, { onConflict: "name" }));
+    }
+    if (!error && endClientDropped) {
+      revalidatePath("/companies");
+      return { ok: true, warn: "「受託開発・エンド」は列が未整備のため保存できませんでした（supabase/companies-end-client.sql を実行してください）。他の項目は保存済みです" };
+    }
     // それでも caution 列が無い（ごく古い環境）なら caution 系も外して基本列のみで保存。
     if (error && /caution|column/i.test(error.message)) {
       attempt = dropKeys(attempt, ["caution", "caution_reason", "caution_at", "caution_by"]);

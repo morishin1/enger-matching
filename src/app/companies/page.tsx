@@ -86,6 +86,16 @@ export default async function CompaniesPage({ searchParams }: { searchParams?: P
           registered = registered.map((r: any) => ({ ...r, ...(cm.get(r.name) ?? {}) }));
         }
       } catch { /* CRMループ列が未整備でも続行 */ }
+
+      // ④ #491：受託開発・エンド。CRM列とは別クエリにして、片方が未整備でももう片方が消えないようにする
+      //    （meeting_done を任意列から切り離しているのと同じ理由）。
+      try {
+        const ec: any = await sb.from("companies").select("name, is_end_client, end_client_at");
+        if (!ec.error && Array.isArray(ec.data)) {
+          const em = new Map<string, any>(ec.data.map((r: any) => [r.name, r]));
+          registered = registered.map((r: any) => ({ ...r, ...(em.get(r.name) ?? {}) }));
+        }
+      } catch { /* companies-end-client.sql 未実行でも続行（フィルタ・マークが出ないだけ） */ }
     } catch { /* companies-extend.sql 未実行などは無視 */ }
   }
 
