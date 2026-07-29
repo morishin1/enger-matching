@@ -7,6 +7,7 @@ import { updateProposalStage, convertToEngagement, updateProposalFields, request
 import { toast } from "./toast";
 import { ActionChips } from "./ProposalActionChip";
 import { progressDisplay } from "@/lib/proposal-progress";
+import { formatRate } from "@/lib/rate";
 import { ProposalDetailModal } from "./ProposalDetailModal";
 import { Icons } from "./icons";
 
@@ -246,7 +247,7 @@ function Card({ p, stageIdx, onMove, onLose, onEngage, onSave, onDelete, busy, m
             <div className="ava" style={{ width: 26, height: 26, fontSize: 10 }}>{p.c_init || (p.candidate_name ?? "?").slice(0, 2)}</div>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>{p.cand_line && <span title="LINE経由の人材" style={{ lineHeight: 0, flexShrink: 0 }}><Icons.line size={13} /></span>}<span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.candidate_name ?? "—"}</span></div>
-              <div className="muted" style={{ fontSize: 10.5 }}>{p.rate ?? ""}{p.score != null ? ` · マッチ${p.score}%` : ""}</div>
+              <div className="muted" style={{ fontSize: 10.5 }}>{formatRate(p.rate, "")}{p.score != null ? ` · マッチ${p.score}%` : ""}</div>
             </div>
           </div>
           {/* 受信側の応答（話を進める=緑 / 見送り=赤 / 未回答=破線）。リスト表示と同じ見た目。 */}

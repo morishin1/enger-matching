@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { currentAccess } from "@/lib/accounts";
 import { callLLM } from "@/lib/llm";
 import { engerAdmin } from "@/lib/supabase";
-import { statusFromActivity, type ProspectStatus } from "@/lib/prospecting";
+import { ingestProspectRows, type IngestOutcome } from "@/lib/prospect-ingest";
+import { parseProspectCsv, parseSignals, PROSPECT_RANKS, statusFromActivity, type CsvFormat, type ProspectRank, type ProspectStatus } from "@/lib/prospecting";
 
 type Result = { ok: boolean; error?: string; text?: string };
 
@@ -20,71 +21,64 @@ async function actorName() {
 }
 
 export async function addProspect(formData: FormData): Promise<Result> {
-  let admin: ReturnType<typeof engerAdmin>;
-  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
   const company_name = clean(formData.get("company_name"));
   if (!company_name) return { ok: false, error: "会社名を入力してください" };
   const actor = await actorName();
-  const row = {
+  const rank = clean(formData.get("rank"));
+  const outcome = await ingestProspectRows([{
     company_name,
     industry: clean(formData.get("industry")) || null,
     website: clean(formData.get("website")) || null,
+    career_url: clean(formData.get("career_url")) || null,
     contact_form_url: clean(formData.get("contact_form_url")) || null,
     phone: clean(formData.get("phone")) || null,
     contact_name: clean(formData.get("contact_name")) || null,
-    priority: num(formData.get("priority")),
+    location: clean(formData.get("location")) || null,
+    rank: (PROSPECT_RANKS as readonly string[]).includes(rank) ? (rank as ProspectRank) : null,
+    signals: parseSignals(clean(formData.get("signals")) || null),
+    found_via: clean(formData.get("found_via")) || null,
     owner_staff: clean(formData.get("owner_staff")) || actor || null,
     source_list: clean(formData.get("source_list")) || "手入力",
     note: clean(formData.get("note")) || null,
-    created_by: actor || null,
-  };
-  const { error } = await admin.from("prospects").upsert(row, { onConflict: "normalized_name", ignoreDuplicates: false });
-  if (error) return { ok: false, error: error.message };
+    priority: num(formData.get("priority")),
+  }], { actor, defaultOwner: actor || null });
+  if (!outcome.ok) return { ok: false, error: outcome.error };
   revalidatePath("/prospecting");
-  return { ok: true };
+  return { ok: true, error: outcome.added === 0 ? `${company_name} は既に登録済みです（${outcome.skippedSamples[0]?.reason ?? "重複"}）` : undefined };
 }
 
-export async function importProspectsCsv(formData: FormData): Promise<Result> {
-  let admin: ReturnType<typeof engerAdmin>;
-  try { admin = engerAdmin(); } catch { return { ok: false, error: "SUPABASE_SERVICE_ROLE_KEY 未設定" }; }
-  const text = clean(formData.get("csv"));
-  if (!text) return { ok: false, error: "CSVを貼り付けてください" };
+// CSV貼り付けによる追記。毎日流し込む運用なので、結果（追加/スキップ件数）を画面に返す。
+//   useActionState から呼ぶため引数は (前回の結果, FormData)。
+export type ImportState = (IngestOutcome & { format?: CsvFormat; parsed?: number }) | null;
+
+export async function importProspectsCsv(_prev: ImportState, formData: FormData): Promise<ImportState> {
+  const text = String(formData.get("csv") ?? "").trim();
+  if (!text) return { ...emptyOutcome(), ok: false, error: "CSVを貼り付けてください" };
+  const { rows, format } = parseProspectCsv(text);
+  if (rows.length === 0) {
+    // 何を貼ったのかで案内を変える（「取り込める行がありません」だけでは次の行動が分からないため）。
+    const looksLikePrompt = /IT人材営業|# ルール|# 出力|CSVのコードブロック|# テーマ/.test(text);
+    const headerOnly = /企業名\s*,|会社名\s*,/.test(text);
+    const head = text.replace(/\s+/g, " ").slice(0, 60);
+    const error = looksLikePrompt
+      ? `コピーされているのは調査プロンプトです。Claude が返した「回答」の CSV（コードブロック右上のコピーボタン）をコピーしてから、もう一度押してください。（貼り付けた内容の先頭：${head}…）`
+      : headerOnly
+        ? `見出し行だけで、企業のデータ行がありません。Claude の回答に企業が並んでいるか確認してください。（貼り付けた内容の先頭：${head}…）`
+        : `取り込める行が見つかりませんでした。1行目のヘッダ（企業名,採用ページURL,企業URL,…）と列の並びをご確認ください。（貼り付けた内容の先頭：${head}…）`;
+    return { ...emptyOutcome(), ok: false, error };
+  }
   const actor = await actorName();
-  const rows = parseCsv(text).map((cols) => ({
-    company_name: cols[0] || "",
-    industry: cols[1] || null,
-    website: cols[2] || null,
-    contact_form_url: cols[3] || null,
-    phone: cols[4] || null,
-    contact_name: cols[5] || null,
-    priority: Number(cols[6]) || 50,
-    owner_staff: cols[7] || actor || null,
-    source_list: cols[8] || clean(formData.get("source_list")) || "CSV",
-    note: cols[9] || null,
-    created_by: actor || null,
-  })).filter((r) => r.company_name && r.company_name !== "会社名");
-  if (rows.length === 0) return { ok: false, error: "取り込める行がありません" };
-  const { error } = await admin.from("prospects").upsert(rows, { onConflict: "normalized_name", ignoreDuplicates: false });
-  if (error) return { ok: false, error: error.message };
+  const outcome = await ingestProspectRows(rows, {
+    actor,
+    sourceList: clean(formData.get("source_list")) || null,
+    defaultOwner: actor || null,
+  });
   revalidatePath("/prospecting");
-  return { ok: true };
+  return { ...outcome, format, parsed: rows.length };
 }
 
-function parseCsv(text: string): string[][] {
-  return text.split(/\r?\n/).map((line) => {
-    const out: string[] = [];
-    let cur = "";
-    let quoted = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (ch === '"') quoted = !quoted;
-      else if (ch === "," && !quoted) { out.push(cur.trim()); cur = ""; }
-      else cur += ch;
-    }
-    out.push(cur.trim());
-    return out;
-  }).filter((r) => r.some(Boolean));
+function emptyOutcome(): IngestOutcome {
+  return { ok: true, added: 0, addedNames: [], skipped: 0, skippedExisting: 0, skippedCompany: 0, skippedInBatch: 0, skippedSamples: [] };
 }
 
 export async function recordProspectActivity(formData: FormData): Promise<Result> {

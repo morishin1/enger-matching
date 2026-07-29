@@ -226,7 +226,7 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
                 href={xIntent(cardText, card.shareUrl)}
                 target="_blank"
                 rel="noopener"
-                onClick={() => { logPrPost("card"); setMsg("PR投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
+                onClick={() => { logPrPost("card", { text: cardText, url: card.shareUrl }); setMsg("PR投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
                 style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 𝕏 このカードでXに投稿
@@ -255,7 +255,7 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
                 style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)" }}
               />
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                <a className="btn brand" href={xIntent(text, t.url)} target="_blank" rel="noopener" onClick={() => { logPrPost(t.id); setMsg("PR投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }} style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
+                <a className="btn brand" href={xIntent(text, t.url)} target="_blank" rel="noopener" onClick={() => { logPrPost(t.id, { text, url: t.url }); setMsg("PR投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }} style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
                 <button type="button" className="btn ghost" onClick={() => copy(text)}>本文をコピー</button>
               </div>
             </div>
@@ -313,7 +313,7 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
               />
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <a className="btn brand" href={xIntent(jobText, jobUrl(selectedJob.no, design))} target="_blank" rel="noopener"
-                  onClick={() => { logPrPost("job"); setMsg("案件カード投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
+                  onClick={() => { logPrPost("job", { text: jobText, url: jobUrl(selectedJob.no, design) }); setMsg("案件カード投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
                   style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
                 <button type="button" className="btn ghost" onClick={() => copy(jobText)}>本文をコピー</button>
                 <a className="btn ghost" href={jobCardPng(selectedJob.no, design)} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>カード画像を確認</a>
@@ -367,7 +367,7 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
           {origText.trim() && thumbTitle ? (
             <a className="btn brand" href={xIntent(origText, shareUrl(thumbTitle, origSub.trim().slice(0, 70), origDesign))} target="_blank" rel="noopener"
-              onClick={() => { logPrPost("custom"); setMsg("オリジナル投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
+              onClick={() => { logPrPost("custom", { text: origText, url: shareUrl(thumbTitle, origSub.trim().slice(0, 70), origDesign) }); setMsg("オリジナル投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
               style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
           ) : (
             <span className="muted" style={{ fontSize: 12 }}>本文を入力すると投稿できます</span>

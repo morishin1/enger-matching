@@ -1,8 +1,12 @@
 import Link from "@/components/AppLink";
 import { Icons } from "@/components/icons";
 import { FocusHeart } from "@/components/FocusHeart";
+import { SkillSheetDataButton } from "@/components/SkillSheetDataView";
+// 判定はサーバー安全な lib 側から呼ぶ（"use client" のモジュールの関数はサーバーから呼べない）。
+import { hasSkillSheetData } from "@/lib/skill-sheet-data";
 import { ProposalComposer } from "@/components/ProposalComposer";
 import { MatchChecklist } from "@/components/MatchChecklist";
+import { PanelErrorBoundary } from "@/components/PanelErrorBoundary";
 import { RankList } from "@/components/RankList";
 import { RankJobList } from "@/components/RankJobList";
 import { CopyLinkButton } from "@/components/CopyLinkButton";
@@ -359,11 +363,18 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
       //   SELECTに含めると未マイグレ環境で全体が落ちるため、CAND_BASE/JOB_BASE には含めず、
       //   呼出し側で「拡張SELECT → 失敗時は BASE」のフォールバックを掛ける（既存パターン踏襲）。
       const CAND_BASE = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, skills, salary_min, salary_max, remote_pref, status, exp, rate, is_focus, avail, location, residence, source_mail_url, note, created_at";
-      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
+      const CAND_RICH = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, skill_sheet_data, flow_depth, deleted_at`;
+      // 一覧（候補200件）用は skill_sheet_data（登録スキルシート全文の JSON）を含めない。
+      //   全文は選択中の1名しか使わないのに200件ぶん取ると応答が肥大化し、
+      //   案件→人材マッチングだけがタイムアウト／メモリ超過で 500 になる。
+      //   全文はランキング確定後（上位10名）にまとめて後付けする（attachSkillSheets）。
+      const CAND_LIST = `${CAND_BASE}, email, contact_email, skill_sheet_url, skill_sheet_summary, flow_depth, deleted_at`;
       const JOB_BASE = "id, job_no, title, role_label, skills, salary_min, salary_max, remote_type, client_name, flow_note, detail, is_focus, work_location, start_date, status, created_at";
       // 鮮度の最終確認日(last_confirmed_at)は移行後のみ存在。先頭で試し、無ければ created_at にフォールバック。
       // #436②：freelance_ng（フリーランスNG案件のFL系除外）も rich 側で取得（列未整備は BASE へフォールバック）。
-      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth, freelance_ng, deleted_at`;
+      // 0723②：age_limit（手入力の年齢制限）をマッチングの年齢ハードフィルターに使うため取得。
+      //   未整備環境では JOB_FRESH クエリがエラー→ JOB_BASE にフォールバックする（既存挙動）。
+      const JOB_FRESH = `${JOB_BASE}, last_confirmed_at, accept_flow_depth, freelance_ng, deleted_at, age_limit`;
 
       // 充足案件（filledJobIds）と送達不能アドレス（bouncedMap）は互いに独立なので並列取得する。
       //   以前は2クエリを直列 await していて遷移のたびに余分な往復が発生していた。
@@ -576,7 +587,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             if (safe) q = q.is("deleted_at", null).eq("is_closed", false);
             return q.order("candidate_no", { ascending: false }).limit(200);
           };
-          let cr: any = await buildC(CAND_RICH);
+          let cr: any = await buildC(CAND_LIST);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email, skill_sheet_url`);
           if (cr.error) cr = await buildC(`${CAND_BASE}, email, contact_email`);
           if (cr.error) cr = await buildC(CAND_BASE);
@@ -629,6 +640,22 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               const entry = single.length ? single[0] : ({ candidate: tgt, ...scoreMatch(job as Job, tgt) } as any);
               ranked = [entry, ...ranked.filter((r: any) => r.candidate.candidate_no !== reqCandNo2)];
             }
+          }
+          // 登録スキルシート（JSON全文）は表示に出す上位10名ぶんだけ後付けする。
+          //   一覧クエリ（200件）から外した分をここで補うので、画面の表示内容は従来どおり。
+          const sheetNos = ranked.map((r: any) => r?.candidate?.candidate_no).filter((n: any) => n != null);
+          if (sheetNos.length > 0) {
+            try {
+              const sr: any = await sb.from("candidates").select("candidate_no, skill_sheet_data").in("candidate_no", sheetNos);
+              if (!sr.error) {
+                const byNo = new Map<number, any>();
+                for (const row of (sr.data ?? []) as any[]) if (row?.skill_sheet_data) byNo.set(Number(row.candidate_no), row.skill_sheet_data);
+                for (const r of ranked) {
+                  const d = byNo.get(Number(r?.candidate?.candidate_no));
+                  if (d) r.candidate.skill_sheet_data = d;
+                }
+              }
+            } catch { /* skill_sheet_data 未整備でもスキルシート以外は表示する */ }
           }
         }
         // 元メールリンクを直近受信メールへ更新（同案件／同人材／同送信元の最新メールに飛ぶ）。
@@ -1031,6 +1058,29 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   }
 
   // ============ 案件 → 人材モードの描画 ============
+  // 画面の一部（カード）を作る処理を包んで、失敗してもそのカードだけをエラー表示に差し替える。
+  //   JSX の中の式（.map() や String() など）はページ関数の実行中に評価されるため、
+  //   クライアント側のエラーバウンダリ（PanelErrorBoundary）では捕まえられない。
+  //   ここで捕まえることで「画面が丸ごと落ちる」のを防ぎ、かつ原因の本文を画面に出す
+  //   （本番でも本文が消えないのがエラーIDとの違い。社内ロールにはスタックも出す）。
+  const safeBlock = (label: string, build: () => React.ReactNode): React.ReactNode => {
+    try {
+      return build();
+    } catch (e) {
+      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      const stack = scope.isInternal && e instanceof Error && e.stack
+        ? e.stack.split("\n").slice(1, 6).map((l) => l.trim()).join("\n")
+        : "";
+      console.error(`[matching] ${label} の描画に失敗:`, e);
+      return (
+        <div className="card" style={{ padding: 14, marginBottom: 12, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e" }}>
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>⚠ {label}を表示できませんでした</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.8 }}>この部分だけ表示を止めています。画面の他の部分はそのまま使えます。下の内容をそのまま管理者にお知らせください。</div>
+          <pre className="mono" style={{ marginTop: 8, fontSize: 11.5, whiteSpace: "pre-wrap", wordBreak: "break-all", background: "#fff", border: "1px solid #fde9b0", borderRadius: 8, padding: "8px 10px", margin: "8px 0 0" }}>{msg}{stack ? `\n${stack}` : ""}</pre>
+        </div>
+      );
+    }
+  };
   const selIdx = sp.cand ? ranked.findIndex((r) => String(r.candidate.candidate_no) === sp.cand) : 0;
   // #364：?cand= が明示指定されているのに見つからない場合は、別人材(ranked[0])へフォールバックしない。
   //   （フォールバックすると別人のスキルシートでメールが作られる事故になるため、sel は undefined にして
@@ -1039,7 +1089,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
   const jobAbbr = (job?.title ?? "").slice(0, 3);
   const linkFor = (cand?: number) => `/matching?tab=${tab}&job=${job?.job_no ?? ""}${cand != null ? `&cand=${cand}` : ""}`;
 
-  return (
+  // 最後の砦：ページ全体の組み立てもここで捕まえ、白画面ではなく原因の本文を出す。
+  const jobModeTree = safeBlock("マッチング結果画面", () => (
     <div className="page">
       {/* タブを最上段に置く（LINEと同じ配置。タブ移動時に段差が出ないようにする）。 */}
       <MatchingPeerTabs counts={peerCounts} rightSlot={<MatchingPeriodChips />} />
@@ -1103,7 +1154,7 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         if (showAutoTop) return null;
         return (
           <>
-            {selectedJobWarning(job)}
+            {safeBlock("案件の状態", () => selectedJobWarning(job))}
             {/* スキル未登録の案件はマッチング（スキル一致での人材ランキング）ができないため、0件の理由を明示する。 */}
             {job && !(job.skills?.length) && (
               <div className="card" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "12px 16px", marginBottom: 12, background: "#fff6e0", border: "1px solid #fde9b0", color: "#92400e", fontSize: 13 }}>
@@ -1114,13 +1165,20 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             )}
             {job && (
         <div className="match-side-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" }}>
-          {/* 左: ランキングリスト（AI再ランキング対応） */}
-          <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
-            jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
+          {/* 左: ランキングリスト（AI再ランキング対応）。
+              1件でも表示できないデータがあった時に画面全体が落ちないよう、カード単位で切り離す。 */}
+          {safeBlock("候補人材のランキング", () => (
+            <PanelErrorBoundary label="候補人材のランキング">
+              <RankList jobAbbr={jobAbbr} jobNo={job.job_no} tab={tab} selCandNo={sel?.candidate.candidate_no} ranked={ranked} proposedCandIds={proposedCandIds} lineCandIds={lineCandIds} flCandIds={flCandIds}
+                jobForAI={{ title: job.title, role_label: job.role_label, skills: job.skills, salary_min: job.salary_min, salary_max: job.salary_max, remote_type: job.remote_type, detail: job.detail }} />
+            </PanelErrorBoundary>
+          ))}
 
           {/* 右: 詳細パネル */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
             {/* 対象案件 サマリ（スコア集計は団子になり情報量が無いので撤去。代わりに案件情報を厚く） */}
+            {safeBlock("案件サマリ", () => (
+            <PanelErrorBoundary label="案件サマリ">
             <div className="card" style={{ background: "var(--color-brand-25)", borderColor: "var(--color-brand-200)", padding: "12px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                 <span className="mono" style={{ fontSize: 10.5, color: "var(--color-brand-700)", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase" }}>マッチング対象 案件</span>
@@ -1154,6 +1212,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
               {/* #260①：メール本文（detail）のプレビューは非表示（必須スキルの下に生の本文が出て見づらいため）。
                   本文は「元メールを開く」から確認できる。 */}
             </div>
+            </PanelErrorBoundary>
+            ))}
 
             {/* #364：?cand= 指定なのに該当人材が見つからない場合の明示メッセージ（別人材は出さない）。 */}
             {sp.cand && !sel && (
@@ -1165,11 +1225,12 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
             )}
 
             {/* 選択候補 詳細 */}
-            {sel && (() => {
+            {sel && safeBlock("候補人材の詳細（提案フォーム）", () => {
               const c = sel.candidate;
               const rank = ranked.findIndex((r) => r.candidate.candidate_no === c.candidate_no) + 1;
               const skillPct = job.skills?.length ? Math.round((sel.matchedSkills.length / job.skills.length) * 100) : 0;
               return (
+                <PanelErrorBoundary label="候補人材の詳細（提案フォーム）">
                 <div className="card flush">
                   <div style={{ padding: "14px 20px", background: "#fffbeb", borderBottom: "1px solid #fde9b0", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-ink)" }}>🏆 {rank}位（必須スキル {skillPct}%）</div>
@@ -1194,7 +1255,8 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                   </div>
                   <div style={{ padding: 20 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                      <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || c.name.slice(0, 2)}</div>
+                      {/* 氏名が空の人材（LINE取込などで名前未設定）でも画面全体を落とさない。 */}
+                      <div className="ava lg" style={{ background: "var(--color-brand-50)" }}>{c.initials || (c.name ?? "").slice(0, 2) || "—"}</div>
                       <div>
                         {/* #260②：人材IDの隣に登録元アイコン（LINE経由=LINEマーク／ENGERフリーランス=Eマーク）。 */}
                         <div style={{ fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -1218,6 +1280,15 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                       </div>
                       <div style={{ marginLeft: "auto" }}><FocusHeart table="candidates" idField="candidate_no" idValue={c.candidate_no} initial={!!c.is_focus} revalidate="/matching" size={18} row={c} /></div>
                     </div>
+
+                    {/* 0725：登録スキルシート（LP/cooの入力内容）とアップロード済みシートへの導線。
+                        提案判断に必要な職務経歴を、画面を離れずその場で確認できるようにする。 */}
+                    {(hasSkillSheetData((c as any).skill_sheet_data) || c.skill_sheet_url) && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                        {hasSkillSheetData((c as any).skill_sheet_data) && <SkillSheetDataButton data={(c as any).skill_sheet_data} candidateNo={c.candidate_no} label="登録スキルシート" />}
+                        {c.skill_sheet_url && <a href={c.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>}
+                      </div>
+                    )}
 
                     {/* 提案前チェック（確認ポイント）。決定論的 notes ＋ 任意でAIアドバイス。 */}
                     <MatchChecklist
@@ -1276,8 +1347,9 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
                     })()}
                   </div>
                 </div>
+                </PanelErrorBoundary>
               );
-            })()}
+            })}
           </div>
         </div>
       )}
@@ -1285,5 +1357,6 @@ export default async function MatchingPage({ searchParams }: { searchParams: Pro
         );
       })()}
     </div>
-  );
+  ));
+  return <>{jobModeTree}</>;
 }

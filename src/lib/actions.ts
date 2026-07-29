@@ -9,7 +9,7 @@ import { canSeeMargin } from "./engagement-access";
 import { partnerOwnerCompany } from "./tenant";
 import { normalizeSkills } from "./skills";
 import { analyzeSkillSheet, driveConfigured } from "./skill-sheet";
-import { gmailMessageUrl } from "./gmail";
+import { gmailMessageUrl, isReplyOrForwardSubject } from "./gmail";
 import { logActivity, logProposalActivity } from "./activity-logs";
 import {
   bustCounts, bustRankingCaches, notify, notifyMany, fetchJobForProposal, fetchCandidateForProposal,
@@ -18,6 +18,7 @@ import {
 import { callLLM, parseJsonLoose } from "./llm";
 import { logUsage } from "./ai-usage";
 import { LOST_REASONS, LOST_PHASES } from "./proposal-constants";
+import { toDedupeKey, matchedConditions, buildFillPlan, type DedupeKey, type FillPlanItem } from "./dedupe";
 
 export type CandidateInput = {
   code?: string | null;
@@ -54,15 +55,195 @@ export type CandidateInput = {
   signup_source?: string | null;   // 登録経路（"line" 等）。LINE登録チェックON時に "line"。
 };
 
-/** 人材CSVの取り込み (service role)。バッチで insert。 */
-export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null, opts?: { mergeByName?: boolean; overwrite?: boolean }) {
+
+/**
+ * バッチの氏名に一致する既存人材を「氏名(trim) → レコード配列」で返す（#487 重複判定用）。
+ * 6条件はすべて氏名一致が前提なので、これだけ読めば照合できる。行全体(*)を取るのは
+ * 補完プランの構築（buildFillPlan）とプレビューのカード表示に全項目が要るため。
+ */
+async function fetchCandidatesByNames(admin: ReturnType<typeof engerAdmin>, names: string[]): Promise<Map<string, any[]>> {
+  const uniq = Array.from(new Set(names.map((n) => n.trim()).filter(Boolean)));
+  const byName = new Map<string, any[]>();
+  const CHUNK = 200;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const { data, error } = await admin.from("candidates").select("*").in("name", uniq.slice(i, i + CHUNK));
+    if (error || !data) continue;
+    for (const r of data as any[]) {
+      const k = String(r.name ?? "").trim();
+      if (!k) continue;
+      const list = byName.get(k) ?? [];
+      list.push(r);
+      byName.set(k, list);
+    }
+  }
+  return byName;
+}
+
+/** 既存レコード → 判定キー。単価は salary_min/max → rate_num → rate テキストの順で読む */
+function existingDedupeKey(r: any): DedupeKey {
+  return toDedupeKey({
+    name: r.name,
+    company: r.company ?? r.source_company,
+    age_band: r.age_band,
+    rate_min: r.salary_min ?? null,
+    rate_max: r.salary_max ?? null,
+    rate_num: r.rate_num ?? null,
+    rate: r.rate,
+    location: r.location,
+    residence: r.residence,
+    contact_email: r.contact_email,
+    skill_sheet_url: r.skill_sheet_url,
+  });
+}
+
+/**
+ * 候補の既存レコード群から最良の一致を返す（成立条件が多い順 → 登録が古い順）。
+ * 1件も成立しなければ null（＝新規）。
+ */
+function bestDuplicateMatch(key: DedupeKey, candidates: any[]): { existing: any; conditions: number[] } | null {
+  let best: { existing: any; conditions: number[] } | null = null;
+  for (const ex of candidates) {
+    const conditions = matchedConditions(key, existingDedupeKey(ex));
+    if (conditions.length === 0) continue;
+    if (!best
+      || conditions.length > best.conditions.length
+      || (conditions.length === best.conditions.length && String(ex.created_at ?? "") < String(best.existing.created_at ?? ""))) {
+      best = { existing: ex, conditions };
+    }
+  }
+  return best;
+}
+
+/** プレビューに返す既存レコードの表示項目（6.2 のカード8項目＋リンク用ID） */
+type DuplicateExisting = {
+  id: string;
+  candidate_no: number | null;
+  name: string | null;
+  company: string | null;
+  age_band: string | null;
+  location: string | null;
+  residence: string | null;
+  rate: string | null;
+  contact_email: string | null;
+  skill_sheet_url: string | null;
+};
+
+export type DuplicatePreviewItem = {
+  /** 呼び出し側が渡した rows の添字 */
+  index: number;
+  /** 既存レコードとの一致（最良の1件）。バッチ内重複のときは null */
+  existing: DuplicateExisting | null;
+  /** 成立した条件番号（複数成立はすべて） */
+  conditions: number[];
+  /** バッチ内の先行行と一致した場合、その行の添字 */
+  batchDupOf: number | null;
+  /** メインボタン（fill）で補完される項目（既存一致のときのみ） */
+  fill: FillPlanItem[];
+};
+
+/**
+ * 取込プレビュー用の重複検出（#487）。取込前に「どの行が・どの既存と・どの条件で」
+ * 一致するかを返す。判定は importCandidates と同じ関数（dedupe.ts）を使う。
+ */
+export async function findCandidateDuplicates(records: CandidateInput[]): Promise<
+  { ok: true; items: DuplicatePreviewItem[] } | { ok: false; error: string }
+> {
+  let admin: ReturnType<typeof engerAdmin>;
+  try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
+
+
+  const keys = records.map((r) => toDedupeKey({
+    name: r.name,
+    company: r.company,
+    age_band: r.age_band,
+    rate_min: (r as any)._rate_min ?? null,
+    rate_max: (r as any)._rate_max ?? null,
+    rate_num: r.rate_num ?? null,
+    rate: r.rate,
+    location: r.location,
+    residence: (r as any).residence ?? null,
+    contact_email: r.contact_email,
+    skill_sheet_url: r.skill_sheet_url,
+  }));
+
+  let existingByName: Map<string, any[]>;
+  try {
+    existingByName = await fetchCandidatesByNames(admin, records.map((r) => r.name ?? ""));
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "既存データの取得に失敗しました" };
+  }
+
+  const items: DuplicatePreviewItem[] = [];
+  const accepted: { index: number; key: DedupeKey }[] = [];
+  records.forEach((r, index) => {
+    const key = keys[index];
+    const match = bestDuplicateMatch(key, existingByName.get(key.name ?? "") ?? []);
+    if (match) {
+      const ex = match.existing;
+      // 補完プランは取込時と同じ入力（DB行の形）で作る。ここで使う row 相当は
+      // records の trim 済み値なので、簡易に同名フィールドへ写像する
+      const incoming: Record<string, any> = {
+        title: r.title, company: r.company, source_company: r.company, affiliation: r.affiliation,
+        rate: r.rate, rate_num: r.rate_num, avail: r.avail, location: r.location,
+        residence: (r as any).residence, exp: r.exp, remote_pref: r.remote_pref, age_band: r.age_band,
+        nationality: r.nationality, skill_level: r.skill_level, japanese_level: r.japanese_level,
+        comm: r.comm, note: r.note, detail_note: (r as any).detail_note,
+        skill_sheet_url: r.skill_sheet_url, email: r.email, contact_email: r.contact_email,
+        source_mail_url: r.source_mail_url, source_mail_at: r.source_mail_at,
+        skills: normalizeSkills(r.skills ?? []),
+      };
+      items.push({
+        index,
+        existing: {
+          id: ex.id, candidate_no: ex.candidate_no ?? null, name: ex.name ?? null,
+          company: ex.company ?? ex.source_company ?? null, age_band: ex.age_band ?? null,
+          location: ex.location ?? null, residence: ex.residence ?? null, rate: ex.rate ?? (ex.rate_num != null ? `${ex.rate_num}万` : null),
+          contact_email: ex.contact_email ?? null, skill_sheet_url: ex.skill_sheet_url ?? null,
+        },
+        conditions: match.conditions,
+        batchDupOf: null,
+        fill: buildFillPlan(ex, incoming),
+      });
+      return;
+    }
+    const prior = accepted.find((a) => matchedConditions(key, a.key).length > 0);
+    if (prior) {
+      items.push({ index, existing: null, conditions: matchedConditions(key, prior.key), batchDupOf: prior.index, fill: [] });
+      return;
+    }
+    accepted.push({ index, key });
+  });
+
+  return { ok: true, items };
+}
+
+/**
+ * 人材CSVの取り込み (service role)。
+ *
+ * ## 重複判定（管理NO #487）
+ * 旧実装の「同姓同名は既存と統合」（氏名のみ一致）と「氏名×会社×元メールURL の一致で
+ * 黙ってスキップ」は、**別人の人材を登録せずに消していた**ため廃止した。
+ * 現在は `src/lib/dedupe.ts` の6条件（氏名＋会社/連絡先ドメイン/年代/単価/最寄駅/居住地/
+ * スキルシートの組み合わせ）で判定する。プレビュー（findCandidateDuplicates）と
+ * ここで**同じ関数**を使うため、画面に出した判定と実際の取込がズレない。
+ *
+ * ## dedupe モード
+ * - "fill"（既定）… 新規は登録。登録済みは**空欄と「不明」の項目だけ**CSVで補完。
+ *                    入力済みの値は変更しない（上書き更新は廃止。低精度データで
+ *                    良いレコードを壊すリスクの方が大きい）
+ * - "keep"        … 新規のみ登録。既存レコードには補完もしない
+ * - "force"       … 判定せず全件登録（同じ人材が二重登録される。通常は使わない）
+ */
+export async function importCandidates(records: CandidateInput[], sourceLabel: string, operator?: string | null, opts?: { dedupe?: "fill" | "keep" | "force" }) {
+  const mode = opts?.dedupe ?? "fill";
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です（Vercel env を設定してください）" }; }
   const now = new Date().toISOString();
 
-  const rows = records
+  const prepared = records
     .filter((r) => r.name?.trim())
     .map((r) => ({
+      row: {
       code: r.code?.trim() || null,
       name: r.name.trim(),
       initials: initialsOf(r.name),
@@ -92,103 +273,83 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
       email: r.email?.trim() || null,
       contact_email: r.contact_email?.trim() || null,
       source_mail_url: r.source_mail_url?.trim() || null,
+      source_mail_at: r.source_mail_at?.trim() || null,  // #487：受信日時（人材の鮮度判断用）
       operator: operator?.trim() || null,
       score: 0,
       source_csv: sourceLabel,
       imported_at: now,
+      },
+      // 判定キー：単価は CSV の下限/上限（_rate_min/_rate_max）も見る
+      key: toDedupeKey({
+        name: r.name,
+        company: r.company,
+        age_band: r.age_band,
+        rate_min: (r as any)._rate_min ?? null,
+        rate_max: (r as any)._rate_max ?? null,
+        rate_num: r.rate_num ?? null,
+        rate: r.rate,
+        location: r.location,
+        residence: (r as any).residence ?? null,
+        contact_email: r.contact_email,
+        skill_sheet_url: r.skill_sheet_url,
+      }),
     }));
 
-  if (rows.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（氏名必須）" };
+  if (prepared.length === 0) return { ok: false, inserted: 0, error: "有効な行がありません（氏名必須）" };
 
-  // 重複排除（氏名×会社×メールID）。会社が空でも元メールが違えば別人として取り込む
-  // （同姓同名で会社空欄の別人を取りこぼさない）。バッチ内＋既存DBと突合し、新規のみ取り込む。
-  const dkey = (name?: string | null, company?: string | null, mail?: string | null) =>
-    normKey(name) + "|" + normKey(company) + "|" + String(mail ?? "").trim();
-  const existing = new Set<string>();
-  // mergeByName 用：氏名(正規化) → 既存レコード(複数あれば最古を採用)
-  const byName = new Map<string, any>();
-  try {
-    // ① 既存重複の判定はキー列のみで全件ロード（軽量）
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await admin.from("candidates").select("name, company, source_company, source_mail_url").range(from, from + 999);
-      if (error || !data) break;
-      for (const r of data as any[]) existing.add(dkey(r.name, r.company || r.source_company, r.source_mail_url));
-      if (data.length < 1000) break;
-    }
-    // ② mergeByName のときだけ、このバッチの名前に絞って既存レコードを取得（チャンク毎の全件再取得を回避）
-    if (opts?.mergeByName) {
-      const batchNames = Array.from(new Set(rows.map((r) => r.name).filter(Boolean) as string[]));
-      const CHUNK = 500;
-      for (let i = 0; i < batchNames.length; i += CHUNK) {
-        const slice = batchNames.slice(i, i + CHUNK);
-        // 行全体(*)を取得して未指定列の上書きを防ぐ（後段の upsert で id 衝突時に欠落列が null 化されないように）
-        const { data, error } = await admin.from("candidates").select("*").in("name", slice);
-        if (error || !data) continue;
-        for (const r of data as any[]) {
-          const k = normKey(r.name);
-          if (k && !byName.has(k)) byName.set(k, r); // 同姓同名は最初に拾った1件を統合先に
-        }
-      }
-    }
-  } catch { /* 取得失敗時は突合スキップ（最悪でも従来どおり） */ }
-
-  // 同姓同名統合：既存に氏名一致がある行は、空欄補完で既存を更新（一括 upsert）
-  let mergedCount = 0;
-  if (opts?.mergeByName) {
-    const stillFresh: typeof rows = [];
-    // 既存行ベースに「空欄のみ補完」したマージ済みレコードを構築
-    const mergedRows: any[] = [];
-    const FILL = ["title", "company", "source_company", "affiliation", "rate", "rate_num", "avail", "location", "residence", "exp", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator"];
-    for (const r of rows) {
-      const nk = normKey(r.name);
-      const ex = nk ? byName.get(nk) : null;
-      if (!ex || !ex.id) { stillFresh.push(r); continue; }
-      const merged: Record<string, any> = { ...ex, imported_at: now };
-      for (const f of FILL) {
-        const cur = (ex as any)[f];
-        const nv = (r as any)[f];
-        // overwrite=true：CSVに値があれば既存を上書き（正しい情報で更新）。
-        // overwrite=false：既存が空のときだけ補完。
-        if (nv != null && nv !== "" && (opts?.overwrite || cur == null || cur === "")) merged[f] = nv;
-      }
-      const curSkills: string[] = Array.isArray(ex.skills) ? ex.skills : [];
-      const newSkills: string[] = Array.isArray(r.skills) ? r.skills : [];
-      if (opts?.overwrite && newSkills.length > 0) {
-        // 上書き：CSVのスキルを正とする（既存分も足して取りこぼし防止のため和集合）。
-        merged.skills = Array.from(new Set([...newSkills, ...curSkills]));
-      } else {
-        const union = Array.from(new Set([...curSkills, ...newSkills]));
-        if (union.length !== curSkills.length) merged.skills = union;
-      }
-      mergedRows.push(merged);
-    }
-    // ★ 一括 upsert（id 衝突＝既存ID指定の UPDATE）に変更し、N回の往復を1〜数回に圧縮
-    if (mergedRows.length > 0) {
-      const UB = 500;
-      for (let i = 0; i < mergedRows.length; i += UB) {
-        const slice = mergedRows.slice(i, i + UB);
-        let { error, count } = await admin.from("candidates").upsert(slice, { onConflict: "id", count: "exact" });
-        if (error && /column/i.test(error.message)) {
-          // 未整備列がある環境はその列を外して再試行
-          const stripped = slice.map((b) => { const o: any = { ...b }; for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "skill_sheet_url", "email", "contact_email", "source_mail_url", "operator", "source_company"]) delete o[k]; return o; });
-          ({ error, count } = await admin.from("candidates").upsert(stripped, { onConflict: "id", count: "exact" }));
-        }
-        if (!error) mergedCount += count ?? slice.length;
-      }
-    }
-    // 統合対象だった行は新規INSERTのループから除外
-    if (stillFresh.length !== rows.length) (rows as any).length = 0;
-    for (const r of stillFresh) (rows as any).push(r);
+  // 既存レコードとの照合（force では行わない）。すべての条件が氏名一致を前提とするため、
+  // このバッチの氏名に一致する既存レコードだけを読めばよい。
+  let existingByName = new Map<string, any[]>();
+  if (mode !== "force") {
+    try {
+      existingByName = await fetchCandidatesByNames(admin, prepared.map((p) => p.row.name));
+    } catch { /* 読めない場合は照合なし（全件新規扱い＝重複を許す側に倒す） */ }
   }
 
-  const seen = new Set<string>();
-  const fresh = rows.filter((r) => {
-    const k = dkey(r.name, r.company, r.source_mail_url);
-    if (existing.has(k) || seen.has(k)) return false;
-    seen.add(k); return true;
-  });
-  const skipped = rows.length - fresh.length;
-  if (fresh.length === 0) { revalidatePath("/people"); bustCounts(); return { ok: true, inserted: 0, skipped }; }
+  const fresh: any[] = [];
+  const fills: { id: string; patch: Record<string, any> }[] = [];
+  const acceptedKeys: ReturnType<typeof toDedupeKey>[] = [];
+  let skipped = 0;
+
+  for (const p of prepared) {
+    if (mode === "force") { fresh.push(p.row); continue; }
+
+    const match = bestDuplicateMatch(p.key, existingByName.get(p.key.name ?? "") ?? []);
+    if (match) {
+      skipped += 1;
+      if (mode === "fill") {
+        // 空欄と「不明」の項目だけ補完（入力済みの値は変更しない）。プレビューと同じ buildFillPlan を使う
+        const plan = buildFillPlan(match.existing, p.row);
+        if (plan.length > 0) {
+          const patch: Record<string, any> = { imported_at: now };
+          for (const item of plan) patch[item.key] = (p.row as any)[item.key];
+          fills.push({ id: match.existing.id, patch });
+        }
+      }
+      continue;
+    }
+
+    // バッチ内の重複（同じCSVに同一人材が2行ある場合）。先に受理した行と6条件で照合する
+    if (acceptedKeys.some((k) => matchedConditions(p.key, k).length > 0)) { skipped += 1; continue; }
+
+    acceptedKeys.push(p.key);
+    fresh.push(p.row);
+  }
+
+  // 補完の適用（対象は既存ID固定・許可した列のみ。件数は少ないので1件ずつでよい）
+  let mergedCount = 0;
+  for (const f of fills) {
+    let { error } = await admin.from("candidates").update(f.patch).eq("id", f.id);
+    if (error && /column/i.test(error.message)) {
+      // 未整備列がある環境はその列を外して再試行
+      const stripped: Record<string, any> = { ...f.patch };
+      for (const k of ["remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "skill_sheet_url", "email", "contact_email", "source_mail_url", "source_mail_at", "operator", "source_company"]) delete stripped[k];
+      ({ error } = await admin.from("candidates").update(stripped).eq("id", f.id));
+    }
+    if (!error) mergedCount += 1;
+  }
+
+  if (fresh.length === 0) { revalidatePath("/people"); bustCounts(); return { ok: true, inserted: 0, skipped, merged: mergedCount }; }
 
   let inserted = 0;
   const BATCH = 500;
@@ -196,8 +357,8 @@ export async function importCandidates(records: CandidateInput[], sourceLabel: s
     const batch = fresh.slice(i, i + BATCH);
     let { error, count } = await admin.from("candidates").insert(batch, { count: "exact" });
     // 追加列（skill_sheet_url/email/remote_pref/age_band/operator 等）が未整備でも落ちないよう、その列を外して再試行
-    if (error && /skill_sheet_url|email|source_mail_url|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|detail_note|residence|operator|column/i.test(error.message)) {
-      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "operator"]) delete o[k]; return o; });
+    if (error && /skill_sheet_url|email|source_mail_url|source_mail_at|source_company|remote_pref|age_band|nationality|skill_level|japanese_level|comm|note|detail_note|residence|operator|column/i.test(error.message)) {
+      const stripped = batch.map((b) => { const o: any = { ...b }; for (const k of ["skill_sheet_url", "email", "contact_email", "source_mail_url", "source_mail_at", "source_company", "remote_pref", "age_band", "nationality", "skill_level", "japanese_level", "comm", "note", "detail_note", "residence", "operator"]) delete o[k]; return o; });
       ({ error, count } = await admin.from("candidates").insert(stripped, { count: "exact" }));
     }
     if (error) return { ok: false, inserted, error: error.message };
@@ -1781,6 +1942,8 @@ export type CompanyInput = {
   contact_pref?: string; response_speed?: string; decision_speed?: string;
   // 取引注意（既存の caution 列を企業モーダルから編集可能に。true のときは理由必須）
   caution?: boolean; caution_reason?: string;
+  // #491：受託開発・エンド企業フラグ（企業管理のフィルタ／案件一覧のマークに使用）
+  is_end_client?: boolean;
 };
 
 /** 企業を新規登録/更新 (name で upsert)。 */
@@ -1793,6 +1956,19 @@ export async function saveCompany(input: CompanyInput) {
   for (const k of ["industry", "tier", "status", "owner_staff", "contact_name", "contact_email", "phone", "website", "address", "note", "contact_pref", "response_speed", "decision_speed"] as const) {
     const v = (input as any)[k];
     if (v !== undefined) row[k] = typeof v === "string" ? (v.trim() || null) : v;
+  }
+  // #491：受託開発・エンド。誰がいつ付けたかを残す（caution / ng と同じ方針）。
+  //   ・OFF に戻したときは日時・設定者を消す（「立っていた形跡」を残すと誤解のもとになる）
+  if (typeof input.is_end_client === "boolean") {
+    row.is_end_client = input.is_end_client;
+    if (input.is_end_client) {
+      const access = await currentAccess();
+      row.end_client_at = new Date().toISOString();
+      row.end_client_by = access?.name ?? access?.email ?? null;
+    } else {
+      row.end_client_at = null;
+      row.end_client_by = null;
+    }
   }
   // 取引注意：ON にするなら理由必須（属人的な「合わない/電話つながらない」を根拠つきで全員に共有する）。
   if (typeof input.caution === "boolean") {
@@ -1811,9 +1987,21 @@ export async function saveCompany(input: CompanyInput) {
   // 未整備の列を段階的に外して再試行（fail-soft）。まず新規の対応特性タグだけ外し、
   //   既存の取引注意(caution)列はできる限り残す（caution は close-reason-caution.sql で既出＝本番に存在するため、
   //   タグ列が無いだけで caution フラグの保存が落ちないようにする）。
-  if (error && /contact_pref|response_speed|decision_speed|caution|column/i.test(error.message)) {
+  if (error && /contact_pref|response_speed|decision_speed|caution|is_end_client|end_client|column/i.test(error.message)) {
     let attempt = dropKeys(row, ["contact_pref", "response_speed", "decision_speed"]);
     ({ error } = await admin.from("companies").upsert(attempt, { onConflict: "name" }));
+    // #491：受託開発・エンド列が未整備（companies-end-client.sql 未実行）なら外して再試行。
+    //   ここで黙って外すと「チェックしたのに保存されない」事故になるので、戻り値で警告する。
+    let endClientDropped = false;
+    if (error && /is_end_client|end_client|column/i.test(error.message)) {
+      attempt = dropKeys(attempt, ["is_end_client", "end_client_at", "end_client_by"]);
+      endClientDropped = true;
+      ({ error } = await admin.from("companies").upsert(attempt, { onConflict: "name" }));
+    }
+    if (!error && endClientDropped) {
+      revalidatePath("/companies");
+      return { ok: true, warn: "「受託開発・エンド」は列が未整備のため保存できませんでした（supabase/companies-end-client.sql を実行してください）。他の項目は保存済みです" };
+    }
     // それでも caution 列が無い（ごく古い環境）なら caution 系も外して基本列のみで保存。
     if (error && /caution|column/i.test(error.message)) {
       attempt = dropKeys(attempt, ["caution", "caution_reason", "caution_at", "caution_by"]);
@@ -3355,7 +3543,7 @@ async function persistInboxAttachments(messageId: string, atts: Array<{ filename
   return out;
 }
 
-export async function syncInboxFromGmail(opts?: { query?: string; max?: number; fetchCap?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; found?: number; remaining?: number; account?: string | null; error?: string }> {
+export async function syncInboxFromGmail(opts?: { query?: string; max?: number; fetchCap?: number }): Promise<{ ok: boolean; synced?: number; skipped?: number; skippedReply?: number; found?: number; remaining?: number; account?: string | null; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const { gmailConfigured, listMessageIds, fetchMessage, getGmailProfile } = await import("./gmail-api");
@@ -3388,6 +3576,7 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
 
   let synced = 0;
   let skippedBounce = 0;
+  let skippedReply = 0;
   // 同時8本で取得（最大500件の初回取込を短縮。Gmail API は概ね 250 quota/秒・messages.get=5units なので余裕）。
   //   ※ 取込は1通ずつ insert するため、途中でタイムアウトしても取得済み分は保存され、次回同期で残りを取得（重複排除あり）。
   const POOL = 8; let idx = 0;
@@ -3406,6 +3595,11 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
           messageId: m.id, receivedAt: m.receivedAt,
         });
       }
+      return;
+    }
+    // m_fujimoto バグ報告：返信文・転送メール（件名が Re:/Fwd:/Fw: 始まり。"Re: Re: …" の繰り返しも含む）は取り込まない。
+    if (isReplyOrForwardSubject(m.subject)) {
+      skippedReply++;
       return;
     }
     // #292：添付（スキルシート等）を、取込画面に表示される前（＝insert する前）に Storage へ保存し、
@@ -3463,7 +3657,7 @@ export async function syncInboxFromGmail(opts?: { query?: string; max?: number; 
   } catch { /* is_archived / bounce_records 未整備でも続行 */ }
 
   revalidatePath("/inbox"); revalidatePath("/mail");
-  return { ok: true, synced, skipped: seen.size + skippedBounce, found: list.ids.length, remaining, account };
+  return { ok: true, synced, skipped: seen.size + skippedBounce + skippedReply, skippedReply, found: list.ids.length, remaining, account };
 }
 
 // 受信メールを期間指定でエクスポート（ローカル整形用のダウンロード）。
@@ -3500,7 +3694,7 @@ function inboxRangeIso(v: string | undefined, side: "from" | "to"): string | nul
   return null;
 }
 
-export async function exportInboxEmails(opts: { from?: string; to?: string; includeArchived?: boolean }): Promise<{ ok: boolean; rows?: InboxExportRow[]; count?: number; capped?: boolean; error?: string }> {
+export async function exportInboxEmails(opts: { from?: string; to?: string; includeArchived?: boolean; excludeReplyForward?: boolean }): Promise<{ ok: boolean; rows?: InboxExportRow[]; count?: number; capped?: boolean; excludedReplyForward?: number; error?: string }> {
   let admin: ReturnType<typeof engerAdmin>;
   try { admin = engerAdmin(); } catch { return { ok: false, error: "サーバ設定エラー：SUPABASE_SERVICE_ROLE_KEY が未設定です" }; }
   const fromIso = inboxRangeIso(opts.from, "from");
@@ -3521,6 +3715,13 @@ export async function exportInboxEmails(opts: { from?: string; to?: string; incl
     const batch: InboxExportRow[] = r.data ?? [];
     rows.push(...batch);
     if (batch.length < INBOX_EXPORT_BATCH) break; // 期間内を取り切った
+  }
+  // m_fujimoto バグ報告のフォールバック：既に取り込み済みの返信文・転送メール（件名 Re:/Fwd:/Fw: 始まり）を
+  //   ダウンロードデータから除外する。取り込み段階で除去できない既存データ向けの設定。
+  if (opts.excludeReplyForward) {
+    const before = rows.length;
+    const kept = rows.filter((r) => !isReplyOrForwardSubject(r.subject));
+    return { ok: true, rows: kept, count: kept.length, capped: before >= INBOX_EXPORT_MAX, excludedReplyForward: before - kept.length };
   }
   return { ok: true, rows, count: rows.length, capped: rows.length >= INBOX_EXPORT_MAX };
 }

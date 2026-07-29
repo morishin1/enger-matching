@@ -12,11 +12,11 @@ const rateLabel = (lo?: number | null, hi?: number | null) => (lo && hi ? (lo ==
 // PrComposer のテンプレID → 表示名（pr_posts.kind と一致させる。src/components/PrComposer.tsx 参照）。
 const KIND_LABEL: Record<string, string> = { count: "登録数アピール", jobs: "今週の新着案件", value: "市場価値診断", job: "案件カード", custom: "オリジナル投稿", card: "カード投稿（画像）" };
 
-type PrPost = { operator: string | null; kind: string | null; created_at: string };
+type PrPost = { operator: string | null; kind: string | null; created_at: string; text?: string | null; url?: string | null };
 
 export default async function PrPage({ searchParams }: { searchParams: Promise<{ tab?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
-  const tab = sp.tab === "history" ? "history" : sp.tab === "inflow" ? "inflow" : "compose";
+  const tab = sp.tab === "history" ? "history" : sp.tab === "inflow" ? "inflow" : sp.tab === "log" ? "log" : "compose";
 
   let engTotal = 0, jobsPub = 0;
   let sample: { skills: string[]; rate: string; remote: string; role: string }[] = [];
@@ -88,8 +88,11 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
         }
         inflow = { registered: ids.length, met: metSet.size, closed: closedSet.size };
       } else {
+        // history（集計）と log（履歴一覧）で共用。text/url 列がある環境では本文・リンクも取得し、
+        // 無い環境では operator/kind/created_at のみにフォールバック（後方互換）。
         const sb = engerClient();
-        const r = await sb.from("pr_posts").select("operator, kind, created_at").order("created_at", { ascending: false }).limit(2000);
+        let r: any = await sb.from("pr_posts").select("operator, kind, created_at, text, url").order("created_at", { ascending: false }).limit(2000);
+        if (r.error) r = await sb.from("pr_posts").select("operator, kind, created_at").order("created_at", { ascending: false }).limit(2000);
         posts = (r.data ?? []) as PrPost[];
       }
     } catch { /* noop */ }
@@ -112,6 +115,7 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
           { key: "compose", label: "テンプレ作成", icon: "edit_note", href: "/pr" },
           { key: "inflow", label: "X流入", icon: "trending_up", href: "/pr?tab=inflow" },
           { key: "history", label: "投稿実績", icon: "insights", href: "/pr?tab=history" },
+          { key: "log", label: "履歴", icon: "history", href: "/pr?tab=log" },
         ]}
         rightSlot={tab !== "compose" ? <SimpleRangeYearMonthBar basePath="/pr" /> : undefined}
       />
@@ -120,7 +124,9 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
         ? <PrComposer engTotal={engTotal} jobsPub={jobsPub} sample={sample} jobs={jobsList} />
         : tab === "inflow"
           ? <XInflowView inflow={inflow} />
-          : <PrHistoryView posts={postsInPeriod} />}
+          : tab === "log"
+            ? <PrPostLogView posts={postsInPeriod} />
+            : <PrHistoryView posts={postsInPeriod} />}
     </div>
   );
 }
@@ -164,6 +170,42 @@ function PrHistoryView({ posts }: { posts: PrPost[] }) {
           </table>
         </>
       )}
+    </div>
+  );
+}
+
+/** 投稿履歴（選択期間）：pr_posts を新しい順に一覧表示。日時・担当・種別・本文・リンクを表示する。
+ *  本文/リンクは text/url 列がある環境の新しい投稿のみ表示（旧データは日時・担当・種別のみ）。 */
+function PrPostLogView({ posts }: { posts: PrPost[] }) {
+  if (posts.length === 0) {
+    return (
+      <div className="card muted" style={{ fontSize: 12.5, padding: 16 }}>
+        この期間の投稿履歴はありません。「テンプレ作成」タブから X に投稿すると、ここに履歴が残ります。
+      </div>
+    );
+  }
+  return (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--color-border)", fontSize: 13, fontWeight: 800 }}>
+        投稿履歴（{posts.length}件）
+      </div>
+      <div>
+        {posts.map((p, i) => (
+          <div key={i} style={{ display: "flex", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--color-border)", alignItems: "flex-start" }}>
+            <div style={{ flex: "0 0 auto", width: 118, fontSize: 11, color: "var(--color-ink-4)", lineHeight: 1.5 }}>
+              {new Date(p.created_at).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: p.text ? 5 : 0 }}>
+                <span className="tag" style={{ fontSize: 10.5, padding: "1px 8px" }}>{KIND_LABEL[p.kind ?? ""] ?? p.kind ?? "投稿"}</span>
+                <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{p.operator || "不明"}</span>
+                {p.url && <a href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--color-brand-700,#0b5cab)", textDecoration: "none" }}>リンク ↗</a>}
+              </div>
+              {p.text && <div style={{ fontSize: 12.5, color: "var(--color-ink-2)", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.text}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

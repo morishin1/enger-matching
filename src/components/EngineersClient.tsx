@@ -173,23 +173,43 @@ const sheetIcon = (s: SkillSheet): string => {
   if (ext === "xls" || ext === "xlsx" || ext === "csv") return "table_view";
   return "description";
 };
+// スキルシートを「開く（表示）」ではなく「ダウンロード」させるURL。
+//   公開バケット(skillsheets)は別オリジンのため <a download> 属性は無視される。
+//   Supabase Storage の ?download=<名前> を付けると Content-Disposition: attachment が付き、
+//   ブラウザが確実にダウンロード保存する（表示リンクは従来どおり s.url をそのまま使う）。
+const sheetDownloadUrl = (s: SkillSheet): string => {
+  const base = s.url || "";
+  if (!base) return base;
+  const name = (s.name || "skillsheet").replace(/[\r\n]/g, "");
+  return base + (base.includes("?") ? "&" : "?") + "download=" + encodeURIComponent(name);
+};
 
 /** フリーランス一覧「スキルシート」列：アップロード件数ぶんファイルマークを点灯（最大3）。
- *  各マークをクリックで該当ファイルを新規タブで開く（即閲覧）。ホバーでファイル名を表示。 */
+ *  各ファイルは「表示（新規タブで開く）」＋「ダウンロード（保存）」の2ボタンで操作できる。
+ *  ホバーでファイル名を表示。行クリック（詳細ドロワー）は stopPropagation で誤爆させない。 */
 function SkillSheetMarks({ sheets }: { sheets: SkillSheet[] | null | undefined }) {
   const list = (Array.isArray(sheets) ? sheets : []).filter((s) => s && s.url).slice(0, 3);
   if (list.length === 0) return <span className="muted" title="未提出" style={{ fontSize: 12 }}>—</span>;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       {list.map((s, i) => (
-        <a key={i} href={s.url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()}
-          title={s.name || `スキルシート${i + 1}`}
-          className="material-symbols-outlined"
-          style={{ fontSize: 18, lineHeight: 1, color: sheetColor(s), textDecoration: "none" }}>
-          {sheetIcon(s)}
-        </a>
+        <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+          {/* 表示：新規タブで開く（即閲覧） */}
+          <a href={s.url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()}
+            title={`${s.name || `スキルシート${i + 1}`} を表示`}
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, lineHeight: 1, color: sheetColor(s), textDecoration: "none" }}>
+            {sheetIcon(s)}
+          </a>
+          {/* ダウンロード：Content-Disposition で保存 */}
+          <a href={sheetDownloadUrl(s)} download={s.name || `スキルシート${i + 1}`} onClick={(ev) => ev.stopPropagation()}
+            title={`${s.name || `スキルシート${i + 1}`} をダウンロード`}
+            className="material-symbols-outlined"
+            style={{ fontSize: 15, lineHeight: 1, color: "var(--color-ink-4)", textDecoration: "none" }}>
+            download
+          </a>
+        </span>
       ))}
-      <span className="muted" style={{ fontSize: 10, marginLeft: 2 }}>{list.length}/3</span>
     </span>
   );
 }
@@ -944,13 +964,19 @@ function DetailModal({ engineer: detail, log, scoutLog, appLog, profile, candida
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>link</span>ポートフォリオ
               </a>
             )}
-            {/* スキルシートは複数（最大3件）。各ファイルを個別リンクで開ける。 */}
+            {/* スキルシートは複数（最大3件）。各ファイルを「表示」＋「ダウンロード」で操作できる。 */}
             {(detail.skill_sheets ?? []).map((s, i) => (
-              <a key={i} href={s.url} target="_blank" rel="noreferrer" title={s.name || `スキルシート${i + 1}`}
-                style={{ display: "inline-flex", alignItems: "center", gap: 4, color: sheetColor(s), fontWeight: 600 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{sheetIcon(s)}</span>
-                {s.name || `スキルシート${i + 1}`}
-              </a>
+              <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <a href={s.url} target="_blank" rel="noreferrer" title={`${s.name || `スキルシート${i + 1}`} を表示`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, color: sheetColor(s), fontWeight: 600 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{sheetIcon(s)}</span>
+                  {s.name || `スキルシート${i + 1}`}
+                </a>
+                <a href={sheetDownloadUrl(s)} download={s.name || `スキルシート${i + 1}`} title="ダウンロード"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--color-ink-3)", fontWeight: 600, border: "1px solid var(--color-border)", borderRadius: 6, padding: "2px 7px" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>DL
+                </a>
+              </span>
             ))}
             {detail.qiita_id && (
               <a href={`https://qiita.com/${detail.qiita_id}`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-brand-700,#0b5cab)", fontWeight: 600 }}>

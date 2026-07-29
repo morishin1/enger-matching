@@ -19,6 +19,8 @@ import { ClosedBadge } from "./ClosedBadge";
 import { CompanyLink } from "./CompanyLink";
 import { isEngerFreelance, isCooTalent } from "@/lib/candidate-source";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
+import { SkillSheetDataButton } from "./SkillSheetDataView";
+import { hasSkillSheetData } from "@/lib/skill-sheet-data";
 import { classifyCandNationality, CAND_NAT_LABEL, CAND_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
@@ -496,6 +498,8 @@ export function PeopleTable({
                         {/* 元メールURLがあるときだけメールボタンを出す（要望：URL無→非表示。検索/composeフォールバックは廃止）。 */}
                         {r.source_mail_url && <MailButton url={r.source_mail_url} />}
                         {r.skill_sheet_url && <a href={r.skill_sheet_url} target="_blank" rel="noopener noreferrer" className="btn btn-xs" title="スキルシートを開く" aria-label="スキルシート" style={{ textDecoration: "none", background: "#0095D9", borderColor: "#0095D9", color: "#fff" }}><span className="material-symbols-outlined" style={{ fontSize: 18, lineHeight: 1 }}>description</span></a>}
+                        {/* 0725：LP/coo登録の構造化スキルシート（入力内容）をその場で閲覧 */}
+                        {hasSkillSheetData((r as any).skill_sheet_data) && <SkillSheetDataButton data={(r as any).skill_sheet_data} candidateNo={r.candidate_no} compact />}
                       </div>
                     </td>
                     <td>
@@ -569,6 +573,8 @@ export function PeopleTable({
               {detail.skill_sheet_url && (
                 <a href={detail.skill_sheet_url} target="_blank" rel="noreferrer" className="btn ghost" style={{ textDecoration: "none" }}>スキルシートを開く</a>
               )}
+              {/* 0725：LP/coo登録の構造化スキルシート（職務経歴の入力内容）をモーダル表示 */}
+              {hasSkillSheetData((detail as any).skill_sheet_data) && <SkillSheetDataButton data={(detail as any).skill_sheet_data} candidateNo={detail.candidate_no} label="登録スキルシート" />}
               {detail.source_mail_url && <MailButton url={detail.source_mail_url} label="元メールを開く" block />}
               <EditCandidateButton candidate={detail} />
               <CloseToggleButton kind="candidates" idValue={detail.candidate_no} isClosed={!!detail.is_closed} />

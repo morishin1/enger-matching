@@ -13,13 +13,15 @@ import { CloseToggleButton } from "./CloseToggleButton";
 import { MeetingGateBanner } from "./MeetingGateBanner";
 import { bulkSetFocus, bulkDeleteJobs, bulkSetClosed } from "@/lib/actions";
 import { ClosedBadge } from "./ClosedBadge";
+import { EndClientBadge } from "./EndClientBadge";
 import { CompanyLink } from "./CompanyLink";
 import { CompanyApprovalBadge } from "./CompanyApprovalBadge";
 import { JobDetailNoteEditor } from "./JobDetailNoteEditor";
 import { FreelanceNgSelect } from "./FreelanceNgSelect";
 import { AgeLimitInput } from "./AgeLimitInput";
+import { JobNatSelect } from "./JobNatSelect";
 import { displayFlowNote } from "@/lib/flow";
-import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE, classifyJobAge, JOB_AGE_LABEL, JOB_AGE_TONE } from "@/lib/nationality";
+import { classifyJobNationality, JOB_NAT_LABEL, JOB_NAT_TONE } from "@/lib/nationality";
 
 // ---------- 表示用ヘルパ ----------
 const remoteLabel = (r: string | null) =>
@@ -118,18 +120,27 @@ const JOB_COLS: Col[] = [
     ),
   },
   { key: "skills", label: "スキル", render: (j) => <SkillTags skills={j.skills} /> },
-  { key: "client", label: "クライアント名", render: (j) => <span style={{ fontSize: 12, color: "var(--color-ink-3)" }}>{j.client_name ?? "—"}</span> },
+  // #491：受託開発・エンド企業はクライアント名の横にマークを出す（商流の深さを一目で判別）。
+  { key: "client", label: "クライアント名", render: (j) => (
+      <span style={{ fontSize: 12, color: "var(--color-ink-3)", display: "inline-flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+        <span>{j.client_name ?? "—"}</span>
+        {j.client_is_end && <EndClientBadge size="xs" />}
+      </span>
+    ) },
   { key: "approved", label: "承認", width: 96, filterKey: "approved", filterLabel: "承認状況", render: (j) => <CompanyApprovalBadge approved={!!j.client_approved} size="xs" /> },
   { key: "role", label: "職種", filterKey: "role", filterLabel: "職種", render: (j) => (j.role_label ? <span className="tag">{j.role_label}</span> : <span className="muted">—</span>) },
   { key: "remote", label: "リモート", width: 116, filterKey: "remote", filterLabel: "リモート", render: (j) => <span className="pill open">{remoteLabel(j.remote_type)}</span> },
   {
     key: "nationality", label: "国籍要件", width: 116, filterKey: "nationality", filterLabel: "国籍要件",
     render: (j) => {
-      const cat = classifyJobNationality(j.detail, j.title);
+      // 0724：保存済みの国籍要件(nationality_requirement)があればそれを表示。未設定のときだけ本文から自動判定。
+      const SAVED_TO_CAT: Record<string, "jp_only" | "open" | "unknown"> = { "日本国籍のみ": "jp_only", "国籍不問": "open", "不明": "unknown" };
+      const saved = String(j.nationality_requirement ?? "").trim();
+      const cat = SAVED_TO_CAT[saved] ?? classifyJobNationality(j.detail, j.title);
       const tone = JOB_NAT_TONE[cat];
       return (
         <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}
-          title={cat === "jp_only" ? "外国籍NG（日本国籍のみ）の可能性。提案前に必ず確認。" : cat === "open" ? "国籍不問の可能性。" : "本文に国籍の記載が見当たりません。"}>
+          title={saved ? `国籍要件（保存済み）：${saved}` : cat === "jp_only" ? "外国籍NG（日本国籍のみ）の可能性。提案前に必ず確認。" : cat === "open" ? "国籍不問の可能性。" : "本文に国籍の記載が見当たりません。"}>
           {JOB_NAT_LABEL[cat]}
         </span>
       );
@@ -515,6 +526,7 @@ export function JobsTable({
                   {detail.signup_source === "line" && <span title="LINE経由で登録" style={{ display: "inline-flex", alignItems: "center", lineHeight: 0 }}><Icons.line size={14} /></span>}
                   {detail.is_closed && <ClosedBadge size="xs" />}
                   {!partner && detail.client_name && <CompanyApprovalBadge approved={!!detail.client_approved} size="xs" />}
+                  {!partner && detail.client_is_end && <EndClientBadge size="xs" />}
                 </h3>
                 <div className="sub" style={{ fontSize: 12, color: "var(--color-ink-3)" }}>
                   {[detail.client_name, detail.role_label, remoteLabel(detail.remote_type), salaryLabel(detail.salary_min, detail.salary_max)].filter(Boolean).join(" · ") || "—"}
@@ -564,8 +576,8 @@ export function JobsTable({
                   [["募集職種", detail.role_label]],
                   [["必要スキル", (detail.skills ?? []).join(" / ") || null]],
                   [["単価", salaryLabel(detail.salary_min, detail.salary_max)], ["リモート可否", remoteLabel(detail.remote_type)]],
-                  // 0722①：年齢制限（自由記述・その場で編集可）。自動推定バッジ（年代制限）の隣に置く。
-                  [["国籍要件", <JobNatBadge key="nat" detail={detail.detail} title={detail.title} />], ["年代制限", <JobAgeBadge key="age" detail={detail.detail} title={detail.title} />], ["年齢制限", <AgeLimitInput key={`agel-${detail.job_no}`} jobNo={detail.job_no} initial={detail.age_limit} compact />]],
+                  // 0723③：自動推定の「年代制限」バッジは廃止（年齢制限フィールドで代替）。国籍要件と年齢制限を1行に並べる。
+                  [["国籍要件", <JobNatSelect key={`nat-${detail.job_no}`} jobNo={detail.job_no} initial={detail.nationality_requirement} detail={detail.detail} title={detail.title} compact />], ["年齢制限", <AgeLimitInput key={`agel-${detail.job_no}`} jobNo={detail.job_no} initial={detail.age_limit} compact />]],
                   // #368：勤務地・商流と同じ行に「フリーランスNG」の選択欄（商流の隣）。
                   [["勤務地", detail.work_location ?? "不明"], ["商流制限", displayFlowNote(detail.flow_note) || "不明"], ["フリーランスの応募", <FreelanceNgSelect key={`fng-${detail.job_no}`} jobNo={detail.job_no} initial={detail.freelance_ng} compact />]],
                   [["開始希望", detail.start_date], ["ステータス", detail.status]],
@@ -635,27 +647,4 @@ export function JobsTable({
   );
 }
 
-// 案件本文から判定した国籍要件バッジ（詳細ドロワー用）。
-function JobNatBadge({ detail, title }: { detail?: string | null; title?: string | null }) {
-  const cat = classifyJobNationality(detail, title);
-  const tone = JOB_NAT_TONE[cat];
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{JOB_NAT_LABEL[cat]}</span>
-      {cat === "jp_only" && <span style={{ fontSize: 11, color: "#b42318" }}>外国籍NGの可能性。提案前に確認。</span>}
-      {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
-    </span>
-  );
-}
 
-// 案件本文から判定した年代（年齢）制限バッジ（詳細ドロワー用）。
-function JobAgeBadge({ detail, title }: { detail?: string | null; title?: string | null }) {
-  const { cat, label } = classifyJobAge(detail, title);
-  const tone = JOB_AGE_TONE[cat];
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 11.5, fontWeight: 700, padding: "2px 10px", borderRadius: 99, background: tone.bg, color: tone.fg, border: `1px solid ${tone.bd}` }}>{label}</span>
-      {cat === "unknown" && <span className="muted" style={{ fontSize: 11 }}>本文に記載なし（要確認）</span>}
-    </span>
-  );
-}

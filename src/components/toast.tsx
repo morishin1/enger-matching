@@ -13,6 +13,7 @@ let _seq = 0;
 const listeners = new Set<(t: ToastItem) => void>();
 
 /** どこからでも呼べる非ブロッキング通知。空文字は無視。 */
+/** @client-only ブラウザ側でのみ使う（サーバーコンポーネントからは呼ばない）。 */
 export function toast(message: string, kind: ToastKind = "info") {
   const msg = String(message ?? "").trim();
   if (!msg) return;
