@@ -1,4 +1,5 @@
 import Link from "@/components/AppLink";
+import { rateToMan } from "@/lib/rate";
 import { unstable_cache } from "next/cache";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { DailyBriefing } from "./DailyBriefing";
@@ -11,16 +12,7 @@ const ACTIVE_STAGES = ["所属確認", "提案中", "面談", "合格", "提案�
 const MET_STAGES = ["面談", "合格", "面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const DAY = 86400000;
 
-function parseManYen(rate?: string | number | null): number {
-  if (rate == null) return 0;
-  if (typeof rate === "number") return rate >= 10000 ? Math.round(rate / 10000) : Math.round(rate);
-  const m = String(rate).replace(/,/g, "").match(/(\d+(?:\.\d+)?)/);
-  if (!m) return 0;
-  let n = parseFloat(m[1]);
-  if (/万/.test(rate)) return Math.round(n);
-  if (n >= 10000) n = n / 10000;
-  return Math.round(n);
-}
+// 単価の解釈は src/lib/rate.ts に集約している（画面ごとに写すと解釈がズレるため）
 const daysAgo = (d?: string | null) => (d ? Math.floor((Date.now() - new Date(d).getTime()) / DAY) : 99999);
 const daysUntil = (d?: string | null) => (d ? Math.floor((new Date(d).getTime() - Date.now()) / DAY) : null);
 const yen = (man: number) => (man >= 10000 ? `${(man / 10000).toFixed(1)}億円` : `${man.toLocaleString("ja-JP")}万円`);
@@ -129,10 +121,10 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const actionTotal = (hasMeetingDate ? todaysMeetings.length : meetingsAdjusting.length) + renewSoon.length + callPending.length + closingStalled.length;
 
   // --- お金レーン ---
-  const pipelineMan = activeProps.reduce((s, p) => s + parseManYen(p.rate), 0);
-  const confirmedMan = liveEngs.reduce((s, e) => s + parseManYen(e.monthly_rate), 0);
+  const pipelineMan = activeProps.reduce((s, p) => s + rateToMan(p.rate), 0);
+  const confirmedMan = liveEngs.reduce((s, e) => s + rateToMan(e.monthly_rate), 0);
   const hasCost = engs.some((e) => e.cost != null);
-  const grossMan = hasCost ? liveEngs.reduce((s, e) => s + (parseManYen(e.monthly_rate) - parseManYen(e.cost)), 0) : null;
+  const grossMan = hasCost ? liveEngs.reduce((s, e) => s + (rateToMan(e.monthly_rate) - rateToMan(e.cost)), 0) : null;
 
   // --- ファネル（案件→提案→面談→稼働）---
   const fProposed = proposals.length;
@@ -163,7 +155,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   // --- 担当者本人 ---
   const isMine = (p: any) => myName && (p.proposer === myName || p.closer === myName);
   const myActive = activeProps.filter(isMine);
-  const myPipelineMan = myActive.reduce((s, p) => s + parseManYen(p.rate), 0);
+  const myPipelineMan = myActive.reduce((s, p) => s + rateToMan(p.rate), 0);
 
   // ===== 区分別「今日の次の一手」 =====
   type Action = { icon: string; title: string; count: number; detail: string; href: string; items: string[] };
@@ -235,7 +227,7 @@ export async function AgentDashboard({ role, myName, position }: { role: "admin"
   const jcov = pub.length ? Math.round((pub.filter((j) => j.skills?.length).length / pub.length) * 100) : 100;
   const ccov = cands.length ? Math.round((cands.filter((c) => c.skills?.length).length / cands.length) * 100) : 100;
   if (jcov < 70 || ccov < 70) adminIssues.push({ id: "cov", sev: "mid", title: "重要データの充足が不足（仮説の信頼性低下）", metric: `案件スキル ${jcov}% / 人材スキル ${ccov}%`, advice: "取込ゲートで『完備のみ取込』を徹底。未入力の補完を依頼。", href: "/analytics", hrefLabel: "充足を確認" });
-  const renewYen = renewSoon.reduce((s: number, e: any) => s + parseManYen(e.monthly_rate), 0);
+  const renewYen = renewSoon.reduce((s: number, e: any) => s + rateToMan(e.monthly_rate), 0);
   if (renewYen > 0) adminIssues.push({ id: "renewyen", sev: "high", title: "更新リスクのある売上がある", metric: `30日以内に満了 ${renewSoon.length}名 / 月額${yen(renewYen)}`, advice: "更新確度を担当に確認。終了予定は早期に後任提案を。", href: "/progress", hrefLabel: "稼働管理へ" });
   if (fProposed >= 10 && metRate < 30) adminIssues.push({ id: "funnel", sev: "mid", title: "全体の面談到達率が低い", metric: `提案→面談 ${metRate}%`, advice: "提案の質（マッチ精度）と初動プロセスを組織で標準化。", href: "/analytics", hrefLabel: "ファネルを見る" });
   if (adminIssues.length === 0) adminIssues.push({ id: "okadmin", sev: "good", title: "組織レベルの重大な課題はありません", metric: `面談化 ${metRate}% / 失注 ${lostRows.length}件`, advice: "担当者別の動き（分析）で個別の伸びしろを確認しましょう。", href: "/analytics", hrefLabel: "担当者別分析へ" });

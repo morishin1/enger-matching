@@ -7,6 +7,7 @@
 //   - テーブル（行クリックで詳細モーダル）
 // カンバン(ProposalBoard)と同じ proposals データを使う。切替は ProposalBoardSwitcher が担う。
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { rateToMan } from "@/lib/rate";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "@/components/toast";
 import { bulkDeleteProposals, getProposalForModal } from "@/lib/actions";
@@ -41,17 +42,7 @@ const daysAgo = (d: any) => {
   return Math.max(0, Math.floor((Date.now() - t) / 86400000));
 };
 
-// 単価文字列（"¥70万" "70" 等）→ 万円の数値。見込み金額の集計に使う。
-const parseManYen = (rate?: string | number | null): number => {
-  if (rate == null) return 0;
-  if (typeof rate === "number") return rate >= 10000 ? Math.round(rate / 10000) : Math.round(rate);
-  const m = String(rate).replace(/,/g, "").match(/(\d+(?:\.\d+)?)/);
-  if (!m) return 0;
-  let n = parseFloat(m[1]);
-  if (/万/.test(rate)) return Math.round(n);
-  if (n >= 10000) n = n / 10000;
-  return Math.round(n);
-};
+// 単価の解釈は src/lib/rate.ts に集約している（画面ごとに写すと解釈がズレるため）
 const yen = (man: number) => (man >= 10000 ? `${(man / 10000).toFixed(1)}億` : `${man.toLocaleString("ja-JP")}万`);
 
 // ステージごとの目標滞留日数(SLA)と、滞留したとき何をすべきか（行動を促す一手）。
@@ -154,7 +145,7 @@ export function ProposalListView({ proposals, proposers, closers }: { proposals:
       const s = normStage(p.stage);
       const e = m[s]; if (!e) continue;
       e.count++;
-      e.man += parseManYen(p.rate);
+      e.man += rateToMan(p.rate);
       const stalled = daysAgo(p.stage_updated_at || p.updated_at || p.created_at) >= (STAGE_SLA[s] ?? 5);
       const pending = isPending(p.job_notify_status) || isPending(p.cand_notify_status);
       if (stalled || pending) e.due++;
