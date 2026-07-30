@@ -2,6 +2,8 @@ import { ProposalsWorkspace } from "@/components/ProposalsWorkspace";
 import { engerClient, dbConfigured } from "@/lib/supabase";
 import { getStaff } from "@/lib/staff";
 import { loadProposalOwners } from "@/lib/proposal-owners";
+// 進行中ステージの正（新6種＋DBに残る旧名）。画面ごとに一覧が違い件数が食い違っていたため共通化
+import { ACTIVE_STAGES } from "@/lib/proposal-constants";
 import { loadKpiMembers } from "@/lib/kpi-members";
 import { getFeedbackMap, VERDICT_LABEL, type Verdict } from "@/lib/client-feedback";
 import { currentAccess } from "@/lib/accounts";
@@ -47,7 +49,6 @@ export default async function ProposalsPage({ searchParams }: { searchParams: Pr
       // ボード/承認に出す「進行中」ステージのみを取得（終了系=見送り/失注/稼働は失注分析タブで別途
       //   /api/proposals/list?mode=analytics から取る）。これで件数が 400→約100件に激減し、後続の
       //   案件/人材/企業マスタ IN も同じだけ軽くなる。TTFB 1.9s→800ms（索引追加）の残りの主因。
-      const ACTIVE_STAGES = ["承認待ち", "所属確認", "提案中", "確認中", "面談", "合格"];
       const activeStage = (q: any) => q.in("stage", ACTIVE_STAGES);
       // 拡張カラム(架電進捗等)が無くても落ちないようフォールバック
       let res: any = await activeStage(sb.from("proposals")

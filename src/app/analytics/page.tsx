@@ -9,7 +9,8 @@ import { AnalyticsTabs } from "@/components/AnalyticsTabs";
 export const dynamic = "force-dynamic";
 
 // 進行中ステージ。新名(所属確認/提案中/面談/合格)＋旧名を互換のため両方含める。
-const ACTIVE_STAGES = ["所属確認", "提案中", "面談", "合格", "提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"];
+// 進行中ステージの正は proposal-constants.ts（画面ごとに一覧が違い件数が食い違っていたため共通化）
+import { ACTIVE_STAGES } from "@/lib/proposal-constants";
 const LOST_STAGES = ["見送り", "失注"];
 
 // 分析タブの定義。URL ?tab=... で切替。デフォルトは育成戦略。
