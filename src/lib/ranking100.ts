@@ -1,7 +1,7 @@
 // マッチング自動ランキング（ランキング100 ／ おすすめの組み合わせ TOP50）。
 //
 //   組み合わせを「高 / 中 / 低」の3ランクに分けて表示する（要望）。
-//   ・まず「確定した致命的NG」を全ランク共通で除外する（提案不可・二社下以降・55歳以上・
+//   ・まず「確定した致命的NG」を全ランク共通で除外する（提案不可・二社下以降・25歳未満・55歳以上・
 //     国籍NG案件×外国籍・充足/終了・LINE/フリーランス由来・提案済み・スキル一致0・単価逆ざや）。
 //   ・残ったペアについて、定義書の各条件が「確定OK」か「不明（要確認）」かで“要確認事項”を数え、
 //       要確認 0件 → 高（確実に提案できる。定義書の絶対条件を確定データで全て満たす）
@@ -263,7 +263,24 @@ type CandInfo = {
   cat: CandFlowCategory; cMin: number | null; ageRange: { decade: number; hi: number } | null;
   natJapan: boolean; remoteWants: boolean; hasSkillSheet: boolean;
 };
-/** 人材：致命的NG（確定「二社下以降」・55歳以上・外国籍）は除外。国籍不明/リモート/スキルシート不明は要確認へ回す。 */
+/**
+ * 対象年齢の下限（#508）。**25歳未満は対象外**。
+ *
+ * 上限（55歳以上を除外）と対になる下限で、`candAgeRange().hi`（年齢幅の上端）が
+ * これを下回る＝「25歳以上である可能性が無い」人材だけを落とす。
+ *   ・「20代前半（20-24歳）」→ hi=24 → 除外
+ *   ・「23歳」               → hi=23 → 除外
+ *   ・「10代」               → hi=19 → 除外
+ *   ・「20代後半」           → hi=29 → 対象（25-29歳のため）
+ *   ・素の「20代」           → hi=29 → 対象（20-29歳で25歳以上の可能性があるため。
+ *                              年齢不明を除外しないのと同じ扱い）
+ *
+ * この判定は候補プールを作る `candInfo()` で行うので、
+ * 期間フィルタ（今日／3日以内／今週…）より前に効く＝期間に関係なく常に適用される。
+ */
+const AGE_MIN = 25;
+
+/** 人材：致命的NG（確定「二社下以降」・25歳未満・55歳以上・外国籍）は除外。国籍不明/リモート/スキルシート不明は要確認へ回す。 */
 function candInfo(c: any): CandInfo | null {
   const cat = candFlowCategory(c);
   if (cat === "vendor2plus") return null;                             // #1 二社下以降（確定・全ランク除外）
@@ -271,6 +288,7 @@ function candInfo(c: any): CandInfo | null {
   if (nat === "foreign") return null;                                 // #345②：外国籍（確定）は全ランクで対象外
   const ageRange = candAgeRange(c as Candidate);
   if (ageRange && ageRange.hi >= 55) return null;                     // #5 55歳以上（全ランク除外）
+  if (ageRange && ageRange.hi < AGE_MIN) return null;                 // #508 25歳未満（全ランク除外）
   const cp = String(c.remote_pref ?? "").trim();
   return {
     cat, cMin: candRange(c as Candidate).min, ageRange,
