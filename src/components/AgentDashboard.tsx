@@ -8,7 +8,8 @@ import { Collapsible } from "./Collapsible";
 import { leadKpi, isContacted } from "@/lib/quality";
 
 // 進行中ステージ。新名(所属確認/提案中/面談/合格)＋旧名を互換のため両方含める。
-const ACTIVE_STAGES = ["所属確認", "提案中", "面談", "合格", "提案済", "返信待ち", "面談調整", "クロージング中", "面談合格"];
+// 進行中ステージの正は proposal-constants.ts（画面ごとに一覧が違い件数が食い違っていたため共通化）
+import { ACTIVE_STAGES } from "@/lib/proposal-constants";
 const MET_STAGES = ["面談", "合格", "面談調整", "クロージング中", "面談合格", "稼働", "稼働決定"];
 const DAY = 86400000;
 
