@@ -10,14 +10,25 @@ type Job = { no: string; role: string; title: string; skills: string[]; rate: st
 // X（Twitter）流入計測のUTM。LP(enger.jp)側は utm_source=x を見て signup_source='x' を記録し、
 //   dx の「X流入レポート」で 登録→面談→成約 まで突合できるようにする。
 //   utm_content で「どの投稿（登録数/案件/市場価値）」が効いたかを判別する。
-function withUtm(base: string, content: string) {
-  const q = new URLSearchParams({ utm_source: "x", utm_medium: "social", utm_campaign: "pr", utm_content: content });
+//
+// ★ `v`（共有バージョン＝JSTの日付）を必ず付ける。
+//   X はリンクカードを**URL単位でキャッシュ**し、一度取得すると数日〜無期限で更新しない。
+//   UTMが固定だとURLも固定になるため、LP側でOGP画像や文言を直しても
+//   **古いカードが出続ける**（2026-08 に実際に発生：8/1に差し替えた説明文が反映されず、
+//   画像も出ないままだった）。日付を混ぜると1日1回は新しいURLになり、
+//   投稿する側は何も意識しなくてもカードが最新になる。
+//   日付はサーバー（/pr）で作った値を受け取る（クライアントで new Date() すると
+//   SSRとハイドレーションで食い違う）。
+function withUtm(base: string, content: string, version: string) {
+  const q = new URLSearchParams({
+    utm_source: "x",
+    utm_medium: "social",
+    utm_campaign: "pr",
+    utm_content: content,
+    v: version,
+  });
   return `${base}${base.includes("?") ? "&" : "?"}${q.toString()}`;
 }
-// 登録導線はスキルシート登録に統一（Xからの主要導線）。utmは #702 のX流入計測に合わせて維持。
-const SIGNUP = withUtm("https://enger.jp/skill-sheet", "count");
-const TOP = withUtm("https://enger.jp", "value");
-const JOBS = withUtm("https://enger.jp/jobs", "jobs");
 
 function xIntent(text: string, url: string) {
   const u = new URLSearchParams({ text, url });
@@ -32,8 +43,8 @@ const DESIGNS = [
   { id: "3", label: "サンセット", bg: "linear-gradient(135deg,#1c1917,#431407,#7c2d12)" },
 ] as const;
 const designQ = (d: string) => (d === "2" || d === "3" ? `d=${d}` : "");
-const jobUrl = (no: string, d = "1") => {
-  const u = withUtm(`https://enger.jp/job/${no}`, "job");
+const jobUrl = (no: string, d = "1", version = "") => {
+  const u = withUtm(`https://enger.jp/job/${no}`, "job", version);
   const q = designQ(d);
   return q ? `${u}&${q}` : u;
 };
@@ -73,7 +84,24 @@ function jobPostText(j: Job): string {
   return `【案件】${head}\n${[skillLine, rateLine].filter(Boolean).join("")}\nあなたとのマッチ度を30秒で確認👇\n${tags.join(" ")}`;
 }
 
-export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: number; jobsPub: number; sample: Sample[]; jobs: Job[] }) {
+export function PrComposer({
+  engTotal,
+  jobsPub,
+  sample,
+  jobs,
+  shareVersion,
+}: {
+  engTotal: number;
+  jobsPub: number;
+  sample: Sample[];
+  jobs: Job[];
+  /** 共有URLに混ぜる日付（JST・YYYYMMDD）。Xのカードキャッシュを日ごとに更新させる */
+  shareVersion: string;
+}) {
+  // 登録導線はスキルシート登録に統一（Xからの主要導線）。utmは #702 のX流入計測に合わせて維持。
+  const SIGNUP = withUtm("https://enger.jp/skill-sheet", "count", shareVersion);
+  const TOP = withUtm("https://enger.jp", "value", shareVersion);
+  const JOBS = withUtm("https://enger.jp/jobs", "jobs", shareVersion);
   // 注目案件（匿名）の一文
   const sampleLine = useMemo(() => {
     if (!sample.length) return "フルリモート・高単価のエンジニア案件を多数掲載中。";
@@ -99,7 +127,7 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
       url: TOP,
       text: `あなたの“市場価値”、知っていますか？\nGitHubを連携するだけで、想定単価レンジと合う案件をその場で診断。\n3分・無料でできます。\n#エンジニア #キャリア #年収`,
     },
-  ]), [engTotal, jobsPub, sampleLine]);
+  ]), [engTotal, jobsPub, sampleLine, SIGNUP, JOBS, TOP]);
 
   const [drafts, setDrafts] = useState<Record<string, string>>(Object.fromEntries(templates.map((t) => [t.id, t.text])));
   const [msg, setMsg] = useState<string | null>(null);
@@ -276,7 +304,7 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
                 <option key={j.no} value={j.no}>No.{j.no}｜{[j.remote, j.role, j.rate].filter(Boolean).join(" / ")}</option>
               ))}
             </select>
-            {selectedJob && <span className="muted" style={{ fontSize: 11, wordBreak: "break-all" }}>リンク先：{jobUrl(selectedJob.no, design)}</span>}
+            {selectedJob && <span className="muted" style={{ fontSize: 11, wordBreak: "break-all" }}>リンク先：{jobUrl(selectedJob.no, design, shareVersion)}</span>}
           </div>
           {selectedJob && (
             <>
@@ -312,8 +340,8 @@ export function PrComposer({ engTotal, jobsPub, sample, jobs }: { engTotal: numb
                 style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, lineHeight: 1.7, color: "var(--color-ink)", padding: 12, border: "1px solid var(--color-border-strong)", borderRadius: 10, resize: "vertical", boxSizing: "border-box", background: "var(--color-surface)" }}
               />
               <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <a className="btn brand" href={xIntent(jobText, jobUrl(selectedJob.no, design))} target="_blank" rel="noopener"
-                  onClick={() => { logPrPost("job", { text: jobText, url: jobUrl(selectedJob.no, design) }); setMsg("案件カード投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
+                <a className="btn brand" href={xIntent(jobText, jobUrl(selectedJob.no, design, shareVersion))} target="_blank" rel="noopener"
+                  onClick={() => { logPrPost("job", { text: jobText, url: jobUrl(selectedJob.no, design, shareVersion) }); setMsg("案件カード投稿を記録しました（ダッシュボードに反映）"); setTimeout(() => setMsg(null), 2500); }}
                   style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>𝕏 Xに投稿</a>
                 <button type="button" className="btn ghost" onClick={() => copy(jobText)}>本文をコピー</button>
                 <a className="btn ghost" href={jobCardPng(selectedJob.no, design)} target="_blank" rel="noopener" style={{ textDecoration: "none" }}>カード画像を確認</a>
