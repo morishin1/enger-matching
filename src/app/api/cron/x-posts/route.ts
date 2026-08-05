@@ -34,8 +34,23 @@ function rateText(lo: number | null, hi: number | null): string {
   if (L) return `月${L}万円〜`;
   return "";
 }
+/**
+ * 共有URLのクエリ。UTM に加えて `v`（JSTの日付）を必ず付ける。
+ *
+ * X はリンクカードを**URL単位でキャッシュ**するため、UTMが固定だと
+ * LP側でOGP画像や説明文を直しても古いカードが出続ける（2026-08 に実際に発生）。
+ * 日付を混ぜると1日1回は新しいURLになり、投稿する担当は何も意識しなくてよい。
+ */
+const shareVersion = () =>
+  new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
 const utm = (content: string) =>
-  new URLSearchParams({ utm_source: "x", utm_medium: "social", utm_campaign: "pr", utm_content: content }).toString();
+  new URLSearchParams({
+    utm_source: "x",
+    utm_medium: "social",
+    utm_campaign: "pr",
+    utm_content: content,
+    v: shareVersion(),
+  }).toString();
 const jobUrl = (no: string, content: string) => `https://enger.jp/job/${no}?${utm(content)}`;
 const cardPng = (no: string) => `https://enger.jp/og/job/${no}.png`;
 const intent = (text: string, url: string) => `https://twitter.com/intent/tweet?${new URLSearchParams({ text, url })}`;

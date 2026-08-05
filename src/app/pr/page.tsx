@@ -121,7 +121,7 @@ export default async function PrPage({ searchParams }: { searchParams: Promise<{
       />
 
       {tab === "compose"
-        ? <PrComposer engTotal={engTotal} jobsPub={jobsPub} sample={sample} jobs={jobsList} />
+        ? <PrComposer engTotal={engTotal} jobsPub={jobsPub} sample={sample} jobs={jobsList} shareVersion={shareVersion()} />
         : tab === "inflow"
           ? <XInflowView inflow={inflow} />
           : tab === "log"
@@ -235,4 +235,17 @@ function XInflowView({ inflow }: { inflow: { registered: number; met: number; cl
       </div>
     </div>
   );
+}
+
+/**
+ * 共有URLに混ぜる版（JSTの YYYYMMDD）。
+ *
+ * X はリンクカードを URL 単位でキャッシュし、一度取得すると LP 側を直しても
+ * 古いカード（画像なし・古い説明文）を出し続ける。日付を混ぜて1日1回URLを変えることで、
+ * 投稿する側が何もしなくてもカードが最新になる。
+ * クライアントで作るとハイドレーションで食い違うため、必ずサーバー側のここで作る。
+ */
+function shareVersion(): string {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10).replace(/-/g, "");
 }
