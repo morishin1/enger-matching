@@ -10,6 +10,8 @@ export type BizField = {
   key: string;               // 保存キー（DBカラム or API入力キー）
   label: string;             // 表示ラベル（日本語）
   type: BizFieldType;
+  /** 見せるが変更させない（ログイン用メール等）。保存時は無視される */
+  readonly?: boolean;
   required?: boolean;
   placeholder?: string;
   hint?: string;             // 入力補助の説明
@@ -35,19 +37,27 @@ export const AGE_BAND_OPTIONS = ["20代", "30代", "40代", "50代", "60代以�
 export const NATIONALITY_OPTIONS = ["日本", "外国籍", "不明"] as const;
 
 /** ① 会社情報（enger.company_profiles ＋ enger.companies 企業管理と連動）。 */
+/**
+ * 会社情報の各項目に「人材にどう見えるか」を明記する（#653）。
+ *   【人材に公開】… スカウトや案件のご案内で候補者に表示される
+ *   【非公開】   … ENGERの担当エージェントだけが見る（候補者には出ない）
+ * 無料登録時の入力（会社名・担当者名・電話など）は company-profile GET が
+ * 初期値として返す（承認前は登録時の user_metadata から）。
+ */
 export const COMPANY_FORM: BizField[] = [
   // #414：会社名の編集欄。案件・企業管理・自社情報の紐付けキーのため、変更時は
   //   関連レコードを一括リネームする（PUT /api/public/company-profile 側で処理）。
-  { key: "company_name",  label: "会社名",              type: "text",    required: true, placeholder: "例：株式会社エンジャー", maxLength: 120, hint: "登録済みの案件・自社情報とまとめて紐づく名称です。変更すると既存の案件・自社情報も新しい社名に引き継がれます。" },
-  { key: "website",       label: "会社ホームページURL", type: "url",     placeholder: "https://your-company.co.jp", hint: "URLか法人番号を入れて「AIで下書き」を押すと下の項目を自動入力できます" },
-  { key: "corporate_no",  label: "法人番号（13桁）",     type: "text",    placeholder: "1234567890123", hint: "国税庁の法人番号。ホームページが無い場合はこちらでもAI下書きできます", maxLength: 13 },
-  { key: "industry",      label: "業種",                type: "text",    placeholder: "例：受託開発 / SES / 自社サービス" },
-  { key: "contact_name",  label: "ご担当者名",           type: "text",    placeholder: "例：山田 太郎" },
-  { key: "phone",         label: "電話番号",             type: "text",    placeholder: "例：03-1234-5678" },
-  { key: "mission",       label: "ミッション・事業の目的", type: "textarea", hint: "何のために事業をしているか。共感する人材が集まり、定着・活躍につながります" },
-  { key: "culture",       label: "カルチャー・働き方・バリュー", type: "textarea", hint: "大切にしている価値観、チームの雰囲気、働き方（リモート可否・裁量など）" },
-  { key: "ideal_persona", label: "求める人物像",         type: "textarea", hint: "スキルだけでなく、方向性・志向で合う人を言語化。マッチング精度が上がります" },
-  { key: "appeal",        label: "自社の魅力・アピール",  type: "textarea", hint: "候補者に伝えたい強み（技術スタック、成長環境、待遇、実績など）" },
+  { key: "company_name",  label: "会社名",              type: "text",    required: true, placeholder: "例：株式会社エンジャー", maxLength: 120, hint: "【人材に公開】登録済みの案件・自社情報とまとめて紐づく名称です。変更すると既存の案件・自社情報も新しい社名に引き継がれます。" },
+  { key: "email",         label: "ログイン用メールアドレス", type: "text", readonly: true, hint: "【非公開】スカウト等のご連絡はこのアドレスに届きます。ここでは変更できません（変更をご希望の場合は担当までご連絡ください）" },
+  { key: "website",       label: "会社ホームページURL", type: "url",     placeholder: "https://your-company.co.jp", hint: "【人材に公開】URLか法人番号を入れて「AIで下書き」を押すと下の項目を自動入力できます" },
+  { key: "corporate_no",  label: "法人番号（13桁）",     type: "text",    placeholder: "1234567890123", hint: "【非公開】国税庁の法人番号。ホームページが無い場合はこちらでもAI下書きできます", maxLength: 13 },
+  { key: "industry",      label: "業種",                type: "text",    placeholder: "例：受託開発 / SES / 自社サービス", hint: "【人材に公開】" },
+  { key: "contact_name",  label: "ご担当者名",           type: "text",    placeholder: "例：山田 太郎", hint: "【非公開】ENGERの担当エージェントとの連絡に使います" },
+  { key: "phone",         label: "電話番号",             type: "text",    placeholder: "例：03-1234-5678", hint: "【非公開】ENGERの担当エージェントとの連絡に使います" },
+  { key: "mission",       label: "ミッション・事業の目的", type: "textarea", hint: "【人材に公開】何のために事業をしているか。共感する人材が集まり、定着・活躍につながります" },
+  { key: "culture",       label: "カルチャー・働き方・バリュー", type: "textarea", hint: "【人材に公開】大切にしている価値観、チームの雰囲気、働き方（リモート可否・裁量など）" },
+  { key: "ideal_persona", label: "求める人物像",         type: "textarea", hint: "【人材に公開】スキルだけでなく、方向性・志向で合う人を言語化。マッチング精度が上がります" },
+  { key: "appeal",        label: "自社の魅力・アピール",  type: "textarea", hint: "【人材に公開】候補者に伝えたい強み（技術スタック、成長環境、待遇、実績など）" },
 ];
 
 /** ② 案件（enger.jobs）。DX のマッチング（スキル・単価・リモート・国籍/年代判定）が読む列に対応。 */
