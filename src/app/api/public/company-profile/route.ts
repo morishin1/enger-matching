@@ -44,16 +44,35 @@ export async function GET(req: NextRequest) {
     master = r?.data ?? {};
   } catch { /* 未作成は空 */ }
 
+  /**
+   * 無料登録時の入力を初期値に使う（#653）。
+   * LPの法人登録は ご担当者名・電話・業種・サイトURL を auth の user_metadata に
+   * 保存しているが、companies の行は承認時に作られるため、承認前は
+   * ここが全部空で「登録時に入力した内容が一切反映されていない」ように見えていた。
+   * companies（企業管理で担当が直せる正）を優先し、無ければ登録時の値で埋める。
+   */
+  let meta: any = {};
+  try {
+    const auth = req.headers.get("authorization");
+    const token = auth && auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+    if (token) {
+      const r: any = await authAdmin().auth.getUser(token);
+      meta = (r?.data?.user?.user_metadata as any) ?? {};
+    }
+  } catch { /* 取れなくても既存の動きのまま */ }
+
   return json({
     ok: true,
     company: {
       name: viewer.companyName,
       company_name: viewer.companyName, // #414：会社名編集欄の初期値
-      website: profile.website ?? master.website ?? null,
+      website: profile.website ?? master.website ?? (meta.company_url ?? null),
       corporate_no: profile.corporate_no ?? null,
-      industry: master.industry ?? null,
-      contact_name: master.contact_name ?? null,
-      phone: master.phone ?? null,
+      industry: master.industry ?? (meta.industry ?? null),
+      contact_name: master.contact_name ?? (meta.contact_name ?? null),
+      phone: master.phone ?? (meta.phone ?? null),
+      /** ログインメール（#653：スカウト等の連絡先として画面に出す。変更は不可） */
+      email: viewer.email,
       mission: profile.mission ?? null,
       culture: profile.culture ?? null,
       ideal_persona: profile.ideal_persona ?? null,

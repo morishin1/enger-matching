@@ -41,7 +41,11 @@ export async function resolveBusinessViewer(req: NextRequest, opts?: { allowPend
       const r: any = await authAdmin().auth.getUser(token);
       const u = r?.data?.user;
       email = (u?.email ?? "").trim().toLowerCase();
-      metaCompany = String((u?.user_metadata as any)?.company ?? "").trim();
+      // 会社名のキーは2種類ある（#662）。enger-lp の法人登録（/api/auth/signup）は
+      // **company_name** で保存するが、ここは company しか見ていなかったため、
+      // 登録時に会社名を必須入力させているのに「アカウントに会社名が未設定です」に
+      // なっていた。両方を見る（古いアカウントは company の場合がある）。
+      metaCompany = String((u?.user_metadata as any)?.company ?? (u?.user_metadata as any)?.company_name ?? "").trim();
       metaName = String((u?.user_metadata as any)?.full_name ?? (u?.user_metadata as any)?.name ?? "").trim();
       const apps: string[] = Array.isArray((u?.app_metadata as any)?.apps) ? (u!.app_metadata as any).apps.map(String) : [];
       hasBusinessApp = apps.includes("business");
