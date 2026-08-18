@@ -600,12 +600,27 @@ export function JobsTable({
                 選択案件ごとに確実に初期値・自動高さを反映させる（前の案件の値が残らないように）。 */}
             {!partner && <JobDetailNoteEditor key={detail.job_no} jobNo={detail.job_no} initial={detail.detail_note ?? ""} />}
 
-            {detail.detail && (
-              <div className="card" style={{ padding: 12 }}>
-                {/* #331⑦：旧「案件詳細」＝取込メール原文なので「メール原文」に改称。 */}
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>メール原文</div>
-                <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", maxHeight: 240, overflow: "auto" }}>{detail.detail}</div>
-              </div>
+            {/* #739：メール原文も案件詳細の下に「入力欄」として置く（人材プロフィールと同じ形）。
+                以前は読み取り専用の表示で、しかも値が空だと欄ごと出なかったため、
+                取り込みに失敗した案件へ後からメール本文を貼り付けられなかった。
+                社外（partner）には出さない：取込メールには他社の連絡先が含まれるため。 */}
+            {!partner ? (
+              <JobDetailNoteEditor
+                key={`${detail.job_no}-detail`}
+                jobNo={detail.job_no}
+                initial={detail.detail ?? ""}
+                field="detail"
+                label="メール原文"
+                placeholder="案件の元になったメール本文を貼り付け（保存でこの案件のメール原文に反映されます）"
+              />
+            ) : (
+              detail.detail && (
+                <div className="card" style={{ padding: 12 }}>
+                  {/* #331⑦：旧「案件詳細」＝取込メール原文なので「メール原文」に改称。 */}
+                  <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--color-ink-4)", fontWeight: 600, marginBottom: 8 }}>メール原文</div>
+                  <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink-2)", maxHeight: 240, overflow: "auto" }}>{detail.detail}</div>
+                </div>
+              )
             )}
           </div>
         </div>

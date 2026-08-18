@@ -5,6 +5,7 @@ import { FlowSteps } from "@/components/FlowSteps";
 import { MailButton } from "@/components/MailButton";
 import { IntroLinkButton } from "@/components/IntroLinkButton";
 import { EditJobButton } from "@/components/EditEntryButton";
+import { JobDetailNoteEditor } from "@/components/JobDetailNoteEditor";
 import { DeleteEntityButton } from "@/components/DeleteEntityButton";
 import { CloseToggleButton } from "@/components/CloseToggleButton";
 import { engerClient, dbConfigured } from "@/lib/supabase";
@@ -160,9 +161,27 @@ export default async function JobDetailPage({ params }: { params: Promise<{ job_
         <Row label="ステータス" value={j.status} />
         <Row label="窓口担当者" value={j.contact_name} />
         <Row label="窓口メール" value={j.contact_email} />
-        {/* #331⑧：手入力の案件詳細。⑦：取込メール原文は「メール原文」として表示。 */}
-        <Row label="案件詳細" value={j.detail_note} />
-        <Row label="メール原文" value={j.detail} />
+      </div>
+
+      {/* #739：案件詳細とメール原文は、人材プロフィール（/people/[candidate_no]）と同じく
+          その場で直せる入力欄にする。以前は読み取り専用の行だったため、取込に失敗した
+          案件へ後からメール本文を貼り直すことができなかった。
+          この画面は社内（admin/agent）専用（上で isTenant を弾いている）。 */}
+      <div className="card" style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+        <JobDetailNoteEditor
+          jobNo={j.job_no}
+          initial={j.detail_note ?? ""}
+          field="detail_note"
+          label="案件詳細"
+          placeholder="案件のポイント・補足などを入力（保存でこの案件の案件詳細に反映されます）"
+        />
+        <JobDetailNoteEditor
+          jobNo={j.job_no}
+          initial={j.detail ?? ""}
+          field="detail"
+          label="メール原文"
+          placeholder="案件の元になったメール本文を貼り付け（保存でこの案件のメール原文に反映されます）"
+        />
       </div>
 
       {/* この案件への応募（LP「応募する」経由）。選考管理と同じ enger.applications を案件単位で表示。 */}

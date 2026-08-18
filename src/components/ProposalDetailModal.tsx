@@ -685,7 +685,9 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                         {author && <span className="muted" style={{ fontSize: 11 }}>{author}</span>}
                         <button type="button" onClick={() => onDeleteMemo(m.id)} className="btn ghost btn-xs" title="このコンタクト履歴を削除" style={{ marginLeft: "auto", color: "var(--color-danger)" }}>削除</button>
                       </div>
-                      {parsed.text && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink)" }}>{parsed.text}</div>}
+                      {/* #722：長い行（URL・メール文の貼り付け等）が枠からはみ出して読めなくなるため、
+                          必ず折り返す。pre-wrap だけでは「空白を含まない長い連続文字」が折り返されない。 */}
+                      {parsed.text && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", color: "var(--color-ink)" }}>{parsed.text}</div>}
                     </div>
                   );
                 })
@@ -746,7 +748,8 @@ export function ProposalDetailModal({ p, onClose, proposers, closers }: { p: any
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", color: "var(--color-ink)" }}>{m.body}</div>
+                        /* #722：メモ本文も同じ理由で必ず折り返す（枠外にはみ出させない）。 */
+                        <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", color: "var(--color-ink)" }}>{m.body}</div>
                       )}
                       <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>{dtStr}</div>
                     </div>
