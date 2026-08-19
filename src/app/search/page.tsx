@@ -5,11 +5,41 @@ import { engerClient, dbConfigured } from "@/lib/supabase";
 import { listEngineers, freelanceShortId } from "@/lib/engineers";
 import { resolveEngineerProfileNames } from "@/lib/chat";
 import { classifyCandNationality, CAND_NAT_LABEL } from "@/lib/nationality";
+import { companyIdLabel } from "@/lib/companies";
+import { candidateIdLabel, jobIdLabel, parseEntityId } from "@/lib/entity-ids";
 
 // #360②：検索結果に付ける「提案済み」バッジ。
 function ProposedBadge() {
   return (
     <span className="tag" style={{ fontSize: 9.5, fontWeight: 700, background: "#e8ebef", color: "#5b6675", border: "1px solid #d3d9e0", whiteSpace: "nowrap" }}>✓ 提案済み</span>
+  );
+}
+
+// #767：名前・案件名の「下」に出すID行（一覧の人材ID／案件ID列と同じ表記）。
+function IdLine({ children }: { children: React.ReactNode }) {
+  return <div className="mono" style={{ fontSize: 10.5, color: "var(--color-ink-4)", marginTop: 1 }}>{children}</div>;
+}
+
+// #767：検索結果の1行に「ラベル：値」を中黒でつなげて出す。
+//   ラベルを付けるのは、値だけ並べると何の項目か分からず「所属会社が出ていない」ように見えるため。
+//   空の項目は行ごと出さない（「所属会社：—」の羅列を避ける）。
+function Fields({ items }: { items: [string, unknown][] }) {
+  const shown = items
+    .map(([label, v]) => [label, String(v ?? "").trim()] as const)
+    .filter(([, v]) => v !== "");
+  if (shown.length === 0) return <div className="muted" style={{ fontSize: 10.5 }}>—</div>;
+  // 折返し対策：
+  //   ・1項目を inline-block にして「最寄／り駅」のように項目の途中で改行されないようにする。
+  //   ・中黒は項目の後ろに入れる（項目ごと次の行へ送られたとき、行頭が「·」から始まらない）。
+  return (
+    <div className="muted" style={{ fontSize: 10.5, lineHeight: 1.7 }}>
+      {shown.map(([label, v], i) => (
+        <span key={label} style={{ display: "inline-block" }}>
+          <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{label}：</span>{v}
+          {i < shown.length - 1 && <span style={{ opacity: 0.45, margin: "0 5px" }}>·</span>}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -23,13 +53,19 @@ const remoteLabel = (r: string | null) =>
   r === "full_remote" ? "フルリモート" : r === "partial_remote" ? "一部リモート" : r === "onsite" ? "出社" : (r || "—");
 const salaryLabel = (lo: number | null, hi: number | null) =>
   lo && hi ? (lo === hi ? `¥${lo}万` : `¥${lo}〜${hi}万`) : hi ? `〜¥${hi}万` : lo ? `¥${lo}万〜` : "スキル見合い";
+// 国籍は分類してからラベル化。「不明」は行に出さない（#360①）。
+const candNatLabel = (v: string | null | undefined) => {
+  const c = classifyCandNationality(v);
+  return c !== "unknown" ? CAND_NAT_LABEL[c] : null;
+};
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q = "" } = await searchParams;
   const term = q.trim();
   const safe = term.replace(/[%,()]/g, " ").trim(); // ilike/or 用にサニタイズ
 
-  let jobs: any[] = [], people: any[] = [], companies: { name: string; active_jobs: number; job_count: number }[] = [];
+  // #767：企業も企業ID（C-00001）で引けるようにするため、企業行に company_no を持たせる。
+  let jobs: any[] = [], people: any[] = [], companies: { name: string; active_jobs: number; job_count: number; company_no: number | null }[] = [];
   let freelancers: { id: string; shortId: string; label: string; sub: string }[] = [];
   let dbError: string | null = null;
   // #360②：提案済みの案件/人材（id）。検索結果に「提案済み」マークを付ける。
@@ -40,14 +76,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     try {
       const sb = engerClient();
       const like = `%${safe}%`;
-      // 番号での直打ち検索。純数字に加え、接頭辞付き（人材 P-17013 / 案件 No.45509 / J-123 等）も拾う。
-      //   接頭辞 P… → 人材(candidate_no)、それ以外の接頭辞(No/J 等) → 案件(job_no)、
-      //   接頭辞なし(純数字) → 両方を検索（番号空間が異なるため誤ヒットは少ない）。
-      const idm = safe.match(/^([A-Za-z]{0,4})[\s\-#.．_]*(\d{1,9})$/);
-      const asInt = idm ? Number(idm[2]) : null;
-      const idPfx = (idm?.[1] ?? "").toUpperCase();
-      const idWantCand = asInt != null && (idPfx === "" || idPfx.startsWith("P"));
-      const idWantJob = asInt != null && (idPfx === "" || !idPfx.startsWith("P"));
+      // 番号での直打ち検索。純数字に加え、接頭辞付き（人材 P-17013 / 案件 No.45509 / 企業 C-00001 等）も拾う。
+      //   #767：企業ID（C-…）を追加。判定は lib/entity-ids に集約した（表示ラベルと同じ場所）。
+      const idq = parseEntityId(safe);
+      const asInt = idq?.no ?? null;
+      const idWantCand = idq?.cand ?? false;
+      const idWantJob = idq?.job ?? false;
+      const idWantCompany = idq?.company ?? false;
       // #329：skills は text[] のため ::text キャストして ILIKE するが、環境によっては or 内の
       //   ::text キャストが拒否され or 全体が失敗（案件も人材も0件）する。skills を含まない基本 or を
       //   別途用意し、フル(or+skills)がエラーなら基本 or で再試行して名前・案件名・ID検索を必ず生かす。
@@ -75,8 +110,13 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       // #276①：検索結果の人材行にも通常一覧と同じ操作ボタン（マッチング/元メール/スキルシート）を
       //   出すため、必要な列を追加。列が無い旧環境ではベース列にフォールバック。
       // #360①：年代(age_band)・国籍(nationality)・所属会社(company)も表示するため取得。
-      let candCols = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, rate, source_mail_url, skill_sheet_url, is_closed";
+      // #767：最寄り駅(location)・居住地(residence)も追加。
+      //   この2列が無い環境でも「操作ボタン用の列（source_mail_url 等）」まで巻き添えで
+      //   落とさないよう、縮退の段を1つ挟む（geo なし → さらにベース列）。
+      const candColsGeo = ", location, residence";
+      const candColsFull = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, rate, source_mail_url, skill_sheet_url, is_closed";
       const candColsBase = "id, candidate_no, name, initials, title, affiliation, source_company, company, age_band, nationality, rate";
+      let candCols = candColsFull + candColsGeo;
       let [jr, cr, co] = await Promise.all([
         sb.from("jobs").select(jobCols).or(orJob + skillsOr).order("created_at", { ascending: false }).limit(20),
         sb.from("candidates").select(candCols).or(orCand + skillsOr).order("created_at", { ascending: false }).limit(20),
@@ -86,8 +126,12 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       if ((jr as any).error) {
         jr = await sb.from("jobs").select(jobCols).or(orJob).order("created_at", { ascending: false }).limit(20) as any;
       }
-      // 人材：まず skills を外して再試行（キャスト拒否対策）、さらにダメなら取得列も基本列へ縮退。
+      // 人材：まず skills を外して再試行（キャスト拒否対策）、さらにダメなら取得列を段階的に縮退。
       if ((cr as any).error) {
+        cr = await sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20) as any;
+      }
+      if ((cr as any).error) {
+        candCols = candColsFull; // #767：最寄り駅・居住地の列が無い環境
         cr = await sb.from("candidates").select(candCols).or(orCand).order("created_at", { ascending: false }).limit(20) as any;
       }
       if ((cr as any).error) {
@@ -107,8 +151,44 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
       }
       jobs = jr.data ?? [];
       people = cr.data ?? [];
+
+      // 企業：company_overview（案件の集計）に企業マスタの企業ID（company_no）を名寄せして混ぜる。
+      //   #767：企業名だけでなく企業ID（C-00001 / 1 / 00001）でも当たるようにする。
+      //   ・案件がまだ1件も無い登録企業は company_overview に出てこないので、
+      //     マスタ側で名前かIDに当たった行を後ろに足す（「対象がヒットする」を満たすため）。
+      //   ・company_no 列が無い環境では名前だけで従来どおり動く（fail-soft）。
+      const nkey = (s?: string | null) => String(s ?? "").replace(/^[\s　]+|[\s　]+$/g, "");
+      let regCompanies: { name: string; company_no: number | null }[] = [];
+      try {
+        let cm: any = await sb.from("companies").select("name, company_no");
+        if (cm.error) cm = await sb.from("companies").select("name");
+        if (!cm.error) {
+          regCompanies = (cm.data ?? []).map((r: any) => ({
+            name: String(r.name ?? ""),
+            company_no: r.company_no == null ? null : Number(r.company_no),
+          }));
+        }
+      } catch { /* 企業マスタ未整備でも案件集計だけで続行 */ }
+      const noByName = new Map<string, number>();
+      for (const r of regCompanies) if (r.company_no != null && nkey(r.name)) noByName.set(nkey(r.name), r.company_no);
+
+      const needleCo = safe.toLowerCase();
+      const hitCompany = (name: string, no: number | null) =>
+        (needleCo !== "" && name.toLowerCase().includes(needleCo)) || (idWantCompany && no != null && no === asInt);
+
       const allCo = (Array.isArray(co.data) ? co.data : []) as any[];
-      companies = allCo.filter((c) => (c.name ?? "").toLowerCase().includes(safe.toLowerCase())).slice(0, 20);
+      const picked = allCo
+        .map((c) => ({ ...c, company_no: noByName.get(nkey(c.name)) ?? null }))
+        .filter((c) => hitCompany(String(c.name ?? ""), c.company_no));
+      const seenCo = new Set(picked.map((c) => nkey(c.name)));
+      for (const r of regCompanies) {
+        const k = nkey(r.name);
+        if (!k || seenCo.has(k)) continue;
+        if (!hitCompany(r.name, r.company_no)) continue;
+        seenCo.add(k);
+        picked.push({ name: r.name, active_jobs: 0, job_count: 0, company_no: r.company_no });
+      }
+      companies = picked.slice(0, 20);
 
       // #360②：検索結果の案件・人材に「提案済み」マークを付けるため、提案レコードの有無を引く。
       //   proposals は job_id / candidate_id（UUID）で紐づくので、検索結果の id で照合する（.in で軽量）。
@@ -169,7 +249,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         <div style={{ maxWidth: 760 }}>
           <div className="meta">Search · 検索</div>
           <h1>「{term || "—"}」の検索結果</h1>
-          <div className="sub">案件・人材・企業を横断して検索します。上部の検索バーから何度でも検索できます。</div>
+          {/* #767：IDでも引けることを結果画面でも案内する（打ち方が分からないと使われないため）。 */}
+          <div className="sub">案件・人材・企業を横断して検索します。名前のほか、人材ID（P-17013）・案件ID（No.45509）・企業ID（C-00001）でも検索できます。</div>
         </div>
       </div>
 
@@ -186,8 +267,15 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div key={j.job_no} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               {/* 案件名クリックは詳細画面へ（マッチングはボタンから）。 */}
               <Link href={`/jobs/${j.job_no}`} style={{ textDecoration: "none", color: "inherit", minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><span className="muted tnum">#{j.job_no}</span>{j.title}{j.is_published === false && <span className="tag" style={{ fontSize: 9.5 }}>非公開</span>}{j.id && proposedJobIds.has(String(j.id)) && <ProposedBadge />}</div>
-                <div className="muted" style={{ fontSize: 10.5 }}>{j.client_name ?? "—"} · {j.role_label ?? ""} · {remoteLabel(j.remote_type)} · {salaryLabel(j.salary_min, j.salary_max)}</div>
+                {/* #767：案件IDは案件名の「下」に出す（行頭の #番号 はここへ移動）。 */}
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{j.title}{j.is_published === false && <span className="tag" style={{ fontSize: 9.5 }}>非公開</span>}{j.id && proposedJobIds.has(String(j.id)) && <ProposedBadge />}</div>
+                <IdLine>案件ID {jobIdLabel(j.job_no) ?? "—"}</IdLine>
+                <Fields items={[
+                  ["クライアント", j.client_name],
+                  ["職種", j.role_label],
+                  ["リモート", j.remote_type ? remoteLabel(j.remote_type) : null], // 未設定は行に出さない
+                  ["単価", salaryLabel(j.salary_min, j.salary_max)],
+                ]} />
               </Link>
               <Link href={`/matching?job=${j.job_no}`} className="btn brand btn-xs" style={{ textDecoration: "none" }}><Icons.matching /><span>マッチング</span></Link>
             </div>
@@ -204,19 +292,19 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div key={p.candidate_no} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               <Link href={`/people/${p.candidate_no}`} style={{ textDecoration: "none", color: "inherit", minWidth: 0 }}>
                 {/* #267①：人材名（イニシャル）を必ず表示（name 空は initials 補完・異なる場合は併記）。 */}
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}><span className="muted tnum">#{p.candidate_no}</span>{p.name || p.initials || "—"}{p.name && p.initials && p.name !== p.initials ? <span className="muted">（{p.initials}）</span> : null}{p.id && proposedCandIds.has(String(p.id)) && <ProposedBadge />}</div>
-                {/* #360①：職種・所属会社・年代・国籍・単価を表示（空欄/不明の項目は出さない）。 */}
-                <div className="muted" style={{ fontSize: 10.5 }}>{(() => {
-                  const natCat = classifyCandNationality(p.nationality);
-                  const parts = [
-                    p.title,
-                    p.source_company || p.company,                                 // 所属会社
-                    p.age_band,                                                    // 年代
-                    natCat !== "unknown" ? CAND_NAT_LABEL[natCat] : null,          // 国籍（不明は非表示）
-                    p.rate,
-                  ].map((x) => (x == null ? "" : String(x).trim())).filter(Boolean);
-                  return parts.length ? parts.join(" · ") : "—";
-                })()}</div>
+                {/* #767：人材IDは人材名の「下」に出す（行頭の #番号 はここへ移動）。 */}
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>{p.name || p.initials || "—"}{p.name && p.initials && p.name !== p.initials ? <span className="muted">（{p.initials}）</span> : null}{p.id && proposedCandIds.has(String(p.id)) && <ProposedBadge />}</div>
+                <IdLine>人材ID {candidateIdLabel(p.candidate_no) ?? "—"}</IdLine>
+                {/* #360①：職種・所属会社・年代・国籍・単価。#767：最寄り駅・居住地も追加（空欄の項目は出さない）。 */}
+                <Fields items={[
+                  ["職種", p.title],
+                  ["所属会社", p.source_company || p.company],
+                  ["年代", p.age_band],
+                  ["国籍", candNatLabel(p.nationality)],
+                  ["単価", p.rate],
+                  ["最寄り駅", p.location],
+                  ["居住地", p.residence],
+                ]} />
               </Link>
               {/* #276①：通常の人材一覧（PeopleTable）と同じ操作ボタンを表示。
                   マッチング（クローズ済は非表示）／元メール（URLあるときのみ）／スキルシート（URLあるときのみ）。 */}
@@ -257,6 +345,8 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <Link key={c.name} href={`/jobs?client=${encodeURIComponent(c.name)}`} style={{ textDecoration: "none", color: "inherit", display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--color-border)" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-ink)" }}>{c.name}</div>
+                {/* #767：企業IDでも検索できるようにしたので、当たったIDが分かるよう社名の下に出す。 */}
+                {companyIdLabel(c.company_no) && <IdLine>企業ID {companyIdLabel(c.company_no)}</IdLine>}
                 <div className="muted" style={{ fontSize: 10.5 }}>進行中 {c.active_jobs}件 / 全 {c.job_count}件</div>
               </div>
               <span className="btn ghost btn-xs">案件を見る</span>

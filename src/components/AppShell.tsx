@@ -137,7 +137,10 @@ export function AppShell({ children, counts, operators, defaultOperator, role = 
           ) : null}
           <form className="search" onSubmit={submit}>
             <span style={{ display: "grid", placeItems: "center" }}><Icons.search /></span>
-            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder="案件・人材・会社・フリーランス（ID/No・E番号・氏名）…Enterで検索" />
+            {/* #767：人材ID・案件ID・企業IDでも引けることを検索窓の文言でも伝える。 */}
+            <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)}
+              title="案件名・人材名・会社名のほか、人材ID（P-17013）・案件ID（No.45509）・企業ID（C-00001）・E番号でも検索できます"
+              placeholder="案件・人材・会社・フリーランス（氏名／人材ID・案件ID・企業ID・E番号）…Enterで検索" />
             <kbd>⌘K</kbd>
           </form>
           <HelpButton />
